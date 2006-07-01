@@ -1,0 +1,34 @@
+{
+  ServletContext application=((ServletContext)request.getAttribute("servletContext"));
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  String orderId=(String)request.getSession().getAttribute("PAYPAL_ORDER");
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+  }
+ catch (  GenericTransactionException gte) {
+    Debug.logError(gte,"Unable to begin transaction",module);
+  }
+  boolean okay=OrderChangeHelper.cancelOrder(dispatcher,userLogin,orderId);
+  if (okay) {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException gte) {
+      Debug.logError(gte,"Unable to commit transaction",module);
+    }
+  }
+ else {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Failure in processing PayPal cancel callback",null);
+    }
+ catch (    GenericTransactionException gte) {
+      Debug.logError(gte,"Unable to rollback transaction",module);
+    }
+  }
+  if (okay)   OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
+  request.setAttribute("_EVENT_MESSAGE_","Previous PayPal order has been cancelled.");
+  return "success";
+}

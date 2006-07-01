@@ -1,0 +1,52 @@
+{
+  Map results=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  List productFeatures=(List)context.get("productFeatures");
+  String productCategoryId=(String)context.get("productCategoryId");
+  Map result=new HashMap();
+  try {
+    result=dispatcher.runSync("getProductCategoryMembers",UtilMisc.toMap("categoryId",productCategoryId));
+  }
+ catch (  GenericServiceException ex) {
+    Debug.logError("Cannot get category memebers for " + productCategoryId + " due to error: "+ ex.getMessage(),module);
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  List memberProducts=(List)result.get("categoryMembers");
+  if ((memberProducts != null) && (memberProducts.size() > 0)) {
+    Map featuresByType=new HashMap();
+    for (Iterator pFi=productFeatures.iterator(); pFi.hasNext(); ) {
+      GenericValue nextFeature=(GenericValue)pFi.next();
+      featuresByType.put(nextFeature.getString("productFeatureTypeId"),nextFeature.getString("productFeatureId"));
+    }
+    List products=new ArrayList();
+    for (Iterator mPi=memberProducts.iterator(); mPi.hasNext(); ) {
+      GenericValue memberProduct=(GenericValue)mPi.next();
+      try {
+        result=dispatcher.runSync("getProductVariant",UtilMisc.toMap("productId",memberProduct.getString("productId"),"selectedFeatures",featuresByType));
+      }
+ catch (      GenericServiceException ex) {
+        Debug.logError("Cannot get product variants for " + memberProduct.getString("productId") + " due to error: "+ ex.getMessage(),module);
+        return ServiceUtil.returnError(ex.getMessage());
+      }
+      List variantProducts=(List)result.get("products");
+      if ((variantProducts != null) && (variantProducts.size() > 0)) {
+        products.addAll(variantProducts);
+      }
+ else {
+        Debug.logWarning("Product " + memberProduct.getString("productId") + " did not have any variants for the given features",module);
+      }
+    }
+    if (products.size() == 0) {
+      return ServiceUtil.returnError("No products which fit your requirements were found.");
+    }
+ else {
+      results=ServiceUtil.returnSuccess();
+      results.put("products",products);
+    }
+  }
+ else {
+    Debug.logWarning("No products found in " + productCategoryId,module);
+  }
+  return results;
+}

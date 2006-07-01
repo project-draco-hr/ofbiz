@@ -1,0 +1,145 @@
+{
+  ServletContext application=((ServletContext)request.getAttribute("servletContext"));
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  String webSiteId=CatalogWorker.getWebSiteId(request);
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  GenericValue paymentConfig=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStore.getString("productStoreId"),"EXT_PAYPAL",null,true);
+  String configString=null;
+  if (paymentConfig != null) {
+    configString=paymentConfig.getString("paymentPropertiesPath");
+  }
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  String confirmUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.confirm");
+  if (confirmUrl == null) {
+    Debug.logError("Payment properties is not configured properly, no confirm URL defined!",module);
+    request.setAttribute("_ERROR_MESSAGE_","PayPal has not been configured, please contact customer service.");
+    return "error";
+  }
+  Map parametersMap=UtilHttp.getParameterMap(request);
+  parametersMap.put("cmd","_notify-validate");
+  String confirmResp=null;
+  try {
+    String str=UtilHttp.urlEncodeArgs(parametersMap);
+    URL u=new URL("http://www.paypal.com/cgi-bin/webscr");
+    URLConnection uc=u.openConnection();
+    uc.setDoOutput(true);
+    uc.setRequestProperty("Content-Type","application/x-www-form-urlencoded");
+    PrintWriter pw=new PrintWriter(uc.getOutputStream());
+    pw.println(str);
+    pw.close();
+    BufferedReader in=new BufferedReader(new InputStreamReader(uc.getInputStream()));
+    confirmResp=in.readLine();
+    in.close();
+    Debug.logError("PayPal Verification Response: " + confirmResp,module);
+  }
+ catch (  IOException e) {
+    Debug.logError(e,"Problems sending verification message",module);
+  }
+  if (confirmResp.trim().equals("VERIFIED")) {
+    Debug.logInfo("Got verification from PayPal, processing..",module);
+  }
+ else {
+    Debug.logError("###### PayPal did not verify this request, need investigation!",module);
+    Set keySet=parametersMap.keySet();
+    Iterator i=keySet.iterator();
+    while (i.hasNext()) {
+      String name=(String)i.next();
+      String value=request.getParameter(name);
+      Debug.logError("### Param: " + name + " => "+ value,module);
+    }
+  }
+  GenericValue userLogin=null;
+  String userLoginId=request.getParameter("custom");
+  if (userLoginId == null)   userLoginId="admin";
+  try {
+    userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get UserLogin for: " + userLoginId + "; cannot continue",module);
+    request.setAttribute("_ERROR_MESSAGE_","Problems getting authentication user.");
+    return "error";
+  }
+  String orderId=request.getParameter("invoice");
+  GenericValue orderHeader=null;
+  if (UtilValidate.isNotEmpty(orderId)) {
+    try {
+      orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
+      request.setAttribute("_ERROR_MESSAGE_","Problems getting order header.");
+      return "error";
+    }
+  }
+ else {
+    Debug.logError("PayPal did not callback with a valid orderId!",module);
+    request.setAttribute("_ERROR_MESSAGE_","No valid orderId returned with PayPal Callback.");
+    return "error";
+  }
+  if (orderHeader == null) {
+    Debug.logError("Cannot get the order header for order: " + orderId,module);
+    request.setAttribute("_ERROR_MESSAGE_","Problems getting order header; not a valid orderId.");
+    return "error";
+  }
+  String paymentCurrency=request.getParameter("mc_currency");
+  String paymentAmount=request.getParameter("mc_gross");
+  String paymentFee=request.getParameter("mc_fee");
+  String transactionId=request.getParameter("txn_id");
+  String paymentStatus=request.getParameter("payment_status");
+  boolean okay=false;
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    if (paymentStatus.equals("Completed")) {
+      okay=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
+    }
+ else     if (paymentStatus.equals("Failed") || paymentStatus.equals("Denied")) {
+      okay=OrderChangeHelper.cancelOrder(dispatcher,userLogin,orderId);
+    }
+    if (okay) {
+      okay=setPaymentPreferences(delegator,dispatcher,userLogin,orderId,request);
+    }
+  }
+ catch (  Exception e) {
+    String errMsg="Error handling PayPal notification";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericTransactionException gte2) {
+      Debug.logError(gte2,"Unable to rollback transaction",module);
+    }
+  }
+ finally {
+    if (!okay) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"Failure in processing PayPal callback",null);
+      }
+ catch (      GenericTransactionException gte) {
+        Debug.logError(gte,"Unable to rollback transaction",module);
+      }
+    }
+ else {
+      try {
+        TransactionUtil.commit(beganTransaction);
+      }
+ catch (      GenericTransactionException gte) {
+        Debug.logError(gte,"Unable to commit transaction",module);
+      }
+    }
+  }
+  if (okay) {
+    OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
+    Map emailContext=UtilMisc.toMap("orderId",orderId);
+    try {
+      Map emailResult=dispatcher.runSync("sendOrderConfirmation",emailContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problems sending email confirmation",module);
+    }
+  }
+  return "success";
+}

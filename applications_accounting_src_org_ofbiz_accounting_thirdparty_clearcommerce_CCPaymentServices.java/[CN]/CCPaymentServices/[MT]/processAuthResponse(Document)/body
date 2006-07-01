@@ -1,0 +1,36 @@
+{
+  Element engineDocElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"EngineDoc");
+  Element orderFormElement=UtilXml.firstChildElement(engineDocElement,"OrderFormDoc");
+  Element transactionElement=UtilXml.firstChildElement(orderFormElement,"Transaction");
+  Element procResponseElement=UtilXml.firstChildElement(transactionElement,"CardProcResp");
+  Map result=ServiceUtil.returnSuccess();
+  String errorCode=UtilXml.childElementValue(procResponseElement,"CcErrCode");
+  if ("1".equals(errorCode)) {
+    result.put("authResult",Boolean.valueOf(true));
+    result.put("authCode",UtilXml.childElementValue(transactionElement,"AuthCode"));
+    Element currentTotalsElement=UtilXml.firstChildElement(transactionElement,"CurrentTotals");
+    Element totalsElement=UtilXml.firstChildElement(currentTotalsElement,"Totals");
+    String authAmountStr=UtilXml.childElementValue(totalsElement,"Total");
+    result.put("processAmount",new Double(Double.parseDouble(authAmountStr) / 100));
+  }
+ else {
+    result.put("authResult",Boolean.valueOf(false));
+    result.put("processAmount",Double.valueOf("0.00"));
+  }
+  result.put("authRefNum",UtilXml.childElementValue(orderFormElement,"Id"));
+  result.put("authFlag",UtilXml.childElementValue(procResponseElement,"Status"));
+  result.put("authMessage",UtilXml.childElementValue(procResponseElement,"CcReturnMsg"));
+  String avsCode=UtilXml.childElementValue(procResponseElement,"AvsDisplay");
+  if (UtilValidate.isNotEmpty(avsCode)) {
+    result.put("avsCode",avsCode);
+  }
+  Element fraudInfoElement=UtilXml.firstChildElement(orderFormElement,"FraudInfo");
+  if (fraudInfoElement != null) {
+    result.put("scoreCode",UtilXml.childElementValue(fraudInfoElement,"TotalScore"));
+  }
+  List messages=getMessageList(responseDocument);
+  if (UtilValidate.isNotEmpty(messages)) {
+    result.put("internalRespMsgs",messages);
+  }
+  return result;
+}

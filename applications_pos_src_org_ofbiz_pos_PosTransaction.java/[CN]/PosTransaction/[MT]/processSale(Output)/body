@@ -1,0 +1,59 @@
+{
+  trace("process sale");
+  double grandTotal=this.getGrandTotal();
+  double paymentAmt=this.getPaymentTotal();
+  if (grandTotal > paymentAmt) {
+    throw new IllegalStateException();
+  }
+  cart.setOrderPartyId(partyId);
+  output.print(UtilProperties.getMessage("pos","Validating",defaultLocale));
+  Map valRes=ch.validatePaymentMethods();
+  if (valRes != null && ServiceUtil.isError(valRes)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(valRes));
+  }
+  output.print(UtilProperties.getMessage("pos","Saving",defaultLocale));
+  Map orderRes=ch.createOrder(session.getUserLogin());
+  Debug.log("Create Order Resp : " + orderRes,module);
+  if (orderRes != null && ServiceUtil.isError(orderRes)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(orderRes));
+  }
+ else   if (orderRes != null) {
+    this.orderId=(String)orderRes.get("orderId");
+  }
+  output.print(UtilProperties.getMessage("pos","Processing",defaultLocale));
+  Map payRes=null;
+  try {
+    payRes=ch.processPayment(ProductStoreWorker.getProductStore(productStoreId,session.getDelegator()),session.getUserLogin(),true);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    throw e;
+  }
+  if (payRes != null && ServiceUtil.isError(payRes)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(payRes));
+  }
+  double change=(grandTotal - paymentAmt);
+  output.print(UtilProperties.getMessage("pos","CHANGE",defaultLocale) + " " + UtilFormatOut.formatPrice(this.getTotalDue() * -1));
+  final PosTransaction currentTrans=this;
+  final SwingWorker worker=new SwingWorker(){
+    public Object construct(){
+      currentTrans.popDrawer();
+      DeviceLoader.receipt.printReceipt(currentTrans,true);
+      return null;
+    }
+  }
+;
+  worker.start();
+  txLog.set("statusId","POSTX_SOLD");
+  txLog.set("orderId",orderId);
+  txLog.set("itemCount",new Long(cart.size()));
+  txLog.set("logEndDateTime",UtilDateTime.nowTimestamp());
+  try {
+    txLog.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to store TX log - not fatal",module);
+  }
+  currentTx=null;
+  return change;
+}

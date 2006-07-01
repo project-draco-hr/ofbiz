@@ -1,0 +1,43 @@
+{
+  Debug.logInfo("--> Authorize.Net ccCapture Transaction Start <--",module);
+  GenericDelegator delegator=ctx.getDelegator();
+  GenericValue creditCard=null;
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  try {
+    creditCard=delegator.getRelatedOne("CreditCard",orderPaymentPreference);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to obtain cc information from payment preference");
+  }
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot Capture");
+  }
+  context.put("creditCard",creditCard);
+  context.put("authTransaction",authTransaction);
+  Map results=new HashMap();
+  results=ServiceUtil.returnSuccess();
+  Map request=new HashMap();
+  Properties props=buildAIMProperties(context);
+  buildMerchantInfo(context,props,request);
+  buildGatewayResponeConfig(context,props,request);
+  buildEmailSettings(context,props,request);
+  props.put("transType","CAPTURE_ONLY");
+  props.put("cardtype",(String)creditCard.get("cardType"));
+  buildCaptureTransaction(context,props,request);
+  Map validateResults=validateRequest(context,props,request);
+  String respMsg=(String)validateResults.get(ModelService.RESPONSE_MESSAGE);
+  if (respMsg != null) {
+    if (respMsg.equals(ModelService.RESPOND_ERROR)) {
+      results.put(ModelService.ERROR_MESSAGE,"Validation Failed - invalid values");
+      Debug.logInfo("Missing transaction values. Aborting transaction.",module);
+      Debug.logInfo("<-- Abnormal Transaction ccCapture End -->\r\n",module);
+      return results;
+    }
+  }
+  Map reply=processCard(request,props);
+  processCaptureTransResult(reply,results);
+  Debug.logInfo("<-- Authorize.net ccCapture Transaction End -->",module);
+  return results;
+}

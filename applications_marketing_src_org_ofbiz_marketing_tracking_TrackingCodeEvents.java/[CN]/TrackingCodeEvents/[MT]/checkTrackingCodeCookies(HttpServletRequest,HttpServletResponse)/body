@@ -1,0 +1,46 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  java.sql.Timestamp nowStamp=UtilDateTime.nowTimestamp();
+  GenericValue visit=VisitHandler.getVisit(request.getSession());
+  if (visit == null) {
+    Debug.logWarning("Could not get visit, not checking trackingCode cookies to associate with visit",module);
+  }
+ else {
+    Cookie[] cookies=request.getCookies();
+    if (cookies != null && cookies.length > 0) {
+      for (int i=0; i < cookies.length; i++) {
+        if (cookies[i].getName().startsWith("TKCDT_")) {
+          String trackingCodeId=cookies[i].getValue();
+          GenericValue trackingCode=null;
+          try {
+            trackingCode=delegator.findByPrimaryKeyCache("TrackingCode",UtilMisc.toMap("trackingCodeId",trackingCodeId));
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"Error looking up TrackingCode with trackingCodeId [" + trackingCodeId + "], ignoring this trackingCodeId",module);
+            continue;
+          }
+          if (trackingCode == null) {
+            Debug.logError("TrackingCode not found for trackingCodeId [" + trackingCodeId + "], ignoring this trackingCodeId.",module);
+            continue;
+          }
+          if (trackingCode.get("fromDate") != null && nowStamp.before(trackingCode.getTimestamp("fromDate"))) {
+            if (Debug.infoOn())             Debug.logInfo("The TrackingCode with ID [" + trackingCodeId + "] has not yet gone into effect, ignoring this trackingCodeId",module);
+            continue;
+          }
+          if (trackingCode.get("thruDate") != null && nowStamp.after(trackingCode.getTimestamp("thruDate"))) {
+            if (Debug.infoOn())             Debug.logInfo("The TrackingCode with ID [" + trackingCodeId + "] has expired, ignoring this trackingCodeId",module);
+            continue;
+          }
+          GenericValue trackingCodeVisit=delegator.makeValue("TrackingCodeVisit",UtilMisc.toMap("trackingCodeId",trackingCodeId,"visitId",visit.get("visitId"),"fromDate",nowStamp,"sourceEnumId","TKCDSRC_COOKIE"));
+          try {
+            trackingCodeVisit.create();
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"Error while saving TrackingCodeVisit",module);
+          }
+        }
+      }
+    }
+  }
+  return "success";
+}

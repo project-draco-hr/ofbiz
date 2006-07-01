@@ -1,0 +1,57 @@
+{
+  try {
+    long runningTimeMillis=System.currentTimeMillis() - startDate.getTime();
+    long splitTotalTime=System.currentTimeMillis() - this.splitStartTime;
+    if (splitTotalTime < this.perSplitMinMillis) {
+      this.perSplitMinMillis=splitTotalTime;
+    }
+    if (splitTotalTime > this.perSplitMaxMillis) {
+      this.perSplitMaxMillis=splitTotalTime;
+    }
+    setSplitStartTime();
+    this.totalRowsPerSplit=this.toCreateInserted + this.toCreateNotUpdated + this.toCreateUpdated+ this.toStoreInserted+ this.toStoreNotUpdated+ this.toStoreUpdated+ this.toRemoveAlreadyDeleted+ this.toRemoveDeleted;
+    if (this.totalRowsPerSplit < this.perSplitMinItems) {
+      this.perSplitMinItems=this.totalRowsPerSplit;
+    }
+    if (this.totalRowsPerSplit > this.perSplitMaxItems) {
+      this.perSplitMaxItems=this.totalRowsPerSplit;
+    }
+    this.totalRowsToCreate+=this.toCreateInserted + this.toCreateNotUpdated + this.toCreateUpdated;
+    this.totalRowsToStore+=this.toStoreInserted + this.toStoreNotUpdated + this.toStoreUpdated;
+    this.totalRowsToRemove+=this.toRemoveAlreadyDeleted + this.toRemoveDeleted;
+    Map updateEsRunResult=dispatcher.runSync("updateEntitySyncRunning",UtilMisc.toMap("entitySyncId",entitySyncId,"lastSuccessfulSynchTime",this.currentRunEndTime,"userLogin",userLogin));
+    Map updateHistoryMap=UtilMisc.toMap("entitySyncId",entitySyncId,"startDate",startDate,"lastSuccessfulSynchTime",this.currentRunEndTime,"lastCandidateEndTime",this.getNextRunEndTime(),"lastSplitStartTime",new Long(this.splitStartTime));
+    updateHistoryMap.put("toCreateInserted",new Long(toCreateInserted));
+    updateHistoryMap.put("toCreateUpdated",new Long(toCreateUpdated));
+    updateHistoryMap.put("toCreateNotUpdated",new Long(toCreateNotUpdated));
+    updateHistoryMap.put("toStoreInserted",new Long(toStoreInserted));
+    updateHistoryMap.put("toStoreUpdated",new Long(toStoreUpdated));
+    updateHistoryMap.put("toStoreNotUpdated",new Long(toStoreNotUpdated));
+    updateHistoryMap.put("toRemoveDeleted",new Long(toRemoveDeleted));
+    updateHistoryMap.put("toRemoveAlreadyDeleted",new Long(toRemoveAlreadyDeleted));
+    updateHistoryMap.put("runningTimeMillis",new Long(runningTimeMillis));
+    updateHistoryMap.put("totalStoreCalls",new Long(totalStoreCalls));
+    updateHistoryMap.put("totalSplits",new Long(totalSplits));
+    updateHistoryMap.put("totalRowsExported",new Long(totalRowsExported));
+    updateHistoryMap.put("totalRowsToCreate",new Long(totalRowsToCreate));
+    updateHistoryMap.put("totalRowsToStore",new Long(totalRowsToStore));
+    updateHistoryMap.put("totalRowsToRemove",new Long(totalRowsToRemove));
+    updateHistoryMap.put("perSplitMinMillis",new Long(perSplitMinMillis));
+    updateHistoryMap.put("perSplitMaxMillis",new Long(perSplitMaxMillis));
+    updateHistoryMap.put("perSplitMinItems",new Long(perSplitMinItems));
+    updateHistoryMap.put("perSplitMaxItems",new Long(perSplitMaxItems));
+    updateHistoryMap.put("userLogin",userLogin);
+    Map updateEsHistRunResult=dispatcher.runSync("updateEntitySyncHistory",updateHistoryMap);
+    if (ServiceUtil.isError(updateEsRunResult)) {
+      String errorMsg="Error running EntitySync [" + entitySyncId + "], update of EntitySync record with lastSuccessfulSynchTime failed.";
+      throw new SyncDataErrorException(errorMsg,null,null,updateEsRunResult,null);
+    }
+    if (ServiceUtil.isError(updateEsHistRunResult)) {
+      String errorMsg="Error running EntitySync [" + entitySyncId + "], update of EntitySyncHistory (startDate:["+ startDate+ "]) record with lastSuccessfulSynchTime and result stats failed.";
+      throw new SyncDataErrorException(errorMsg,null,null,updateEsHistRunResult,null);
+    }
+  }
+ catch (  GenericServiceException e) {
+    throw new SyncServiceErrorException("Error saving results reported from data store",e);
+  }
+}

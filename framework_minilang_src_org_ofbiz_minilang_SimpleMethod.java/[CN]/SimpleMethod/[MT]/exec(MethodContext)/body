@@ -1,0 +1,180 @@
+{
+  methodContext.putEnv("null",GenericEntity.NULL_FIELD);
+  methodContext.putEnv("nullField",GenericEntity.NULL_FIELD);
+  methodContext.putEnv(delegatorName,methodContext.getDelegator());
+  methodContext.putEnv(securityName,methodContext.getSecurity());
+  methodContext.putEnv(dispatcherName,methodContext.getDispatcher());
+  methodContext.putEnv(localeName,methodContext.getLocale());
+  methodContext.putEnv(parameterMapName,methodContext.getParameters());
+  if (methodContext.getMethodType() == MethodContext.EVENT) {
+    methodContext.putEnv(eventRequestName,methodContext.getRequest());
+    methodContext.putEnv(eventResponseName,methodContext.getResponse());
+  }
+  methodContext.putEnv("methodName",this.getMethodName());
+  methodContext.putEnv("methodShortDescription",this.getShortDescription());
+  GenericValue userLogin=methodContext.getUserLogin();
+  Locale locale=methodContext.getLocale();
+  if (userLogin != null) {
+    methodContext.putEnv(userLoginName,userLogin);
+  }
+  if (loginRequired) {
+    if (userLogin == null) {
+      Map messageMap=UtilMisc.toMap("shortDescription",shortDescription);
+      String errMsg=UtilProperties.getMessage(SimpleMethod.err_resource,"simpleMethod.must_logged_process",messageMap,locale) + ".";
+      if (methodContext.getMethodType() == MethodContext.EVENT) {
+        methodContext.getRequest().setAttribute("_ERROR_MESSAGE_",errMsg);
+        return defaultErrorCode;
+      }
+ else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
+        methodContext.putResult(ModelService.ERROR_MESSAGE,errMsg);
+        methodContext.putResult(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+        return null;
+      }
+    }
+  }
+  boolean beganTransaction=false;
+  if (useTransaction) {
+    try {
+      beganTransaction=TransactionUtil.begin();
+    }
+ catch (    GenericTransactionException e) {
+      String errMsg=UtilProperties.getMessage(SimpleMethod.err_resource,"simpleMethod.error_begin_transaction",locale) + ": " + e.getMessage();
+      Debug.logWarning(errMsg,module);
+      Debug.logWarning(e,module);
+      if (methodContext.getMethodType() == MethodContext.EVENT) {
+        methodContext.getRequest().setAttribute("_ERROR_MESSAGE_",errMsg);
+        return defaultErrorCode;
+      }
+ else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
+        methodContext.putResult(ModelService.ERROR_MESSAGE,errMsg);
+        methodContext.putResult(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+        return null;
+      }
+    }
+  }
+  String errorMsg="";
+  boolean finished=false;
+  try {
+    finished=runSubOps(methodOperations,methodContext);
+  }
+ catch (  Throwable t) {
+    String errMsg=UtilProperties.getMessage(SimpleMethod.err_resource,"simpleMethod.error_running",locale) + ": " + t.getMessage();
+    Debug.logError(errMsg,module);
+    finished=false;
+    errorMsg+=errMsg + "<br/>";
+  }
+  String returnValue=null;
+  String response=null;
+  StringBuffer summaryErrorStringBuffer=new StringBuffer();
+  if (methodContext.getMethodType() == MethodContext.EVENT) {
+    boolean forceError=false;
+    String tempErrorMsg=(String)methodContext.getEnv(eventErrorMessageName);
+    if (errorMsg.length() > 0 || (tempErrorMsg != null && tempErrorMsg.length() > 0)) {
+      errorMsg+=tempErrorMsg;
+      methodContext.getRequest().setAttribute("_ERROR_MESSAGE_",errorMsg);
+      forceError=true;
+      summaryErrorStringBuffer.append(errorMsg);
+    }
+    List tempErrorMsgList=(List)methodContext.getEnv(eventErrorMessageListName);
+    if (tempErrorMsgList != null && tempErrorMsgList.size() > 0) {
+      methodContext.getRequest().setAttribute("_ERROR_MESSAGE_LIST_",tempErrorMsgList);
+      forceError=true;
+      summaryErrorStringBuffer.append("; ");
+      summaryErrorStringBuffer.append(tempErrorMsgList.toString());
+    }
+    String eventMsg=(String)methodContext.getEnv(eventEventMessageName);
+    if (eventMsg != null && eventMsg.length() > 0) {
+      methodContext.getRequest().setAttribute("_EVENT_MESSAGE_",eventMsg);
+    }
+    List eventMsgList=(List)methodContext.getEnv(eventEventMessageListName);
+    if (eventMsgList != null && eventMsgList.size() > 0) {
+      methodContext.getRequest().setAttribute("_EVENT_MESSAGE_LIST_",eventMsgList);
+    }
+    response=(String)methodContext.getEnv(eventResponseCodeName);
+    if (response == null || response.length() == 0) {
+      if (forceError) {
+        Debug.logInfo("No response code string found, but error messages found so assuming error; returning code [" + defaultErrorCode + "]",module);
+        response=defaultErrorCode;
+      }
+ else {
+        Debug.logInfo("No response code string or errors found, assuming success; returning code [" + defaultSuccessCode + "]",module);
+        response=defaultSuccessCode;
+      }
+    }
+    returnValue=response;
+  }
+ else   if (methodContext.getMethodType() == MethodContext.SERVICE) {
+    boolean forceError=false;
+    String tempErrorMsg=(String)methodContext.getEnv(serviceErrorMessageName);
+    if (errorMsg.length() > 0 || (tempErrorMsg != null && tempErrorMsg.length() > 0)) {
+      errorMsg+=tempErrorMsg;
+      methodContext.putResult(ModelService.ERROR_MESSAGE,errorMsg);
+      forceError=true;
+      summaryErrorStringBuffer.append(errorMsg);
+    }
+    List errorMsgList=(List)methodContext.getEnv(serviceErrorMessageListName);
+    if (errorMsgList != null && errorMsgList.size() > 0) {
+      methodContext.putResult(ModelService.ERROR_MESSAGE_LIST,errorMsgList);
+      forceError=true;
+      summaryErrorStringBuffer.append("; ");
+      summaryErrorStringBuffer.append(errorMsgList.toString());
+    }
+    Map errorMsgMap=(Map)methodContext.getEnv(serviceErrorMessageMapName);
+    if (errorMsgMap != null && errorMsgMap.size() > 0) {
+      methodContext.putResult(ModelService.ERROR_MESSAGE_MAP,errorMsgMap);
+      forceError=true;
+      summaryErrorStringBuffer.append("; ");
+      summaryErrorStringBuffer.append(errorMsgMap.toString());
+    }
+    String successMsg=(String)methodContext.getEnv(serviceSuccessMessageName);
+    if (successMsg != null && successMsg.length() > 0) {
+      methodContext.putResult(ModelService.SUCCESS_MESSAGE,successMsg);
+    }
+    List successMsgList=(List)methodContext.getEnv(serviceSuccessMessageListName);
+    if (successMsgList != null && successMsgList.size() > 0) {
+      methodContext.putResult(ModelService.SUCCESS_MESSAGE_LIST,successMsgList);
+    }
+    response=(String)methodContext.getEnv(serviceResponseMessageName);
+    if (response == null || response.length() == 0) {
+      if (forceError) {
+        Debug.logVerbose("No response code string found, but error messages found so assuming error; returning code [" + defaultErrorCode + "]",module);
+        response=defaultErrorCode;
+      }
+ else {
+        Debug.logVerbose("No response code string or errors found, assuming success; returning code [" + defaultSuccessCode + "]",module);
+        response=defaultSuccessCode;
+      }
+    }
+    methodContext.putResult(ModelService.RESPONSE_MESSAGE,response);
+    returnValue=null;
+  }
+ else {
+    response=defaultSuccessCode;
+    returnValue=defaultSuccessCode;
+  }
+  boolean doCommit=true;
+  if (!finished && defaultErrorCode.equals(response)) {
+    doCommit=false;
+  }
+  if (doCommit) {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e) {
+      String errMsg="Error trying to commit transaction, could not process method: " + e.getMessage();
+      Debug.logWarning(e,errMsg,module);
+      errorMsg+=errMsg + "<br/>";
+    }
+  }
+ else {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Error in simple-method [" + this.getShortDescription() + "]: "+ summaryErrorStringBuffer,null);
+    }
+ catch (    GenericTransactionException e) {
+      String errMsg="Error trying to rollback transaction, could not process method: " + e.getMessage();
+      Debug.logWarning(e,errMsg,module);
+      errorMsg+=errMsg + "<br/>";
+    }
+  }
+  return returnValue;
+}

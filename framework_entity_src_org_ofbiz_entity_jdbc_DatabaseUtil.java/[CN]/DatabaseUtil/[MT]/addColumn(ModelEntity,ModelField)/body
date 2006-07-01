@@ -1,0 +1,89 @@
+{
+  if (entity == null || field == null)   return "ModelEntity or ModelField where null, cannot add column";
+  if (entity instanceof ModelViewEntity) {
+    return "ERROR: Cannot add column for a view entity";
+  }
+  Connection connection=null;
+  Statement stmt=null;
+  try {
+    connection=getConnection();
+  }
+ catch (  SQLException sqle) {
+    return "Unable to esablish a connection with the database... Error was: " + sqle.toString();
+  }
+catch (  GenericEntityException e) {
+    return "Unable to esablish a connection with the database... Error was: " + e.toString();
+  }
+  ModelFieldType type=modelFieldTypeReader.getModelFieldType(field.getType());
+  if (type == null) {
+    return "Field type [" + type + "] not found for field ["+ field.getName()+ "] of entity ["+ entity.getEntityName()+ "], not adding column.";
+  }
+  StringBuffer sqlBuf=new StringBuffer("ALTER TABLE ");
+  sqlBuf.append(entity.getTableName(datasourceInfo));
+  sqlBuf.append(" ADD ");
+  sqlBuf.append(field.getColName());
+  sqlBuf.append(" ");
+  sqlBuf.append(type.getSqlType());
+  if ("String".equals(type.getJavaType()) || "java.lang.String".equals(type.getJavaType())) {
+    if (UtilValidate.isNotEmpty(this.datasourceInfo.characterSet)) {
+      sqlBuf.append(" CHARACTER SET ");
+      sqlBuf.append(this.datasourceInfo.characterSet);
+    }
+    if (UtilValidate.isNotEmpty(this.datasourceInfo.collate)) {
+      sqlBuf.append(" COLLATE ");
+      sqlBuf.append(this.datasourceInfo.collate);
+    }
+  }
+  String sql=sqlBuf.toString();
+  if (Debug.infoOn())   Debug.logInfo("[addColumn] sql=" + sql,module);
+  try {
+    stmt=connection.createStatement();
+    stmt.executeUpdate(sql);
+  }
+ catch (  SQLException sqle) {
+    StringBuffer sql2Buf=new StringBuffer("ALTER TABLE ");
+    sql2Buf.append(entity.getTableName(datasourceInfo));
+    sql2Buf.append(" ADD COLUMN ");
+    sql2Buf.append(field.getColName());
+    sql2Buf.append(" ");
+    sql2Buf.append(type.getSqlType());
+    if ("String".equals(type.getJavaType()) || "java.lang.String".equals(type.getJavaType())) {
+      if (UtilValidate.isNotEmpty(this.datasourceInfo.characterSet)) {
+        sql2Buf.append(" CHARACTER SET ");
+        sql2Buf.append(this.datasourceInfo.characterSet);
+      }
+      if (UtilValidate.isNotEmpty(this.datasourceInfo.collate)) {
+        sql2Buf.append(" COLLATE ");
+        sql2Buf.append(this.datasourceInfo.collate);
+      }
+    }
+    String sql2=sql2Buf.toString();
+    if (Debug.infoOn())     Debug.logInfo("[addColumn] sql failed, trying sql2=" + sql2,module);
+    try {
+      stmt=connection.createStatement();
+      stmt.executeUpdate(sql2);
+    }
+ catch (    SQLException sqle2) {
+      return "SQL Exception while executing the following:\n" + sql + "\nError was: "+ sqle.toString();
+    }
+  }
+ finally {
+    try {
+      if (stmt != null) {
+        stmt.close();
+      }
+    }
+ catch (    SQLException sqle) {
+      Debug.logError(sqle,module);
+    }
+    try {
+      if (connection != null) {
+        connection.close();
+      }
+    }
+ catch (    SQLException sqle) {
+      Debug.logError(sqle,module);
+    }
+  }
+  return null;
+}

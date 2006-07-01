@@ -1,0 +1,75 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue paymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  Boolean authResult=(Boolean)context.get("authResult");
+  String authType=(String)context.get("serviceTypeEnum");
+  String currencyUomId=(String)context.get("currencyUomId");
+  if (UtilValidate.isEmpty(authType)) {
+    authType=("PAYMENT_NOT_AUTH".equals(paymentPreference.getString("statusId"))) ? AUTH_SERVICE_TYPE : REAUTH_SERVICE_TYPE;
+  }
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue response=delegator.makeValue("PaymentGatewayResponse",null);
+  response.set("paymentGatewayResponseId",responseId);
+  response.set("paymentServiceTypeEnumId",authType);
+  response.set("orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
+  response.set("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
+  response.set("paymentMethodId",paymentPreference.get("paymentMethodId"));
+  response.set("transCodeEnumId","PGT_AUTHORIZE");
+  response.set("currencyUomId",currencyUomId);
+  response.set("gatewayAvsResult",context.get("avsCode"));
+  response.set("gatewayScoreResult",context.get("scoreCode"));
+  response.set("amount",context.get("processAmount"));
+  response.set("referenceNum",context.get("authRefNum"));
+  response.set("altReference",context.get("authAltRefNum"));
+  response.set("gatewayCode",context.get("authCode"));
+  response.set("gatewayFlag",context.get("authFlag"));
+  response.set("gatewayMessage",context.get("authMessage"));
+  response.set("transactionDate",UtilDateTime.nowTimestamp());
+  try {
+    delegator.create(response);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Error creating response information");
+  }
+  List messages=(List)context.get("internalRespMsgs");
+  if (messages != null && messages.size() > 0) {
+    Iterator i=messages.iterator();
+    while (i.hasNext()) {
+      GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
+      String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
+      String message=(String)i.next();
+      respMsg.set("paymentGatewayRespMsgId",respMsgId);
+      respMsg.set("paymentGatewayResponseId",responseId);
+      respMsg.set("pgrMessage",message);
+      try {
+        delegator.create(respMsg);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError("Error creating response message information");
+      }
+    }
+  }
+  if (response.getDouble("amount").doubleValue() != ((Double)context.get("processAmount")).doubleValue()) {
+    Debug.logWarning("The authorized amount does not match the max amount : Response - " + response + " : result - "+ context,module);
+  }
+  if (context != null && authResult.booleanValue()) {
+    paymentPreference.set("statusId","PAYMENT_AUTHORIZED");
+    paymentPreference.set("securityCode",null);
+  }
+ else   if (context != null && !authResult.booleanValue()) {
+    paymentPreference.set("statusId","PAYMENT_DECLINED");
+  }
+ else {
+    paymentPreference.set("statusId","PAYMENT_ERROR");
+  }
+  try {
+    paymentPreference.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Error updating order payment preference information");
+  }
+  return ServiceUtil.returnSuccess();
+}

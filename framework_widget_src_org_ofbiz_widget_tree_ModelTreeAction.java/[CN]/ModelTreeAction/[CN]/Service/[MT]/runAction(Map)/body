@@ -1,0 +1,68 @@
+{
+  String serviceNameExpanded=this.serviceNameExdr.expandString(context);
+  if (UtilValidate.isEmpty(serviceNameExpanded)) {
+    throw new IllegalArgumentException("Service name was empty, expanded from: " + this.serviceNameExdr.getOriginal());
+  }
+  String autoFieldMapString=this.autoFieldMapExdr.expandString(context);
+  boolean autoFieldMapBool=!"false".equals(autoFieldMapString);
+  try {
+    Map serviceContext=null;
+    if (autoFieldMapBool) {
+      serviceContext=this.modelTree.getDispatcher().getDispatchContext().makeValidContext(serviceNameExpanded,ModelService.IN_PARAM,context);
+    }
+ else {
+      serviceContext=new HashMap();
+    }
+    if (this.fieldMap != null) {
+      EntityFinderUtil.expandFieldMapToContext(this.fieldMap,context,serviceContext);
+    }
+    Map result=this.modelTree.getDispatcher().runSync(serviceNameExpanded,serviceContext);
+    if (this.resultMapNameAcsr != null) {
+      this.resultMapNameAcsr.put(context,result);
+      String queryString=(String)result.get("queryString");
+      context.put("queryString",queryString);
+      context.put("queryStringMap",result.get("queryStringMap"));
+      if (UtilValidate.isNotEmpty(queryString)) {
+        try {
+          String queryStringEncoded=queryString.replaceAll("&","%26");
+          context.put("queryStringEncoded",queryStringEncoded);
+        }
+ catch (        PatternSyntaxException e) {
+        }
+      }
+    }
+ else {
+      context.putAll(result);
+    }
+    String resultMapListName=resultMapListNameExdr.expandString(context);
+    String resultMapListIteratorName=resultMapListIteratorNameExdr.expandString(context);
+    String resultMapValueName=resultMapValueNameExdr.expandString(context);
+    String valueName=valueNameExdr.expandString(context);
+    if (this.modelSubNode != null) {
+      if (UtilValidate.isNotEmpty(resultMapListIteratorName)) {
+        this.modelSubNode.setListIterator((ListIterator)result.get(resultMapListIteratorName));
+      }
+ else       if (UtilValidate.isNotEmpty(resultMapListName)) {
+        List lst=(List)result.get(resultMapListName);
+        if (lst != null) {
+          this.modelSubNode.setListIterator(lst.listIterator());
+        }
+      }
+    }
+ else {
+      if (UtilValidate.isNotEmpty(resultMapValueName)) {
+        if (UtilValidate.isNotEmpty(valueName)) {
+          context.put(valueName,result.get(resultMapValueName));
+        }
+ else {
+          context.putAll((Map)result.get(resultMapValueName));
+        }
+      }
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error calling service with name " + serviceNameExpanded + ": "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new IllegalArgumentException(errMsg);
+  }
+}

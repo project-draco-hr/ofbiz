@@ -1,0 +1,59 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String productCategoryId=request.getParameter("SE_SEARCH_CATEGORY_ID");
+  String fromDateStr=request.getParameter("fromDate");
+  Timestamp fromDate=null;
+  String errMsg=null;
+  try {
+    fromDate=Timestamp.valueOf(fromDateStr);
+  }
+ catch (  RuntimeException e) {
+    Map messageMap=UtilMisc.toMap("errDateFormat",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productsearchevents.fromDate_not_formatted_properly",messageMap,UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  EntityListIterator eli=getProductSearchResults(request);
+  if (eli == null) {
+    errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  try {
+    boolean beganTransaction=TransactionUtil.begin();
+    try {
+      GenericValue searchResultView=null;
+      int numAdded=0;
+      while ((searchResultView=(GenericValue)eli.next()) != null) {
+        String productId=searchResultView.getString("productId");
+        GenericValue pcm=delegator.makeValue("ProductCategoryMember",null);
+        pcm.set("productCategoryId",productCategoryId);
+        pcm.set("productId",productId);
+        pcm.set("fromDate",fromDate);
+        pcm.create();
+        numAdded++;
+      }
+      Map messageMap=UtilMisc.toMap("numAdded",Integer.toString(numAdded));
+      errMsg=UtilProperties.getMessage(resource,"productsearchevents.added_x_product_category_members",messageMap,UtilHttp.getLocale(request));
+      request.setAttribute("_EVENT_MESSAGE_",errMsg);
+      eli.close();
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericEntityException e) {
+      Map messageMap=UtilMisc.toMap("errSearchResult",e.toString());
+      errMsg=UtilProperties.getMessage(resource,"productsearchevents.error_getting_search_results",messageMap,UtilHttp.getLocale(request));
+      Debug.logError(e,errMsg,module);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+      return "error";
+    }
+  }
+ catch (  GenericTransactionException e) {
+    Map messageMap=UtilMisc.toMap("errSearchResult",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productsearchevents.error_getting_search_results",messageMap,UtilHttp.getLocale(request));
+    Debug.logError(e,errMsg,module);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}

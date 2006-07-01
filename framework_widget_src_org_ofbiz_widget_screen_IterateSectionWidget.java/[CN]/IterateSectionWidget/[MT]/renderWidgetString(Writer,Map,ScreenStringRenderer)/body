@@ -1,0 +1,71 @@
+{
+  boolean isEntrySet=false;
+  if (!(context instanceof MapStack)) {
+    context=MapStack.create(context);
+  }
+  MapStack contextMs=(MapStack)context;
+  contextMs.push();
+  String entryName=this.entryNameExdr.expandString(context);
+  String keyName=this.keyNameExdr.expandString(context);
+  Object obj=listNameExdr.get(context);
+  if (obj == null) {
+    Debug.logError("No object found for listName:" + listNameExdr.toString(),module);
+    return;
+  }
+  List theList=null;
+  if (obj instanceof Map) {
+    Set entrySet=((Map)obj).entrySet();
+    Object[] a=entrySet.toArray();
+    theList=Arrays.asList(a);
+    isEntrySet=true;
+  }
+ else   if (obj instanceof List) {
+    theList=(List)obj;
+  }
+ else {
+    Debug.logError("Object not list or map type",module);
+    return;
+  }
+  getListLimits(context,theList);
+  int rowCount=0;
+  Iterator iter=theList.iterator();
+  int itemIndex=-1;
+  while (iter.hasNext()) {
+    itemIndex++;
+    if (itemIndex >= highIndex) {
+      break;
+    }
+    Object item=iter.next();
+    if (itemIndex < lowIndex) {
+      continue;
+    }
+    if (isEntrySet) {
+      contextMs.put(entryName,((Map)item).get("value"));
+      contextMs.put(keyName,((Map)item).get("key"));
+    }
+ else {
+      contextMs.put(entryName,item);
+    }
+    contextMs.put("itemIndex",new Integer(itemIndex));
+    rowCount++;
+    Iterator sectionIter=this.sectionList.iterator();
+    while (sectionIter.hasNext()) {
+      ModelScreenWidget.Section section=(ModelScreenWidget.Section)sectionIter.next();
+      section.renderWidgetString(writer,contextMs,screenStringRenderer);
+    }
+  }
+  if ((itemIndex + 1) < highIndex) {
+    setHighIndex(itemIndex + 1);
+  }
+  setActualPageSize(highIndex - lowIndex);
+  if (paginate) {
+    try {
+      renderNextPrev(writer,context);
+    }
+ catch (    IOException e) {
+      Debug.logError(e,module);
+      throw new RuntimeException(e.getMessage());
+    }
+  }
+  contextMs.pop();
+}

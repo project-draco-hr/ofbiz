@@ -1,0 +1,52 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List toBeStored=new LinkedList();
+  String partyId=ServiceUtil.getPartyIdCheckSecurity(userLogin,security,context,result,"PARTYMGR","_PCM_CREATE");
+  String errMsg=null;
+  Locale locale=(Locale)context.get("locale");
+  if (result.size() > 0)   return result;
+  String contactMechTypeId="POSTAL_ADDRESS";
+  String newCmId=null;
+  try {
+    newCmId=delegator.getNextSeqId("ContactMech");
+  }
+ catch (  IllegalArgumentException e) {
+    errMsg=UtilProperties.getMessage(resource,"contactmechservices.could_not_create_contact_info_id_generation_failure",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  GenericValue tempContactMech=delegator.makeValue("ContactMech",UtilMisc.toMap("contactMechId",newCmId.toString(),"contactMechTypeId",contactMechTypeId));
+  toBeStored.add(tempContactMech);
+  if (!partyId.equals("_NA_")) {
+    toBeStored.add(delegator.makeValue("PartyContactMech",UtilMisc.toMap("partyId",partyId,"contactMechId",newCmId.toString(),"fromDate",now,"roleTypeId",context.get("roleTypeId"),"allowSolicitation",context.get("allowSolicitation"),"extension",context.get("extension"))));
+  }
+  GenericValue newAddr=delegator.makeValue("PostalAddress",null);
+  newAddr.set("contactMechId",newCmId.toString());
+  newAddr.set("toName",context.get("toName"));
+  newAddr.set("attnName",context.get("attnName"));
+  newAddr.set("address1",context.get("address1"));
+  newAddr.set("address2",context.get("address2"));
+  newAddr.set("directions",context.get("directions"));
+  newAddr.set("city",context.get("city"));
+  newAddr.set("postalCode",context.get("postalCode"));
+  newAddr.set("postalCodeExt",context.get("postalCodeExt"));
+  newAddr.set("stateProvinceGeoId",context.get("stateProvinceGeoId"));
+  newAddr.set("countryGeoId",context.get("countryGeoId"));
+  newAddr.set("postalCodeGeoId",context.get("postalCodeGeoId"));
+  toBeStored.add(newAddr);
+  try {
+    delegator.storeAll(toBeStored);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"contactmechservices.could_not_create_contact_info_write",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put("contactMechId",newCmId.toString());
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

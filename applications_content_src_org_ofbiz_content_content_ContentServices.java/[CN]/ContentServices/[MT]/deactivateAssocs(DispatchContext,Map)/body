@@ -1,0 +1,51 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String contentIdTo=(String)context.get("contentIdTo");
+  String mapKey=(String)context.get("mapKey");
+  String contentAssocTypeId=(String)context.get("contentAssocTypeId");
+  String activeContentId=(String)context.get("activeContentId");
+  String contentId=(String)context.get("contentId");
+  Timestamp fromDate=(Timestamp)context.get("fromDate");
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String sequenceNum=null;
+  Map results=new HashMap();
+  try {
+    GenericValue activeAssoc=null;
+    if (fromDate != null) {
+      activeAssoc=delegator.findByPrimaryKey("ContentAssoc",UtilMisc.toMap("contentId",activeContentId,"contentIdTo",contentIdTo,"fromDate",fromDate,"contentAssocTypeId",contentAssocTypeId));
+      if (activeAssoc == null) {
+        return ServiceUtil.returnError("No association found for contentId=" + activeContentId + " and contentIdTo="+ contentIdTo+ " and contentAssocTypeId="+ contentAssocTypeId+ " and fromDate="+ fromDate);
+      }
+      sequenceNum=(String)activeAssoc.get("sequenceNum");
+    }
+    List exprList=new ArrayList();
+    exprList.add(new EntityExpr("mapKey",EntityOperator.EQUALS,mapKey));
+    if (sequenceNum != null) {
+      exprList.add(new EntityExpr("sequenceNum",EntityOperator.EQUALS,sequenceNum));
+    }
+    exprList.add(new EntityExpr("mapKey",EntityOperator.EQUALS,mapKey));
+    exprList.add(new EntityExpr("thruDate",EntityOperator.EQUALS,null));
+    exprList.add(new EntityExpr("contentIdTo",EntityOperator.EQUALS,contentIdTo));
+    exprList.add(new EntityExpr("contentAssocTypeId",EntityOperator.EQUALS,contentAssocTypeId));
+    if (UtilValidate.isNotEmpty(activeContentId)) {
+      exprList.add(new EntityExpr("contentId",EntityOperator.NOT_EQUAL,activeContentId));
+    }
+    if (UtilValidate.isNotEmpty(contentId)) {
+      exprList.add(new EntityExpr("contentId",EntityOperator.EQUALS,contentId));
+    }
+    EntityConditionList assocExprList=new EntityConditionList(exprList,EntityOperator.AND);
+    List relatedAssocs=delegator.findByCondition("ContentAssoc",assocExprList,new ArrayList(),UtilMisc.toList("fromDate"));
+    List filteredAssocs=EntityUtil.filterByDate(relatedAssocs);
+    Iterator it=filteredAssocs.iterator();
+    while (it.hasNext()) {
+      GenericValue val=(GenericValue)it.next();
+      val.set("thruDate",nowTimestamp);
+      val.store();
+    }
+    results.put("deactivatedList",filteredAssocs);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return results;
+}

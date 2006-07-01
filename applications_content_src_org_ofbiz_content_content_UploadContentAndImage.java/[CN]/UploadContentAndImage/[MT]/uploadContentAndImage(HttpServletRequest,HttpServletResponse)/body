@@ -1,0 +1,239 @@
+{
+  try {
+    Locale locale=UtilHttp.getLocale(request);
+    LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+    GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+    HttpSession session=request.getSession();
+    GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+    DiskFileUpload dfu=new DiskFileUpload();
+    java.util.List lst=null;
+    try {
+      lst=dfu.parseRequest(request);
+    }
+ catch (    FileUploadException e4) {
+      request.setAttribute("_ERROR_MESSAGE_",e4.getMessage());
+      Debug.logError("[UploadContentAndImage.uploadContentAndImage] " + e4.getMessage(),module);
+      return "error";
+    }
+    if (lst.size() == 0) {
+      String errMsg=UtilProperties.getMessage(UploadContentAndImage.err_resource,"uploadContentAndImage.no_files_uploaded",locale);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      Debug.logWarning("[DataEvents.uploadImage] No files uploaded",module);
+      return "error";
+    }
+    Map passedParams=new HashMap();
+    FileItem fi=null;
+    FileItem imageFi=null;
+    byte[] imageBytes={};
+    for (int i=0; i < lst.size(); i++) {
+      fi=(FileItem)lst.get(i);
+      String fieldName=fi.getFieldName();
+      if (fi.isFormField()) {
+        String fieldStr=fi.getString();
+        passedParams.put(fieldName,fieldStr);
+      }
+ else       if (fieldName.equals("imageData")) {
+        imageFi=fi;
+        imageBytes=imageFi.get();
+      }
+    }
+    if (Debug.infoOn())     Debug.logInfo("[UploadContentAndImage]passedParams: " + passedParams,module);
+    TransactionUtil.begin();
+    List contentPurposeList=ContentWorker.prepContentPurposeList(passedParams);
+    passedParams.put("contentPurposeList",contentPurposeList);
+    String entityOperation=(String)passedParams.get("entityOperation");
+    String passedContentId=(String)passedParams.get("ftlContentId");
+    List targetOperationList=ContentWorker.prepTargetOperationList(passedParams,entityOperation);
+    passedParams.put("targetOperationList",targetOperationList);
+    Map ftlContext=new HashMap();
+    ftlContext.put("userLogin",userLogin);
+    ftlContext.put("contentId",passedParams.get("ftlContentId"));
+    ftlContext.put("ownerContentId",passedParams.get("ownerContentId"));
+    String contentTypeId=(String)passedParams.get("contentTypeId");
+    ftlContext.put("contentTypeId",contentTypeId);
+    ftlContext.put("statusId",passedParams.get("statusId"));
+    ftlContext.put("contentPurposeList",UtilMisc.toList(passedParams.get("contentPurposeList")));
+    ftlContext.put("contentPurposeList",contentPurposeList);
+    ftlContext.put("targetOperationList",targetOperationList);
+    ftlContext.put("contentName",passedParams.get("contentName"));
+    ftlContext.put("dataTemplateTypeId",passedParams.get("dataTemplateTypeId"));
+    ftlContext.put("description",passedParams.get("description"));
+    ftlContext.put("privilegeEnumId",passedParams.get("privilegeEnumId"));
+    String drid=(String)passedParams.get("dataResourceId");
+    ftlContext.put("dataResourceId",drid);
+    ftlContext.put("dataResourceTypeId",null);
+    String contentIdTo=(String)passedParams.get("contentIdTo");
+    ftlContext.put("contentIdTo",contentIdTo);
+    String contentAssocTypeId=(String)passedParams.get("contentAssocTypeId");
+    ftlContext.put("contentAssocTypeId",null);
+    Map ftlResults=dispatcher.runSync("persistContentAndAssoc",ftlContext);
+    boolean isError=ModelService.RESPOND_ERROR.equals(ftlResults.get(ModelService.RESPONSE_MESSAGE));
+    if (isError) {
+      request.setAttribute("_ERROR_MESSAGE_",ftlResults.get(ModelService.ERROR_MESSAGE));
+      TransactionUtil.rollback();
+      return "error";
+    }
+    String ftlContentId=(String)ftlResults.get("contentId");
+    if (UtilValidate.isNotEmpty(contentIdTo)) {
+      Map map=new HashMap();
+      map.put("fromDate",UtilDateTime.nowTimestamp());
+      map.put("contentId",ftlContentId);
+      map.put("contentIdTo",contentIdTo);
+      map.put("userLogin",userLogin);
+      if (UtilValidate.isEmpty(contentAssocTypeId) && UtilValidate.isEmpty(passedContentId) && UtilValidate.isNotEmpty(contentIdTo)) {
+        map.put("contentIdTo",ftlContentId);
+        map.put("contentId",contentIdTo);
+        map.put("contentAssocTypeId","PUBLISH_RELEASE");
+      }
+ else       if (contentAssocTypeId.equals("PUBLISH_LINK")) {
+        map.put("contentAssocTypeId","PUBLISH_LINK");
+        String publishOperation=(String)passedParams.get("publishOperation");
+        if (UtilValidate.isEmpty(publishOperation)) {
+          publishOperation="CONTENT_PUBLISH";
+        }
+        map.put("targetOperationList",StringUtil.split(publishOperation,"|"));
+        map.put("targetOperationString",null);
+      }
+ else {
+        map.put("contentAssocTypeId",contentAssocTypeId);
+      }
+      if (UtilValidate.isNotEmpty((String)map.get("contentAssocTypeId"))) {
+        ftlResults=dispatcher.runSync("createContentAssoc",map);
+        isError=ModelService.RESPOND_ERROR.equals(ftlResults.get(ModelService.RESPONSE_MESSAGE));
+        if (isError) {
+          request.setAttribute("_ERROR_MESSAGE_",ftlResults.get(ModelService.ERROR_MESSAGE));
+          TransactionUtil.rollback();
+          return "error";
+        }
+      }
+    }
+    if (UtilValidate.isEmpty(ftlContentId))     ftlContentId=passedContentId;
+    String ftlDataResourceId=drid;
+    if (Debug.infoOn())     Debug.logInfo("[UploadContentAndImage]ftlContentId:" + ftlContentId,module);
+    if (passedParams.containsKey("summaryData")) {
+      Map sumContext=new HashMap();
+      sumContext.put("userLogin",userLogin);
+      sumContext.put("contentId",passedParams.get("sumContentId"));
+      sumContext.put("ownerContentId",ftlContentId);
+      sumContext.put("contentTypeId","DOCUMENT");
+      sumContext.put("statusId",passedParams.get("statusId"));
+      sumContext.put("contentPurposeList",UtilMisc.toList("SUMMARY"));
+      sumContext.put("targetOperationList",targetOperationList);
+      sumContext.put("contentName",passedParams.get("contentName"));
+      sumContext.put("description",passedParams.get("description"));
+      sumContext.put("privilegeEnumId",passedParams.get("privilegeEnumId"));
+      sumContext.put("dataResourceId",passedParams.get("sumDataResourceId"));
+      sumContext.put("dataResourceTypeId","ELECTRONIC_TEXT");
+      sumContext.put("contentIdTo",ftlContentId);
+      sumContext.put("contentAssocTypeId","SUB_CONTENT");
+      sumContext.put("textData",passedParams.get("summaryData"));
+      sumContext.put("mapKey","SUMMARY");
+      sumContext.put("dataTemplateTypeId","NONE");
+      Map sumResults=dispatcher.runSync("persistContentAndAssoc",sumContext);
+      isError=ModelService.RESPOND_ERROR.equals(sumResults.get(ModelService.RESPONSE_MESSAGE));
+      if (isError) {
+        request.setAttribute("_ERROR_MESSAGE_",sumResults.get(ModelService.ERROR_MESSAGE));
+        TransactionUtil.rollback();
+        return "error";
+      }
+    }
+    if (passedParams.containsKey("textData")) {
+      Map txtContext=new HashMap();
+      txtContext.put("userLogin",userLogin);
+      txtContext.put("contentId",passedParams.get("txtContentId"));
+      txtContext.put("ownerContentId",ftlContentId);
+      txtContext.put("contentTypeId","DOCUMENT");
+      txtContext.put("statusId",passedParams.get("statusId"));
+      txtContext.put("contentPurposeList",UtilMisc.toList("MAIN_ARTICLE"));
+      txtContext.put("targetOperationList",targetOperationList);
+      txtContext.put("contentName",passedParams.get("contentName"));
+      txtContext.put("description",passedParams.get("description"));
+      txtContext.put("privilegeEnumId",passedParams.get("privilegeEnumId"));
+      txtContext.put("dataResourceId",passedParams.get("txtDataResourceId"));
+      txtContext.put("dataResourceTypeId","ELECTRONIC_TEXT");
+      txtContext.put("contentIdTo",ftlContentId);
+      txtContext.put("contentAssocTypeId","SUB_CONTENT");
+      txtContext.put("textData",passedParams.get("textData"));
+      txtContext.put("mapKey","ARTICLE");
+      txtContext.put("dataTemplateTypeId","NONE");
+      Map txtResults=dispatcher.runSync("persistContentAndAssoc",txtContext);
+      isError=ModelService.RESPOND_ERROR.equals(txtResults.get(ModelService.RESPONSE_MESSAGE));
+      if (isError) {
+        request.setAttribute("_ERROR_MESSAGE_",txtResults.get(ModelService.ERROR_MESSAGE));
+        TransactionUtil.rollback();
+        return "error";
+      }
+    }
+    Map imgContext=new HashMap();
+    if (imageBytes.length > 0) {
+      imgContext.put("userLogin",userLogin);
+      imgContext.put("contentId",passedParams.get("imgContentId"));
+      imgContext.put("ownerContentId",ftlContentId);
+      imgContext.put("contentTypeId","DOCUMENT");
+      imgContext.put("statusId",passedParams.get("statusId"));
+      imgContext.put("contentName",passedParams.get("contentName"));
+      imgContext.put("description",passedParams.get("description"));
+      imgContext.put("contentPurposeList",contentPurposeList);
+      imgContext.put("privilegeEnumId",passedParams.get("privilegeEnumId"));
+      imgContext.put("targetOperationList",targetOperationList);
+      imgContext.put("dataResourceId",passedParams.get("imgDataResourceId"));
+      String dataResourceTypeId="IMAGE_OBJECT";
+      imgContext.put("dataResourceTypeId",dataResourceTypeId);
+      imgContext.put("contentIdTo",ftlContentId);
+      imgContext.put("contentAssocTypeId","SUB_CONTENT");
+      imgContext.put("imageData",new ByteWrapper(imageBytes));
+      imgContext.put("mapKey","IMAGE");
+      imgContext.put("dataTemplateTypeId","NONE");
+      String rootDir=request.getSession().getServletContext().getRealPath("/");
+      imgContext.put("rootDir","rootDir");
+      if (Debug.infoOn())       Debug.logInfo("[UploadContentAndImage]imgContext " + imgContext,module);
+      Map imgResults=dispatcher.runSync("persistContentAndAssoc",imgContext);
+      isError=ModelService.RESPOND_ERROR.equals(imgResults.get(ModelService.RESPONSE_MESSAGE));
+      if (isError) {
+        request.setAttribute("_ERROR_MESSAGE_",imgResults.get(ModelService.ERROR_MESSAGE));
+        TransactionUtil.rollback();
+        return "error";
+      }
+    }
+    String userLoginId=userLogin.getString("userLoginId");
+    GenericValue authorContent=delegator.findByPrimaryKeyCache("Content",UtilMisc.toMap("contentId",userLoginId));
+    if (authorContent != null) {
+      List authorAssocList=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",ftlContentId,"contentIdTo",userLoginId,"contentAssocTypeId","AUTHOR"));
+      List currentAuthorAssocList=EntityUtil.filterByDate(authorAssocList);
+      if (currentAuthorAssocList.size() == 0) {
+        GenericValue authorAssoc=delegator.makeValue("ContentAssoc",null);
+        authorAssoc.set("contentId",ftlContentId);
+        authorAssoc.set("contentIdTo",userLoginId);
+        authorAssoc.set("contentAssocTypeId","AUTHOR");
+        authorAssoc.set("fromDate",UtilDateTime.nowTimestamp());
+        authorAssoc.set("createdByUserLogin",userLoginId);
+        authorAssoc.set("lastModifiedByUserLogin",userLoginId);
+        authorAssoc.set("createdDate",UtilDateTime.nowTimestamp());
+        authorAssoc.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+        authorAssoc.create();
+      }
+    }
+    request.setAttribute("dataResourceId",ftlDataResourceId);
+    request.setAttribute("drDataResourceId",ftlDataResourceId);
+    request.setAttribute("contentId",ftlContentId);
+    request.setAttribute("masterContentId",ftlContentId);
+    request.setAttribute("contentIdTo",contentIdTo);
+    String newTrail=passedParams.get("nodeTrailCsv") + "," + ftlContentId;
+    request.setAttribute("nodeTrailCsv",newTrail);
+    request.setAttribute("passedParams",passedParams);
+    TransactionUtil.commit();
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"[UploadContentAndImage] ",module);
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    try {
+      TransactionUtil.rollback();
+    }
+ catch (    GenericTransactionException e2) {
+      request.setAttribute("_ERROR_MESSAGE_",e2.getMessage());
+      return "error";
+    }
+    return "error";
+  }
+  return "success";
+}

@@ -1,0 +1,34 @@
+{
+  Map result=new HashMap();
+  Timestamp dateTo=null;
+  GenericValue techDataCalendarWeek=null;
+  try {
+    techDataCalendarWeek=techDataCalendar.getRelatedOneCache("TechDataCalendarWeek");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Pb reading Calendar Week associated with calendar" + e.getMessage(),module);
+    return ServiceUtil.returnError("Pb reading Calendar Week associated with calendar");
+  }
+  Calendar cDateTrav=Calendar.getInstance();
+  cDateTrav.setTime((Date)dateFrom);
+  Map position=dayStartCapacityAvailable(techDataCalendarWeek,cDateTrav.get(Calendar.DAY_OF_WEEK));
+  Time startTime=(Time)position.get("startTime");
+  int moveDay=((Integer)position.get("moveDay")).intValue();
+  dateTo=(moveDay == 0) ? dateFrom : UtilDateTime.getDayStart(dateFrom,moveDay);
+  Timestamp startAvailablePeriod=new Timestamp(UtilDateTime.getDayStart(dateTo).getTime() + startTime.getTime() + 3600000);
+  if (dateTo.before(startAvailablePeriod)) {
+    dateTo=startAvailablePeriod;
+  }
+ else {
+    dateTo=UtilDateTime.getNextDayStart(dateTo);
+    cDateTrav.setTime((Date)dateTo);
+    position=dayStartCapacityAvailable(techDataCalendarWeek,cDateTrav.get(Calendar.DAY_OF_WEEK));
+    startTime=(Time)position.get("startTime");
+    moveDay=((Integer)position.get("moveDay")).intValue();
+    if (moveDay != 0)     dateTo=UtilDateTime.getDayStart(dateTo,moveDay);
+    dateTo.setTime(dateTo.getTime() + startTime.getTime() + 3600000);
+  }
+  result.put("dateTo",dateTo);
+  result.put("nextCapacity",position.get("capacity"));
+  return result;
+}

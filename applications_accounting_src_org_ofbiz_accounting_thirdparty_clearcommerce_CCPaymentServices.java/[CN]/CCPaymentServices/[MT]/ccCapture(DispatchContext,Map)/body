@@ -1,0 +1,27 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found; cannot capture");
+  }
+  Document captureRequestDoc=buildSecondaryTxRequest(context,authTransaction.getString("referenceNum"),"PostAuth",(Double)context.get("captureAmount"));
+  Document captureResponseDoc=null;
+  try {
+    captureResponseDoc=sendRequest(captureRequestDoc,(String)context.get("paymentConfig"));
+  }
+ catch (  ClearCommerceException cce) {
+    return ServiceUtil.returnError(cce.getMessage());
+  }
+  if (getMessageListMaxSev(captureResponseDoc) > 4) {
+    Map result=ServiceUtil.returnSuccess();
+    result.put("captureResult",new Boolean(false));
+    result.put("captureAmount",new Double(0.00));
+    result.put("captureRefNum",getReferenceNum(captureResponseDoc));
+    List messages=getMessageList(captureResponseDoc);
+    if (UtilValidate.isNotEmpty(messages)) {
+      result.put("internalRespMsgs",messages);
+    }
+    return result;
+  }
+  return processCaptureResponse(captureResponseDoc);
+}

@@ -1,0 +1,250 @@
+{
+  Debug.logWarning("explodeMarketingPkgAutoItem is deprecated and will be removed.  Use productTypeId=MARKETING_PKG_AUTO and assocTypeId=MANUF_COMPONENT instead!",module);
+  List newOrderItems=new ArrayList();
+  List newOrderAdjustments=new ArrayList();
+  List newOrderItemShipGroupInfo=new ArrayList();
+  Iterator itemIter=orderItems.iterator();
+  while (itemIter.hasNext()) {
+    GenericValue orderItem=(GenericValue)itemIter.next();
+    String productId=orderItem.getString("productId");
+    Double quantity=orderItem.getDouble("quantity");
+    Double unitPrice=orderItem.getDouble("unitPrice");
+    String orderItemSeqId=orderItem.getString("orderItemSeqId");
+    String prodCatalogId=orderItem.getString("prodCatalogId");
+    if (productId == null || "".equals(productId)) {
+      continue;
+    }
+    if (quantity == null) {
+      Debug.logWarning("Order item seq [" + orderItemSeqId + "] has a null quantity, so it cannot be exploded",module);
+      continue;
+    }
+    try {
+      if (orderAdjustments != null && orderAdjustments.size() > 0) {
+        for (int a=0; orderAdjustments.size() > a; a++) {
+          GenericValue orderAdjustment=(GenericValue)orderAdjustments.get(a);
+          if (UtilValidate.isEmpty(orderAdjustment.getString("orderItemSeqId"))) {
+            newOrderAdjustments.add(orderAdjustment);
+          }
+        }
+      }
+      if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
+        Iterator osiInfos=orderItemShipGroupInfo.iterator();
+        while (osiInfos.hasNext()) {
+          GenericValue valueObj=(GenericValue)osiInfos.next();
+          if ("OrderAdjustment".equals(valueObj.getEntityName()) || "OrderItemShipGroupAssoc".equals(valueObj.getEntityName())) {
+            if (UtilValidate.isEmpty(valueObj.getString("orderItemSeqId"))) {
+              newOrderItemShipGroupInfo.add(valueObj);
+            }
+          }
+ else {
+            newOrderItemShipGroupInfo.add(valueObj);
+          }
+        }
+      }
+      List productAssocList=null;
+      Map tmpResult=dispatcher.runSync("getAssociatedProducts",UtilMisc.toMap("productId",productId,"type","MARKETING_PKG_AUTO"));
+      if (tmpResult.get("assocProducts") != null) {
+        productAssocList=(List)tmpResult.get("assocProducts");
+      }
+      if (productAssocList != null && productAssocList.size() > 0) {
+        Debug.logInfo("The product [" + productId + "] explodes to ["+ productAssocList.toString()+ "]",module);
+        List assocOrderItems=new ArrayList();
+        double sumSubItemsPrice=0;
+        double sumAssocQty=0;
+        for (int i=0; productAssocList.size() > i; i++) {
+          GenericValue productAssoc=(GenericValue)productAssocList.get(i);
+          GenericValue productTo=productAssoc.getRelatedOne("AssocProduct");
+          String productIdTo=productTo.getString("productId");
+          String itemDescription="";
+          Double productToQuantity=productAssoc.getDouble("quantity");
+          if (productToQuantity == null) {
+            productToQuantity=new Double(1.0);
+            Debug.logWarning("For order item [" + orderItemSeqId + "] Product association ["+ productAssoc+ "] had a null quantity, assuming 1",module);
+          }
+          Double newQuantity=new Double(productToQuantity.doubleValue() * quantity.doubleValue());
+          Double listPrice=new Double(0);
+          Double basePrice=new Double(0);
+          if (productTo != null) {
+            itemDescription=ProductContentWrapper.getProductContentAsText(productTo,"PRODUCT_NAME",locale);
+            if (UtilValidate.isEmpty(itemDescription)) {
+              GenericValue parentProduct=ProductWorker.getParentProduct(productIdTo,delegator);
+              if (parentProduct != null) {
+                itemDescription=ProductContentWrapper.getProductContentAsText(parentProduct,"PRODUCT_NAME",locale);
+              }
+            }
+          }
+          try {
+            Map priceContext=new HashMap();
+            priceContext.put("product",productTo);
+            priceContext.put("prodCatalogId",prodCatalogId);
+            priceContext.put("quantity",newQuantity);
+            Map priceResult=dispatcher.runSync("calculateProductPrice",priceContext);
+            if (ModelService.RESPOND_ERROR.equals(priceResult.get(ModelService.RESPONSE_MESSAGE))) {
+              Debug.logWarning("There was an error while calculating the price: " + priceResult.get(ModelService.ERROR_MESSAGE),module);
+            }
+            Boolean validPriceFound=(Boolean)priceResult.get("validPriceFound");
+            if (!validPriceFound.booleanValue()) {
+              Debug.logWarning("Could not find a valid price for the product with ID [" + productIdTo + "], not adding to cart.",module);
+            }
+            if (priceResult.get("listPrice") != null) {
+              listPrice=(Double)priceResult.get("listPrice");
+            }
+            if (priceResult.get("price") != null) {
+              basePrice=(Double)priceResult.get("price");
+            }
+          }
+ catch (          Exception e) {
+            Debug.logWarning(e,"There was an error while calculating the price",module);
+            throw e;
+          }
+          Debug.logInfo("The product [" + productIdTo + "] Price ["+ basePrice+ "]",module);
+          sumSubItemsPrice=sumSubItemsPrice + newQuantity.doubleValue() * basePrice.doubleValue();
+          sumAssocQty=sumAssocQty + productToQuantity.intValue();
+          GenericValue newOrderItem=GenericValue.create(orderItem);
+          newOrderItem.set("productId",productIdTo);
+          newOrderItem.set("quantity",newQuantity);
+          newOrderItem.set("unitPrice",basePrice);
+          newOrderItem.set("unitListPrice",listPrice);
+          newOrderItem.set("orderItemSeqId",orderItemSeqId + "-" + i);
+          newOrderItem.set("cancelQuantity",productToQuantity);
+          newOrderItem.set("itemDescription",itemDescription);
+          assocOrderItems.add(newOrderItem);
+          Debug.logInfo("explode OrderItem [" + orderItem.toString() + "] to ["+ newOrderItem+ "]",module);
+        }
+        double originalItemPrice=quantity.doubleValue() * unitPrice.doubleValue();
+        double adjustmentPrice=originalItemPrice - sumSubItemsPrice;
+        if (adjustmentPrice != 0) {
+          for (int a=0; assocOrderItems.size() > a; a++) {
+            GenericValue assocOrderItem=(GenericValue)assocOrderItems.get(a);
+            String assocOrderItemSeqId=assocOrderItem.getString("orderItemSeqId");
+            Double productToQuantity=assocOrderItem.getDouble("cancelQuantity");
+            Double percentage=new Double(productToQuantity.doubleValue() / sumAssocQty);
+            Double amount=new Double(adjustmentPrice * percentage.doubleValue());
+            GenericValue newOrderAdjustment=delegator.makeValue("OrderAdjustment",UtilMisc.toMap("orderAdjustmentTypeId","MKTG_PKG_AUTO_ADJUST"));
+            newOrderAdjustment.put("orderItemSeqId",assocOrderItemSeqId);
+            newOrderAdjustment.put("amount",new Double(amount.doubleValue()));
+            newOrderAdjustments.add(newOrderAdjustment);
+            Debug.logInfo("Add new Order Adjustment [" + newOrderAdjustment.toString() + "] for Order Item ["+ assocOrderItem.toString()+ "]",module);
+          }
+        }
+        if (orderAdjustments != null && orderAdjustments.size() > 0) {
+          for (int a=0; orderAdjustments.size() > a; a++) {
+            GenericValue orderAdjustment=(GenericValue)orderAdjustments.get(a);
+            if (orderItemSeqId.equals(orderAdjustment.getString("orderItemSeqId"))) {
+              Debug.log("Explode Order Adjustment [" + orderAdjustment.toString() + "]",module);
+              for (int b=0; assocOrderItems.size() > b; b++) {
+                GenericValue assocOrderItem=(GenericValue)assocOrderItems.get(b);
+                String assocOrderItemSeqId=assocOrderItem.getString("orderItemSeqId");
+                Double productToQuantity=assocOrderItem.getDouble("cancelQuantity");
+                Double amount=orderAdjustment.getDouble("amount");
+                Double percentage=new Double(productToQuantity.doubleValue() / sumAssocQty);
+                amount=new Double(amount.doubleValue() * percentage.doubleValue());
+                GenericValue newOrderAdjustment=GenericValue.create(orderAdjustment);
+                newOrderAdjustment.put("orderItemSeqId",assocOrderItemSeqId);
+                newOrderAdjustment.put("amount",amount);
+                newOrderAdjustments.add(newOrderAdjustment);
+                Debug.logInfo("Add new Order Adjustment [" + newOrderAdjustment.toString() + "]",module);
+              }
+            }
+          }
+        }
+        if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
+          Iterator osiInfos=orderItemShipGroupInfo.iterator();
+          while (osiInfos.hasNext()) {
+            GenericValue valueObj=(GenericValue)osiInfos.next();
+            if ("OrderItemShipGroupAssoc".equals(valueObj.getEntityName())) {
+              if (orderItemSeqId.equals(valueObj.getString("orderItemSeqId"))) {
+                Debug.log("Explode OrderItemShipGroupAssoc [" + valueObj.toString() + "]",module);
+                for (int a=0; assocOrderItems.size() > a; a++) {
+                  GenericValue assocOrderItem=(GenericValue)assocOrderItems.get(a);
+                  String assocOrderItemSeqId=assocOrderItem.getString("orderItemSeqId");
+                  GenericValue newValueObj=GenericValue.create(valueObj);
+                  newValueObj.put("orderItemSeqId",assocOrderItemSeqId);
+                  newValueObj.put("quantity",assocOrderItem.getDouble("quantity"));
+                  newOrderItemShipGroupInfo.add(newValueObj);
+                  Debug.log("Create new  OrderItemShipGroupAssoc [" + newValueObj.toString() + "]",module);
+                }
+              }
+            }
+ else             if ("OrderAdjustment".equals(valueObj.getEntityName())) {
+              if (orderItemSeqId.equals(valueObj.getString("orderItemSeqId"))) {
+                Debug.log("Explode OrderAdjustment [" + valueObj.toString() + "] ",module);
+                for (int a=0; assocOrderItems.size() > a; a++) {
+                  GenericValue assocOrderItem=(GenericValue)assocOrderItems.get(a);
+                  String assocOrderItemSeqId=assocOrderItem.getString("orderItemSeqId");
+                  Double productToQuantity=assocOrderItem.getDouble("cancelQuantity");
+                  Double amount=valueObj.getDouble("amount");
+                  Double percentage=new Double(productToQuantity.doubleValue() / sumAssocQty);
+                  amount=new Double(amount.doubleValue() * percentage.doubleValue());
+                  GenericValue newValueObj=GenericValue.create(valueObj);
+                  Double itemQuantity=assocOrderItem.getDouble("quantity");
+                  newValueObj.put("sourcePercentage",new Double(amount.doubleValue() / itemQuantity.doubleValue()));
+                  newValueObj.put("orderItemSeqId",assocOrderItemSeqId);
+                  newValueObj.put("amount",amount);
+                  newOrderItemShipGroupInfo.add(newValueObj);
+                  Debug.log("Create new  Order Adjustment [" + newValueObj.toString() + "]",module);
+                }
+              }
+            }
+          }
+        }
+        for (int a=0; assocOrderItems.size() > a; a++) {
+          GenericValue assocOrderItem=(GenericValue)assocOrderItems.get(a);
+          assocOrderItem.remove("cancelQuantity");
+          newOrderItems.add(assocOrderItem);
+        }
+        List andCondList=UtilMisc.toList(new EntityExpr("orderItemSeqId",EntityOperator.EQUALS,orderItem.getString("orderItemSeqId")));
+        List lineItemPriceInfos=EntityUtil.filterByAnd(orderItemPriceInfo,andCondList);
+        if ((lineItemPriceInfos != null) && (lineItemPriceInfos.size() > 0)) {
+          Iterator expItemIter=assocOrderItems.iterator();
+          while (expItemIter.hasNext()) {
+            GenericValue expItem=(GenericValue)expItemIter.next();
+            List newOrderItemPriceInfos=new LinkedList();
+            Iterator oipii=lineItemPriceInfos.iterator();
+            while (oipii.hasNext()) {
+              GenericValue oipi=(GenericValue)oipii.next();
+              GenericValue newoipi=(GenericValue)oipi.clone();
+              newoipi.set("orderItemSeqId",expItem.getString("orderItemSeqId"));
+              newOrderItemPriceInfos.add(newoipi);
+              Debug.logInfo("Applying price rule " + oipi.getString("productPriceRuleId") + " to order item seq Id "+ expItem.getString("orderItemSeqId"),module);
+            }
+            orderItemPriceInfo.addAll(newOrderItemPriceInfos);
+          }
+          orderItemPriceInfo.removeAll(lineItemPriceInfos);
+        }
+      }
+ else {
+        newOrderItems.add(orderItem);
+        if (orderAdjustments != null && orderAdjustments.size() > 0) {
+          for (int a=0; orderAdjustments.size() > a; a++) {
+            GenericValue orderAdjustment=(GenericValue)orderAdjustments.get(a);
+            if (orderItemSeqId.equals(orderAdjustment.getString("orderItemSeqId"))) {
+              newOrderAdjustments.add(orderAdjustment);
+            }
+          }
+        }
+        if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
+          Iterator osiInfos=orderItemShipGroupInfo.iterator();
+          while (osiInfos.hasNext()) {
+            GenericValue valueObj=(GenericValue)osiInfos.next();
+            if ("OrderAdjustment".equals(valueObj.getEntityName()) || "OrderItemShipGroupAssoc".equals(valueObj.getEntityName())) {
+              if (orderItemSeqId.equals(valueObj.getString("orderItemSeqId"))) {
+                newOrderItemShipGroupInfo.add(valueObj);
+              }
+            }
+          }
+        }
+      }
+    }
+ catch (    Exception e) {
+      Debug.logWarning(e,"There was an error in the [explodeMarketingPkgAutoItem]: " + e.getMessage(),module);
+      throw e;
+    }
+  }
+  orderItems.clear();
+  orderItems.addAll(newOrderItems);
+  orderAdjustments.clear();
+  orderAdjustments.addAll(newOrderAdjustments);
+  orderItemShipGroupInfo.clear();
+  orderItemShipGroupInfo.addAll(newOrderItemShipGroupInfo);
+}

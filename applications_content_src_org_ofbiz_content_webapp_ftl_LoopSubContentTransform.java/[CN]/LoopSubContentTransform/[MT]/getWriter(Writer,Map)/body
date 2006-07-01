@@ -1,0 +1,92 @@
+{
+  final StringBuffer buf=new StringBuffer();
+  final Environment env=Environment.getCurrentEnvironment();
+  final Map templateCtx=(Map)FreeMarkerWorker.getWrappedObject("context",env);
+  final GenericDelegator delegator=(GenericDelegator)FreeMarkerWorker.getWrappedObject("delegator",env);
+  final Map savedValues=FreeMarkerWorker.saveValues(templateCtx,saveKeyNames);
+  FreeMarkerWorker.overrideWithArgs(templateCtx,args);
+  String contentAssocTypeId=(String)templateCtx.get("contentAssocTypeId");
+  if (UtilValidate.isEmpty(contentAssocTypeId)) {
+    contentAssocTypeId="SUB_CONTENT";
+    templateCtx.put("contentAssocTypeId ",contentAssocTypeId);
+  }
+  List assocTypes=UtilMisc.toList(contentAssocTypeId);
+  templateCtx.put("assocTypes",assocTypes);
+  Locale locale=(Locale)templateCtx.get("locale");
+  if (locale == null) {
+    locale=Locale.getDefault();
+    templateCtx.put("locale",locale);
+  }
+  String fromDateStr=(String)templateCtx.get("fromDateStr");
+  Timestamp fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    fromDate=UtilDateTime.toTimestamp(fromDateStr);
+  }
+  if (fromDate == null)   fromDate=UtilDateTime.nowTimestamp();
+  String thisContentId=(String)templateCtx.get("contentId");
+  if (UtilValidate.isEmpty(thisContentId)) {
+    thisContentId=(String)templateCtx.get("subContentId");
+  }
+  String thisMapKey=(String)templateCtx.get("mapKey");
+  Map results=ContentServicesComplex.getAssocAndContentAndDataResourceMethod(delegator,thisContentId,thisMapKey,"From",fromDate,null,null,null,assocTypes,null);
+  List entityList=(List)results.get("entityList");
+  templateCtx.put("entityList",entityList);
+  return new LoopWriter(out){
+    public void write(    char cbuf[],    int off,    int len){
+      buf.append(cbuf,off,len);
+    }
+    public void flush() throws IOException {
+      out.flush();
+    }
+    public int onStart() throws TemplateModelException, IOException {
+      templateCtx.put("entityIndex",new Integer(0));
+      boolean inProgress=prepCtx(delegator,templateCtx);
+      if (inProgress) {
+        return TransformControl.EVALUATE_BODY;
+      }
+ else {
+        return TransformControl.SKIP_BODY;
+      }
+    }
+    public int afterBody() throws TemplateModelException, IOException {
+      Integer idx=(Integer)templateCtx.get("entityIndex");
+      int i=idx.intValue();
+      boolean inProgress=prepCtx(delegator,templateCtx);
+      if (inProgress)       return TransformControl.REPEAT_EVALUATION;
+ else       return TransformControl.END_EVALUATION;
+    }
+    public void close() throws IOException {
+      String wrappedFTL=buf.toString();
+      String encloseWrappedText=(String)templateCtx.get("encloseWrappedText");
+      if (UtilValidate.isEmpty(encloseWrappedText) || encloseWrappedText.equalsIgnoreCase("false")) {
+        out.write(wrappedFTL);
+        wrappedFTL="";
+      }
+      String wrapTemplateId=(String)templateCtx.get("wrapTemplateId");
+      if (UtilValidate.isNotEmpty(wrapTemplateId)) {
+        templateCtx.put("wrappedFTL",wrappedFTL);
+        Map templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
+        templateRoot.put("wrapDataResourceTypeId",templateCtx.get("subDataResourceTypeId"));
+        templateRoot.put("wrapContentIdTo",templateCtx.get("contentId"));
+        templateRoot.put("wrapMimeTypeId",templateCtx.get("mimeTypeId"));
+        templateRoot.put("context",templateCtx);
+        Locale locale=(Locale)templateCtx.get("locale");
+        if (locale == null)         locale=Locale.getDefault();
+        String mimeTypeId=(String)templateCtx.get("mimeTypeId");
+        try {
+          ContentWorker.renderContentAsText(delegator,wrapTemplateId,out,templateRoot,null,locale,mimeTypeId);
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,"Error rendering content",module);
+          throw new IOException("Error rendering content" + e.toString());
+        }
+      }
+ else {
+        if (UtilValidate.isNotEmpty(wrappedFTL))         out.write(wrappedFTL);
+      }
+      FreeMarkerWorker.removeValues(templateCtx,removeKeyNames);
+      FreeMarkerWorker.reloadValues(templateCtx,savedValues,env);
+    }
+  }
+;
+}

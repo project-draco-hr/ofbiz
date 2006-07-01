@@ -1,0 +1,82 @@
+{
+  try {
+    LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+    GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+    HttpSession session=request.getSession();
+    GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+    DiskFileUpload dfu=new DiskFileUpload();
+    java.util.List lst=null;
+    try {
+      lst=dfu.parseRequest(request);
+    }
+ catch (    FileUploadException e4) {
+      request.setAttribute("_ERROR_MESSAGE_",e4.getMessage());
+      Debug.logError("[UploadContentAndImage.uploadContentAndImage] " + e4.getMessage(),module);
+      return "error";
+    }
+    if (lst.size() == 0) {
+      request.setAttribute("_ERROR_MESSAGE_","No files uploaded");
+      Debug.logWarning("[DataEvents.uploadImage] No files uploaded",module);
+      return "error";
+    }
+    Map passedParams=new HashMap();
+    FileItem fi=null;
+    FileItem imageFi=null;
+    byte[] imageBytes={};
+    passedParams.put("userLogin",userLogin);
+    for (int i=0; i < lst.size(); i++) {
+      fi=(FileItem)lst.get(i);
+      String fieldName=fi.getFieldName();
+      if (fi.isFormField()) {
+        String fieldStr=fi.getString();
+        passedParams.put(fieldName,fieldStr);
+      }
+ else       if (fieldName.startsWith("imageData")) {
+        imageFi=fi;
+        String fileName=fi.getName();
+        passedParams.put("drObjectInfo",fileName);
+        String contentType=fi.getContentType();
+        passedParams.put("drMimeTypeId",contentType);
+        imageBytes=imageFi.get();
+        passedParams.put(fieldName,imageBytes);
+        if (Debug.infoOn())         Debug.logInfo("[UploadContentAndImage]imageData: " + imageBytes.length,module);
+      }
+    }
+    if (Debug.infoOn())     Debug.logInfo("[UploadContentAndImage]passedParams: " + passedParams,module);
+    String strRowCount=(String)passedParams.get("_rowCount");
+    if (UtilValidate.isEmpty(strRowCount)) {
+      strRowCount="1";
+    }
+    int rowCount=Integer.parseInt(strRowCount);
+    TransactionUtil.begin();
+    for (int i=0; i < rowCount; i++) {
+      String suffix="_o_" + i;
+      if (i == 0)       suffix="";
+      String returnMsg=processContentUpload(passedParams,suffix,request);
+      if (returnMsg.equals("error")) {
+        try {
+          TransactionUtil.rollback();
+        }
+ catch (        GenericTransactionException e2) {
+          ServiceUtil.setMessages(request,e2.getMessage(),null,null);
+          return "error";
+        }
+        return "error";
+      }
+    }
+    TransactionUtil.commit();
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"[UploadContentAndImage] ",module);
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    try {
+      TransactionUtil.rollback();
+    }
+ catch (    GenericTransactionException e2) {
+      request.setAttribute("_ERROR_MESSAGE_",e2.getMessage());
+      return "error";
+    }
+    return "error";
+  }
+  return "success";
+}

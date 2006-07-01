@@ -1,0 +1,66 @@
+{
+  XAPoolDataSource pds=(XAPoolDataSource)dsCache.get(helperName);
+  if (pds != null) {
+    return TransactionFactory.getCursorConnection(helperName,pds.getConnection());
+  }
+synchronized (MinervaConnectionFactory.class) {
+    pds=(XAPoolDataSource)dsCache.get(helperName);
+    if (pds != null) {
+      return pds.getConnection();
+    }
+ else {
+      pds=new XAPoolDataSource();
+      pds.setPoolName(helperName);
+    }
+    XADataSourceImpl ds=new XADataSourceImpl();
+    if (ds == null)     throw new GenericEntityException("XADataSource was not created, big problem!");
+    ds.setDriver(jotmJdbcElement.getAttribute("jdbc-driver"));
+    ds.setURL(jotmJdbcElement.getAttribute("jdbc-uri"));
+    String transIso=jotmJdbcElement.getAttribute("isolation-level");
+    if (transIso != null && transIso.length() > 0) {
+      if ("Serializable".equals(transIso)) {
+        pds.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
+      }
+ else       if ("RepeatableRead".equals(transIso)) {
+        pds.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+      }
+ else       if ("ReadUncommitted".equals(transIso)) {
+        pds.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
+      }
+ else       if ("ReadCommitted".equals(transIso)) {
+        pds.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+      }
+ else       if ("None".equals(transIso)) {
+        pds.setTransactionIsolation(Connection.TRANSACTION_NONE);
+      }
+    }
+    pds.setDataSource(ds);
+    pds.setJDBCUser(jotmJdbcElement.getAttribute("jdbc-username"));
+    pds.setJDBCPassword(jotmJdbcElement.getAttribute("jdbc-password"));
+    pds.setTransactionManager(TransactionFactory.getTransactionManager());
+    try {
+      pds.setMaxSize(Integer.parseInt(jotmJdbcElement.getAttribute("pool-maxsize")));
+    }
+ catch (    NumberFormatException nfe) {
+      Debug.logError("Problems with pool settings [pool-maxsize=" + jotmJdbcElement.getAttribute("pool-maxsize") + "]; the values MUST be numbers, using default of 20.",module);
+      pds.setMaxSize(20);
+    }
+catch (    Exception e) {
+      Debug.logError(e,"Problems with pool settings",module);
+      pds.setMaxSize(20);
+    }
+    try {
+      pds.setMinSize(Integer.parseInt(jotmJdbcElement.getAttribute("pool-minsize")));
+    }
+ catch (    NumberFormatException nfe) {
+      Debug.logError("Problems with pool settings [pool-minsize=" + jotmJdbcElement.getAttribute("pool-minsize") + "]; the values MUST be numbers, using default of 5.",module);
+      pds.setMinSize(2);
+    }
+catch (    Exception e) {
+      Debug.logError(e,"Problems with pool settings",module);
+      pds.setMinSize(2);
+    }
+    dsCache.put(helperName,pds);
+    return TransactionFactory.getCursorConnection(helperName,pds.getConnection());
+  }
+}

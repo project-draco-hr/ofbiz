@@ -1,0 +1,42 @@
+{
+  Document document=UtilXml.makeEmptyXmlDocument("entitymodel");
+  Element root=document.getDocumentElement();
+  root.appendChild(document.createElement("title"));
+  root.appendChild(document.createElement("description"));
+  root.appendChild(document.createElement("copyright"));
+  root.appendChild(document.createElement("author"));
+  root.appendChild(document.createElement("version"));
+  List messages=new ArrayList();
+  TreeSet tableNames=this.getTableNames(messages);
+  Map colInfo=this.getColumnInfo(tableNames,true,messages);
+  boolean isCaseSensitive=false;
+  DatabaseMetaData dbData=this.getDatabaseMetaData(null,messages);
+  if (dbData != null) {
+    try {
+      isCaseSensitive=dbData.supportsMixedCaseIdentifiers();
+    }
+ catch (    SQLException e) {
+      Debug.logError(e,"Error getting db meta data about case sensitive",module);
+    }
+  }
+  if (UtilValidate.isNotEmpty(packageName)) {
+    String catalogName=null;
+    try {
+      catalogName=this.getConnection().getCatalog();
+    }
+ catch (    Exception e) {
+    }
+    packageName="org.ofbiz.ext." + (catalogName != null ? catalogName : "unknown");
+  }
+  Iterator tableNamesIter=new TreeSet(colInfo.keySet()).iterator();
+  while (tableNamesIter.hasNext()) {
+    String tableName=(String)tableNamesIter.next();
+    Map colMap=(Map)colInfo.get(tableName);
+    ModelEntity newEntity=new ModelEntity(tableName,colMap,modelFieldTypeReader,isCaseSensitive);
+    root.appendChild(newEntity.toXmlElement(document,"org.ofbiz.ext." + packageName));
+  }
+  for (int i=0; i < messages.size(); i++) {
+    Debug.logInfo((String)messages.get(i),module);
+  }
+  return document;
+}

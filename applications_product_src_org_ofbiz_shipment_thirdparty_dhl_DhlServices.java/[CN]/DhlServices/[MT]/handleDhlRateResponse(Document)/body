@@ -1,0 +1,49 @@
+{
+  List errorList=new LinkedList();
+  Map dhlRateCodeMap=new HashMap();
+  Element rateResponseElement=rateResponseDocument.getDocumentElement();
+  DhlServices.handleErrors(rateResponseElement,errorList);
+  if (UtilValidate.isNotEmpty(errorList)) {
+    return ServiceUtil.returnError(errorList);
+  }
+  Element responseElement=UtilXml.firstChildElement(rateResponseElement,"Shipment");
+  Element responseResultElement=UtilXml.firstChildElement(responseElement,"Result");
+  Element responseEstimateDetailElement=UtilXml.firstChildElement(responseElement,"EstimateDetail");
+  DhlServices.handleErrors(responseElement,errorList);
+  if (UtilValidate.isNotEmpty(errorList)) {
+    return ServiceUtil.returnError(errorList);
+  }
+  String responseStatusCode=UtilXml.childElementValue(responseResultElement,"Code");
+  String responseStatusDescription=UtilXml.childElementValue(responseResultElement,"Desc");
+  String dateGenerated=UtilXml.childElementValue(responseEstimateDetailElement,"DateGenerated");
+  Element responseServiceLevelCommitmentElement=UtilXml.firstChildElement(responseEstimateDetailElement,"ServiceLevelCommitment");
+  String responseServiceLevelCommitmentDescription=UtilXml.childElementValue(responseServiceLevelCommitmentElement,"Desc");
+  Element responseRateEstimateElement=UtilXml.firstChildElement(responseEstimateDetailElement,"RateEstimate");
+  String responseTotalChargeEstimate=UtilXml.childElementValue(responseRateEstimateElement,"TotalChargeEstimate");
+  Element responseChargesElement=UtilXml.firstChildElement(responseRateEstimateElement,"Charges");
+  List chargeNodeList=UtilXml.childElementList(responseChargesElement,"Charge");
+  List chargeList=new ArrayList();
+  if (chargeNodeList != null && chargeNodeList.size() > 0) {
+    for (int i=0; chargeNodeList.size() > i; i++) {
+      Map charge=new HashMap();
+      Element responseChargeElement=(Element)chargeNodeList.get(i);
+      Element responseChargeTypeElement=UtilXml.firstChildElement(responseChargeElement,"Type");
+      String responseChargeTypeCode=UtilXml.childElementValue(responseChargeTypeElement,"Code");
+      String responseChargeTypeDesc=UtilXml.childElementValue(responseChargeTypeElement,"Desc");
+      String responseChargeValue=UtilXml.childElementValue(responseChargeElement,"Value");
+      charge.put("chargeTypeCode",responseChargeTypeCode);
+      charge.put("chargeTypeDesc",responseChargeTypeDesc);
+      charge.put("chargeValue",responseChargeValue);
+      chargeList.add(charge);
+    }
+  }
+  Double shippingEstimateAmount=new Double(responseTotalChargeEstimate);
+  dhlRateCodeMap.put("dateGenerated",dateGenerated);
+  dhlRateCodeMap.put("serviceLevelCommitment",responseServiceLevelCommitmentDescription);
+  dhlRateCodeMap.put("totalChargeEstimate",responseTotalChargeEstimate);
+  dhlRateCodeMap.put("chargeList",chargeList);
+  Map result=ServiceUtil.returnSuccess();
+  result.put("shippingEstimateAmount",shippingEstimateAmount);
+  result.put("dhlRateCodeMap",dhlRateCodeMap);
+  return result;
+}

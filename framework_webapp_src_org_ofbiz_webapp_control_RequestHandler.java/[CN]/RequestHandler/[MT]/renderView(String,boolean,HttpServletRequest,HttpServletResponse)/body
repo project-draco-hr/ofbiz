@@ -1,0 +1,76 @@
+{
+  GenericValue userLogin=(GenericValue)req.getSession().getAttribute("userLogin");
+  GenericDelegator delegator=(GenericDelegator)req.getAttribute("delegator");
+  String cname=UtilHttp.getApplicationName(req);
+  String oldView=view;
+  if (view != null && view.length() > 0 && view.charAt(0) == '/')   view=view.substring(1);
+  String servletName=req.getServletPath().substring(1);
+  Debug.logInfo("servletName=" + servletName + ", view="+ view,module);
+  if (view.startsWith(servletName + "/")) {
+    view=view.substring(servletName.length() + 1);
+    Debug.logInfo("a manual control servlet request was received, removing control servlet path resulting in: view=" + view,module);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Getting View Map]: " + view,module);
+  req.setAttribute("_CURRENT_VIEW_",view);
+  String viewType=requestManager.getViewType(view);
+  String tempView=requestManager.getViewPage(view);
+  String nextPage=null;
+  if (tempView == null) {
+    if (!allowExtView) {
+      throw new RequestHandlerException("No view to render.");
+    }
+ else {
+      nextPage="/" + oldView;
+    }
+  }
+ else {
+    nextPage=tempView;
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Mapped To]: " + nextPage,module);
+  long viewStartTime=System.currentTimeMillis();
+  String charset=getServletContext().getInitParameter("charset");
+  if (charset == null || charset.length() == 0)   charset=req.getCharacterEncoding();
+  if (charset == null || charset.length() == 0)   charset="UTF-8";
+  String viewCharset=requestManager.getViewEncoding(view);
+  if (viewCharset != null && viewCharset.length() > 0)   charset=viewCharset;
+  if (!"none".equals(charset)) {
+    try {
+      req.setCharacterEncoding(charset);
+    }
+ catch (    UnsupportedEncodingException e) {
+      throw new RequestHandlerException("Could not set character encoding to " + charset,e);
+    }
+catch (    IllegalStateException e) {
+      Debug.logInfo(e,"Could not set character encoding to " + charset + ", something has probably already committed the stream",module);
+    }
+  }
+  String contentType="text/html";
+  String viewContentType=requestManager.getViewContentType(view);
+  if (viewContentType != null && viewContentType.length() > 0)   contentType=viewContentType;
+  if (charset.length() > 0 && !"none".equals(charset)) {
+    resp.setContentType(contentType + "; charset=" + charset);
+  }
+ else {
+    resp.setContentType(contentType);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("The ContentType for the " + view + " view is: "+ contentType,module);
+  try {
+    if (Debug.verboseOn())     Debug.logVerbose("Rendering view [" + nextPage + "] of type ["+ viewType+ "]",module);
+    ViewHandler vh=viewFactory.getViewHandler(viewType);
+    vh.render(view,nextPage,requestManager.getViewInfo(view),contentType,charset,req,resp);
+  }
+ catch (  ViewHandlerException e) {
+    Throwable throwable=e.getNested() != null ? e.getNested() : e;
+    throw new RequestHandlerException(e.getNonNestedMessage(),throwable);
+  }
+  try {
+    resp.flushBuffer();
+  }
+ catch (  java.io.IOException e) {
+    throw new RequestHandlerException("Error flushing response buffer",e);
+  }
+  String vname=(String)req.getAttribute("_CURRENT_VIEW_");
+  if (vname != null) {
+    ServerHitBin.countView(cname + "." + vname,req,viewStartTime,System.currentTimeMillis() - viewStartTime,userLogin,delegator);
+  }
+}

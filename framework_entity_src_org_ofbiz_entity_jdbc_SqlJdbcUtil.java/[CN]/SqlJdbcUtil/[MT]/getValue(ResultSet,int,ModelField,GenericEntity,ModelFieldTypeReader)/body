@@ -1,0 +1,163 @@
+{
+  ModelFieldType mft=modelFieldTypeReader.getModelFieldType(curField.getType());
+  if (mft == null) {
+    throw new GenericModelException("definition fieldType " + curField.getType() + " not found, cannot getValue for field "+ entity.getEntityName()+ "."+ curField.getName()+ ".");
+  }
+  String fieldType=mft.getJavaType();
+  try {
+    int typeValue=getType(fieldType);
+    ResultSetMetaData rsmd=rs.getMetaData();
+    int colType=rsmd.getColumnType(ind);
+    if (typeValue <= 4 || typeValue >= 11) {
+switch (typeValue) {
+case 1:
+        if (java.sql.Types.CLOB == colType) {
+          Clob valueClob=rs.getClob(ind);
+          Reader valueReader=null;
+          if (valueClob != null) {
+            valueReader=valueClob.getCharacterStream();
+          }
+          if (valueReader != null) {
+            char[] inCharBuffer=new char[CHAR_BUFFER_SIZE];
+            StringBuffer strBuf=new StringBuffer();
+            int charsRead=0;
+            try {
+              while ((charsRead=valueReader.read(inCharBuffer,0,CHAR_BUFFER_SIZE)) > 0) {
+                strBuf.append(inCharBuffer,0,charsRead);
+              }
+              valueReader.close();
+            }
+ catch (            IOException e) {
+              throw new GenericEntityException("Error reading long character stream for field " + curField.getName() + " of entity "+ entity.getEntityName(),e);
+            }
+            entity.dangerousSetNoCheckButFast(curField,strBuf.toString());
+          }
+ else {
+            entity.dangerousSetNoCheckButFast(curField,null);
+          }
+        }
+ else {
+          String value=rs.getString(ind);
+          entity.dangerousSetNoCheckButFast(curField,value);
+        }
+      break;
+case 2:
+    entity.dangerousSetNoCheckButFast(curField,rs.getTimestamp(ind));
+  break;
+case 3:
+entity.dangerousSetNoCheckButFast(curField,rs.getTime(ind));
+break;
+case 4:
+entity.dangerousSetNoCheckButFast(curField,rs.getDate(ind));
+break;
+case 11:
+Object obj=null;
+InputStream binaryInput=null;
+byte[] fieldBytes=rs.getBytes(ind);
+if (fieldBytes != null && fieldBytes.length > 0) {
+binaryInput=new ByteArrayInputStream(fieldBytes);
+}
+if (fieldBytes != null && fieldBytes.length <= 0) {
+Debug.logWarning("Got bytes back for Object field with length: " + fieldBytes.length + " while getting value : "+ curField.getName()+ " ["+ curField.getColName()+ "] ("+ ind+ "): ",module);
+}
+if (binaryInput != null) {
+ObjectInputStream in=null;
+try {
+in=new ObjectInputStream(binaryInput);
+obj=in.readObject();
+}
+ catch (IOException ex) {
+throw new GenericDataSourceException("Unable to read BLOB data from input stream while getting value : " + curField.getName() + " ["+ curField.getColName()+ "] ("+ ind+ "): "+ ex.toString(),ex);
+}
+catch (ClassNotFoundException ex) {
+throw new GenericDataSourceException("Class not found: Unable to cast BLOB data to an Java object while getting value : " + curField.getName() + " ["+ curField.getColName()+ "] ("+ ind+ "): "+ ex.toString(),ex);
+}
+ finally {
+if (in != null) {
+try {
+in.close();
+}
+ catch (IOException e) {
+throw new GenericDataSourceException("Unable to close binary input stream while getting value : " + curField.getName() + " ["+ curField.getColName()+ "] ("+ ind+ "): "+ e.toString(),e);
+}
+}
+}
+}
+binaryInput=null;
+entity.dangerousSetNoCheckButFast(curField,obj);
+break;
+case 12:
+entity.dangerousSetNoCheckButFast(curField,rs.getBlob(ind));
+break;
+case 13:
+entity.dangerousSetNoCheckButFast(curField,rs.getClob(ind));
+break;
+case 14:
+case 15:
+entity.dangerousSetNoCheckButFast(curField,rs.getObject(ind));
+break;
+}
+}
+ else {
+switch (typeValue) {
+case 5:
+int intValue=rs.getInt(ind);
+if (rs.wasNull()) {
+entity.dangerousSetNoCheckButFast(curField,null);
+}
+ else {
+entity.dangerousSetNoCheckButFast(curField,new Integer(intValue));
+}
+break;
+case 6:
+long longValue=rs.getLong(ind);
+if (rs.wasNull()) {
+entity.dangerousSetNoCheckButFast(curField,null);
+}
+ else {
+entity.dangerousSetNoCheckButFast(curField,new Long(longValue));
+}
+break;
+case 7:
+float floatValue=rs.getFloat(ind);
+if (rs.wasNull()) {
+entity.dangerousSetNoCheckButFast(curField,null);
+}
+ else {
+entity.dangerousSetNoCheckButFast(curField,new Float(floatValue));
+}
+break;
+case 8:
+double doubleValue=rs.getDouble(ind);
+if (rs.wasNull()) {
+entity.dangerousSetNoCheckButFast(curField,null);
+}
+ else {
+entity.dangerousSetNoCheckButFast(curField,new Double(doubleValue));
+}
+break;
+case 9:
+BigDecimal bigDecimalValue=rs.getBigDecimal(ind);
+if (rs.wasNull()) {
+entity.dangerousSetNoCheckButFast(curField,null);
+}
+ else {
+entity.dangerousSetNoCheckButFast(curField,bigDecimalValue);
+}
+break;
+case 10:
+boolean booleanValue=rs.getBoolean(ind);
+if (rs.wasNull()) {
+entity.dangerousSetNoCheckButFast(curField,null);
+}
+ else {
+entity.dangerousSetNoCheckButFast(curField,new Boolean(booleanValue));
+}
+break;
+}
+}
+}
+ catch (SQLException sqle) {
+throw new GenericDataSourceException("SQL Exception while getting value : " + curField.getName() + " ["+ curField.getColName()+ "] ("+ ind+ ")",sqle);
+}
+}

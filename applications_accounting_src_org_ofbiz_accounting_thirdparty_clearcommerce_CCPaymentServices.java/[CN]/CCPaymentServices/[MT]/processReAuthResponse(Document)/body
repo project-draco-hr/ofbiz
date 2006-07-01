@@ -1,0 +1,28 @@
+{
+  Element engineDocElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"EngineDoc");
+  Element orderFormElement=UtilXml.firstChildElement(engineDocElement,"OrderFormDoc");
+  Element transactionElement=UtilXml.firstChildElement(orderFormElement,"Transaction");
+  Element procResponseElement=UtilXml.firstChildElement(transactionElement,"CardProcResp");
+  Map result=ServiceUtil.returnSuccess();
+  String errorCode=UtilXml.childElementValue(procResponseElement,"CcErrCode");
+  if ("1".equals(errorCode)) {
+    result.put("reauthResult",Boolean.valueOf(true));
+    result.put("reauthCode",UtilXml.childElementValue(transactionElement,"AuthCode"));
+    Element currentTotalsElement=UtilXml.firstChildElement(transactionElement,"CurrentTotals");
+    Element totalsElement=UtilXml.firstChildElement(currentTotalsElement,"Totals");
+    String reauthAmountStr=UtilXml.childElementValue(totalsElement,"Total");
+    result.put("reauthAmount",new Double(Double.parseDouble(reauthAmountStr) / 100));
+  }
+ else {
+    result.put("reauthResult",Boolean.valueOf(false));
+    result.put("reauthAmount",Double.valueOf("0.00"));
+  }
+  result.put("reauthRefNum",UtilXml.childElementValue(orderFormElement,"Id"));
+  result.put("reauthFlag",UtilXml.childElementValue(procResponseElement,"Status"));
+  result.put("reauthMessage",UtilXml.childElementValue(procResponseElement,"CcReturnMsg"));
+  List messages=getMessageList(responseDocument);
+  if (UtilValidate.isNotEmpty(messages)) {
+    result.put("internalRespMsgs",messages);
+  }
+  return result;
+}

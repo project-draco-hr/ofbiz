@@ -1,0 +1,108 @@
+{
+  if (!mgrLoggedIn) {
+    pos.showDialog("dialog/error/mgrnotloggedin");
+    return;
+  }
+  PosTransaction trans=PosTransaction.getCurrentTx(pos.getSession());
+  if (!trans.isOpen()) {
+    pos.showDialog("dialog/error/terminalclosed");
+    return;
+  }
+  Output output=pos.getOutput();
+  Input input=pos.getInput();
+  if (input.isFunctionSet("CLOSE")) {
+    String[] func=input.getFunction("CLOSE");
+    String lastValue=input.value();
+    if (UtilValidate.isNotEmpty(lastValue)) {
+      try {
+        double dbl=Double.parseDouble(lastValue);
+        dbl=dbl / 100;
+        lastValue=UtilFormatOut.formatPrice(dbl);
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError(e,module);
+      }
+      if (UtilValidate.isNotEmpty(func[1])) {
+        func[1]=func[1] + "|";
+      }
+      func[1]=func[1] + lastValue;
+      input.setFunction("CLOSE",func[1]);
+    }
+    String[] closeInfo=new String[0];
+    if (UtilValidate.isNotEmpty(func[1])) {
+      closeInfo=func[1].split("\\|");
+    }
+switch (closeInfo.length) {
+case 0:
+      output.print(UtilProperties.getMessage("pos","ENTCAS",Locale.getDefault()));
+    break;
+case 1:
+  output.print(UtilProperties.getMessage("pos","ENTCHK",Locale.getDefault()));
+break;
+case 2:
+output.print(UtilProperties.getMessage("pos","ENTCRC",Locale.getDefault()));
+break;
+case 3:
+output.print(UtilProperties.getMessage("pos","ENTGFC",Locale.getDefault()));
+break;
+case 4:
+output.print(UtilProperties.getMessage("pos","ENTOTH",Locale.getDefault()));
+break;
+case 5:
+GenericValue state=trans.getTerminalState();
+state.set("closedDate",UtilDateTime.nowTimestamp());
+state.set("closedByUserLoginId",pos.getSession().getUserId());
+try {
+state.set("actualEndingCash",new Double(priceDecimalFormat.parse(closeInfo[0]).doubleValue()));
+state.set("actualEndingCheck",new Double(priceDecimalFormat.parse(closeInfo[1]).doubleValue()));
+state.set("actualEndingCc",new Double(priceDecimalFormat.parse(closeInfo[2]).doubleValue()));
+state.set("actualEndingGc",new Double(priceDecimalFormat.parse(closeInfo[3]).doubleValue()));
+state.set("actualEndingOther",new Double(priceDecimalFormat.parse(closeInfo[4]).doubleValue()));
+}
+ catch (ParseException pe) {
+Debug.logError(pe,module);
+}
+state.set("endingTxId",trans.getTransactionId());
+Debug.log("Updated State - " + state,module);
+try {
+state.store();
+state.refresh();
+}
+ catch (GenericEntityException e) {
+Debug.logError(e,module);
+pos.showDialog("dialog/error/exception",e.getMessage());
+}
+output.print(UtilProperties.getMessage("pos","WaitingFinalSales",Locale.getDefault()));
+pos.showDialog("dialog/error/terminalclosed");
+printTotals(pos,state,true);
+pos.getInput().setLock(true);
+pos.getButtons().setLock(true);
+pos.refresh(false);
+GenericValue terminal=null;
+try {
+terminal=state.getRelatedOne("PosTerminal");
+}
+ catch (GenericEntityException e) {
+Debug.logError(e,module);
+pos.showDialog("dialog/error/exception",e.getMessage());
+}
+if (terminal != null && terminal.get("pushEntitySyncId") != null) {
+String syncId=terminal.getString("pushEntitySyncId");
+SyncCallbackAdaptor cb=new SyncCallbackAdaptor(pos,syncId,state.getTimestamp("lastUpdatedTxStamp"));
+pos.getSession().getDispatcher().registerCallback("runEntitySync",cb);
+}
+ else {
+SecurityEvents.logout(pos);
+}
+pos.getInput().setLock(false);
+pos.getButtons().setLock(false);
+pos.refresh(true);
+}
+}
+ else {
+trans.popDrawer();
+input.clear();
+input.setFunction("CLOSE");
+output.print(UtilProperties.getMessage("pos","ENTCAS",Locale.getDefault()));
+}
+}

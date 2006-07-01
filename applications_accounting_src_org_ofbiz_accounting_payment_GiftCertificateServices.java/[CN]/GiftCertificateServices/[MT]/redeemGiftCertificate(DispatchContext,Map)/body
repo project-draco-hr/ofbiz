@@ -1,0 +1,67 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  final String withdrawl="WITHDRAWAL";
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String cardNumber=(String)context.get("cardNumber");
+  String pinNumber=(String)context.get("pinNumber");
+  Double amount=(Double)context.get("amount");
+  String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId="_NA_";
+  }
+  String currencyUom=(String)context.get("currency");
+  if (UtilValidate.isEmpty(currencyUom)) {
+    currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  if (amount.doubleValue() < 0.00) {
+    return ServiceUtil.returnError("Amount should be a positive number.");
+  }
+  try {
+    GenericValue giftCertSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId));
+    if ("Y".equals(giftCertSettings.getString("requirePinCode")) && !validatePin(delegator,cardNumber,pinNumber)) {
+      return ServiceUtil.returnError("PIN number is not valid!");
+    }
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError("Cannot get store fin account settings " + ex.getMessage());
+  }
+  Debug.logInfo("Attempting to redeem GC for " + amount,module);
+  double previousBalance=0.00;
+  try {
+    previousBalance=FinAccountHelper.getBalance(cardNumber,currencyUom,delegator).doubleValue();
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  double balance=0.00;
+  String refNum=null;
+  Boolean procResult;
+  if (previousBalance >= amount.doubleValue()) {
+    try {
+      refNum=GiftCertificateServices.createTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,withdrawl,cardNumber);
+      balance=FinAccountHelper.getAvailableBalance(cardNumber,currencyUom,delegator).doubleValue();
+      procResult=Boolean.TRUE;
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+ else {
+    procResult=Boolean.FALSE;
+    balance=previousBalance;
+    refNum="N/A";
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("previousBalance",new Double(previousBalance));
+  result.put("balance",new Double(balance));
+  result.put("amount",amount);
+  result.put("processResult",procResult);
+  result.put("responseCode","2");
+  result.put("referenceNum",refNum);
+  Debug.log("Redeem GC Result - " + result,module);
+  return result;
+}

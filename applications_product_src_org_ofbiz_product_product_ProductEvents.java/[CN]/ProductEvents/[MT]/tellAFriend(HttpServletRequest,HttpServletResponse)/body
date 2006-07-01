@@ -1,0 +1,55 @@
+{
+  HttpSession session=request.getSession();
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String emailType="PRDS_TELL_FRIEND";
+  String defaultScreenLocation="component://ecommerce/widget/EmailProductScreens.xml#TellFriend";
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (productStore == null) {
+    String errMsg="Could not send tell a friend email, no ProductStore found";
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String productStoreId=productStore.getString("productStoreId");
+  GenericValue productStoreEmail=null;
+  try {
+    productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType",emailType));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Unable to get product store email setting for tell-a-friend: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  if (productStoreEmail == null) {
+    String errMsg="Could not find tell a friend [" + emailType + "] email settings for the store ["+ productStoreId+ "]";
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+  if (UtilValidate.isEmpty(bodyScreenLocation)) {
+    bodyScreenLocation=defaultScreenLocation;
+  }
+  Map paramMap=UtilHttp.getParameterMap(request);
+  paramMap.put("locale",UtilHttp.getLocale(request));
+  paramMap.put("userLogin",session.getAttribute("userLogin"));
+  Map context=FastMap.newInstance();
+  context.put("bodyScreenUri",bodyScreenLocation);
+  context.put("bodyParameters",paramMap);
+  context.put("sendTo",paramMap.get("sendTo"));
+  context.put("contentType",productStoreEmail.get("contentType"));
+  context.put("sendFrom",productStoreEmail.get("fromAddress"));
+  context.put("sendCc",productStoreEmail.get("ccAddress"));
+  context.put("sendBcc",productStoreEmail.get("bccAddress"));
+  context.put("subject",productStoreEmail.getString("subject"));
+  try {
+    dispatcher.runAsync("sendMailFromScreen",context);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Problem sending mail: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}

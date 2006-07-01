@@ -1,0 +1,49 @@
+{
+  PosTransaction trans=PosTransaction.getCurrentTx(pos.getSession());
+  String sku=null;
+  try {
+    sku=getSelectedItem(pos);
+  }
+ catch (  ArrayIndexOutOfBoundsException e) {
+  }
+  if (sku == null) {
+    pos.getOutput().print("Invalid Selection!");
+    pos.getJournal().refresh(pos);
+    pos.getInput().clear();
+  }
+  Input input=pos.getInput();
+  String value=input.value();
+  boolean increment=true;
+  double quantity=1;
+  if (UtilValidate.isNotEmpty(value)) {
+    try {
+      quantity=Double.parseDouble(value);
+    }
+ catch (    NumberFormatException e) {
+      quantity=1;
+    }
+  }
+ else {
+    String[] func=input.getLastFunction();
+    if (func != null && "QTY".equals(func[0])) {
+      increment=false;
+      try {
+        quantity=Double.parseDouble(func[1]);
+      }
+ catch (      NumberFormatException e) {
+        quantity=trans.getItemQuantity(sku);
+      }
+    }
+  }
+  quantity=(increment ? trans.getItemQuantity(sku) + quantity : quantity);
+  try {
+    trans.modifyQty(sku,quantity);
+  }
+ catch (  CartItemModifyException e) {
+    Debug.logError(e,module);
+    pos.showDialog("dialog/error/producterror");
+  }
+  input.clearFunction("QTY");
+  trans.calcTax();
+  pos.refresh();
+}

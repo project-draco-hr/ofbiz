@@ -1,0 +1,179 @@
+{
+  int shipGroups=cart.getShipGroupSize();
+  for (int gi=0; gi < shipGroups; gi++) {
+    String shipmentMethodTypeId=cart.getShipmentMethodTypeId(gi);
+    String carrierPartyId=cart.getCarrierPartyId(gi);
+    Debug.log("Getting ship estimate for group #" + gi + " ["+ shipmentMethodTypeId+ " / "+ carrierPartyId+ "]",module);
+    Map result=ShippingEvents.getShipGroupEstimate(dispatcher,delegator,cart,gi);
+    if (ServiceUtil.isError(result)) {
+      Debug.logError(ServiceUtil.getErrorMessage(result),module);
+      throw new GeneralException(ServiceUtil.getErrorMessage(result));
+    }
+    Double shippingTotal=(Double)result.get("shippingTotal");
+    if (shippingTotal == null) {
+      shippingTotal=new Double(0.00);
+    }
+    cart.setItemShipGroupEstimate(shippingTotal.doubleValue(),gi);
+  }
+  CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
+  try {
+    coh.calcAndAddTax();
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  Map validateResp=coh.validatePaymentMethods();
+  if (ServiceUtil.isError(validateResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(validateResp));
+  }
+  List toStore=new LinkedList();
+  toStore.addAll(cart.makeOrderItems());
+  toStore.addAll(cart.makeAllAdjustments());
+  toStore.addAll(cart.makeAllShipGroupInfos());
+  toStore.addAll(cart.makeAllOrderPaymentInfos());
+  Iterator tsi=toStore.iterator();
+  while (tsi.hasNext()) {
+    GenericValue valueObj=(GenericValue)tsi.next();
+    valueObj.set("orderId",orderId);
+    if ("OrderItemShipGroup".equals(valueObj.getEntityName())) {
+      if (valueObj.get("carrierRoleTypeId") == null) {
+        valueObj.set("carrierRoleTypeId","CARRIER");
+      }
+    }
+ else     if ("OrderAdjustment".equals(valueObj.getEntityName())) {
+      if (valueObj.get("orderItemSeqId") == null || valueObj.getString("orderItemSeqId").length() == 0) {
+        valueObj.set("orderItemSeqId",DataModelConstants.SEQ_ID_NA);
+      }
+      valueObj.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+      valueObj.set("createdDate",UtilDateTime.nowTimestamp());
+      valueObj.set("createdByUserLogin",userLogin.getString("userLoginId"));
+    }
+ else     if ("OrderPaymentPreference".equals(valueObj.getEntityName())) {
+      if (valueObj.get("orderPaymentPreferenceId") == null) {
+        valueObj.set("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference"));
+        valueObj.set("createdDate",UtilDateTime.nowTimestamp());
+        valueObj.set("createdByUserLogin",userLogin.getString("userLoginId"));
+      }
+      if (valueObj.get("statusId") == null) {
+        valueObj.set("statusId","PAYMENT_NOT_RECEIVED");
+      }
+    }
+  }
+  Debug.log("To Store Contains: " + toStore,module);
+  List promoItems=null;
+  try {
+    promoItems=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId,"isPromo","Y"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (promoItems != null) {
+    Iterator pii=promoItems.iterator();
+    while (pii.hasNext()) {
+      GenericValue promoItem=(GenericValue)pii.next();
+      Map cancelPromoCtx=UtilMisc.toMap("orderId",orderId);
+      cancelPromoCtx.put("orderItemSeqId",promoItem.getString("orderItemSeqId"));
+      cancelPromoCtx.put("userLogin",userLogin);
+      Map cancelResp=null;
+      try {
+        cancelResp=dispatcher.runSync("cancelOrderItem",cancelPromoCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+      if (ServiceUtil.isError(cancelResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(cancelResp));
+      }
+    }
+  }
+  Map releaseResp=null;
+  try {
+    releaseResp=dispatcher.runSync("releaseOrderPayments",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (ServiceUtil.isError(releaseResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(releaseResp));
+  }
+  List paymentPrefsToCancel=null;
+  try {
+    List exprs=UtilMisc.toList(new EntityExpr("orderId",EntityOperator.EQUALS,orderId));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_RECEIVED"));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_DECLINED"));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_SETTLED"));
+    EntityCondition cond=new EntityConditionList(exprs,EntityOperator.AND);
+    paymentPrefsToCancel=delegator.findByCondition("OrderPaymentPreference",cond,null,null);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (paymentPrefsToCancel != null) {
+    Iterator oppi=paymentPrefsToCancel.iterator();
+    while (oppi.hasNext()) {
+      GenericValue opp=(GenericValue)oppi.next();
+      try {
+        opp.set("statusId","PAYMENT_CANCELLED");
+        opp.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+    }
+  }
+  try {
+    List adjExprs=new LinkedList();
+    adjExprs.add(new EntityExpr("orderId",EntityOperator.EQUALS,orderId));
+    List exprs=new LinkedList();
+    exprs.add(new EntityExpr("orderAdjustmentTypeId",EntityOperator.EQUALS,"PROMOTION_ADJUSTMENT"));
+    exprs.add(new EntityExpr("orderAdjustmentTypeId",EntityOperator.EQUALS,"SHIPPING_CHARGES"));
+    exprs.add(new EntityExpr("orderAdjustmentTypeId",EntityOperator.EQUALS,"SALES_TAX"));
+    adjExprs.add(new EntityConditionList(exprs,EntityOperator.OR));
+    EntityCondition cond=new EntityConditionList(adjExprs,EntityOperator.AND);
+    delegator.removeByCondition("OrderAdjustment",cond);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  try {
+    delegator.storeAll(toStore);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  List orderItemShipGroupAssoc=new LinkedList();
+  Map itemValuesBySeqId=new HashMap();
+  Iterator oii=toStore.iterator();
+  while (oii.hasNext()) {
+    GenericValue v=(GenericValue)oii.next();
+    if ("OrderItem".equals(v.getEntityName())) {
+      itemValuesBySeqId.put(v.getString("orderItemSeqId"),v);
+    }
+ else     if ("OrderItemShipGroupAssoc".equals(v.getEntityName())) {
+      orderItemShipGroupAssoc.add(v);
+    }
+  }
+  String productStoreId=cart.getProductStoreId();
+  String orderTypeId=cart.getOrderType();
+  List resErrorMessages=new LinkedList();
+  try {
+    Debug.log("Calling reserve inventory...",module);
+    reserveInventory(delegator,dispatcher,userLogin,locale,orderItemShipGroupAssoc,itemValuesBySeqId,orderTypeId,productStoreId,resErrorMessages);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (resErrorMessages.size() > 0) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(ServiceUtil.returnError(resErrorMessages)));
+  }
+}

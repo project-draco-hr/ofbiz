@@ -1,0 +1,55 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  String shipmentId=(String)context.get("shipmentId");
+  String errorMsg=UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceForShipment",UtilMisc.toMap("shipmentId",shipmentId),locale);
+  List invoicesCreated=new ArrayList();
+  try {
+    GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+    if (shipment == null) {
+      return ServiceUtil.returnError(errorMsg + UtilProperties.getMessage(resource,"AccountingShipmentNotFound",locale));
+    }
+    if (!shipment.getString("shipmentTypeId").equals("SALES_RETURN")) {
+      return ServiceUtil.returnError(errorMsg + UtilProperties.getMessage(resource,"AccountingShipmentNotSalesReturn",locale));
+    }
+    List shipmentReceipts=shipment.getRelated("ShipmentReceipt");
+    Map receiptsGroupedByReturn=new HashMap();
+    for (Iterator iter=shipmentReceipts.iterator(); iter.hasNext(); ) {
+      GenericValue receipt=(GenericValue)iter.next();
+      String returnId=receipt.getString("returnId");
+      List billings=delegator.findByAnd("ReturnItemBilling",UtilMisc.toMap("shipmentReceiptId",receipt.getString("receiptId"),"returnId",returnId,"returnItemSeqId",receipt.get("returnItemSeqId")));
+      if (billings.size() > 0)       continue;
+      List receipts=(List)receiptsGroupedByReturn.get(returnId);
+      if (receipts == null) {
+        receipts=new ArrayList();
+      }
+      receipts.add(receipt);
+      receiptsGroupedByReturn.put(returnId,receipts);
+    }
+    for (Iterator iter=receiptsGroupedByReturn.keySet().iterator(); iter.hasNext(); ) {
+      String returnId=(String)iter.next();
+      List receipts=(List)receiptsGroupedByReturn.get(returnId);
+      if (Debug.verboseOn()) {
+        Debug.logVerbose("Creating invoice for return [" + returnId + "] with receipts: "+ receipts.toString(),module);
+      }
+      Map input=UtilMisc.toMap("returnId",returnId,"shipmentReceiptsToBill",receipts,"userLogin",context.get("userLogin"));
+      Map serviceResults=dispatcher.runSync("createInvoiceFromReturn",input);
+      if (ServiceUtil.isError(serviceResults)) {
+        return ServiceUtil.returnError(errorMsg,null,null,serviceResults);
+      }
+      invoicesCreated.add(serviceResults.get("invoiceId"));
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,errorMsg + e.getMessage(),module);
+    return ServiceUtil.returnError(errorMsg + e.getMessage());
+  }
+catch (  GenericEntityException e) {
+    Debug.logError(e,errorMsg + e.getMessage(),module);
+    return ServiceUtil.returnError(errorMsg + e.getMessage());
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("invoicesCreated",invoicesCreated);
+  return result;
+}

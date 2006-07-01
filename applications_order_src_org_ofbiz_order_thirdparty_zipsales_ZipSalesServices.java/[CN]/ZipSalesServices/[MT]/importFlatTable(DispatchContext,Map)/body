@@ -1,0 +1,124 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Security security=dctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String taxFileLocation=(String)context.get("taxFileLocation");
+  String ruleFileLocation=(String)context.get("ruleFileLocation");
+  Locale locale=(Locale)context.get("locale");
+  if (!security.hasPermission("SERVICE_INVOKE_ANY",userLogin)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToLoadTaxTables",locale));
+  }
+  Timestamp now=parseDate("20000101",null);
+  DataFile tdf=null;
+  try {
+    tdf=DataFile.makeDataFile(UtilURL.fromResource(dataFile),flatTable);
+  }
+ catch (  DataFileException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToReadZipSalesDataFile",locale));
+  }
+  URL tUrl=UtilURL.fromResource(taxFileLocation);
+  if (tUrl == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToLocateTaxFileAtLocation",UtilMisc.toMap("taxFileLocation",taxFileLocation),locale));
+  }
+  RecordIterator tri=null;
+  try {
+    tri=tdf.makeRecordIterator(tUrl);
+  }
+ catch (  DataFileException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemGettingTheRecordIterator",locale));
+  }
+  if (tri != null) {
+    while (tri.hasNext()) {
+      Record entry=null;
+      try {
+        entry=tri.next();
+      }
+ catch (      DataFileException e) {
+        Debug.logError(e,module);
+      }
+      GenericValue newValue=delegator.makeValue("ZipSalesTaxLookup",null);
+      newValue.set("zipCode",entry.getString("zipCode").trim());
+      newValue.set("stateCode",entry.get("stateCode") != null ? entry.getString("stateCode").trim() : "_NA_");
+      newValue.set("city",entry.get("city") != null ? entry.getString("city").trim() : "_NA_");
+      newValue.set("county",entry.get("county") != null ? entry.getString("county").trim() : "_NA_");
+      newValue.set("fromDate",parseDate(entry.getString("effectiveDate"),now));
+      newValue.set("countyFips",entry.get("countyFips"));
+      newValue.set("countyDefault",entry.get("countyDefault"));
+      newValue.set("generalDefault",entry.get("generalDefault"));
+      newValue.set("insideCity",entry.get("insideCity"));
+      newValue.set("geoCode",entry.get("geoCode"));
+      newValue.set("stateSalesTax",entry.get("stateSalesTax"));
+      newValue.set("citySalesTax",entry.get("citySalesTax"));
+      newValue.set("cityLocalSalesTax",entry.get("cityLocalSalesTax"));
+      newValue.set("countySalesTax",entry.get("countySalesTax"));
+      newValue.set("countyLocalSalesTax",entry.get("countyLocalSalesTax"));
+      newValue.set("comboSalesTax",entry.get("comboSalesTax"));
+      newValue.set("stateUseTax",entry.get("stateUseTax"));
+      newValue.set("cityUseTax",entry.get("cityUseTax"));
+      newValue.set("cityLocalUseTax",entry.get("cityLocalUseTax"));
+      newValue.set("countyUseTax",entry.get("countyUseTax"));
+      newValue.set("countyLocalUseTax",entry.get("countyLocalUseTax"));
+      newValue.set("comboUseTax",entry.get("comboUseTax"));
+      try {
+        delegator.createOrStore(newValue);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorWritingRecordsToTheDatabase",locale));
+      }
+      Debug.log(newValue.get("zipCode") + "/" + newValue.get("stateCode")+ "/"+ newValue.get("city")+ "/"+ newValue.get("county")+ "/"+ newValue.get("fromDate"));
+    }
+  }
+  DataFile rdf=null;
+  try {
+    rdf=DataFile.makeDataFile(UtilURL.fromResource(dataFile),ruleTable);
+  }
+ catch (  DataFileException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToReadZipSalesDataFile",locale));
+  }
+  URL rUrl=UtilURL.fromResource(ruleFileLocation);
+  if (rUrl == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToLocateRuleFileFromLocation",UtilMisc.toMap("ruleFileLocation",ruleFileLocation),locale));
+  }
+  RecordIterator rri=null;
+  try {
+    rri=rdf.makeRecordIterator(rUrl);
+  }
+ catch (  DataFileException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemGettingTheRecordIterator",locale));
+  }
+  if (rri != null) {
+    while (rri.hasNext()) {
+      Record entry=null;
+      try {
+        entry=rri.next();
+      }
+ catch (      DataFileException e) {
+        Debug.logError(e,module);
+      }
+      if (entry.get("stateCode") != null && entry.getString("stateCode").length() > 0) {
+        GenericValue newValue=delegator.makeValue("ZipSalesRuleLookup",null);
+        newValue.set("stateCode",entry.get("stateCode") != null ? entry.getString("stateCode").trim() : "_NA_");
+        newValue.set("city",entry.get("city") != null ? entry.getString("city").trim() : "_NA_");
+        newValue.set("county",entry.get("county") != null ? entry.getString("county").trim() : "_NA_");
+        newValue.set("fromDate",parseDate(entry.getString("effectiveDate"),now));
+        newValue.set("idCode",entry.get("idCode") != null ? entry.getString("idCode").trim() : null);
+        newValue.set("taxable",entry.get("taxable") != null ? entry.getString("taxable").trim() : null);
+        newValue.set("shipCond",entry.get("shipCond") != null ? entry.getString("shipCond").trim() : null);
+        try {
+          delegator.storeAll(UtilMisc.toList(newValue));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorWritingRecordsToTheDatabase",locale));
+        }
+        Debug.log(newValue.get("stateCode") + "/" + newValue.get("city")+ "/"+ newValue.get("county")+ "/"+ newValue.get("fromDate"));
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

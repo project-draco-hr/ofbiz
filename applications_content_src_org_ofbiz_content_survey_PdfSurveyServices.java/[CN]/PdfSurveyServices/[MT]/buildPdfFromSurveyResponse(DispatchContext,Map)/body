@@ -1,0 +1,67 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Map results=ServiceUtil.returnSuccess();
+  String surveyResponseId=(String)context.get("surveyResponseId");
+  String contentId=(String)context.get("contentId");
+  String surveyId=null;
+  Document document=new Document();
+  try {
+    if (UtilValidate.isNotEmpty(surveyResponseId)) {
+      GenericValue surveyResponse=delegator.findByPrimaryKey("SurveyResponse",UtilMisc.toMap("surveyResponseId",surveyResponseId));
+      if (surveyResponse != null) {
+        surveyId=surveyResponse.getString("surveyId");
+      }
+    }
+    if (UtilValidate.isNotEmpty(surveyId) && UtilValidate.isEmpty(contentId)) {
+      GenericValue survey=delegator.findByPrimaryKey("Survey",UtilMisc.toMap("surveyId",surveyId));
+      if (survey != null) {
+        String acroFormContentId=survey.getString("acroFormContentId");
+        if (UtilValidate.isNotEmpty(acroFormContentId)) {
+          context.put("contentId",acroFormContentId);
+        }
+      }
+    }
+    ByteArrayOutputStream baos=new ByteArrayOutputStream();
+    PdfWriter.getInstance(document,baos);
+    List responses=delegator.findByAnd("SurveyResponseAnswer",UtilMisc.toMap("surveyResponseId",surveyResponseId));
+    Iterator iter=responses.iterator();
+    while (iter.hasNext()) {
+      String value=null;
+      GenericValue surveyResponseAnswer=(GenericValue)iter.next();
+      String surveyQuestionId=(String)surveyResponseAnswer.get("surveyQuestionId");
+      GenericValue surveyQuestion=delegator.findByPrimaryKey("SurveyQuestion",UtilMisc.toMap("surveyQuestionId",surveyQuestionId));
+      String questionType=surveyQuestion.getString("surveyQuestionTypeId");
+      if ("OPTION".equals(questionType)) {
+        value=surveyResponseAnswer.getString("surveyOptionSeqId");
+      }
+ else       if ("BOOLEAN".equals(questionType)) {
+        value=surveyResponseAnswer.getString("booleanResponse");
+      }
+ else       if ("NUMBER_LONG".equals(questionType) || "NUMBER_CURRENCY".equals(questionType) || "NUMBER_FLOAT".equals(questionType)) {
+        Double num=surveyResponseAnswer.getDouble("numericResponse");
+        if (num != null) {
+          value=num.toString();
+        }
+      }
+ else       if ("SEPERATOR_LINE".equals(questionType) || "SEPERATOR_TEXT".equals(questionType)) {
+      }
+ else {
+        value=surveyResponseAnswer.getString("textResponse");
+      }
+      Chunk chunk=new Chunk(surveyQuestion.getString("question") + ": " + value);
+      Paragraph p=new Paragraph(chunk);
+      document.add(p);
+    }
+    ByteWrapper outByteWrapper=new ByteWrapper(baos.toByteArray());
+    results.put("outByteWrapper",outByteWrapper);
+  }
+ catch (  GenericEntityException e) {
+    System.err.println(e.getMessage());
+    ServiceUtil.returnError(e.getMessage());
+  }
+catch (  DocumentException e) {
+    System.err.println(e.getMessage());
+    ServiceUtil.returnError(e.getMessage());
+  }
+  return results;
+}

@@ -1,0 +1,57 @@
+{
+  Iterator newIterator=null;
+  Collection thisCollection=null;
+  if (property != null) {
+    if (Debug.verboseOn())     Debug.logVerbose("Getting iterator from property: " + property,module);
+    Object propertyObject=pageContext.findAttribute(property);
+    if (propertyObject instanceof Iterator) {
+      newIterator=(Iterator)propertyObject;
+    }
+ else {
+      thisCollection=(Collection)propertyObject;
+    }
+  }
+ else {
+    ObjectTag objectTag=(ObjectTag)findAncestorWithClass(this,ObjectTag.class);
+    if (objectTag == null)     return false;
+    if (objectTag.getType().equals("java.util.Collection")) {
+      thisCollection=(Collection)objectTag.getObject();
+    }
+ else {
+      try {
+        ClassLoader loader=Thread.currentThread().getContextClassLoader();
+        Method[] m=loader.loadClass(objectTag.getType()).getDeclaredMethods();
+        for (int i=0; i < m.length; i++) {
+          if (m[i].getName().equals("iterator")) {
+            Debug.logVerbose("Found iterator method. Using it.",module);
+            newIterator=(Iterator)m[i].invoke(objectTag.getObject(),(Object[])null);
+            break;
+          }
+        }
+      }
+ catch (      Exception e) {
+        return false;
+      }
+    }
+  }
+  if (newIterator == null) {
+    if (thisCollection == null || thisCollection.size() < 1)     return false;
+    if (limit > 0 || offset > 0) {
+      ArrayList colList=new ArrayList(thisCollection);
+      int startIndex=offset > 0 ? offset : 0;
+      int endIndex=limit > 0 ? offset + limit : colList.size();
+      endIndex=endIndex > colList.size() ? colList.size() : endIndex;
+      List subList=colList.subList(startIndex,endIndex);
+      newIterator=subList.iterator();
+    }
+ else {
+      newIterator=thisCollection.iterator();
+    }
+    Debug.logVerbose("Got iterator.",module);
+  }
+ else {
+    Debug.logVerbose("iterator already set.",module);
+  }
+  this.iterator=newIterator;
+  return true;
+}

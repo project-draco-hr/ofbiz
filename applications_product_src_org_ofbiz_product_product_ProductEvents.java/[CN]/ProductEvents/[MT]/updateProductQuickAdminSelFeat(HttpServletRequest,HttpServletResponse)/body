@@ -1,0 +1,63 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String productId=request.getParameter("productId");
+  String variantProductId=request.getParameter("productId0");
+  String useImagesProdId=request.getParameter("useImages");
+  String productFeatureTypeId=request.getParameter("productFeatureTypeId");
+  if (UtilValidate.isEmpty(productFeatureTypeId)) {
+    String errMsg="Error: please select a ProductFeature Type to add or update variant features.";
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  try {
+    boolean beganTransaction=TransactionUtil.begin();
+    try {
+      GenericValue productFeatureType=delegator.findByPrimaryKey("ProductFeatureType",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId));
+      if (productFeatureType == null) {
+        String errMsg="Error: the ProductFeature Type specified was not valid and one is require to add or update variant features.";
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
+      if (variantProductId != null) {
+        int attribIdx=0;
+        GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+        do {
+          GenericValue variantProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",variantProductId));
+          String description=request.getParameter("description" + attribIdx);
+          if ((description != null) && (description.trim().length() < 1)) {
+            description=null;
+          }
+          Set variantDescRemoveToRemoveOnVirtual=new HashSet();
+          checkUpdateFeatureApplByDescription(variantProductId,variantProduct,description,productFeatureTypeId,productFeatureType,"STANDARD_FEATURE",nowTimestamp,delegator,null,variantDescRemoveToRemoveOnVirtual);
+          checkUpdateFeatureApplByDescription(productId,product,description,productFeatureTypeId,productFeatureType,"SELECTABLE_FEATURE",nowTimestamp,delegator,variantDescRemoveToRemoveOnVirtual,null);
+          if ((useImagesProdId != null) && (useImagesProdId.equals(variantProductId))) {
+            product.set("smallImageUrl",variantProduct.getString("smallImageUrl"));
+            product.set("mediumImageUrl",variantProduct.getString("mediumImageUrl"));
+            product.set("largeImageUrl",null);
+            product.set("detailImageUrl",null);
+            product.store();
+          }
+          attribIdx++;
+          variantProductId=request.getParameter("productId" + attribIdx);
+        }
+ while (variantProductId != null);
+      }
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericEntityException e) {
+      String errMsg="Error updating quick admin selectable feature settings: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+      return "error";
+    }
+  }
+ catch (  GenericTransactionException gte) {
+    String errMsg="Error updating quick admin selectable feature settings: " + gte.toString();
+    Debug.logError(gte,errMsg,module);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}

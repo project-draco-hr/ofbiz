@@ -1,0 +1,91 @@
+{
+  if (modelEntity == null) {
+    return 0;
+  }
+  if (findOptions == null) {
+    findOptions=new EntityFindOptions();
+  }
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn) {
+    Debug.logVerbose("Doing selectListIteratorByCondition with whereEntityCondition: " + whereEntityCondition,module);
+  }
+  StringBuffer sqlBuffer=new StringBuffer("SELECT ");
+  if (findOptions.getDistinct()) {
+    sqlBuffer.append("DISTINCT ");
+  }
+  sqlBuffer.append("COUNT(*) ");
+  sqlBuffer.append(SqlJdbcUtil.makeFromClause(modelEntity,datasourceInfo));
+  StringBuffer whereString=new StringBuffer();
+  String entityCondWhereString="";
+  List whereEntityConditionParams=FastList.newInstance();
+  if (whereEntityCondition != null) {
+    entityCondWhereString=whereEntityCondition.makeWhereString(modelEntity,whereEntityConditionParams);
+  }
+  String viewClause=SqlJdbcUtil.makeViewWhereClause(modelEntity,datasourceInfo.joinStyle);
+  if (viewClause.length() > 0) {
+    if (entityCondWhereString.length() > 0) {
+      whereString.append("(");
+      whereString.append(entityCondWhereString);
+      whereString.append(") AND ");
+    }
+    whereString.append(viewClause);
+  }
+ else {
+    whereString.append(entityCondWhereString);
+  }
+  if (whereString.length() > 0) {
+    sqlBuffer.append(" WHERE ");
+    sqlBuffer.append(whereString.toString());
+  }
+  if (modelEntity instanceof ModelViewEntity) {
+    ModelViewEntity modelViewEntity=(ModelViewEntity)modelEntity;
+    String groupByString=modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(),", ","",false);
+    if (UtilValidate.isNotEmpty(groupByString)) {
+      sqlBuffer.append(" GROUP BY ");
+      sqlBuffer.append(groupByString);
+    }
+  }
+  String entityCondHavingString="";
+  List havingEntityConditionParams=FastList.newInstance();
+  if (havingEntityCondition != null) {
+    entityCondHavingString=havingEntityCondition.makeWhereString(modelEntity,havingEntityConditionParams);
+  }
+  if (entityCondHavingString.length() > 0) {
+    sqlBuffer.append(" HAVING ");
+    sqlBuffer.append(entityCondHavingString);
+  }
+  String sql=sqlBuffer.toString();
+  SQLProcessor sqlP=new SQLProcessor(helperName);
+  sqlP.prepareStatement(sql,findOptions.getSpecifyTypeAndConcur(),findOptions.getResultSetType(),findOptions.getResultSetConcurrency(),findOptions.getFetchSize(),findOptions.getMaxRows());
+  if (verboseOn) {
+    Debug.logVerbose("Setting the whereEntityConditionParams: " + whereEntityConditionParams,module);
+  }
+  Iterator whereEntityConditionParamsIter=whereEntityConditionParams.iterator();
+  while (whereEntityConditionParamsIter.hasNext()) {
+    EntityConditionParam whereEntityConditionParam=(EntityConditionParam)whereEntityConditionParamsIter.next();
+    SqlJdbcUtil.setValue(sqlP,whereEntityConditionParam.getModelField(),modelEntity.getEntityName(),whereEntityConditionParam.getFieldValue(),modelFieldTypeReader);
+  }
+  if (verboseOn) {
+    Debug.logVerbose("Setting the havingEntityConditionParams: " + havingEntityConditionParams,module);
+  }
+  Iterator havingEntityConditionParamsIter=havingEntityConditionParams.iterator();
+  while (havingEntityConditionParamsIter.hasNext()) {
+    EntityConditionParam havingEntityConditionParam=(EntityConditionParam)havingEntityConditionParamsIter.next();
+    SqlJdbcUtil.setValue(sqlP,havingEntityConditionParam.getModelField(),modelEntity.getEntityName(),havingEntityConditionParam.getFieldValue(),modelFieldTypeReader);
+  }
+  try {
+    sqlP.executeQuery();
+    long count=0;
+    ResultSet resultSet=sqlP.getResultSet();
+    if (resultSet.next()) {
+      count=resultSet.getLong(1);
+    }
+    return count;
+  }
+ catch (  SQLException e) {
+    throw new GenericDataSourceException("Error getting count value",e);
+  }
+ finally {
+    sqlP.close();
+  }
+}

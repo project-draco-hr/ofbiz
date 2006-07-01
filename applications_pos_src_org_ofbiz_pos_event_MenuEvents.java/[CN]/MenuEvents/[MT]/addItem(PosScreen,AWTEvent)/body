@@ -1,0 +1,64 @@
+{
+  PosTransaction trans=PosTransaction.getCurrentTx(pos.getSession());
+  Input input=pos.getInput();
+  String[] func=input.getFunction("QTY");
+  String value=input.value();
+  if (event != null && UtilValidate.isEmpty(value)) {
+    String buttonName=ButtonEventConfig.getButtonName(event);
+    if (UtilValidate.isNotEmpty(buttonName)) {
+      if (buttonName.startsWith("SKU.")) {
+        value=buttonName.substring(4);
+      }
+    }
+    if (UtilValidate.isEmpty(value)) {
+      return;
+    }
+  }
+  if (!trans.isOpen()) {
+    pos.showDialog("dialog/error/terminalclosed");
+  }
+ else {
+    double quantity=1;
+    if (func != null && "QTY".equals(func[0])) {
+      try {
+        quantity=Double.parseDouble(func[1]);
+      }
+ catch (      NumberFormatException e) {
+        quantity=1;
+      }
+    }
+    String productId=null;
+    try {
+      List items=trans.lookupItem(value);
+      if (items != null && items.size() == 1) {
+        GenericValue product=EntityUtil.getFirst(items);
+        productId=product.getString("productId");
+      }
+ else       if (items != null && items.size() > 0) {
+        Debug.logInfo("Multiple products found; need to select one from the list",module);
+      }
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/producterror");
+    }
+    if (productId != null) {
+      try {
+        trans.addItem(productId,quantity);
+      }
+ catch (      CartItemModifyException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/producterror");
+      }
+catch (      ItemNotFoundException e) {
+        pos.showDialog("dialog/error/productnotfound");
+      }
+    }
+ else {
+      pos.showDialog("dialog/error/productnotfound");
+    }
+  }
+  input.clearFunction("QTY");
+  trans.calcTax();
+  pos.refresh();
+}

@@ -1,0 +1,66 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  String statusId=(String)context.get("statusId");
+  Map successResult=ServiceUtil.returnSuccess();
+  Locale locale=(Locale)context.get("locale");
+  Security security=ctx.getSecurity();
+  if (!security.hasEntityPermission("ORDERMGR","_UPDATE",userLogin)) {
+    GenericValue placingCustomer=null;
+    try {
+      Map placingCustomerFields=UtilMisc.toMap("orderId",orderId,"partyId",userLogin.getString("partyId"),"roleTypeId","PLACING_CUSTOMER");
+      placingCustomer=delegator.findByPrimaryKey("OrderRole",placingCustomerFields);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderRoleEntity",locale) + e.getMessage());
+    }
+    if (placingCustomer == null)     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+  }
+  try {
+    GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatusOrderCannotBeFound",locale));
+    }
+    successResult.put("oldStatusId",orderHeader.get("statusId"));
+    if (Debug.verboseOn())     Debug.logVerbose("[OrderServices.setOrderStatus] : From Status : " + orderHeader.getString("statusId"),module);
+    if (Debug.verboseOn())     Debug.logVerbose("[OrderServices.setOrderStatus] : To Status : " + statusId,module);
+    if (orderHeader.getString("statusId").equals(statusId)) {
+      Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderTriedToSetOrderStatusWithTheSameStatusIdforOrderWithId",UtilMisc.toMap("statusId",statusId,"orderId",orderId),locale),module);
+      return successResult;
+    }
+    try {
+      Map statusFields=UtilMisc.toMap("statusId",orderHeader.getString("statusId"),"statusIdTo",statusId);
+      GenericValue statusChange=delegator.findByPrimaryKeyCache("StatusValidChange",statusFields);
+      if (statusChange == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatusStatusIsNotAValidChange",locale));
+      }
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatus",locale) + e.getMessage() + ").");
+    }
+    orderHeader.set("statusId",statusId);
+    GenericValue orderStatus=delegator.makeValue("OrderStatus",null);
+    orderStatus.put("orderStatusId",delegator.getNextSeqId("OrderStatus"));
+    orderStatus.put("statusId",statusId);
+    orderStatus.put("orderId",orderId);
+    orderStatus.put("statusDatetime",UtilDateTime.nowTimestamp());
+    orderStatus.put("statusUserLogin",userLogin.getString("userLoginId"));
+    orderHeader.store();
+    orderStatus.create();
+    successResult.put("needsInventoryIssuance",orderHeader.get("needsInventoryIssuance"));
+    successResult.put("grandTotal",orderHeader.get("grandTotal"));
+    successResult.put("orderTypeId",orderHeader.get("orderTypeId"));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatus",locale) + e.getMessage() + ").");
+  }
+  if ("ORDER_CANCELLED".equals(statusId) || "ORDER_APPROVED".equals(statusId)) {
+    OrderChangeHelper.releaseInitialOrderHold(ctx.getDispatcher(),orderId);
+    if ("ORDER_CANCELLED".equals(statusId)) {
+      OrderChangeHelper.abortOrderProcessing(ctx.getDispatcher(),orderId);
+    }
+  }
+  successResult.put("orderStatusId",statusId);
+  return successResult;
+}

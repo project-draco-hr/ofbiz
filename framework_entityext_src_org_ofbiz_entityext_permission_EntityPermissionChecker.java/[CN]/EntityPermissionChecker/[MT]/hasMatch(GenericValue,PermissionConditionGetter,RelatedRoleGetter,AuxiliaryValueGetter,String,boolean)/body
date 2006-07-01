@@ -1,0 +1,52 @@
+{
+  String entityName=entity.getEntityName();
+  ModelEntity modelEntity=entity.getModelEntity();
+  GenericDelegator delegator=entity.getDelegator();
+  String pkFieldName=modelEntity.getFirstPkFieldName();
+  String entityId=entity.getString(pkFieldName);
+  if (Debug.verboseOn())   Debug.logVerbose("\n\nIN hasMatch: entityId:" + entityId + " partyId:"+ partyId+ " checkAncestors:"+ checkAncestors,module);
+  boolean isMatch=false;
+  permissionConditionGetter.restart();
+  List auxiliaryValueList=null;
+  if (auxiliaryValueGetter != null) {
+    auxiliaryValueGetter.init(delegator,entityId);
+    auxiliaryValueList=auxiliaryValueGetter.getList();
+    if (Debug.verboseOn())     Debug.logVerbose(auxiliaryValueGetter.dumpAsText(),module);
+  }
+ else {
+    if (Debug.verboseOn())     Debug.logVerbose("NO AUX GETTER",module);
+  }
+  List roleValueList=null;
+  if (relatedRoleGetter != null) {
+    if (checkAncestors) {
+      relatedRoleGetter.initWithAncestors(delegator,entity,partyId);
+    }
+ else {
+      relatedRoleGetter.init(delegator,entityId,partyId,entity);
+    }
+    roleValueList=relatedRoleGetter.getList();
+    if (Debug.verboseOn())     Debug.logVerbose(relatedRoleGetter.dumpAsText(),module);
+  }
+ else {
+    if (Debug.verboseOn())     Debug.logVerbose("NO ROLE GETTER",module);
+  }
+  String targStatusId=null;
+  if (modelEntity.getField("statusId") != null) {
+    targStatusId=entity.getString("statusId");
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("STATUS:" + targStatusId,module);
+  while (permissionConditionGetter.getNext()) {
+    String roleConditionId=permissionConditionGetter.getRoleValue();
+    String auxiliaryConditionId=permissionConditionGetter.getAuxiliaryValue();
+    String statusConditionId=permissionConditionGetter.getStatusValue();
+    boolean auxiliaryCond=(auxiliaryConditionId == null || auxiliaryConditionId.equals("_NA_") || (auxiliaryValueList != null && auxiliaryValueList.contains(auxiliaryConditionId)));
+    boolean statusCond=(statusConditionId == null || statusConditionId.equals("_NA_") || (targStatusId != null && targStatusId.equals(statusConditionId)));
+    boolean roleCond=(roleConditionId == null || roleConditionId.equals("_NA_") || (roleValueList != null && roleValueList.contains(roleConditionId)));
+    if (auxiliaryCond && statusCond && roleCond) {
+      if (Debug.verboseOn())       Debug.logVerbose("MATCHED: role:" + roleConditionId + " status:"+ statusConditionId+ " aux:"+ auxiliaryConditionId,module);
+      isMatch=true;
+      break;
+    }
+  }
+  return isMatch;
+}

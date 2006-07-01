@@ -1,0 +1,63 @@
+{
+  ServletContext context=(ServletContext)request.getAttribute("servletContext");
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn)   Debug.logVerbose("Rendering " + this.toString(),module);
+  if (content != null) {
+    if ("direct".equals(type)) {
+      if (UtilJ2eeCompat.useOutputStreamNotWriter(context)) {
+        response.getOutputStream().print(content);
+      }
+ else {
+        response.getWriter().print(content);
+      }
+    }
+ else     if ("default".equals(type) || "region".equals(type) || "resource".equals(type)|| "jpublish".equals(type)) {
+      Region region=null;
+      if ("default".equals(type) || "region".equals(type)) {
+        region=regionManager.getRegion(content);
+      }
+      if ("region".equals(type) || region != null) {
+        if (region == null) {
+          throw new IllegalArgumentException("No region definition found with name: " + content);
+        }
+        RegionStack.push(request,region);
+        region.render(request,response);
+        RegionStack.pop(request);
+      }
+ else       if ("jpublish".equals(type)) {
+        ServletContext sctx=(ServletContext)request.getAttribute("servletContext");
+        if (sctx != null) {
+          JPublishWrapper jp=this.getJPublishWrapper(sctx);
+          if (jp != null) {
+            String contentStr="<!-- " + content + " Not Processed -->";
+            try {
+              contentStr=jp.render(content,request,response);
+            }
+ catch (            GeneralException e) {
+              Debug.logError(e,"Problems rendering view from JPublish",module);
+            }
+            if (UtilJ2eeCompat.useOutputStreamNotWriter(context)) {
+              response.getOutputStream().print(contentStr);
+            }
+ else {
+              response.getWriter().print(contentStr);
+            }
+          }
+ else {
+            throw new IllegalStateException("No jpublishWrapper found in ServletContext");
+          }
+        }
+ else {
+          throw new IllegalStateException("No servletContext found in request");
+        }
+      }
+ else {
+        viewHandlerRender("default",request,response);
+      }
+    }
+ else {
+      viewHandlerRender(type,request,response);
+    }
+  }
+  if (verboseOn)   Debug.logVerbose("DONE Rendering " + this.toString(),module);
+}

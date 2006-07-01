@@ -1,0 +1,75 @@
+{
+  HttpSession session=request.getSession();
+  ActionManager actionManager=siteContext.getActionManager();
+  CharacterEncodingMap characterEncodingMap=siteContext.getCharacterEncodingManager().getMap(path);
+  JPublishContext context=new JPublishContext(this);
+  context.put("request",request);
+  context.put("response",response);
+  context.put("session",session);
+  context.put("application",servletContext);
+  context.put("characterEncodingMap",characterEncodingMap);
+  URLUtilities urlUtilities=new URLUtilities(request,response);
+  context.put("urlUtilities",urlUtilities);
+  context.put("dateUtilities",DateUtilities.getInstance());
+  context.put("numberUtilities",NumberUtilities.getInstance());
+  context.put("syslog",SiteContext.syslog);
+  context.put("site",siteContext);
+  if (siteContext.isProtectReservedNames()) {
+    context.enableCheckReservedNames(this);
+  }
+  Iterator repositories=siteContext.getRepositories().iterator();
+  while (repositories.hasNext()) {
+    Repository repository=(Repository)repositories.next();
+    context.put(repository.getName(),new RepositoryWrapper(repository,context));
+    if (repository.getName().equals("fs_repository")) {
+      context.put("pages",new RepositoryWrapper(repository,context));
+    }
+  }
+  try {
+    if (executePreEvaluationActions(request,response,context,path))     return;
+    StaticResourceManager staticResourceManager=siteContext.getStaticResourceManager();
+    if (staticResourceManager.resourceExists(path)) {
+      if (outputStream != null) {
+        if (executeGlobalActions(request,response,context,path,allowRedirect))         return;
+        if (executePathActions(request,response,context,path,allowRedirect))         return;
+        if (executeParameterActions(request,response,context,path,allowRedirect))         return;
+        staticResourceManager.load(path,outputStream);
+        outputStream.flush();
+        return;
+      }
+ else {
+        throw new GeneralException("Cannot load static resource with a null OutputStream");
+      }
+    }
+    if (writer == null)     throw new GeneralException("Cannot load dynamic content with a null Writer");
+    PageInstance pageInstance=siteContext.getPageManager().getPage(path);
+    Page page=new Page(pageInstance);
+    context.disableCheckReservedNames(this);
+    context.put("page",page);
+    context.put("components",new ComponentMap(context));
+    if (siteContext.isProtectReservedNames()) {
+      context.enableCheckReservedNames(this);
+    }
+    if (executeGlobalActions(request,response,context,path,allowRedirect))     return;
+    if (executePathActions(request,response,context,path,allowRedirect))     return;
+    if (executeParameterActions(request,response,context,path,allowRedirect))     return;
+    if (optionalRedirect(page.executeActions(context),path,response,allowRedirect))     return;
+    Template template=siteContext.getTemplateManager().getTemplate(page.getFullTemplateName());
+    template.merge(context,page,writer);
+    writer.flush();
+  }
+ catch (  FileNotFoundException e) {
+    throw new GeneralException("File not found",e);
+  }
+catch (  Exception e) {
+    throw new GeneralException("JPublish execution error",e);
+  }
+ finally {
+    try {
+      executePostEvaluationActions(request,response,context,path);
+    }
+ catch (    Exception e) {
+      throw new GeneralException("Error executing JPublish post evaluation actions",e);
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  XMultiComponentFactory xmulticomponentfactory=null;
+  String stringUrl="file:///" + context.get("filenameFrom");
+  String stringOriginalFile="file:///" + context.get("filenameOriginal");
+  String stringOutFile="file:///" + context.get("filenameOut");
+  String oooHost=(String)context.get("oooHost");
+  String oooPort=(String)context.get("oooPort");
+  try {
+    xmulticomponentfactory=OpenOfficeWorker.getRemoteServer(oooHost,oooPort);
+  }
+ catch (  IOException e) {
+    Debug.logError(e,"Error in OpenOffice operation: ",module);
+    return ServiceUtil.returnError(e.toString());
+  }
+catch (  Exception e) {
+    Debug.logError(e,"Error in OpenOffice operation: ",module);
+    return ServiceUtil.returnError(e.toString());
+  }
+  try {
+    XPropertySet xpropertysetMultiComponentFactory=(XPropertySet)UnoRuntime.queryInterface(XPropertySet.class,xmulticomponentfactory);
+    Object objectDefaultContext=xpropertysetMultiComponentFactory.getPropertyValue("DefaultContext");
+    XComponentContext xcomponentcontext=(XComponentContext)UnoRuntime.queryInterface(XComponentContext.class,objectDefaultContext);
+    Object desktopObj=xmulticomponentfactory.createInstanceWithContext("com.sun.star.frame.Desktop",xcomponentcontext);
+    XDesktop desktop=(XDesktop)UnoRuntime.queryInterface(XDesktop.class,desktopObj);
+    XComponentLoader xcomponentloader=(XComponentLoader)UnoRuntime.queryInterface(XComponentLoader.class,desktopObj);
+    PropertyValue propertyvalue[]=new PropertyValue[1];
+    propertyvalue[0]=new PropertyValue();
+    propertyvalue[0].Name="Hidden";
+    propertyvalue[0].Value=new Boolean(true);
+    Object objectDocumentToStore=xcomponentloader.loadComponentFromURL(stringUrl,"_blank",0,propertyvalue);
+    XStorable xstorable=(XStorable)UnoRuntime.queryInterface(XStorable.class,objectDocumentToStore);
+    propertyvalue=new PropertyValue[1];
+    propertyvalue[0]=new PropertyValue();
+    propertyvalue[0].Name="URL";
+    propertyvalue[0].Value=stringOriginalFile;
+    XFrame frame=desktop.getCurrentFrame();
+    Object dispatchHelperObj=xmulticomponentfactory.createInstanceWithContext("com.sun.star.frame.DispatchHelper",xcomponentcontext);
+    XDispatchHelper dispatchHelper=(XDispatchHelper)UnoRuntime.queryInterface(XDispatchHelper.class,dispatchHelperObj);
+    XDispatchProvider dispatchProvider=(XDispatchProvider)UnoRuntime.queryInterface(XDispatchProvider.class,frame);
+    dispatchHelper.executeDispatch(dispatchProvider,".uno:CompareDocuments","",0,propertyvalue);
+    propertyvalue=new PropertyValue[1];
+    propertyvalue[0]=new PropertyValue();
+    propertyvalue[0].Name="Overwrite";
+    propertyvalue[0].Value=new Boolean(true);
+    Debug.logInfo("stringOutFile: " + stringOutFile,module);
+    xstorable.storeToURL(stringOutFile,propertyvalue);
+    XComponent xcomponent=(XComponent)UnoRuntime.queryInterface(XComponent.class,xstorable);
+    xcomponent.dispose();
+    Map results=ServiceUtil.returnSuccess();
+    return results;
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Error in OpenOffice operation: ",module);
+    return ServiceUtil.returnError("Error converting document: " + e.toString());
+  }
+}

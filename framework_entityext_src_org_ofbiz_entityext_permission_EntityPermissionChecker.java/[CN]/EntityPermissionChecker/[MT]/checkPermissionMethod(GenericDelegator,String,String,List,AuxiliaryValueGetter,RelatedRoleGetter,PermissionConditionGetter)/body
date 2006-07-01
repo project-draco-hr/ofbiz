@@ -1,0 +1,88 @@
+{
+  permissionConditionGetter.init(delegator);
+  if (Debug.verboseOn())   Debug.logVerbose(permissionConditionGetter.dumpAsText(),module);
+  boolean passed=false;
+  String lcEntityName=entityName.toLowerCase();
+  String userLoginId=null;
+  boolean checkAncestors=false;
+  boolean hasRoleOperation=checkHasRoleOperations(partyId,permissionConditionGetter,delegator);
+  if (hasRoleOperation) {
+    return true;
+  }
+  ModelEntity modelEntity=delegator.getModelEntity(entityName);
+  if (relatedRoleGetter != null) {
+    if (UtilValidate.isNotEmpty(partyId)) {
+      relatedRoleGetter.setList(UtilMisc.toList("LOGGEDIN"));
+    }
+  }
+  String pkFieldName=modelEntity.getFirstPkFieldName();
+  if (Debug.infoOn()) {
+    String entityIdString="ENTITIES: ";
+    for (int i=0; i < entityIdList.size(); i++) {
+      Object obj=entityIdList.get(i);
+      if (obj instanceof GenericValue) {
+        String s=((GenericValue)obj).getString(pkFieldName);
+        entityIdString+=s + "  ";
+      }
+ else {
+        entityIdString+=obj + "  ";
+      }
+    }
+  }
+  List alreadyCheckedIds=new ArrayList();
+  Map entities=new HashMap();
+  Iterator iter=entityIdList.iterator();
+  while (iter.hasNext()) {
+    GenericValue entity=getNextEntity(delegator,entityName,pkFieldName,iter.next(),entities);
+    if (entity == null)     continue;
+    checkAncestors=false;
+    passed=hasMatch(entity,permissionConditionGetter,relatedRoleGetter,null,partyId,checkAncestors);
+    if (passed) {
+      break;
+    }
+  }
+  if (passed) {
+    return true;
+  }
+  if (auxiliaryValueGetter != null) {
+    iter=entityIdList.iterator();
+    while (iter.hasNext()) {
+      GenericValue entity=getNextEntity(delegator,entityName,pkFieldName,iter.next(),entities);
+      if (entity == null)       continue;
+      checkAncestors=false;
+      passed=hasMatch(entity,permissionConditionGetter,relatedRoleGetter,auxiliaryValueGetter,partyId,checkAncestors);
+      if (passed) {
+        break;
+      }
+    }
+  }
+  if (passed)   return true;
+  if (partyId == null)   return false;
+  if (relatedRoleGetter != null) {
+    iter=entityIdList.iterator();
+    while (iter.hasNext()) {
+      GenericValue entity=getNextEntity(delegator,entityName,pkFieldName,iter.next(),entities);
+      if (entity == null)       continue;
+      checkAncestors=false;
+      passed=hasMatch(entity,permissionConditionGetter,relatedRoleGetter,auxiliaryValueGetter,partyId,checkAncestors);
+      if (passed) {
+        break;
+      }
+    }
+  }
+  if (passed)   return true;
+  if (relatedRoleGetter != null) {
+    iter=entityIdList.iterator();
+    while (iter.hasNext()) {
+      GenericValue entity=getNextEntity(delegator,entityName,pkFieldName,iter.next(),entities);
+      if (entity == null)       continue;
+      String entityId=entity.getString(pkFieldName);
+      checkAncestors=true;
+      passed=hasMatch(entity,permissionConditionGetter,relatedRoleGetter,auxiliaryValueGetter,partyId,checkAncestors);
+      if (passed) {
+        break;
+      }
+    }
+  }
+  return passed;
+}

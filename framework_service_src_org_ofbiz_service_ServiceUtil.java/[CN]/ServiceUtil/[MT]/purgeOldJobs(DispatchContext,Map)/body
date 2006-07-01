@@ -1,0 +1,133 @@
+{
+  String sendPool=ServiceConfigUtil.getSendPool();
+  int daysToKeep=ServiceConfigUtil.getPurgeJobDays();
+  GenericDelegator delegator=dctx.getDelegator();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  Calendar cal=Calendar.getInstance();
+  cal.setTimeInMillis(now.getTime());
+  cal.add(Calendar.DAY_OF_YEAR,daysToKeep * -1);
+  Timestamp purgeTime=new Timestamp(cal.getTimeInMillis());
+  EntityCondition pool=new EntityExpr("poolId",EntityOperator.EQUALS,sendPool);
+  List finExp=UtilMisc.toList(new EntityExpr("finishDateTime",EntityOperator.NOT_EQUAL,null));
+  finExp.add(new EntityExpr("finishDateTime",EntityOperator.LESS_THAN,purgeTime));
+  List canExp=UtilMisc.toList(new EntityExpr("cancelDateTime",EntityOperator.NOT_EQUAL,null));
+  canExp.add(new EntityExpr("cancelDateTime",EntityOperator.LESS_THAN,purgeTime));
+  EntityCondition cancelled=new EntityConditionList(canExp,EntityOperator.AND);
+  EntityCondition finished=new EntityConditionList(finExp,EntityOperator.AND);
+  EntityCondition doneCond=new EntityConditionList(UtilMisc.toList(cancelled,finished),EntityOperator.OR);
+  EntityCondition mainCond=new EntityConditionList(UtilMisc.toList(doneCond,pool),EntityOperator.AND);
+  EntityFindOptions findOptions=new EntityFindOptions();
+  findOptions.setResultSetType(EntityFindOptions.TYPE_SCROLL_INSENSITIVE);
+  findOptions.setMaxRows(1000);
+  Transaction parent=null;
+  try {
+    if (TransactionUtil.getStatus() != TransactionUtil.STATUS_NO_TRANSACTION) {
+      parent=TransactionUtil.suspend();
+    }
+    boolean noMoreResults=false;
+    boolean beganTx1=false;
+    while (!noMoreResults) {
+      List curList=null;
+      try {
+        beganTx1=TransactionUtil.begin();
+        EntityListIterator foundJobs=delegator.findListIteratorByCondition("JobSandbox",mainCond,null,null,null,findOptions);
+        curList=foundJobs.getPartialList(1,1000);
+        foundJobs.close();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Cannot obtain job data from datasource",module);
+        try {
+          TransactionUtil.rollback(beganTx1,e.getMessage(),e);
+        }
+ catch (        GenericTransactionException e1) {
+          Debug.logWarning(e1,module);
+        }
+        return ServiceUtil.returnError(e.getMessage());
+      }
+ finally {
+        try {
+          TransactionUtil.commit(beganTx1);
+        }
+ catch (        GenericTransactionException e) {
+          Debug.logWarning(e,module);
+        }
+      }
+      if (curList != null && curList.size() > 0) {
+        List runtimeToDelete=FastList.newInstance();
+        Iterator curIter=curList.iterator();
+        while (curIter.hasNext()) {
+          GenericValue job=(GenericValue)curIter.next();
+          String jobId=job.getString("jobId");
+          boolean beganTx2=false;
+          try {
+            beganTx2=TransactionUtil.begin();
+            job.remove();
+          }
+ catch (          GenericEntityException e) {
+            Debug.logInfo("Cannot remove job data for ID: " + jobId,module);
+            try {
+              TransactionUtil.rollback(beganTx2,e.getMessage(),e);
+            }
+ catch (            GenericTransactionException e1) {
+              Debug.logWarning(e1,module);
+            }
+          }
+ finally {
+            try {
+              TransactionUtil.commit(beganTx2);
+            }
+ catch (            GenericTransactionException e) {
+              Debug.logWarning(e,module);
+            }
+          }
+        }
+        if (runtimeToDelete.size() > 0) {
+          Iterator delIter=runtimeToDelete.iterator();
+          while (delIter.hasNext()) {
+            String runtimeId=(String)delIter.next();
+            boolean beganTx3=false;
+            try {
+              beganTx3=TransactionUtil.begin();
+              delegator.removeByAnd("RuntimeData",UtilMisc.toMap("runtimeDataId",runtimeId));
+            }
+ catch (            GenericEntityException e) {
+              Debug.logInfo("Cannot remove runtime data for ID: " + runtimeId,module);
+              try {
+                TransactionUtil.rollback(beganTx3,e.getMessage(),e);
+              }
+ catch (              GenericTransactionException e1) {
+                Debug.logWarning(e1,module);
+              }
+            }
+ finally {
+              try {
+                TransactionUtil.commit(beganTx3);
+              }
+ catch (              GenericTransactionException e) {
+                Debug.logWarning(e,module);
+              }
+            }
+          }
+        }
+      }
+ else {
+        noMoreResults=true;
+      }
+    }
+  }
+ catch (  GenericTransactionException e) {
+    Debug.logError(e,"Unable to suspend transaction; cannot purge jobs!",module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+ finally {
+    if (parent != null) {
+      try {
+        TransactionUtil.resume(parent);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logWarning(e,module);
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

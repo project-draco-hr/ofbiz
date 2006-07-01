@@ -1,0 +1,127 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  String upsRateInquireMode=(String)context.get("upsRateInquireMode");
+  String carrierRoleTypeId=(String)context.get("carrierRoleTypeId");
+  String carrierPartyId=(String)context.get("carrierPartyId");
+  String shipmentMethodTypeId=(String)context.get("shipmentMethodTypeId");
+  String shippingContactMechId=(String)context.get("shippingContactMechId");
+  List shippableItemInfo=(List)context.get("shippableItemInfo");
+  Double shippableTotal=(Double)context.get("shippableTotal");
+  Double shippableQuantity=(Double)context.get("shippableQuantity");
+  Double shippableWeight=(Double)context.get("shippableWeight");
+  if (shipmentMethodTypeId.equals("NO_SHIPPING")) {
+    Map result=ServiceUtil.returnSuccess();
+    result.put("shippingEstimateAmount",null);
+    return result;
+  }
+  String dhlShipmentDetailCode=null;
+  try {
+    GenericValue carrierShipmentMethod=delegator.findByPrimaryKey("CarrierShipmentMethod",UtilMisc.toMap("shipmentMethodTypeId",shipmentMethodTypeId,"partyId",carrierPartyId,"roleTypeId","CARRIER"));
+    if (carrierShipmentMethod == null) {
+      return ServiceUtil.returnError("No CarrierShipmentMethod entry for carrier " + carrierPartyId + ", shipmentMethodTypeId "+ shipmentMethodTypeId);
+    }
+    dhlShipmentDetailCode=carrierShipmentMethod.getString("carrierServiceCode");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Failed to get rate estimate: " + e.getMessage(),module);
+  }
+  String userid=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.dhl.access.userid");
+  String password=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.dhl.access.password");
+  String shippingKey=UtilProperties.getPropertyValue("shipment","shipment.dhl.access.shippingKey");
+  String accountNbr=UtilProperties.getPropertyValue("shipment","shipment.dhl.access.accountNbr");
+  if ((shippingKey == null) || (accountNbr == null) || (shippingKey.length() == 0)|| (accountNbr.length() == 0)) {
+    return ServiceUtil.returnError("DHL Shipping Credentials are not configured. (check shipment.dhl.access)");
+  }
+  GenericValue shipToAddress=null;
+  if (shippingContactMechId != null) {
+    try {
+      shipToAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
+      if (shipToAddress == null) {
+        return ServiceUtil.returnError("Unable to determine ship-to address");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if ((shippableWeight == null) || (shippableWeight.doubleValue() <= 0.0)) {
+    String tmpValue=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.default.weight.value");
+    if (tmpValue != null) {
+      try {
+        shippableWeight=new Double(tmpValue);
+      }
+ catch (      Exception e) {
+        return ServiceUtil.returnError("Cannot get DHL Estimate: Default shippable weight not configured (shipment.default.weight.value)");
+      }
+    }
+  }
+  if (shippableWeight.doubleValue() < 1.0) {
+    Debug.logWarning("DHL Estimate: Weight is less than 1 lb, submitting DHL minimum of 1 lb for estimate.",module);
+    shippableWeight=new Double(1.0);
+  }
+  if ((dhlShipmentDetailCode.equals("G") && shippableWeight.doubleValue() > 999) || (shippableWeight.doubleValue() > 150)) {
+    return ServiceUtil.returnError("Cannot get DHL Estimate: Shippable weight cannot be greater than 999 lbs for ground or 150 lbs for all other services.");
+  }
+  String weight=(new Integer((int)shippableWeight.longValue())).toString();
+  String templateName=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.template.dhl.rate.estimate");
+  if ((templateName == null) || (templateName.trim().length() == 0)) {
+    return ServiceUtil.returnError("Cannot get DHL Estimate: DHL Rate template not configured (shipment.template.dhl.rate.estimate");
+  }
+  StringWriter outWriter=new StringWriter();
+  Map inContext=new HashMap();
+  inContext.put("action","RateEstimate");
+  inContext.put("userid",userid);
+  inContext.put("password",password);
+  inContext.put("accountNbr",accountNbr);
+  inContext.put("shippingKey",shippingKey);
+  inContext.put("shipDate",UtilDateTime.nowTimestamp());
+  inContext.put("dhlShipmentDetailCode",dhlShipmentDetailCode);
+  inContext.put("weight",weight);
+  inContext.put("state",shipToAddress.getString("stateProvinceGeoId"));
+  inContext.put("postalCode",shipToAddress.getString("postalCode"));
+  try {
+    Map tmpResult=ContentWorker.renderContentAsText(delegator,templateName,outWriter,inContext,null,locale,"text/plain");
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Cannot get DHL Estimate: Failed to render DHL XML Request.",module);
+    return ServiceUtil.returnError("Cannot get DHL Estimate: Failed to render DHL XML Request.");
+  }
+  String requestString=outWriter.toString();
+  if (Debug.verboseOn()) {
+    Debug.logVerbose(requestString,module);
+  }
+  String rateResponseString=null;
+  try {
+    rateResponseString=sendDhlRequest(requestString);
+    if (Debug.verboseOn()) {
+      Debug.logVerbose(rateResponseString,module);
+    }
+  }
+ catch (  DhlConnectException e) {
+    String uceErrMsg="Error sending DHL request for DHL Service Rate: " + e.toString();
+    Debug.logError(e,uceErrMsg,module);
+    return ServiceUtil.returnError(uceErrMsg);
+  }
+  Document rateResponseDocument=null;
+  try {
+    rateResponseDocument=UtilXml.readXmlDocument(rateResponseString,false);
+    return handleDhlRateResponse(rateResponseDocument);
+  }
+ catch (  SAXException e2) {
+    String excErrMsg="Error parsing the RatingServiceResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(excErrMsg);
+  }
+catch (  ParserConfigurationException e2) {
+    String excErrMsg="Error parsing the RatingServiceResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(excErrMsg);
+  }
+catch (  IOException e2) {
+    String excErrMsg="Error parsing the RatingServiceResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(excErrMsg);
+  }
+}

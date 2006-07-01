@@ -1,0 +1,49 @@
+{
+  String entityName=entity.getEntityName();
+  List roles=new ArrayList();
+  if (entity == null)   return roles;
+  roles.remove("OWNER");
+  if (entity.get("createdByUserLogin") != null && userLogin != null) {
+    String userLoginId=(String)userLogin.get("userLoginId");
+    String userLoginIdCB=(String)entity.get("createdByUserLogin");
+    if (userLoginIdCB.equals(userLoginId)) {
+      roles.add("OWNER");
+    }
+  }
+  String partyId=(String)userLogin.get("partyId");
+  List relatedRoles=null;
+  List tmpRelatedRoles=entity.getRelatedCache(entityName + "Role");
+  relatedRoles=EntityUtil.filterByDate(tmpRelatedRoles);
+  if (relatedRoles != null) {
+    Iterator rolesIter=relatedRoles.iterator();
+    while (rolesIter.hasNext()) {
+      GenericValue contentRole=(GenericValue)rolesIter.next();
+      String roleTypeId=(String)contentRole.get("roleTypeId");
+      String targPartyId=(String)contentRole.get("partyId");
+      if (targPartyId.equals(partyId)) {
+        if (!roles.contains(roleTypeId))         roles.add(roleTypeId);
+        if (roleTypeId.equals("AUTHOR") && !roles.contains("OWNER"))         roles.add("OWNER");
+      }
+ else {
+        GenericValue party=null;
+        String partyTypeId=null;
+        try {
+          party=contentRole.getRelatedOne("Party");
+          partyTypeId=(String)party.get("partyTypeId");
+          if (partyTypeId != null && partyTypeId.equals("PARTY_GROUP")) {
+            HashMap map=new HashMap();
+            map.put("partyIdFrom",partyId);
+            map.put("partyIdTo",targPartyId);
+            if (isGroupMember(map,delegator)) {
+              if (!roles.contains(roleTypeId))               roles.add(roleTypeId);
+            }
+          }
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Error in finding related party. " + e.getMessage(),module);
+        }
+      }
+    }
+  }
+  return roles;
+}

@@ -1,0 +1,53 @@
+{
+  UtilCache entityCache=null;
+synchronized (UtilCache.utilCacheTable) {
+    entityCache=(UtilCache)UtilCache.utilCacheTable.get(getCacheName(entityName));
+  }
+  if (newValues == null || newValues.size() == 0 || newValues.get(0) == null) {
+  }
+  if (entityCache == null) {
+    return;
+  }
+  Iterator cacheKeyIter=entityCache.getCacheLineKeys().iterator();
+  while (cacheKeyIter.hasNext()) {
+    EntityCondition condition=(EntityCondition)cacheKeyIter.next();
+    boolean shouldRemove=false;
+    if (condition == null) {
+      shouldRemove=true;
+    }
+ else     if (oldValues == null) {
+      Iterator newValueIter=newValues.iterator();
+      while (newValueIter.hasNext() && !shouldRemove) {
+        Map newValue=(Map)newValueIter.next();
+        shouldRemove|=condition.mapMatches(getDelegator(),newValue);
+      }
+    }
+ else {
+      boolean oldMatched=false;
+      Iterator oldValueIter=oldValues.iterator();
+      while (oldValueIter.hasNext() && !shouldRemove) {
+        Map oldValue=(Map)oldValueIter.next();
+        if (condition.mapMatches(getDelegator(),oldValue)) {
+          oldMatched=true;
+          if (newValues != null) {
+            Iterator newValueIter=newValues.iterator();
+            while (newValueIter.hasNext() && !shouldRemove) {
+              Map newValue=(Map)newValueIter.next();
+              shouldRemove|=isNull(newValue) || condition.mapMatches(getDelegator(),newValue);
+            }
+          }
+ else {
+            shouldRemove=true;
+          }
+        }
+      }
+      if (!oldMatched && isPK) {
+        shouldRemove=true;
+      }
+    }
+    if (shouldRemove) {
+      if (Debug.verboseOn())       Debug.logVerbose("In storeHook, matched condition, removing from cache for entityName [" + entityName + "] in cache with name ["+ entityCache.getName()+ "] entry with condition: "+ condition,module);
+      entityCache.remove(condition);
+    }
+  }
+}

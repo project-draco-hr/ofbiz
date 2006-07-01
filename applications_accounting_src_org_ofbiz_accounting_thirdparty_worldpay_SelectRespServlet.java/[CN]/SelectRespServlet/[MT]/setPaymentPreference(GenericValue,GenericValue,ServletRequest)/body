@@ -1,0 +1,48 @@
+{
+  String transId=request.getParameter(SelectDefs.SEL_transId);
+  String transTime=request.getParameter(SelectDefs.SEL_transTime);
+  String transStatus=request.getParameter(SelectDefs.SEL_transStatus);
+  String avsCode=request.getParameter("AVS");
+  String authCode=request.getParameter(SelectDefs.SEL_authCode);
+  String authAmount=request.getParameter(SelectDefs.SEL_authAmount);
+  String rawAuthMessage=request.getParameter(SelectDefs.SEL_rawAuthMessage);
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  if (transStatus.equalsIgnoreCase("Y")) {
+    paymentPreference.set("authCode",authCode);
+    paymentPreference.set("statusId","PAYMENT_RECEIVED");
+  }
+ else {
+    paymentPreference.set("statusId","PAYMENT_CANCELLED");
+  }
+  Long transTimeLong=new Long(transTime);
+  java.sql.Timestamp authDate=new java.sql.Timestamp(transTimeLong.longValue());
+  paymentPreference.set("avsCode",avsCode);
+  paymentPreference.set("authRefNum",transId);
+  paymentPreference.set("authDate",authDate);
+  paymentPreference.set("authFlag",transStatus);
+  paymentPreference.set("authMessage",rawAuthMessage);
+  paymentPreference.set("maxAmount",new Double(authAmount));
+  Map results=null;
+  try {
+    results=dispatcher.runSync("createPaymentFromPreference",UtilMisc.toMap("userLogin",userLogin,"orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"),"comments","Payment received via WorldPay"));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Failed to execute service createPaymentFromPreference",module);
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return false;
+  }
+  if ((results == null) || (results.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
+    Debug.logError((String)results.get(ModelService.ERROR_MESSAGE),module);
+    request.setAttribute("_ERROR_MESSAGE_",(String)results.get(ModelService.ERROR_MESSAGE));
+    return false;
+  }
+  try {
+    paymentPreference.store();
+    paymentPreference.getDelegator().create(paymentPreference);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot set payment preference/payment info",module);
+    return false;
+  }
+  return true;
+}

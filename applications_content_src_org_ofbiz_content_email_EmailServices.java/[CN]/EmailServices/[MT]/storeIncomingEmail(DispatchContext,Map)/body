@@ -1,0 +1,129 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  MimeMessageWrapper wrapper=(MimeMessageWrapper)context.get("messageWrapper");
+  MimeMessage message=wrapper.getMessage();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String partyIdTo=null;
+  String partyIdFrom=null;
+  String contentType=null;
+  String content=null;
+  String communicationEventId=null;
+  String contactMechIdFrom=null;
+  String contactMechIdTo=null;
+  Map result=null;
+  try {
+    String contentTypeRaw=message.getContentType();
+    int idx=contentTypeRaw.indexOf(";");
+    contentType=contentTypeRaw.substring(0,idx);
+    Address[] addressesFrom=message.getFrom();
+    Address[] addressesTo=message.getRecipients(MimeMessage.RecipientType.TO);
+    Address[] addressesCC=message.getRecipients(MimeMessage.RecipientType.CC);
+    Address[] addressesBCC=message.getRecipients(MimeMessage.RecipientType.BCC);
+    result=getParyInfoFromEmailAddress(addressesFrom,userLogin,dispatcher);
+    partyIdFrom=(String)result.get("partyId");
+    contactMechIdFrom=(String)result.get("contactMechId");
+    List allResults=getListOfParyInfoFromEmailAddresses(addressesTo,addressesCC,addressesBCC,userLogin,dispatcher);
+    Iterator itr=allResults.iterator();
+    if ((allResults != null) && (allResults.size() > 0)) {
+      Map firstAddressTo=(Map)itr.next();
+      partyIdTo=(String)firstAddressTo.get("partyId");
+      contactMechIdTo=(String)firstAddressTo.get("contactMechId");
+    }
+    Map commEventMap=new HashMap();
+    commEventMap.put("communicationEventTypeId","AUTO_EMAIL_COMM");
+    commEventMap.put("contactMechTypeId","EMAIL_ADDRESS");
+    commEventMap.put("partyIdTo",partyIdTo);
+    String subject=message.getSubject();
+    commEventMap.put("subject",subject);
+    commEventMap.put("entryDate",nowTimestamp);
+    commEventMap.put("datetimeStarted",UtilDateTime.toTimestamp(message.getSentDate()));
+    commEventMap.put("datetimeEnded",UtilDateTime.toTimestamp(message.getReceivedDate()));
+    int contentIndex=-1;
+    Multipart multipart=null;
+    if (contentType.startsWith("text")) {
+      content=(String)message.getContent();
+      commEventMap.put("contentMimeTypeId",contentType);
+    }
+ else     if (contentType.startsWith("multipart")) {
+      multipart=(Multipart)message.getContent();
+      int multipartCount=multipart.getCount();
+      for (int i=0; i < multipartCount; i++) {
+        Part part=multipart.getBodyPart(i);
+        String thisContentTypeRaw=part.getContentType();
+        int idx2=thisContentTypeRaw.indexOf(";");
+        String thisContentType=thisContentTypeRaw.substring(0,idx2);
+        String disposition=part.getDisposition();
+        if ((disposition == null) && (i == 0) && thisContentType.startsWith("text")) {
+          content=(String)part.getContent();
+          if (UtilValidate.isNotEmpty(content)) {
+            contentIndex=i;
+            commEventMap.put("contentMimeTypeId",thisContentType);
+            break;
+          }
+        }
+ else         if ((disposition != null) && (disposition.equals(Part.ATTACHMENT) || disposition.equals(Part.INLINE)) && thisContentType.startsWith("text")) {
+          content=(String)part.getContent();
+          contentIndex=i;
+          commEventMap.put("contentMimeTypeId",thisContentType);
+          break;
+        }
+      }
+    }
+    commEventMap.put("content",content);
+    String commNote="";
+    if (partyIdFrom != null) {
+      commEventMap.put("partyIdFrom",partyIdFrom);
+      commEventMap.put("contactMechIdFrom",contactMechIdFrom);
+      commEventMap.put("contactMechIdTo",contactMechIdTo);
+      commEventMap.put("statusId","COM_ENTERED");
+    }
+ else {
+      commEventMap.put("statusId","COM_UNKNOWN_PARTY");
+      commNote="Sent from: " + UtilMisc.toListArray(addressesFrom);
+    }
+    if (partyIdTo == null) {
+      commNote+="Sent to: " + UtilMisc.toListArray(addressesTo);
+    }
+    if (!("".equals(commNote))) {
+      commEventMap.put("note",commNote);
+    }
+    commEventMap.put("userLogin",userLogin);
+    result=dispatcher.runSync("createCommunicationEvent",commEventMap);
+    communicationEventId=(String)result.get("communicationEventId");
+    if (contentType.startsWith("multipart")) {
+      int attachmentCount=EmailWorker.addAttachmentsToCommEvent(message,communicationEventId,contentIndex,dispatcher,userLogin);
+      if (Debug.infoOn())       Debug.logInfo(attachmentCount + " attachments added to CommunicationEvent:" + communicationEventId,module);
+    }
+    while (itr.hasNext()) {
+      Map address=(Map)itr.next();
+      String partyId=(String)address.get("partyId");
+      GenericValue partyRole=delegator.findByPrimaryKey("PartyRole",UtilMisc.toMap("partyId",partyId,"roleTypeId","_NA_"));
+      if (partyRole == null) {
+        dispatcher.runSync("createPartyRole",UtilMisc.toMap("partyId",partyId,"roleTypeId","_NA_","userLogin",userLogin));
+      }
+      Map input=UtilMisc.toMap("communicationEventId",communicationEventId,"partyId",partyId,"roleTypeId","_NA_","userLogin",userLogin,"contactMechId",(String)address.get("contactMechId"));
+      dispatcher.runSync("createCommunicationEventRole",input);
+    }
+    Map results=ServiceUtil.returnSuccess();
+    results.put("communicationEventId",communicationEventId);
+    return results;
+  }
+ catch (  MessagingException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  Exception e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+}

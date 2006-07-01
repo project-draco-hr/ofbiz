@@ -1,0 +1,26 @@
+{
+  String errMsg="";
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Security security=(Security)request.getAttribute("security");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  String shipmentId=request.getParameter("shipmentId");
+  try {
+    List shipmentPlans=delegator.findByAnd("OrderShipment",UtilMisc.toMap("shipmentId",shipmentId));
+    Iterator shipmentPlansIt=shipmentPlans.iterator();
+    while (shipmentPlansIt.hasNext()) {
+      GenericValue shipmentPlan=(GenericValue)shipmentPlansIt.next();
+      GenericValue orderItem=shipmentPlan.getRelatedOne("OrderItem");
+      List productionRuns=delegator.findByAndCache("WorkOrderItemFulfillment",UtilMisc.toMap("orderId",shipmentPlan.getString("orderId"),"orderItemSeqId",shipmentPlan.getString("orderItemSeqId")));
+      if (productionRuns != null && productionRuns.size() > 0) {
+        Debug.logError("Production Run for order item (" + orderItem.getString("orderId") + "/"+ orderItem.getString("orderItemSeqId")+ ") not created.",module);
+        continue;
+      }
+      Map result=dispatcher.runSync("createProductionRunsForOrder",UtilMisc.toMap("productId",orderItem.getString("productId"),"quantity",shipmentPlan.getDouble("quantity"),"orderId",shipmentPlan.getString("orderId"),"orderItemSeqId",shipmentPlan.getString("orderItemSeqId"),"shipmentId",shipmentId,"userLogin",userLogin));
+    }
+  }
+ catch (  Exception e) {
+    Debug.logWarning(e,module);
+  }
+  return "success";
+}

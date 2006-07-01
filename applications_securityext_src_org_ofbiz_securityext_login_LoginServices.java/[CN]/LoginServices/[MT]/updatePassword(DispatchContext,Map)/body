@@ -1,0 +1,66 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue loggedInUserLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
+  boolean adminUser=false;
+  String userLoginId=(String)context.get("userLoginId");
+  String errMsg=null;
+  if (userLoginId == null || userLoginId.length() == 0) {
+    userLoginId=loggedInUserLogin.getString("userLoginId");
+  }
+  if (!security.hasEntityPermission("PARTYMGR","_UPDATE",loggedInUserLogin)) {
+    if (!userLoginId.equals(loggedInUserLogin.getString("userLoginId"))) {
+      errMsg=UtilProperties.getMessage(resource,"loginservices.not_have_permission_update_password_for_user_login",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+ else {
+    adminUser=true;
+  }
+  GenericValue userLoginToUpdate=null;
+  try {
+    userLoginToUpdate=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_read_failure",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (userLoginToUpdate == null) {
+    Map messageMap=UtilMisc.toMap("userLoginId",userLoginId);
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_userlogin_with_id_not_exist",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  String currentPassword=(String)context.get("currentPassword");
+  String newPassword=(String)context.get("newPassword");
+  String newPasswordVerify=(String)context.get("newPasswordVerify");
+  String passwordHint=(String)context.get("passwordHint");
+  if ("true".equals(UtilProperties.getPropertyValue("security.properties","password.lowercase"))) {
+    currentPassword=currentPassword.toLowerCase();
+    newPassword=newPassword.toLowerCase();
+    newPasswordVerify=newPasswordVerify.toLowerCase();
+  }
+  List errorMessageList=new LinkedList();
+  if (newPassword != null && newPassword.length() > 0) {
+    checkNewPassword(userLoginToUpdate,currentPassword,newPassword,newPasswordVerify,passwordHint,errorMessageList,adminUser,locale);
+  }
+  if (errorMessageList.size() > 0) {
+    return ServiceUtil.returnError(errorMessageList);
+  }
+  userLoginToUpdate.set("currentPassword",useEncryption ? getPasswordHash(newPassword) : newPassword,false);
+  userLoginToUpdate.set("passwordHint",passwordHint,false);
+  try {
+    userLoginToUpdate.store();
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_write_failure",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  result.put("updatedUserLogin",userLoginToUpdate);
+  return result;
+}

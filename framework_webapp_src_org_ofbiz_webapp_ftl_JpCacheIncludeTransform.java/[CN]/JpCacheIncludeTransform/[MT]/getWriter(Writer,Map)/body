@@ -1,0 +1,32 @@
+{
+  Environment env=Environment.getCurrentEnvironment();
+  BeanModel req=(BeanModel)env.getVariable("request");
+  BeanModel jpr=(BeanModel)env.getVariable("pages");
+  final HttpServletRequest request=(HttpServletRequest)req.getWrappedObject();
+  final ServletContext ctx=(ServletContext)request.getAttribute("servletContext");
+  final RepositoryWrapper wrapper=(RepositoryWrapper)jpr.getWrappedObject();
+  final String contextName=ctx.getServletContextName();
+  final long expireTime=this.getExpireTime(args);
+  final String include=this.getInclude(args);
+  return new Writer(writer){
+    public void write(    char cbuf[],    int off,    int len) throws IOException {
+      writer.write(cbuf,off,len);
+    }
+    public void flush() throws IOException {
+      writer.flush();
+    }
+    public void close() throws IOException {
+      Debug.log("Checking for cached content (" + contextName + "."+ include+ ")",module);
+      String content=(String)pageCache.get(contextName + "." + include);
+      if (content == null) {
+        content=wrapper.get(include);
+        pageCache.put(contextName + "." + include,content,expireTime);
+        Debug.log("No content found; cached result for - " + expireTime,module);
+      }
+      if (content != null) {
+        writer.write(content);
+      }
+    }
+  }
+;
+}

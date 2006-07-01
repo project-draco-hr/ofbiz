@@ -1,0 +1,120 @@
+{
+  final int indent=4;
+  if (prefix == null)   prefix="";
+  for (int i=0; i < indent; i++)   writer.print(' ');
+  writer.print('<');
+  writer.print(prefix);
+  writer.print(this.getEntityName());
+  Map cdataMap=FastMap.newInstance();
+  Iterator modelFields=this.getModelEntity().getFieldsIterator();
+  while (modelFields.hasNext()) {
+    ModelField modelField=(ModelField)modelFields.next();
+    String name=modelField.getName();
+    String type=modelField.getType();
+    if (type != null && type.equals("blob")) {
+      Object obj=get(name);
+      boolean b1=obj instanceof byte[];
+      if (b1) {
+        byte[] binData=(byte[])obj;
+        String strData=new String(Base64.base64Encode(binData));
+        cdataMap.put(name,strData);
+      }
+ else {
+        Debug.logWarning("Field:" + name + " is not of type 'byte[]'. obj: "+ obj,module);
+      }
+    }
+ else {
+      String valueStr=this.getString(name);
+      if (valueStr != null) {
+        StringBuffer value=new StringBuffer(valueStr);
+        boolean needsCdata=false;
+        for (int i=0; i < value.length(); i++) {
+          char curChar=value.charAt(i);
+switch (curChar) {
+case '\'':
+            value.replace(i,i + 1,"&apos;");
+          break;
+case '"':
+        value.replace(i,i + 1,"&quot;");
+      break;
+case '&':
+    value.replace(i,i + 1,"&amp;");
+  break;
+case '<':
+value.replace(i,i + 1,"&lt;");
+break;
+case '>':
+value.replace(i,i + 1,"&gt;");
+break;
+case 0xA:
+needsCdata=true;
+break;
+case 0xD:
+needsCdata=true;
+break;
+case 0x9:
+break;
+case 0x5:
+value.replace(i,i + 1,"...");
+break;
+case 0x12:
+value.replace(i,i + 1,"&apos;");
+break;
+case 0x13:
+value.replace(i,i + 1,"&quot;");
+break;
+case 0x14:
+value.replace(i,i + 1,"&quot;");
+break;
+case 0x16:
+value.replace(i,i + 1,"-");
+break;
+case 0x17:
+value.replace(i,i + 1,"-");
+break;
+case 0x19:
+value.replace(i,i + 1,"tm");
+break;
+default :
+if (curChar < 0x20) {
+Debug.logInfo("Removing invalid character [" + curChar + "] numeric value ["+ (int)curChar+ "] for field "+ name+ " of entity with PK: "+ this.getPrimaryKey().toString(),module);
+value.deleteCharAt(i);
+}
+}
+}
+if (needsCdata) {
+cdataMap.put(name,valueStr);
+}
+ else {
+writer.print(' ');
+writer.print(name);
+writer.print("=\"");
+writer.print(value.toString());
+writer.print("\"");
+}
+}
+}
+}
+if (cdataMap.size() == 0) {
+writer.println("/>");
+}
+ else {
+writer.println('>');
+Iterator cdataIter=cdataMap.entrySet().iterator();
+while (cdataIter.hasNext()) {
+Map.Entry entry=(Map.Entry)cdataIter.next();
+for (int i=0; i < (indent << 1); i++) writer.print(' ');
+writer.print('<');
+writer.print((String)entry.getKey());
+writer.print("><![CDATA[");
+writer.print((String)entry.getValue());
+writer.print("]]></");
+writer.print((String)entry.getKey());
+writer.println('>');
+}
+for (int i=0; i < indent; i++) writer.print(' ');
+writer.print("</");
+writer.print(this.getEntityName());
+writer.println(">");
+}
+}

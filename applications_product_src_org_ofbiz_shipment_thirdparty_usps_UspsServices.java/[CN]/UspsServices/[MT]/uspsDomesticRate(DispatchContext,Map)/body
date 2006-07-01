@@ -1,0 +1,61 @@
+{
+  Document requestDocument=createUspsRequestDocument("RateRequest");
+  Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
+  packageElement.setAttribute("ID","0");
+  UtilXml.addChildElementValue(packageElement,"Service",(String)context.get("service"),requestDocument);
+  UtilXml.addChildElementValue(packageElement,"ZipOrigination",(String)context.get("originZip"),requestDocument);
+  UtilXml.addChildElementValue(packageElement,"ZipDestination",(String)context.get("destinationZip"),requestDocument);
+  UtilXml.addChildElementValue(packageElement,"Pounds",(String)context.get("pounds"),requestDocument);
+  UtilXml.addChildElementValue(packageElement,"Ounces",(String)context.get("ounces"),requestDocument);
+  String container=(String)context.get("container");
+  if (UtilValidate.isEmpty(container)) {
+    container="None";
+  }
+  UtilXml.addChildElementValue(packageElement,"Container",container,requestDocument);
+  String size=(String)context.get("size");
+  if (UtilValidate.isEmpty(size)) {
+    size="Regular";
+  }
+  UtilXml.addChildElementValue(packageElement,"Size",size,requestDocument);
+  String machinable=(String)context.get("machinable");
+  if (UtilValidate.isEmpty(machinable)) {
+    machinable="False";
+  }
+  UtilXml.addChildElementValue(packageElement,"Machinable",machinable,requestDocument);
+  Document responseDocument=null;
+  try {
+    responseDocument=sendUspsRequest("Rate",requestDocument);
+  }
+ catch (  UspsRequestException e) {
+    Debug.log(e,module);
+    return ServiceUtil.returnError("Error sending request for USPS Domestic Rate Calculation service: " + e.getMessage());
+  }
+  Element respPackageElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"Package");
+  if (respPackageElement == null) {
+    return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: no Package element found");
+  }
+  Element respErrorElement=UtilXml.firstChildElement(respPackageElement,"Error");
+  if (respErrorElement != null) {
+    return ServiceUtil.returnError("The following error was returned by the USPS Domestic Rate Calculation service: " + UtilXml.childElementValue(respErrorElement,"Description"));
+  }
+  Map result=ServiceUtil.returnSuccess();
+  String zone=UtilXml.childElementValue(respPackageElement,"Zone");
+  if (UtilValidate.isEmpty(zone)) {
+    return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: no Zone element found");
+  }
+  result.put("zone",zone);
+  String postage=UtilXml.childElementValue(respPackageElement,"Postage");
+  if (UtilValidate.isEmpty(postage)) {
+    return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: no Postage element found");
+  }
+  result.put("postage",postage);
+  String restrictionCodes=UtilXml.childElementValue(respPackageElement,"RestrictionCodes");
+  if (UtilValidate.isNotEmpty(restrictionCodes)) {
+    result.put("restrictionCodes",restrictionCodes);
+  }
+  String restrictionDesc=UtilXml.childElementValue(respPackageElement,"RestrictionDescription");
+  if (UtilValidate.isNotEmpty(restrictionCodes)) {
+    result.put("restrictionDesc",restrictionDesc);
+  }
+  return result;
+}

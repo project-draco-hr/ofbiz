@@ -1,0 +1,287 @@
+{
+  ActionResultInfo actionResultInfo=new ActionResultInfo();
+  String productPromoActionEnumId=productPromoAction.getString("productPromoActionEnumId");
+  if ("PROMO_GWP".equals(productPromoActionEnumId)) {
+    String productStoreId=cart.getProductStoreId();
+    boolean allowMultipleGwp=true;
+    Integer itemLoc=findPromoItem(productPromoAction,cart);
+    if (!allowMultipleGwp && itemLoc != null) {
+      if (Debug.verboseOn())       Debug.logVerbose("Not adding promo item, already there; action: " + productPromoAction,module);
+      actionResultInfo.ranAction=false;
+    }
+ else {
+      double quantity=productPromoAction.get("quantity") == null ? 0.0 : productPromoAction.getDouble("quantity").doubleValue();
+      List optionProductIds=FastList.newInstance();
+      String productId=productPromoAction.getString("productId");
+      GenericValue product=null;
+      if (UtilValidate.isNotEmpty(productId)) {
+        product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+        if (product == null) {
+          String errMsg="GWP Product not found with ID [" + productId + "] for ProductPromoAction ["+ productPromoAction.get("productPromoId")+ ":"+ productPromoAction.get("productPromoRuleId")+ ":"+ productPromoAction.get("productPromoActionSeqId")+ "]";
+          Debug.logError(errMsg,module);
+          throw new CartItemModifyException(errMsg);
+        }
+        if ("Y".equals(product.getString("isVirtual"))) {
+          List productAssocs=EntityUtil.filterByDate(product.getRelatedCache("MainProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"),UtilMisc.toList("sequenceNum")),true);
+          Iterator productAssocIter=productAssocs.iterator();
+          while (productAssocIter.hasNext()) {
+            GenericValue productAssoc=(GenericValue)productAssocIter.next();
+            optionProductIds.add(productAssoc.get("productIdTo"));
+          }
+          productId=null;
+          product=null;
+        }
+ else {
+          try {
+            Map invReqResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.toMap("productStoreId",productStoreId,"productId",productId,"product",product,"quantity",new Double(quantity)));
+            if (ServiceUtil.isError(invReqResult)) {
+              Debug.logError("Error calling isStoreInventoryAvailable service, result is: " + invReqResult,module);
+              throw new CartItemModifyException((String)invReqResult.get(ModelService.ERROR_MESSAGE));
+            }
+ else             if (!"Y".equals((String)invReqResult.get("available"))) {
+              productId=null;
+              product=null;
+              Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderNotApplyingGwpBecauseProductIdIsOutOfStockForProductPromoAction",cart.getLocale()),module);
+            }
+          }
+ catch (          GenericServiceException e) {
+            String errMsg="Fatal error calling inventory checking services: " + e.toString();
+            Debug.logError(e,errMsg,module);
+            throw new CartItemModifyException(errMsg);
+          }
+        }
+      }
+      Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+      if (productIds != null) {
+        optionProductIds.addAll(productIds);
+      }
+      Iterator optionProductIdIter=optionProductIds.iterator();
+      while (optionProductIdIter.hasNext()) {
+        String optionProductId=(String)optionProductIdIter.next();
+        try {
+          Map invReqResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.toMap("productStoreId",productStoreId,"productId",optionProductId,"product",product,"quantity",new Double(quantity)));
+          if (ServiceUtil.isError(invReqResult)) {
+            Debug.logError("Error calling isStoreInventoryAvailable service, result is: " + invReqResult,module);
+            throw new CartItemModifyException((String)invReqResult.get(ModelService.ERROR_MESSAGE));
+          }
+ else           if (!"Y".equals((String)invReqResult.get("available"))) {
+            optionProductIdIter.remove();
+          }
+        }
+ catch (        GenericServiceException e) {
+          String errMsg="Fatal error calling inventory checking services: " + e.toString();
+          Debug.logError(e,errMsg,module);
+          throw new CartItemModifyException(errMsg);
+        }
+      }
+      String alternateGwpProductId=cart.getDesiredAlternateGiftByAction(productPromoAction.getPrimaryKey());
+      if (UtilValidate.isNotEmpty(alternateGwpProductId)) {
+        if (optionProductIds.contains(alternateGwpProductId)) {
+          if (UtilValidate.isNotEmpty(productId)) {
+            optionProductIds.add(productId);
+          }
+          optionProductIds.remove(alternateGwpProductId);
+          productId=alternateGwpProductId;
+          product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+        }
+ else {
+          Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderAnAlternateGwpProductIdWasInPlaceButWasEitherNotValidOrIsNoLongerInStockForId",UtilMisc.toMap("alternateGwpProductId",alternateGwpProductId),cart.getLocale()),module);
+        }
+      }
+      if (product == null && optionProductIds.size() > 0) {
+        Iterator optionProductIdTempIter=optionProductIds.iterator();
+        productId=(String)optionProductIdTempIter.next();
+        optionProductIdTempIter.remove();
+        product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+      }
+      if (product == null) {
+        return actionResultInfo;
+      }
+      ShoppingCartItem gwpItem=null;
+      try {
+        String prodCatalogId=null;
+        gwpItem=ShoppingCartItem.makeItem(null,product,null,quantity,null,null,null,null,null,null,null,null,prodCatalogId,null,null,null,dispatcher,cart,Boolean.FALSE,Boolean.TRUE);
+        if (optionProductIds.size() > 0) {
+          gwpItem.setAlternativeOptionProductIds(optionProductIds);
+        }
+ else {
+          gwpItem.setAlternativeOptionProductIds(null);
+        }
+      }
+ catch (      CartItemModifyException e) {
+        int gwpItemIndex=cart.getItemIndex(gwpItem);
+        cart.removeCartItem(gwpItemIndex,dispatcher);
+        throw e;
+      }
+      double discountAmount=-(quantity * gwpItem.getBasePrice());
+      doOrderItemPromoAction(productPromoAction,gwpItem,discountAmount,"amount",delegator);
+      gwpItem.setIsPromo(true);
+      if (Debug.verboseOn())       Debug.logVerbose("gwpItem adjustments: " + gwpItem.getAdjustments(),module);
+      actionResultInfo.ranAction=true;
+      actionResultInfo.totalDiscountAmount=discountAmount;
+    }
+  }
+ else   if ("PROMO_FREE_SHIPPING".equals(productPromoActionEnumId)) {
+    cart.addFreeShippingProductPromoAction(productPromoAction);
+    actionResultInfo.ranAction=true;
+  }
+ else   if ("PROMO_PROD_DISC".equals(productPromoActionEnumId)) {
+    double quantityDesired=productPromoAction.get("quantity") == null ? 1.0 : productPromoAction.getDouble("quantity").doubleValue();
+    double startingQuantity=quantityDesired;
+    double discountAmountTotal=0;
+    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    List lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
+    Iterator lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
+    while (quantityDesired > 0 && lineOrderedByBasePriceIter.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)lineOrderedByBasePriceIter.next();
+      GenericValue product=cartItem.getProduct();
+      String parentProductId=cartItem.getParentProductId();
+      if (!cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId))) && (product == null || !"N".equals(product.getString("includeInPromotions")))) {
+        double quantityUsed=cartItem.addPromoQuantityCandidateUse(quantityDesired,productPromoAction,false);
+        if (quantityUsed > 0) {
+          quantityDesired-=quantityUsed;
+          double percentModifier=productPromoAction.get("amount") == null ? 0.0 : (productPromoAction.getDouble("amount").doubleValue() / 100.0);
+          double lineAmount=quantityUsed * cartItem.getBasePrice();
+          double discountAmount=-(lineAmount * percentModifier);
+          discountAmountTotal+=discountAmount;
+        }
+      }
+    }
+    if (quantityDesired == startingQuantity) {
+      actionResultInfo.ranAction=false;
+    }
+ else {
+      double totalAmount=getCartItemsUsedTotalAmount(cart,productPromoAction);
+      if (Debug.verboseOn())       Debug.logVerbose("Applying promo [" + productPromoAction.getPrimaryKey() + "]\n totalAmount="+ totalAmount+ ", discountAmountTotal="+ discountAmountTotal,module);
+      distributeDiscountAmount(discountAmountTotal,totalAmount,getCartItemsUsed(cart,productPromoAction),productPromoAction,delegator);
+      actionResultInfo.ranAction=true;
+      actionResultInfo.totalDiscountAmount=discountAmountTotal;
+      actionResultInfo.quantityLeftInAction=quantityDesired;
+    }
+  }
+ else   if ("PROMO_PROD_AMDISC".equals(productPromoActionEnumId)) {
+    double quantityDesired=productPromoAction.get("quantity") == null ? 1.0 : productPromoAction.getDouble("quantity").doubleValue();
+    double startingQuantity=quantityDesired;
+    double discountAmountTotal=0;
+    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    List lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
+    Iterator lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
+    while (quantityDesired > 0 && lineOrderedByBasePriceIter.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)lineOrderedByBasePriceIter.next();
+      String parentProductId=cartItem.getParentProductId();
+      GenericValue product=cartItem.getProduct();
+      if (!cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId))) && (product == null || !"N".equals(product.getString("includeInPromotions")))) {
+        double quantityUsed=cartItem.addPromoQuantityCandidateUse(quantityDesired,productPromoAction,false);
+        quantityDesired-=quantityUsed;
+        double discount=productPromoAction.get("amount") == null ? 0.0 : productPromoAction.getDouble("amount").doubleValue();
+        if (discount > cartItem.getBasePrice()) {
+          discount=cartItem.getBasePrice();
+        }
+        double discountAmount=-(quantityUsed * discount);
+        discountAmountTotal+=discountAmount;
+      }
+    }
+    if (quantityDesired == startingQuantity) {
+      actionResultInfo.ranAction=false;
+    }
+ else {
+      double totalAmount=getCartItemsUsedTotalAmount(cart,productPromoAction);
+      if (Debug.verboseOn())       Debug.logVerbose("Applying promo [" + productPromoAction.getPrimaryKey() + "]\n totalAmount="+ totalAmount+ ", discountAmountTotal="+ discountAmountTotal,module);
+      distributeDiscountAmount(discountAmountTotal,totalAmount,getCartItemsUsed(cart,productPromoAction),productPromoAction,delegator);
+      actionResultInfo.ranAction=true;
+      actionResultInfo.totalDiscountAmount=discountAmountTotal;
+      actionResultInfo.quantityLeftInAction=quantityDesired;
+    }
+  }
+ else   if ("PROMO_PROD_PRICE".equals(productPromoActionEnumId)) {
+    double quantityDesired=productPromoAction.get("quantity") == null ? 1.0 : productPromoAction.getDouble("quantity").doubleValue();
+    double desiredAmount=productPromoAction.get("amount") == null ? 0.0 : productPromoAction.getDouble("amount").doubleValue();
+    double totalAmount=0;
+    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    List cartItemsUsed=FastList.newInstance();
+    List lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
+    Iterator lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
+    while (quantityDesired > 0 && lineOrderedByBasePriceIter.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)lineOrderedByBasePriceIter.next();
+      String parentProductId=cartItem.getParentProductId();
+      GenericValue product=cartItem.getProduct();
+      if (!cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId))) && (product == null || !"N".equals(product.getString("includeInPromotions")))) {
+        double quantityUsed=cartItem.addPromoQuantityCandidateUse(quantityDesired,productPromoAction,false);
+        if (quantityUsed > 0) {
+          quantityDesired-=quantityUsed;
+          totalAmount+=quantityUsed * cartItem.getBasePrice();
+          cartItemsUsed.add(cartItem);
+        }
+      }
+    }
+    if (totalAmount > desiredAmount && quantityDesired == 0) {
+      double discountAmountTotal=-(totalAmount - desiredAmount);
+      distributeDiscountAmount(discountAmountTotal,totalAmount,cartItemsUsed,productPromoAction,delegator);
+      actionResultInfo.ranAction=true;
+      actionResultInfo.totalDiscountAmount=discountAmountTotal;
+    }
+ else {
+      actionResultInfo.ranAction=false;
+      cart.resetPromoRuleUse(productPromoAction.getString("productPromoId"),productPromoAction.getString("productPromoRuleId"));
+    }
+  }
+ else   if ("PROMO_ORDER_PERCENT".equals(productPromoActionEnumId)) {
+    double percentage=-(productPromoAction.get("amount") == null ? 0.0 : (productPromoAction.getDouble("amount").doubleValue() / 100.0));
+    double amount=cart.getSubTotalForPromotions() * percentage;
+    if (amount != 0) {
+      doOrderPromoAction(productPromoAction,cart,amount,"amount",delegator);
+      actionResultInfo.ranAction=true;
+      actionResultInfo.totalDiscountAmount=amount;
+    }
+  }
+ else   if ("PROMO_ORDER_AMOUNT".equals(productPromoActionEnumId)) {
+    double amount=-(productPromoAction.get("amount") == null ? 0.0 : productPromoAction.getDouble("amount").doubleValue());
+    double subTotal=cart.getSubTotalForPromotions();
+    if (-amount > subTotal) {
+      amount=-subTotal;
+    }
+    if (amount != 0) {
+      doOrderPromoAction(productPromoAction,cart,amount,"amount",delegator);
+      actionResultInfo.ranAction=true;
+      actionResultInfo.totalDiscountAmount=amount;
+    }
+  }
+ else   if ("PROMO_PROD_SPPRC".equals(productPromoActionEnumId)) {
+    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    Iterator cartItemIter=cart.items().iterator();
+    while (cartItemIter.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)cartItemIter.next();
+      String itemProductId=cartItem.getProductId();
+      if (UtilValidate.isEmpty(itemProductId)) {
+        continue;
+      }
+      if (productIds.size() > 0 && !productIds.contains(itemProductId)) {
+        continue;
+      }
+      if (cartItem.getSpecialPromoPrice() == null) {
+        continue;
+      }
+      double difference=-(cartItem.getBasePrice() - cartItem.getSpecialPromoPrice().doubleValue());
+      if (difference != 0.0) {
+        double quantityUsed=cartItem.addPromoQuantityCandidateUse(cartItem.getQuantity(),productPromoAction,false);
+        if (quantityUsed > 0) {
+          double amount=difference * quantityUsed;
+          doOrderItemPromoAction(productPromoAction,cartItem,amount,"amount",delegator);
+          actionResultInfo.ranAction=true;
+          actionResultInfo.totalDiscountAmount=amount;
+        }
+      }
+    }
+  }
+ else {
+    Debug.logError("An un-supported productPromoActionType was used: " + productPromoActionEnumId + ", not performing any action",module);
+    actionResultInfo.ranAction=false;
+  }
+  if (actionResultInfo.ranAction) {
+    cart.confirmPromoRuleUse(productPromoAction.getString("productPromoId"),productPromoAction.getString("productPromoRuleId"));
+  }
+ else {
+    cart.resetPromoRuleUse(productPromoAction.getString("productPromoId"),productPromoAction.getString("productPromoRuleId"));
+  }
+  return actionResultInfo;
+}

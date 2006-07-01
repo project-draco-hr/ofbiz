@@ -1,0 +1,33 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  Collection parties=new LinkedList();
+  String groupName=(String)context.get("groupName");
+  Locale locale=(Locale)context.get("locale");
+  if (groupName.length() == 0) {
+    return ServiceUtil.returnError("Required parameter 'groupName' cannot be empty.");
+  }
+  try {
+    List exprs=new LinkedList();
+    exprs.add(new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue("groupName")),EntityOperator.LIKE,new EntityFunction.UPPER("%" + groupName.toUpperCase() + "%")));
+    Collection pc=delegator.findByAnd("PartyGroup",exprs,UtilMisc.toList("groupName","partyId"));
+    if (Debug.infoOn())     Debug.logInfo("PartyFromGroup number found: " + pc.size(),module);
+    if (pc != null) {
+      Iterator i=pc.iterator();
+      while (i.hasNext()) {
+        GenericValue group=(GenericValue)i.next();
+        GenericValue party=delegator.makeValue("Party",UtilMisc.toMap("partyId",group.get("partyId"),"partyTypeId","PARTY_GROUP"));
+        parties.add(UtilMisc.toMap("partyGroup",group,"party",party));
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    String errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_get_party_entities_read",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (parties.size() > 0) {
+    result.put("parties",parties);
+  }
+  return result;
+}

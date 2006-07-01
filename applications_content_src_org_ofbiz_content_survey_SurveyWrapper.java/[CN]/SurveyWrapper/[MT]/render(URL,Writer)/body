@@ -1,0 +1,47 @@
+{
+  String responseId=this.getThisResponseId();
+  GenericValue survey=this.getSurvey();
+  List surveyQuestionAndAppls=this.getSurveyQuestionAndAppls();
+  Map results=this.getResults(surveyQuestionAndAppls);
+  Map currentAnswers=null;
+  if (responseId != null && canUpdate()) {
+    currentAnswers=this.getResponseAnswers(responseId);
+  }
+  Map sqaaWithColIdListByMultiRespId=FastMap.newInstance();
+  Iterator surveyQuestionAndApplIter=surveyQuestionAndAppls.iterator();
+  while (surveyQuestionAndApplIter.hasNext()) {
+    GenericValue surveyQuestionAndAppl=(GenericValue)surveyQuestionAndApplIter.next();
+    String surveyMultiRespColId=surveyQuestionAndAppl.getString("surveyMultiRespColId");
+    if (UtilValidate.isNotEmpty(surveyMultiRespColId)) {
+      String surveyMultiRespId=surveyQuestionAndAppl.getString("surveyMultiRespId");
+      List surveyQuestionAndApplList=(List)sqaaWithColIdListByMultiRespId.get(surveyMultiRespId);
+      if (surveyQuestionAndApplList == null) {
+        surveyQuestionAndApplList=FastList.newInstance();
+        sqaaWithColIdListByMultiRespId.put(surveyMultiRespId,surveyQuestionAndApplList);
+      }
+      surveyQuestionAndApplList.add(surveyQuestionAndAppl);
+    }
+  }
+  Map templateContext=FastMap.newInstance();
+  FreeMarkerWorker.addAllOfbizTransforms(templateContext);
+  templateContext.put("partyId",partyId);
+  templateContext.put("survey",survey);
+  templateContext.put("surveyResults",results);
+  templateContext.put("surveyQuestionAndAppls",surveyQuestionAndAppls);
+  templateContext.put("sqaaWithColIdListByMultiRespId",sqaaWithColIdListByMultiRespId);
+  templateContext.put("alreadyShownSqaaPkWithColId",FastSet.newInstance());
+  templateContext.put("surveyAnswers",currentAnswers);
+  templateContext.put("surveyResponseId",responseId);
+  templateContext.put("sequenceSort",UtilMisc.toList("sequenceNum"));
+  templateContext.put("additionalFields",passThru);
+  Template template=this.getTemplate(templateUrl);
+  try {
+    template.process(templateContext,writer);
+  }
+ catch (  TemplateException e) {
+    Debug.logError(e,"Error rendering Survey with template at [" + templateUrl.toExternalForm() + "]",module);
+  }
+catch (  IOException e) {
+    Debug.logError(e,"Error rendering Survey with template at [" + templateUrl.toExternalForm() + "]",module);
+  }
+}

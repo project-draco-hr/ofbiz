@@ -1,0 +1,37 @@
+{
+  GenericDelegator delegator=dispatcher.getDelegator();
+  List workEfforts=null;
+  try {
+    workEfforts=delegator.findByAnd("WorkEffort",UtilMisc.toMap("currentStatusId","WF_SUSPENDED","sourceReferenceId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems getting WorkEffort with order ref number: " + orderId,module);
+    return false;
+  }
+  if (workEfforts != null) {
+    boolean allPass=true;
+    Iterator wei=workEfforts.iterator();
+    while (wei.hasNext()) {
+      GenericValue workEffort=(GenericValue)wei.next();
+      String workEffortId=workEffort.getString("workEffortId");
+      try {
+        if (workEffort.getString("currentStatusId").equals("WF_SUSPENDED")) {
+          WorkflowClient client=new WorkflowClient(dispatcher.getDispatchContext());
+          client.resume(workEffortId);
+        }
+ else {
+          Debug.logVerbose("Current : --{" + workEffort + "}-- not resuming",module);
+        }
+      }
+ catch (      WfException e) {
+        Debug.logError(e,"Problem resuming activity : " + workEffortId,module);
+        allPass=false;
+      }
+    }
+    return allPass;
+  }
+ else {
+    Debug.logWarning("No WF found for order ID : " + orderId,module);
+  }
+  return false;
+}

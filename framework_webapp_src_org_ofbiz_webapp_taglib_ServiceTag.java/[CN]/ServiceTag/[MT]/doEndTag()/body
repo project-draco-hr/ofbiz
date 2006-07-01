@@ -1,0 +1,47 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)pageContext.getRequest().getAttribute("dispatcher");
+  if (dispatcher == null)   throw new JspTagException("Cannot get dispatcher from the request object.");
+  GenericValue userLogin=(GenericValue)pageContext.getSession().getAttribute("userLogin");
+  int scope=PageContext.PAGE_SCOPE;
+  char scopeChar=resultScope.toUpperCase().charAt(0);
+switch (scopeChar) {
+case 'A':
+    scope=PageContext.APPLICATION_SCOPE;
+  break;
+case 'S':
+scope=PageContext.SESSION_SCOPE;
+break;
+case 'R':
+scope=PageContext.REQUEST_SCOPE;
+break;
+case 'P':
+scope=PageContext.PAGE_SCOPE;
+break;
+default :
+throw new JspTagException("Invaild result scope specified. (page, request, session, application)");
+}
+Map context=getInParameters();
+Map result=null;
+if (userLogin != null) context.put("userLogin",userLogin);
+try {
+if (mode.equalsIgnoreCase("async")) dispatcher.runAsync(serviceName,context);
+ else result=dispatcher.runSync(serviceName,context);
+}
+ catch (GenericServiceException e) {
+Debug.logError(e,module);
+throw new JspTagException("Problems invoking the requested service: " + e.getMessage());
+}
+Map aliases=getOutParameters();
+if (result != null) {
+Iterator i=result.entrySet().iterator();
+while (i.hasNext()) {
+Map.Entry entry=(Map.Entry)i.next();
+Object key=entry.getKey();
+Object value=entry.getValue();
+String ctxName=(String)(aliases.containsKey(key) ? aliases.get(key) : key);
+if (value == null) value=new String();
+pageContext.setAttribute(ctxName,value,scope);
+}
+}
+return EVAL_PAGE;
+}

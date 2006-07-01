@@ -1,0 +1,55 @@
+{
+  if (isEntitySyncRunning() && this.startDate == null) {
+    throw new SyncAbortException("Not running EntitySync [" + entitySyncId + "], an instance is already running and no startDate for the current run was passed.");
+  }
+  if (this.startDate == null) {
+    String markErrorMsg="Could not start Entity Sync service, could not mark as running";
+    try {
+      Map startEntitySyncRes=dispatcher.runSync("updateEntitySyncRunning",UtilMisc.toMap("entitySyncId",entitySyncId,"runStatusId","ESR_RUNNING","userLogin",userLogin));
+      if (ModelService.RESPOND_ERROR.equals(startEntitySyncRes.get(ModelService.RESPONSE_MESSAGE))) {
+        throw new SyncDataErrorException(markErrorMsg,null,null,startEntitySyncRes,null);
+      }
+    }
+ catch (    GenericServiceException e) {
+      throw new SyncServiceErrorException(markErrorMsg,e);
+    }
+    this.createInitialHistory();
+    this.setSplitStartTime();
+  }
+ else {
+    try {
+      GenericValue entitySyncHistory=delegator.findByPrimaryKey("EntitySyncHistory",UtilMisc.toMap("entitySyncId",entitySyncId,"startDate",startDate));
+      this.toCreateInserted=UtilMisc.toLong(entitySyncHistory.getLong("toCreateInserted"));
+      this.toCreateUpdated=UtilMisc.toLong(entitySyncHistory.getLong("toCreateUpdated"));
+      this.toCreateNotUpdated=UtilMisc.toLong(entitySyncHistory.getLong("toCreateNotUpdated"));
+      this.toStoreInserted=UtilMisc.toLong(entitySyncHistory.getLong("toStoreInserted"));
+      this.toStoreUpdated=UtilMisc.toLong(entitySyncHistory.getLong("toStoreUpdated"));
+      this.toStoreNotUpdated=UtilMisc.toLong(entitySyncHistory.getLong("toStoreNotUpdated"));
+      this.toRemoveDeleted=UtilMisc.toLong(entitySyncHistory.getLong("toRemoveDeleted"));
+      this.toRemoveAlreadyDeleted=UtilMisc.toLong(entitySyncHistory.getLong("toRemoveAlreadyDeleted"));
+      this.totalStoreCalls=UtilMisc.toLong(entitySyncHistory.getLong("totalStoreCalls"));
+      this.totalSplits=UtilMisc.toLong(entitySyncHistory.getLong("totalSplits"));
+      this.totalRowsToCreate=UtilMisc.toLong(entitySyncHistory.getLong("totalRowsToCreate"));
+      this.totalRowsToStore=UtilMisc.toLong(entitySyncHistory.getLong("totalRowsToStore"));
+      this.totalRowsToRemove=UtilMisc.toLong(entitySyncHistory.getLong("totalRowsToRemove"));
+      this.perSplitMinMillis=UtilMisc.toLong(entitySyncHistory.getLong("perSplitMinMillis"));
+      this.perSplitMaxMillis=UtilMisc.toLong(entitySyncHistory.getLong("perSplitMaxMillis"));
+      this.perSplitMinItems=UtilMisc.toLong(entitySyncHistory.getLong("perSplitMinItems"));
+      this.perSplitMaxItems=UtilMisc.toLong(entitySyncHistory.getLong("perSplitMaxItems"));
+      this.splitStartTime=UtilMisc.toLong(entitySyncHistory.getLong("lastSplitStartTime"));
+    }
+ catch (    GenericEntityException e) {
+      throw new SyncDataErrorException("Error getting existing EntitySyncHistory values",e);
+    }
+    this.toCreateInserted+=UtilMisc.toLong(this.context.get("toCreateInserted"));
+    this.toCreateUpdated+=UtilMisc.toLong(this.context.get("toCreateUpdated"));
+    this.toCreateNotUpdated+=UtilMisc.toLong(this.context.get("toCreateNotUpdated"));
+    this.toStoreInserted+=UtilMisc.toLong(this.context.get("toStoreInserted"));
+    this.toStoreUpdated+=UtilMisc.toLong(this.context.get("toStoreUpdated"));
+    this.toStoreNotUpdated+=UtilMisc.toLong(this.context.get("toStoreNotUpdated"));
+    this.toRemoveDeleted+=UtilMisc.toLong(this.context.get("toRemoveDeleted"));
+    this.toRemoveAlreadyDeleted+=UtilMisc.toLong(this.context.get("toRemoveAlreadyDeleted"));
+    this.totalStoreCalls++;
+    this.saveResultsReportedFromDataStore();
+  }
+}

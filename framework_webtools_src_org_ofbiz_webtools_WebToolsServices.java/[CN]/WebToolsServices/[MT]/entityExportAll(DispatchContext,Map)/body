@@ -1,0 +1,87 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String outpath=(String)context.get("outpath");
+  Integer txTimeout=(Integer)context.get("txTimeout");
+  if (txTimeout == null) {
+    txTimeout=new Integer(7200);
+  }
+  List results=new ArrayList();
+  if (outpath != null && outpath.length() > 0) {
+    File outdir=new File(outpath);
+    if (!outdir.exists()) {
+      outdir.mkdir();
+    }
+    if (outdir.isDirectory() && outdir.canWrite()) {
+      Iterator passedEntityNames=null;
+      try {
+        ModelReader reader=delegator.getModelReader();
+        Collection ec=reader.getEntityNames();
+        TreeSet entityNames=new TreeSet(ec);
+        passedEntityNames=entityNames.iterator();
+      }
+ catch (      Exception exc) {
+        return ServiceUtil.returnError("Error retrieving entity names.");
+      }
+      int fileNumber=1;
+      while (passedEntityNames.hasNext()) {
+        long numberWritten=0;
+        String curEntityName=(String)passedEntityNames.next();
+        EntityListIterator values=null;
+        try {
+          ModelEntity me=delegator.getModelEntity(curEntityName);
+          if (me instanceof ModelViewEntity) {
+            results.add("[" + fileNumber + "] [vvv] "+ curEntityName+ " skipping view entity");
+            continue;
+          }
+          try {
+            values=delegator.findListIteratorByCondition(curEntityName,null,null,null,me.getPkFieldNames(),null);
+          }
+ catch (          Exception entityEx) {
+            results.add("[" + fileNumber + "] [xxx] Error when writing "+ curEntityName+ ": "+ entityEx);
+            continue;
+          }
+          GenericValue value=(GenericValue)values.next();
+          if (value != null) {
+            PrintWriter writer=new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(new File(outdir,curEntityName + ".xml")),"UTF-8")));
+            writer.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            writer.println("<entity-engine-xml>");
+            do {
+              value.writeXmlText(writer,"");
+              numberWritten++;
+            }
+ while ((value=(GenericValue)values.next()) != null);
+            writer.println("</entity-engine-xml>");
+            writer.close();
+            results.add("[" + fileNumber + "] ["+ numberWritten+ "] "+ curEntityName+ " wrote "+ numberWritten+ " records");
+          }
+ else {
+            results.add("[" + fileNumber + "] [---] "+ curEntityName+ " has no records, not writing file");
+          }
+          values.close();
+        }
+ catch (        Exception ex) {
+          if (values != null) {
+            try {
+              values.close();
+            }
+ catch (            Exception exc) {
+            }
+          }
+          results.add("[" + fileNumber + "] [xxx] Error when writing "+ curEntityName+ ": "+ ex);
+        }
+        fileNumber++;
+      }
+    }
+ else {
+      results.add("Path not found or no write access.");
+    }
+  }
+ else {
+    results.add("No path specified, doing nothing.");
+  }
+  Map resp=UtilMisc.toMap("results",results);
+  return resp;
+}

@@ -1,0 +1,33 @@
+{
+  if (quantity == null) {
+    quantity=new Double(1);
+  }
+  if (task == null)   return 0;
+  double setupTime=0;
+  double taskTime=1;
+  double totalTaskTime=0;
+  if (task.get("estimatedSetupMillis") != null) {
+    setupTime=task.getDouble("estimatedSetupMillis").doubleValue();
+  }
+  if (task.get("estimatedMilliSeconds") != null) {
+    taskTime=task.getDouble("estimatedMilliSeconds").doubleValue();
+  }
+  totalTaskTime=(setupTime + taskTime * quantity.doubleValue());
+  if (task.get("estimateCalcMethod") != null) {
+    String serviceName=null;
+    try {
+      GenericValue genericService=task.getRelatedOne("CustomMethod");
+      if (genericService != null && genericService.getString("customMethodName") != null) {
+        serviceName=genericService.getString("customMethodName");
+        Map estimateCalcServiceMap=UtilMisc.toMap("workEffort",task,"quantity",quantity,"productId",productId,"routingId",routingId);
+        Map serviceContext=UtilMisc.toMap("arguments",estimateCalcServiceMap);
+        Map resultService=dispatcher.runSync(serviceName,serviceContext);
+        totalTaskTime=((Double)resultService.get("totalTime")).doubleValue();
+      }
+    }
+ catch (    Exception exc) {
+      Debug.logError(exc,"Problem calling the customMethod service " + serviceName);
+    }
+  }
+  return (long)totalTaskTime;
+}

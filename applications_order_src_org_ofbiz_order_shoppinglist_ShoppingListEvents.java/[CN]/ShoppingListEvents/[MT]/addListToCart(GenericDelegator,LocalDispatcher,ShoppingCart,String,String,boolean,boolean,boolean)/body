@@ -1,0 +1,89 @@
+{
+  String errMsg=null;
+  if (shoppingListId == null) {
+    errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.choose_shopping_list",cart.getLocale());
+    throw new IllegalArgumentException(errMsg);
+  }
+  GenericValue shoppingList=null;
+  List shoppingListItems=null;
+  try {
+    shoppingList=delegator.findByPrimaryKey("ShoppingList",UtilMisc.toMap("shoppingListId",shoppingListId));
+    if (shoppingList == null) {
+      errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.error_getting_shopping_list_and_items",cart.getLocale());
+      throw new IllegalArgumentException(errMsg);
+    }
+    shoppingListItems=shoppingList.getRelated("ShoppingListItem");
+    if (shoppingListItems == null) {
+      shoppingListItems=new LinkedList();
+    }
+    if (includeChild) {
+      List childShoppingLists=shoppingList.getRelated("ChildShoppingList");
+      Iterator ci=childShoppingLists.iterator();
+      while (ci.hasNext()) {
+        GenericValue v=(GenericValue)ci.next();
+        List items=v.getRelated("ShoppingListItem");
+        shoppingListItems.addAll(items);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems getting ShoppingList and ShoppingListItem records",module);
+    errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.error_getting_shopping_list_and_items",cart.getLocale());
+    throw new IllegalArgumentException(errMsg);
+  }
+  if (shoppingListItems == null || shoppingListItems.size() == 0) {
+    errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.no_items_added",cart.getLocale());
+    return errMsg;
+  }
+  if (!append) {
+    cart.clear();
+  }
+  Map shoppingListSurveyInfo=getItemSurveyInfos(shoppingListItems);
+  StringBuffer eventMessage=new StringBuffer();
+  Iterator i=shoppingListItems.iterator();
+  while (i.hasNext()) {
+    GenericValue shoppingListItem=(GenericValue)i.next();
+    String productId=shoppingListItem.getString("productId");
+    Double quantity=shoppingListItem.getDouble("quantity");
+    Timestamp reservStart=shoppingListItem.getTimestamp("reservStart");
+    Double reservLength=shoppingListItem.getDouble("reservLength");
+    Double reservPersons=shoppingListItem.getDouble("reservPersons");
+    try {
+      String listId=shoppingListItem.getString("shoppingListId");
+      String itemId=shoppingListItem.getString("shoppingListItemSeqId");
+      Map attributes=new HashMap();
+      if (setAsListItem) {
+        attributes.put("shoppingListId",listId);
+        attributes.put("shoppingListItemSeqId",itemId);
+      }
+      if (shoppingListSurveyInfo.containsKey(listId + "." + itemId)) {
+        attributes.put("surveyResponses",shoppingListSurveyInfo.get(listId + "." + itemId));
+      }
+      if (reservStart == null) {
+        cart.addOrIncreaseItem(productId,null,quantity.doubleValue(),null,null,null,null,null,null,attributes,prodCatalogId,null,null,null,dispatcher);
+      }
+ else {
+        cart.addOrIncreaseItem(productId,null,quantity.doubleValue(),reservStart,reservLength,reservPersons,null,null,null,attributes,prodCatalogId,null,null,null,dispatcher);
+      }
+      Map messageMap=UtilMisc.toMap("productId",productId);
+      errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.added_product_to_cart",messageMap,cart.getLocale());
+      eventMessage.append(errMsg + "\n");
+    }
+ catch (    CartItemModifyException e) {
+      Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderProblemsAddingItemFromListToCart",cart.getLocale()));
+      Map messageMap=UtilMisc.toMap("productId",productId);
+      errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.problem_adding_product_to_cart",messageMap,cart.getLocale());
+      eventMessage.append(errMsg + "\n");
+    }
+catch (    ItemNotFoundException e) {
+      Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderProductNotFound",cart.getLocale()));
+      Map messageMap=UtilMisc.toMap("productId",productId);
+      errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.problem_adding_product_to_cart",messageMap,cart.getLocale());
+      eventMessage.append(errMsg + "\n");
+    }
+  }
+  if (eventMessage.length() > 0) {
+    return eventMessage.toString();
+  }
+  return "";
+}

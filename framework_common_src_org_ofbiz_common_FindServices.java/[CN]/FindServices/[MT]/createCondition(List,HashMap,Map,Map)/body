@@ -1,0 +1,141 @@
+{
+  String fieldName=null;
+  HashMap subMap=null;
+  HashMap subMap2=null;
+  EntityOperator fieldOp=null;
+  String fieldValue=null;
+  Iterator iter=keys.iterator();
+  EntityExpr cond=null;
+  ArrayList tmpList=new ArrayList();
+  String opString=null;
+  String ignoreCase=null;
+  int count=0;
+  while (iter.hasNext()) {
+    fieldName=(String)iter.next();
+    subMap=(HashMap)normalizedFields.get(fieldName);
+    if (subMap == null) {
+      continue;
+    }
+    subMap2=(HashMap)subMap.get("fld0");
+    opString=(String)subMap2.get("op");
+    ignoreCase=(String)subMap2.get("ic");
+    if (opString != null) {
+      if (opString.equals("contains")) {
+        fieldOp=EntityOperator.LIKE;
+      }
+ else       if (opString.equals("empty")) {
+        fieldOp=EntityOperator.EQUALS;
+      }
+ else {
+        fieldOp=(EntityOperator)entityOperators.get(opString);
+      }
+    }
+ else {
+      fieldOp=EntityOperator.EQUALS;
+    }
+    fieldValue=(String)subMap2.get("value");
+    if (fieldValue == null) {
+      continue;
+    }
+    if (opString != null) {
+      if (opString.equals("contains")) {
+        fieldOp=EntityOperator.LIKE;
+        fieldValue="%" + fieldValue + "%";
+      }
+ else       if (opString.equals("empty")) {
+        fieldOp=EntityOperator.EQUALS;
+        fieldValue=null;
+        ignoreCase=null;
+      }
+ else       if (opString.equals("like")) {
+        fieldOp=EntityOperator.LIKE;
+        fieldValue+="%";
+      }
+ else       if (opString.equals("greaterThanFromDayStart")) {
+        fieldValue=dayStart(fieldValue,0);
+        fieldOp=EntityOperator.GREATER_THAN;
+        ignoreCase=null;
+      }
+ else       if (opString.equals("sameDay")) {
+        String timeStampString=fieldValue;
+        fieldValue=dayStart(timeStampString,0);
+        fieldOp=EntityOperator.GREATER_THAN_EQUAL_TO;
+        ignoreCase=null;
+        subMap2=(HashMap)subMap.get("fld1");
+        if (subMap2 == null) {
+          subMap2=new HashMap();
+          subMap.put("fld1",subMap2);
+        }
+        String endOfDay=dayStart(timeStampString,1);
+        subMap2.put("value",endOfDay);
+        subMap2.put("op","lessThan");
+      }
+ else {
+        fieldOp=(EntityOperator)entityOperators.get(opString);
+      }
+    }
+ else {
+      fieldOp=EntityOperator.EQUALS;
+    }
+    if (ignoreCase != null && ignoreCase.equals("Y")) {
+      cond=new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue(fieldName)),(EntityComparisonOperator)fieldOp,new EntityFunction.UPPER(fieldValue.toUpperCase()));
+    }
+ else {
+      cond=new EntityExpr(fieldName,(EntityComparisonOperator)fieldOp,fieldValue);
+    }
+    tmpList.add(cond);
+    count++;
+    subMap2=(HashMap)subMap.get("fld1");
+    if (subMap2 == null) {
+      continue;
+    }
+    opString=(String)subMap2.get("op");
+    if (opString != null) {
+      if (opString.equals("contains")) {
+        fieldOp=EntityOperator.LIKE;
+      }
+ else       if (opString.equals("empty")) {
+        fieldOp=EntityOperator.EQUALS;
+      }
+ else {
+        fieldOp=(EntityOperator)entityOperators.get(opString);
+      }
+    }
+ else {
+      fieldOp=EntityOperator.EQUALS;
+    }
+    fieldValue=(String)subMap2.get("value");
+    if (fieldValue == null) {
+      continue;
+    }
+    if (opString.equals("like")) {
+      fieldValue+="%";
+    }
+ else     if (opString.equals("contains")) {
+      fieldValue+="%" + fieldValue + "%";
+    }
+ else     if (opString.equals("empty")) {
+      fieldOp=EntityOperator.EQUALS;
+      fieldValue=null;
+    }
+ else     if (opString.equals("upToDay")) {
+      fieldValue=dayStart(fieldValue,0);
+      fieldOp=EntityOperator.LESS_THAN;
+    }
+ else     if (opString.equals("upThruDay")) {
+      fieldValue=dayStart(fieldValue,1);
+      fieldOp=EntityOperator.LESS_THAN;
+    }
+    cond=new EntityExpr(fieldName,(EntityComparisonOperator)fieldOp,fieldValue);
+    tmpList.add(cond);
+    List origList=(List)origValueMap.get(fieldName);
+    if (origList != null && origList.size() > 0) {
+      Iterator origIter=origList.iterator();
+      while (origIter.hasNext()) {
+        Object[] arr=(Object[])origIter.next();
+        queryStringMap.put(arr[0],arr[1]);
+      }
+    }
+  }
+  return tmpList;
+}

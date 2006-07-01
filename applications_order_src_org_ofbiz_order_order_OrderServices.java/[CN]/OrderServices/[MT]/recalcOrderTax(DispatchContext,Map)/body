@@ -1,0 +1,147 @@
+{
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericDelegator delegator=ctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Security security=ctx.getSecurity();
+  if (!security.hasEntityPermission("ORDERMGR","_UPDATE",userLogin)) {
+    GenericValue placingCustomer=null;
+    try {
+      Map placingCustomerFields=UtilMisc.toMap("orderId",orderId,"partyId",userLogin.getString("partyId"),"roleTypeId","PLACING_CUSTOMER");
+      placingCustomer=delegator.findByPrimaryKey("OrderRole",placingCustomerFields);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderRoleEntity ",locale) + e.getMessage());
+    }
+    if (placingCustomer == null)     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+  }
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderHeaderEntity",locale) + e.getMessage());
+  }
+  if (orderHeader == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorNoValidOrderHeaderFoundForOrderId",UtilMisc.toMap("orderId",orderId),locale));
+  }
+  if ("PURCHASE_ORDER".equals(orderHeader.getString("orderTypeId"))) {
+    return ServiceUtil.returnSuccess();
+  }
+  int removed=0;
+  try {
+    removed=delegator.removeByAnd("OrderAdjustment",UtilMisc.toMap("orderId",orderId,"orderAdjustmentTypeId","SALES_TAX"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to remove SALES_TAX adjustments for order : " + orderId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToRemoveSalesTaxAdjustments",locale));
+  }
+  Debug.logInfo("Removed : " + removed + " SALES_TAX adjustments for order ["+ orderId+ "]",module);
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  List shipGroups=orh.getOrderItemShipGroups();
+  List toStore=new ArrayList();
+  if (shipGroups != null) {
+    Iterator itr=shipGroups.iterator();
+    while (itr.hasNext()) {
+      GenericValue shipGroup=(GenericValue)itr.next();
+      String shipGroupSeqId=shipGroup.getString("shipGroupSeqId");
+      List validOrderItems=orh.getValidOrderItems(shipGroupSeqId);
+      if (validOrderItems != null) {
+        List products=new ArrayList(validOrderItems.size());
+        List amounts=new ArrayList(validOrderItems.size());
+        List shipAmts=new ArrayList(validOrderItems.size());
+        List itPrices=new ArrayList(validOrderItems.size());
+        List allAdjustments=orh.getAdjustments();
+        List orderHeaderAdjustments=OrderReadHelper.getOrderHeaderAdjustments(allAdjustments,shipGroupSeqId);
+        double orderSubTotal=OrderReadHelper.getOrderItemsSubTotal(validOrderItems,allAdjustments);
+        BigDecimal orderShipping=new BigDecimal(OrderReadHelper.calcOrderAdjustments(orderHeaderAdjustments,orderSubTotal,false,false,true));
+        for (int i=0; i < validOrderItems.size(); i++) {
+          GenericValue orderItem=(GenericValue)validOrderItems.get(i);
+          String productId=orderItem.getString("productId");
+          try {
+            products.add(i,delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId)));
+            amounts.add(i,new BigDecimal(OrderReadHelper.getOrderItemSubTotal(orderItem,allAdjustments,true,false)));
+            shipAmts.add(i,new BigDecimal(OrderReadHelper.getOrderItemAdjustmentsTotal(orderItem,allAdjustments,false,false,true)));
+            itPrices.add(i,orderItem.getBigDecimal("unitPrice"));
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"Cannot read order item entity : " + orderItem,module);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCannotReadTheOrderItemEntity",locale));
+          }
+        }
+        GenericValue shippingAddress=orh.getShippingAddress(shipGroupSeqId);
+        if (shippingAddress == null) {
+          String facilityId=orderHeader.getString("originFacilityId");
+          if (facilityId != null) {
+            List fcp=null;
+            try {
+              fcp=delegator.findByAnd("FacilityContactMechPurpose",UtilMisc.toMap("facilityId",facilityId,"contactMechPurposeTypeId","SHIP_ORIG_LOCATION"));
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,module);
+            }
+            fcp=EntityUtil.filterByDate(fcp);
+            GenericValue purp=EntityUtil.getFirst(fcp);
+            if (purp != null) {
+              try {
+                shippingAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",purp.getString("contactMechId")));
+              }
+ catch (              GenericEntityException e) {
+                Debug.logError(e,module);
+              }
+            }
+          }
+        }
+        Map serviceContext=UtilMisc.toMap("productStoreId",orh.getProductStoreId(),"itemProductList",products,"itemAmountList",amounts,"itemShippingList",shipAmts,"itemPriceList",itPrices,"orderShippingAmount",orderShipping);
+        serviceContext.put("shippingAddress",shippingAddress);
+        if (orh.getBillToParty() != null)         serviceContext.put("billToPartyId",orh.getBillToParty().getString("partyId"));
+        Map serviceResult=null;
+        try {
+          serviceResult=dispatcher.runSync("calcTax",serviceContext);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemOccurredInTaxService",locale));
+        }
+        if (ServiceUtil.isError(serviceResult)) {
+          return ServiceUtil.returnError(ServiceUtil.getErrorMessage(serviceResult));
+        }
+        List orderAdj=(List)serviceResult.get("orderAdjustments");
+        List itemAdj=(List)serviceResult.get("itemAdjustments");
+        if (orderAdj != null && orderAdj.size() > 0) {
+          Iterator oai=orderAdj.iterator();
+          while (oai.hasNext()) {
+            GenericValue oa=(GenericValue)oai.next();
+            oa.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+            oa.set("orderId",orderId);
+            toStore.add(oa);
+          }
+        }
+        if (itemAdj != null && itemAdj.size() > 0) {
+          for (int i=0; i < validOrderItems.size(); i++) {
+            GenericValue orderItem=(GenericValue)validOrderItems.get(i);
+            List itemAdjustments=(List)itemAdj.get(i);
+            Iterator ida=itemAdjustments.iterator();
+            while (ida.hasNext()) {
+              GenericValue ia=(GenericValue)ida.next();
+              ia.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+              ia.set("orderId",orderId);
+              ia.set("shipGroupSeqId",shipGroupSeqId);
+              ia.set("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+              toStore.add(ia);
+            }
+          }
+        }
+      }
+    }
+    try {
+      delegator.storeAll(toStore);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToUpdateOrderTaxInformation",UtilMisc.toMap("orderId",orderId),locale));
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

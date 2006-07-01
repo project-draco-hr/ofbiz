@@ -1,0 +1,161 @@
+{
+  Debug.logInfo("runningMrp called",module);
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Security security=ctx.getSecurity();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String mrpName=(String)context.get("mrpName");
+  String facilityId=(String)context.get("facilityId");
+  int bomLevelWithNoEvent=0;
+  double stockTmp=0;
+  String oldProductId=null;
+  String productId=null;
+  GenericValue product=null;
+  GenericValue productFacility=null;
+  double eventQuantity=0;
+  Timestamp eventDate=null;
+  boolean isNegative=false;
+  double quantityNeeded=0;
+  double reorderQuantity=0;
+  double minimumStock=0;
+  int daysToShip=0;
+  List components=null;
+  boolean isbuild=false;
+  GenericValue routing=null;
+  Map result=null;
+  Map parameters=null;
+  List listInventoryEventForMRP=null;
+  ListIterator iteratorListInventoryEventForMRP=null;
+  GenericValue inventoryEventForMRP=null;
+  parameters=UtilMisc.toMap("reInitialize",new Boolean(true),"userLogin",userLogin);
+  try {
+    result=dispatcher.runSync("initInventoryEventPlanned",parameters);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError("Error : initInventoryEventPlanned",module);
+    Debug.logError("Error : parameters = " + parameters,module);
+    return ServiceUtil.returnError("Problem, can not initialise the table InventoryEventPlanned, for more detail look at the log");
+  }
+  long bomLevel=0;
+  do {
+    parameters=UtilMisc.toMap("billOfMaterialLevel",new Long(bomLevel),"userLogin",userLogin);
+    try {
+      result=dispatcher.runSync("listProductForMrp",parameters);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError("Error : listProductForMrp, parameters =" + parameters,module);
+      return ServiceUtil.returnError("Problem, can not list the products for the MRP, for more detail look at the log");
+    }
+    listInventoryEventForMRP=(List)result.get("listInventoryEventForMrp");
+    if (listInventoryEventForMRP != null && listInventoryEventForMRP.size() > 0) {
+      bomLevelWithNoEvent=0;
+      iteratorListInventoryEventForMRP=listInventoryEventForMRP.listIterator();
+      oldProductId="";
+      while (iteratorListInventoryEventForMRP.hasNext()) {
+        inventoryEventForMRP=(GenericValue)iteratorListInventoryEventForMRP.next();
+        productId=(String)inventoryEventForMRP.getString("productId");
+        eventQuantity=inventoryEventForMRP.getDouble("eventQuantity").doubleValue();
+        if (!productId.equals(oldProductId)) {
+          double positiveEventQuantity=(eventQuantity > 0 ? eventQuantity : -1 * eventQuantity);
+          try {
+            product=inventoryEventForMRP.getRelatedOneCache("Product");
+            productFacility=(GenericValue)EntityUtil.getFirst(product.getRelatedByAndCache("ProductFacility",UtilMisc.toMap("facilityId",facilityId)));
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError("Problem, can not find the product for a event, for more detail look at the log");
+          }
+          stockTmp=findProductMrpQoh(product,dispatcher);
+          if (productFacility != null) {
+            reorderQuantity=(productFacility.getDouble("reorderQuantity") != null ? productFacility.getDouble("reorderQuantity").doubleValue() : -1);
+            minimumStock=(productFacility.getDouble("minimumStock") != null ? productFacility.getDouble("minimumStock").doubleValue() : 0);
+            daysToShip=(productFacility.getLong("daysToShip") != null ? productFacility.getLong("daysToShip").intValue() : 0);
+          }
+ else {
+            minimumStock=0;
+            daysToShip=0;
+            reorderQuantity=-1;
+          }
+          Map serviceResponse=null;
+          try {
+            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.toMap("productId",product.getString("productId"),"quantity",new Double(positiveEventQuantity),"userLogin",userLogin));
+          }
+ catch (          Exception e) {
+            return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
+          }
+          components=(List)serviceResponse.get("components");
+          if (components != null && components.size() > 0) {
+            BOMNode node=((BOMNode)components.get(0)).getParentNode();
+            isbuild=node.isManufactured();
+          }
+ else {
+            isbuild=false;
+          }
+          oldProductId=productId;
+        }
+        stockTmp=stockTmp + eventQuantity;
+        if (stockTmp < minimumStock) {
+          double qtyToStock=minimumStock - stockTmp;
+          eventDate=inventoryEventForMRP.getTimestamp("eventDate");
+          eventDate.setTime(eventDate.getTime() - 1);
+          ProposedOrder proposedOrder=new ProposedOrder(product,facilityId,isbuild,eventDate,qtyToStock);
+          proposedOrder.setMrpName(mrpName);
+          proposedOrder.calculateQuantityToSupply(reorderQuantity,minimumStock,iteratorListInventoryEventForMRP);
+          Map serviceResponse=null;
+          try {
+            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.toMap("productId",product.getString("productId"),"quantity",new Double(proposedOrder.getQuantity()),"userLogin",userLogin));
+          }
+ catch (          Exception e) {
+            return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
+          }
+          components=(List)serviceResponse.get("components");
+          String routingId=(String)serviceResponse.get("workEffortId");
+          if (routingId != null) {
+            try {
+              routing=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",routingId));
+            }
+ catch (            GenericEntityException e) {
+              return ServiceUtil.returnError("Problem, can not find the product for a event, for more detail look at the log");
+            }
+          }
+ else {
+            routing=null;
+          }
+          if (components != null && components.size() > 0) {
+            BOMNode node=((BOMNode)components.get(0)).getParentNode();
+            isbuild=node.isManufactured();
+          }
+ else {
+            isbuild=false;
+          }
+          Map routingTaskStartDate=proposedOrder.calculateStartDate(daysToShip,routing,delegator,dispatcher,userLogin);
+          if (isbuild) {
+            processBomComponent(product,proposedOrder.getQuantity(),proposedOrder.getRequirementStartDate(),routingTaskStartDate,components);
+          }
+          if (productFacility != null) {
+            String proposedOrderId=proposedOrder.create(ctx,userLogin);
+          }
+          Map eventMap=UtilMisc.toMap("productId",product.getString("productId"),"eventDate",eventDate,"inventoryEventPlanTypeId",(isbuild ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
+          try {
+            InventoryEventPlannedServices.createOrUpdateInventoryEventPlanned(eventMap,new Double(proposedOrder.getQuantity()),delegator);
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError("Problem running createOrUpdateInventoryEventPlanned");
+          }
+          stockTmp=stockTmp + proposedOrder.getQuantity();
+        }
+      }
+    }
+ else {
+      bomLevelWithNoEvent+=1;
+    }
+    bomLevel+=1;
+  }
+ while (bomLevelWithNoEvent < 3);
+  result=new HashMap();
+  List msgResult=new LinkedList();
+  result.put("msgResult",msgResult);
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  Debug.logInfo("return from runningMrp",module);
+  return result;
+}

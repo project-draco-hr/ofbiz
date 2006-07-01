@@ -1,0 +1,164 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Security security=ctx.getSecurity();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunId=(String)context.get("productionRunId");
+  String taskId=(String)context.get("workEffortId");
+  String statusId=(String)context.get("statusId");
+  Boolean issueAllComponents=(Boolean)context.get("issueAllComponents");
+  if (issueAllComponents == null) {
+    issueAllComponents=new Boolean(false);
+  }
+  ProductionRun productionRun=new ProductionRun(productionRunId,delegator,dispatcher);
+  if (!productionRun.exist()) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotExists",locale));
+  }
+  List tasks=productionRun.getProductionRunRoutingTasks();
+  GenericValue theTask=null;
+  GenericValue oneTask=null;
+  boolean allTaskCompleted=true;
+  boolean allPrecTaskCompleted=true;
+  for (int i=0; i < tasks.size(); i++) {
+    oneTask=(GenericValue)tasks.get(i);
+    if (oneTask.getString("workEffortId").equals(taskId)) {
+      theTask=oneTask;
+    }
+ else {
+      if (theTask == null && allPrecTaskCompleted && !oneTask.getString("currentStatusId").equals("PRUN_COMPLETED")) {
+        allPrecTaskCompleted=false;
+      }
+      if (allTaskCompleted && !oneTask.getString("currentStatusId").equals("PRUN_COMPLETED")) {
+        allTaskCompleted=false;
+      }
+    }
+  }
+  if (theTask == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotExists",locale));
+  }
+  String currentStatusId=theTask.getString("currentStatusId");
+  if (statusId != null && currentStatusId.equals(statusId)) {
+    result.put("newStatusId",currentStatusId);
+    result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskStatusChanged",UtilMisc.toMap("newStatusId",currentStatusId),locale));
+    return result;
+  }
+  if (currentStatusId.equals("PRUN_CREATED") && (statusId == null || statusId.equals("PRUN_RUNNING"))) {
+    if (!allPrecTaskCompleted) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskCannotStartPrevTasksNotCompleted",locale));
+    }
+    if (productionRun.getGenericValue().getString("currentStatusId").equals("PRUN_CREATED")) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskCannotStartDocsNotPrinted",locale));
+    }
+    Map serviceContext=new HashMap();
+    serviceContext.clear();
+    serviceContext.put("workEffortId",taskId);
+    serviceContext.put("currentStatusId","PRUN_RUNNING");
+    serviceContext.put("actualStartDate",UtilDateTime.nowTimestamp());
+    serviceContext.put("userLogin",userLogin);
+    Map resultService=null;
+    try {
+      resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+    }
+    if (!productionRun.getGenericValue().getString("currentStatusId").equals("PRUN_RUNNING")) {
+      serviceContext.clear();
+      serviceContext.put("productionRunId",productionRunId);
+      serviceContext.put("statusId","PRUN_RUNNING");
+      serviceContext.put("userLogin",userLogin);
+      resultService=null;
+      try {
+        resultService=dispatcher.runSync("changeProductionRunStatus",serviceContext);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem calling the changeProductionRunStatus service",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+      }
+    }
+    result.put("newStatusId","PRUN_RUNNING");
+    result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusChanged",UtilMisc.toMap("newStatusId","PRUN_DOC_PRINTED"),locale));
+    return result;
+  }
+  if (currentStatusId.equals("PRUN_RUNNING") && (statusId == null || statusId.equals("PRUN_COMPLETED"))) {
+    Map serviceContext=new HashMap();
+    Map resultService=null;
+    if (issueAllComponents.booleanValue()) {
+      try {
+        List inventoryAssigned=delegator.findByAnd("WorkEffortInventoryAssign",UtilMisc.toMap("workEffortId",taskId));
+        if (UtilValidate.isEmpty(inventoryAssigned)) {
+          serviceContext.clear();
+          serviceContext.put("workEffortId",taskId);
+          serviceContext.put("userLogin",userLogin);
+          resultService=dispatcher.runSync("issueProductionRunTask",serviceContext);
+        }
+      }
+ catch (      Exception e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+      }
+    }
+    serviceContext.clear();
+    serviceContext.put("workEffortId",taskId);
+    serviceContext.put("currentStatusId","PRUN_COMPLETED");
+    serviceContext.put("actualCompletionDate",UtilDateTime.nowTimestamp());
+    Double quantityToProduce=theTask.getDouble("quantityToProduce");
+    if (quantityToProduce == null) {
+      quantityToProduce=new Double(0);
+    }
+    Double quantityProduced=theTask.getDouble("quantityProduced");
+    if (quantityProduced == null) {
+      quantityProduced=new Double(0);
+    }
+    Double quantityRejected=theTask.getDouble("quantityRejected");
+    if (quantityRejected == null) {
+      quantityRejected=new Double(0);
+    }
+    double totalQuantity=quantityProduced.doubleValue() + quantityRejected.doubleValue();
+    double diffQuantity=quantityToProduce.doubleValue() - totalQuantity;
+    if (diffQuantity > 0) {
+      quantityProduced=new Double(quantityProduced.doubleValue() + diffQuantity);
+    }
+    serviceContext.put("quantityProduced",quantityProduced);
+    if (theTask.get("actualSetupMillis") == null) {
+      serviceContext.put("actualSetupMillis",theTask.get("estimatedSetupMillis"));
+    }
+    if (theTask.get("actualMilliSeconds") == null) {
+      Double autoMillis=null;
+      if (theTask.get("estimatedMilliSeconds") != null) {
+        autoMillis=new Double(quantityProduced.doubleValue() * theTask.getDouble("estimatedMilliSeconds").doubleValue());
+      }
+      serviceContext.put("actualMilliSeconds",autoMillis);
+    }
+    serviceContext.put("userLogin",userLogin);
+    try {
+      resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+    }
+    if (allTaskCompleted) {
+      serviceContext.clear();
+      serviceContext.put("productionRunId",productionRunId);
+      serviceContext.put("statusId","PRUN_COMPLETED");
+      serviceContext.put("userLogin",userLogin);
+      resultService=null;
+      try {
+        resultService=dispatcher.runSync("changeProductionRunStatus",serviceContext);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+      }
+    }
+    result.put("newStatusId","PRUN_COMPLETED");
+    result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusChanged",UtilMisc.toMap("newStatusId","PRUN_DOC_PRINTED"),locale));
+    return result;
+  }
+  result.put("newStatusId",currentStatusId);
+  result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskStatusChanged",UtilMisc.toMap("newStatusId",currentStatusId),locale));
+  return result;
+}

@@ -1,0 +1,163 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  Map result=new HashMap();
+  GenericValue orderHeader=null;
+  List paymentPrefs=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    List othExpr=UtilMisc.toList(new EntityExpr("paymentMethodTypeId",EntityOperator.EQUALS,"EFT_ACCOUNT"));
+    othExpr.add(new EntityExpr("paymentMethodTypeId",EntityOperator.EQUALS,"CREDIT_CARD"));
+    othExpr.add(new EntityExpr("paymentMethodTypeId",EntityOperator.EQUALS,"GIFT_CARD"));
+    EntityCondition con1=new EntityConditionList(othExpr,EntityJoinOperator.OR);
+    EntityCondition statExpr=new EntityExpr("statusId",EntityOperator.EQUALS,"PAYMENT_SETTLED");
+    EntityCondition con2=new EntityConditionList(UtilMisc.toList(con1,statExpr),EntityOperator.AND);
+    EntityCondition authExpr=new EntityExpr("statusId",EntityOperator.EQUALS,"PAYMENT_AUTHORIZED");
+    EntityCondition con3=new EntityConditionList(UtilMisc.toList(con2,authExpr),EntityOperator.OR);
+    EntityExpr orderExpr=new EntityExpr("orderId",EntityOperator.EQUALS,orderId);
+    EntityCondition con4=new EntityConditionList(UtilMisc.toList(con3,orderExpr),EntityOperator.AND);
+    paymentPrefs=delegator.findByCondition("OrderPaymentPreference",con4,null,null);
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logError(gee,"Problems getting entity record(s), see stack trace",module);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,"ERROR: Could not get order information (" + gee.getMessage() + ").");
+    return result;
+  }
+  if (orderHeader == null) {
+    return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
+  }
+  if (paymentPrefs == null || paymentPrefs.size() == 0) {
+    Debug.logWarning("No OrderPaymentPreference records available for release",module);
+    result.put("processResult","COMPLETE");
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+    return result;
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  String currency=orh.getCurrency();
+  List finished=new ArrayList();
+  Iterator payments=paymentPrefs.iterator();
+  while (payments.hasNext()) {
+    GenericValue paymentPref=(GenericValue)payments.next();
+    String serviceName=null;
+    String paymentConfig=null;
+    GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPref,RELEASE_SERVICE_TYPE,false);
+    if (paymentSettings != null) {
+      paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+      serviceName=paymentSettings.getString("paymentService");
+      if (serviceName == null) {
+        Debug.logWarning("No payment release service for - " + paymentPref.getString("paymentMethodTypeId"),module);
+        continue;
+      }
+    }
+ else {
+      Debug.logWarning("No payment release settings found for - " + paymentPref.getString("paymentMethodTypeId"),module);
+      continue;
+    }
+    if (paymentConfig == null || paymentConfig.length() == 0) {
+      paymentConfig="payment.properties";
+    }
+    GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(paymentPref);
+    Map releaseContext=new HashMap();
+    releaseContext.put("orderPaymentPreference",paymentPref);
+    releaseContext.put("releaseAmount",authTransaction.getDouble("amount"));
+    releaseContext.put("currency",currency);
+    releaseContext.put("paymentConfig",paymentConfig);
+    releaseContext.put("userLogin",userLogin);
+    Map releaseResult=null;
+    try {
+      releaseResult=dispatcher.runSync(serviceName,releaseContext,TX_TIME,true);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem releasing payment",module);
+    }
+    if (releaseResult != null && !ServiceUtil.isError(releaseResult)) {
+      Boolean releaseResponse=(Boolean)releaseResult.get("releaseResult");
+      String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+      GenericValue pgResponse=delegator.makeValue("PaymentGatewayResponse",null);
+      pgResponse.set("paymentGatewayResponseId",responseId);
+      pgResponse.set("paymentServiceTypeEnumId",RELEASE_SERVICE_TYPE);
+      pgResponse.set("orderPaymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+      pgResponse.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+      pgResponse.set("paymentMethodId",paymentPref.get("paymentMethodId"));
+      pgResponse.set("transCodeEnumId","PGT_RELEASE");
+      pgResponse.set("referenceNum",releaseResult.get("releaseRefNum"));
+      pgResponse.set("altReference",releaseResult.get("releaseAltRefNum"));
+      pgResponse.set("gatewayCode",releaseResult.get("releaseCode"));
+      pgResponse.set("gatewayFlag",releaseResult.get("releaseFlag"));
+      pgResponse.set("gatewayMessage",releaseResult.get("releaseMessage"));
+      pgResponse.set("transactionDate",UtilDateTime.nowTimestamp());
+      try {
+        pgResponse.create();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Problem storing PaymentGatewayResponse entity; authorization was released! : " + pgResponse,module);
+      }
+      List messages=(List)releaseResult.get("internalRespMsgs");
+      if (messages != null && messages.size() > 0) {
+        Iterator i=messages.iterator();
+        while (i.hasNext()) {
+          GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
+          String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
+          String message=(String)i.next();
+          respMsg.set("paymentGatewayRespMsgId",respMsgId);
+          respMsg.set("paymentGatewayResponseId",responseId);
+          respMsg.set("pgrMessage",message);
+          try {
+            delegator.create(respMsg);
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError("Unable to create PaymentGatewayRespMsg record");
+          }
+        }
+      }
+      if (releaseResponse != null && releaseResponse.booleanValue()) {
+        paymentPref.set("statusId","PAYMENT_CANCELLED");
+        try {
+          paymentPref.store();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Problem storing updated payment preference; authorization was released!",module);
+        }
+        finished.add(paymentPref);
+        List paymentList=null;
+        try {
+          paymentList=paymentPref.getRelated("Payment");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Unable to get Payment records from OrderPaymentPreference : " + paymentPref,module);
+        }
+        if (paymentList != null) {
+          Iterator pi=paymentList.iterator();
+          while (pi.hasNext()) {
+            GenericValue pay=(GenericValue)pi.next();
+            pay.set("statusId","PMNT_CANCELLED");
+            try {
+              pay.store();
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,"Unable to store Payment : " + pay,module);
+            }
+          }
+        }
+      }
+ else {
+        Debug.logError("Release failed for pref : " + paymentPref,module);
+      }
+    }
+ else     if (ServiceUtil.isError(releaseResult)) {
+      saveError(dispatcher,userLogin,paymentPref,releaseResult,"PRDS_PAY_RELEASE","PGT_RELEASE");
+    }
+  }
+  result=ServiceUtil.returnSuccess();
+  if (finished.size() == paymentPrefs.size()) {
+    result.put("processResult","COMPLETE");
+  }
+ else {
+    result.put("processResult","FAILED");
+  }
+  return result;
+}

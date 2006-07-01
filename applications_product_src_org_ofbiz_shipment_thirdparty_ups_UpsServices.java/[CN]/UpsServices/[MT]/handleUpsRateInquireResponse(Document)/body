@@ -1,0 +1,42 @@
+{
+  Element rateResponseElement=rateResponseDocument.getDocumentElement();
+  Element responseElement=UtilXml.firstChildElement(rateResponseElement,"Response");
+  Element responseTransactionReferenceElement=UtilXml.firstChildElement(responseElement,"TransactionReference");
+  String responseTransactionReferenceCustomerContext=UtilXml.childElementValue(responseTransactionReferenceElement,"CustomerContext");
+  String responseTransactionReferenceXpciVersion=UtilXml.childElementValue(responseTransactionReferenceElement,"XpciVersion");
+  String responseStatusCode=UtilXml.childElementValue(responseElement,"ResponseStatusCode");
+  String responseStatusDescription=UtilXml.childElementValue(responseElement,"ResponseStatusDescription");
+  List errorList=new LinkedList();
+  UpsServices.handleErrors(responseElement,errorList);
+  if ("1".equals(responseStatusCode)) {
+    List rates=UtilXml.childElementList(rateResponseElement,"RatedShipment");
+    Map rateMap=new HashMap();
+    Double firstRate=null;
+    if (rates == null || rates.size() == 0) {
+      return ServiceUtil.returnError("No rates available at this time");
+    }
+ else {
+      Iterator i=rates.iterator();
+      while (i.hasNext()) {
+        Element element=(Element)i.next();
+        Element service=UtilXml.firstChildElement(element,"Service");
+        String serviceCode=UtilXml.childElementValue(service,"Code");
+        Element totalCharges=UtilXml.firstChildElement(element,"TotalCharges");
+        String totalString=UtilXml.childElementValue(totalCharges,"MonetaryValue");
+        rateMap.put(serviceCode,new Double(totalString));
+        if (firstRate == null) {
+          firstRate=(Double)rateMap.get(serviceCode);
+        }
+      }
+    }
+    Debug.log("UPS Rate Map : " + rateMap,module);
+    Map resp=ServiceUtil.returnSuccess();
+    resp.put("upsRateCodeMap",rateMap);
+    resp.put("shippingEstimateAmount",firstRate);
+    return resp;
+  }
+ else {
+    errorList.add("Error status code : " + responseStatusCode);
+    return ServiceUtil.returnError(errorList);
+  }
+}

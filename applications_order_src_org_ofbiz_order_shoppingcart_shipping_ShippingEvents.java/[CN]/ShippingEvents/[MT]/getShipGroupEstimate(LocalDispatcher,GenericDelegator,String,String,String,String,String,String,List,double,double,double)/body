@@ -1,0 +1,64 @@
+{
+  String standardMessage="A problem occurred calculating shipping. Fees will be calculated offline.";
+  List errorMessageList=new ArrayList();
+  if (shipmentMethodTypeId == null || carrierPartyId == null) {
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      errorMessageList.add("Please Select Your Shipping Method.");
+      return ServiceUtil.returnError(errorMessageList);
+    }
+ else {
+      return ServiceUtil.returnSuccess();
+    }
+  }
+  if (carrierRoleTypeId == null) {
+    carrierRoleTypeId="CARRIER";
+  }
+  if (shippingContactMechId == null) {
+    errorMessageList.add("Please Select Your Shipping Address.");
+    return ServiceUtil.returnError(errorMessageList);
+  }
+  if (shippableQuantity == 0) {
+    Map result=ServiceUtil.returnSuccess();
+    result.put("shippingTotal",new Double(0));
+    return result;
+  }
+  GenericValue storeShipMethod=ProductStoreWorker.getProductStoreShipmentMethod(delegator,productStoreId,shipmentMethodTypeId,carrierPartyId,carrierRoleTypeId);
+  if (storeShipMethod == null) {
+    errorMessageList.add("No applicable shipment method found.");
+    return ServiceUtil.returnError(errorMessageList);
+  }
+  double shippingTotal=0.00;
+  Map serviceFields=new HashMap();
+  serviceFields.put("initialEstimateAmt",new Double(shippingTotal));
+  serviceFields.put("shippableTotal",new Double(shippableTotal));
+  serviceFields.put("shippableQuantity",new Double(shippableQuantity));
+  serviceFields.put("shippableWeight",new Double(shippableWeight));
+  serviceFields.put("shippableItemInfo",itemInfo);
+  serviceFields.put("productStoreId",productStoreId);
+  serviceFields.put("carrierRoleTypeId","CARRIER");
+  serviceFields.put("carrierPartyId",carrierPartyId);
+  serviceFields.put("shipmentMethodTypeId",shipmentMethodTypeId);
+  serviceFields.put("shippingContactMechId",shippingContactMechId);
+  try {
+    Double externalAmt=getExternalShipEstimate(dispatcher,storeShipMethod,serviceFields);
+    if (externalAmt != null) {
+      shippingTotal+=externalAmt.doubleValue();
+    }
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnSuccess(standardMessage);
+  }
+  serviceFields.put("initialEstimateAmt",new Double(shippingTotal));
+  try {
+    Double genericAmt=getGenericShipEstimate(dispatcher,storeShipMethod,serviceFields);
+    if (genericAmt != null) {
+      shippingTotal+=genericAmt.doubleValue();
+    }
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnSuccess(standardMessage);
+  }
+  Map responseResult=ServiceUtil.returnSuccess();
+  responseResult.put("shippingTotal",new Double(shippingTotal));
+  return responseResult;
+}

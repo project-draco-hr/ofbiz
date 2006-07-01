@@ -1,0 +1,706 @@
+{
+  boolean optimizeForLargeRuleSet=false;
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map result=new HashMap();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  boolean isSale=false;
+  List orderItemPriceInfos=new LinkedList();
+  GenericValue product=(GenericValue)context.get("product");
+  String productId=product.getString("productId");
+  String prodCatalogId=(String)context.get("prodCatalogId");
+  String webSiteId=(String)context.get("webSiteId");
+  String checkIncludeVat=(String)context.get("checkIncludeVat");
+  String productStoreId=(String)context.get("productStoreId");
+  String productStoreGroupId=(String)context.get("productStoreGroupId");
+  GenericValue productStore=null;
+  try {
+    productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error getting product store info from the database while calculating price" + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (UtilValidate.isEmpty(productStoreGroupId)) {
+    if (productStore != null) {
+      try {
+        if (UtilValidate.isNotEmpty(productStore.getString("primaryStoreGroupId"))) {
+          productStoreGroupId=productStore.getString("primaryStoreGroupId");
+        }
+ else {
+          List productStoreGroupMemberList=delegator.findByAndCache("ProductStoreGroupMember",UtilMisc.toMap("productStoreId",productStoreId),UtilMisc.toList("sequenceNum","-fromDate"));
+          productStoreGroupMemberList=EntityUtil.filterByDate(productStoreGroupMemberList,true);
+          if (productStoreGroupMemberList.size() > 0) {
+            GenericValue productStoreGroupMember=EntityUtil.getFirst(productStoreGroupMemberList);
+            productStoreGroupId=productStoreGroupMember.getString("productStoreGroupId");
+          }
+        }
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error getting product store info from the database while calculating price" + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+    if (UtilValidate.isEmpty(productStoreGroupId)) {
+      productStoreGroupId="_NA_";
+    }
+  }
+  String currencyUomId=(String)context.get("currencyUomId");
+  if (UtilValidate.isEmpty(currencyUomId)) {
+    currencyUomId=UtilProperties.getPropertyValue("general","currency.uom.id.default","USD");
+  }
+  String productPricePurposeId=(String)context.get("productPricePurposeId");
+  if (UtilValidate.isEmpty(productPricePurposeId)) {
+    productPricePurposeId="PURCHASE";
+  }
+  String termUomId=(String)context.get("termUomId");
+  String virtualProductId=null;
+  if ("Y".equals(product.getString("isVariant"))) {
+    try {
+      virtualProductId=ProductWorker.getVariantVirtualId(product);
+    }
+ catch (    GenericEntityException e) {
+      String errMsg="Error getting virtual product id from the database while calculating price" + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  List virtualProductPrices=null;
+  if (virtualProductId != null) {
+    try {
+      virtualProductPrices=delegator.findByAndCache("ProductPrice",UtilMisc.toMap("productId",virtualProductId,"currencyUomId",currencyUomId,"productStoreGroupId",productStoreGroupId),UtilMisc.toList("-fromDate"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"An error occurred while getting the product prices",module);
+    }
+    virtualProductPrices=EntityUtil.filterByDate(virtualProductPrices,true);
+  }
+  String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId) && context.get("userLogin") != null) {
+    GenericValue userLogin=(GenericValue)context.get("userLogin");
+    partyId=userLogin.getString("partyId");
+  }
+  if (UtilValidate.isEmpty(partyId) && context.get("autoUserLogin") != null) {
+    GenericValue userLogin=(GenericValue)context.get("autoUserLogin");
+    partyId=userLogin.getString("partyId");
+  }
+  Double quantityDbl=(Double)context.get("quantity");
+  if (quantityDbl == null)   quantityDbl=new Double(1.0);
+  double quantity=quantityDbl.doubleValue();
+  List productPriceEcList=FastList.newInstance();
+  productPriceEcList.add(new EntityExpr("productId",EntityOperator.EQUALS,productId));
+  if ("PURCHASE".equals(productPricePurposeId)) {
+    productPriceEcList.add(new EntityExpr(new EntityExpr("productPricePurposeId",EntityOperator.EQUALS,productPricePurposeId),EntityOperator.OR,new EntityExpr("productPricePurposeId",EntityOperator.EQUALS,null)));
+  }
+ else {
+    productPriceEcList.add(new EntityExpr("productPricePurposeId",EntityOperator.EQUALS,productPricePurposeId));
+  }
+  productPriceEcList.add(new EntityExpr("currencyUomId",EntityOperator.EQUALS,currencyUomId));
+  productPriceEcList.add(new EntityExpr("productStoreGroupId",EntityOperator.EQUALS,productStoreGroupId));
+  if (UtilValidate.isNotEmpty(termUomId)) {
+    productPriceEcList.add(new EntityExpr("termUomId",EntityOperator.EQUALS,termUomId));
+  }
+  EntityCondition productPriceEc=new EntityConditionList(productPriceEcList,EntityOperator.AND);
+  List productPrices=null;
+  try {
+    productPrices=delegator.findByConditionCache("ProductPrice",productPriceEc,null,UtilMisc.toList("-fromDate"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"An error occurred while getting the product prices",module);
+  }
+  productPrices=EntityUtil.filterByDate(productPrices,true);
+  List listPrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","LIST_PRICE"));
+  GenericValue listPriceValue=EntityUtil.getFirst(listPrices);
+  if (listPrices != null && listPrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one LIST_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ listPriceValue.getDouble("price"),module);
+  }
+  List defaultPrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","DEFAULT_PRICE"));
+  GenericValue defaultPriceValue=EntityUtil.getFirst(defaultPrices);
+  if (defaultPrices != null && defaultPrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one DEFAULT_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ defaultPriceValue.getDouble("price"),module);
+  }
+  List competitivePrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","COMPETITIVE_PRICE"));
+  GenericValue competitivePriceValue=EntityUtil.getFirst(competitivePrices);
+  if (competitivePrices != null && competitivePrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one COMPETITIVE_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ competitivePriceValue.getDouble("price"),module);
+  }
+  List averageCosts=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","AVERAGE_COST"));
+  GenericValue averageCostValue=EntityUtil.getFirst(averageCosts);
+  if (averageCosts != null && averageCosts.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one AVERAGE_COST with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ averageCostValue.getDouble("price"),module);
+  }
+  List promoPrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","PROMO_PRICE"));
+  GenericValue promoPriceValue=EntityUtil.getFirst(promoPrices);
+  if (promoPrices != null && promoPrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one PROMO_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ promoPriceValue.getDouble("price"),module);
+  }
+  List minimumPrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","MINIMUM_PRICE"));
+  GenericValue minimumPriceValue=EntityUtil.getFirst(minimumPrices);
+  if (minimumPrices != null && minimumPrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one MINIMUM_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ minimumPriceValue.getDouble("price"),module);
+  }
+  List maximumPrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","MAXIMUM_PRICE"));
+  GenericValue maximumPriceValue=EntityUtil.getFirst(maximumPrices);
+  if (maximumPrices != null && maximumPrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one MAXIMUM_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ maximumPriceValue.getDouble("price"),module);
+  }
+  List wholesalePrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","WHOLESALE_PRICE"));
+  GenericValue wholesalePriceValue=EntityUtil.getFirst(wholesalePrices);
+  if (wholesalePrices != null && wholesalePrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one WHOLESALE_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ wholesalePriceValue.getDouble("price"),module);
+  }
+  List specialPromoPrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","SPECIAL_PROMO_PRICE"));
+  GenericValue specialPromoPriceValue=EntityUtil.getFirst(specialPromoPrices);
+  if (specialPromoPrices != null && specialPromoPrices.size() > 1) {
+    if (Debug.infoOn())     Debug.logInfo("There is more than one SPECIAL_PROMO_PRICE with the currencyUomId " + currencyUomId + " and productId "+ productId+ ", using the latest found with price: "+ specialPromoPriceValue.getDouble("price"),module);
+  }
+  if (virtualProductPrices != null && virtualProductPrices.size() > 0) {
+    if (listPriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","LIST_PRICE"));
+      listPriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one LIST_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ listPriceValue.getDouble("price"),module);
+      }
+    }
+    if (defaultPriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","DEFAULT_PRICE"));
+      defaultPriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one DEFAULT_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ defaultPriceValue.getDouble("price"),module);
+      }
+    }
+    if (averageCostValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","AVERAGE_COST"));
+      averageCostValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one AVERAGE_COST with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ averageCostValue.getDouble("price"),module);
+      }
+    }
+    if (promoPriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","PROMO_PRICE"));
+      promoPriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one PROMO_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ promoPriceValue.getDouble("price"),module);
+      }
+    }
+    if (minimumPriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","MINIMUM_PRICE"));
+      minimumPriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one MINIMUM_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ minimumPriceValue.getDouble("price"),module);
+      }
+    }
+    if (maximumPriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","MAXIMUM_PRICE"));
+      maximumPriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one MAXIMUM_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ maximumPriceValue.getDouble("price"),module);
+      }
+    }
+    if (wholesalePriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","WHOLESALE_PRICE"));
+      wholesalePriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one WHOLESALE_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ wholesalePriceValue.getDouble("price"),module);
+      }
+    }
+    if (specialPromoPriceValue == null) {
+      List virtualTempPrices=EntityUtil.filterByAnd(virtualProductPrices,UtilMisc.toMap("productPriceTypeId","SPECIAL_PROMO_PRICE"));
+      specialPromoPriceValue=EntityUtil.getFirst(virtualTempPrices);
+      if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+        if (Debug.infoOn())         Debug.logInfo("There is more than one SPECIAL_PROMO_PRICE with the currencyUomId " + currencyUomId + " and productId "+ virtualProductId+ ", using the latest found with price: "+ specialPromoPriceValue.getDouble("price"),module);
+      }
+    }
+  }
+  if ("Y".equals(product.getString("isVirtual"))) {
+    if (defaultPriceValue == null) {
+      try {
+        List variantAssocList=EntityUtil.filterByDate(delegator.findByAndCache("ProductAssoc",UtilMisc.toMap("productId",product.get("productId"),"productAssocTypeId","PRODUCT_VARIANT"),UtilMisc.toList("-fromDate")));
+        Iterator variantAssocIter=variantAssocList.iterator();
+        double minDefaultPrice=Double.MAX_VALUE;
+        List variantProductPrices=null;
+        String variantProductId=null;
+        while (variantAssocIter.hasNext()) {
+          GenericValue variantAssoc=(GenericValue)variantAssocIter.next();
+          String curVariantProductId=variantAssoc.getString("productIdTo");
+          List curVariantPriceList=EntityUtil.filterByDate(delegator.findByAndCache("ProductPrice",UtilMisc.toMap("productId",curVariantProductId),UtilMisc.toList("-fromDate")),nowTimestamp);
+          List tempDefaultPriceList=EntityUtil.filterByAnd(curVariantPriceList,UtilMisc.toMap("productPriceTypeId","DEFAULT_PRICE"));
+          GenericValue curDefaultPriceValue=EntityUtil.getFirst(tempDefaultPriceList);
+          if (curDefaultPriceValue != null) {
+            Double curDefaultPrice=curDefaultPriceValue.getDouble("price");
+            if (curDefaultPrice.doubleValue() < minDefaultPrice) {
+              GenericValue curVariantProduct=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",curVariantProductId));
+              if (curVariantProduct != null) {
+                Timestamp salesDiscontinuationDate=curVariantProduct.getTimestamp("salesDiscontinuationDate");
+                if (salesDiscontinuationDate == null || salesDiscontinuationDate.after(nowTimestamp)) {
+                  minDefaultPrice=curDefaultPrice.doubleValue();
+                  variantProductPrices=curVariantPriceList;
+                  variantProductId=curVariantProductId;
+                }
+              }
+            }
+          }
+        }
+        if (variantProductPrices != null) {
+          if (listPriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","LIST_PRICE"));
+            listPriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one LIST_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ listPriceValue.getDouble("price"),module);
+            }
+          }
+          if (defaultPriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","DEFAULT_PRICE"));
+            defaultPriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one DEFAULT_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ defaultPriceValue.getDouble("price"),module);
+            }
+          }
+          if (competitivePriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","COMPETITIVE_PRICE"));
+            competitivePriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one COMPETITIVE_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ competitivePriceValue.getDouble("price"),module);
+            }
+          }
+          if (averageCostValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","AVERAGE_COST"));
+            averageCostValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one AVERAGE_COST with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ averageCostValue.getDouble("price"),module);
+            }
+          }
+          if (promoPriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","PROMO_PRICE"));
+            promoPriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one PROMO_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ promoPriceValue.getDouble("price"),module);
+            }
+          }
+          if (minimumPriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","MINIMUM_PRICE"));
+            minimumPriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one MINIMUM_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ minimumPriceValue.getDouble("price"),module);
+            }
+          }
+          if (maximumPriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","MAXIMUM_PRICE"));
+            maximumPriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one MAXIMUM_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ maximumPriceValue.getDouble("price"),module);
+            }
+          }
+          if (wholesalePriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","WHOLESALE_PRICE"));
+            wholesalePriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one WHOLESALE_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ wholesalePriceValue.getDouble("price"),module);
+            }
+          }
+          if (specialPromoPriceValue == null) {
+            List virtualTempPrices=EntityUtil.filterByAnd(variantProductPrices,UtilMisc.toMap("productPriceTypeId","SPECIAL_PROMO_PRICE"));
+            specialPromoPriceValue=EntityUtil.getFirst(virtualTempPrices);
+            if (virtualTempPrices != null && virtualTempPrices.size() > 1) {
+              if (Debug.infoOn())               Debug.logInfo("There is more than one SPECIAL_PROMO_PRICE with the currencyUomId " + currencyUomId + " and productId "+ variantProductId+ ", using the latest found with price: "+ wholesalePriceValue.getDouble("price"),module);
+            }
+          }
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"An error occurred while getting the product prices",module);
+      }
+    }
+  }
+  double promoPrice=0;
+  if (promoPriceValue != null && promoPriceValue.get("price") != null) {
+    promoPrice=promoPriceValue.getDouble("price").doubleValue();
+  }
+  double wholesalePrice=0;
+  if (wholesalePriceValue != null && wholesalePriceValue.get("price") != null) {
+    wholesalePrice=wholesalePriceValue.getDouble("price").doubleValue();
+  }
+  boolean validPriceFound=false;
+  double defaultPrice=0;
+  if (defaultPriceValue != null && defaultPriceValue.get("price") != null) {
+    defaultPrice=defaultPriceValue.getDouble("price").doubleValue();
+    validPriceFound=true;
+  }
+  Double listPriceDbl=listPriceValue != null ? listPriceValue.getDouble("price") : null;
+  if (listPriceDbl == null) {
+    Double maxSellPrice=maximumPriceValue != null ? maximumPriceValue.getDouble("price") : null;
+    if (maxSellPrice != null && defaultPrice > maxSellPrice.doubleValue()) {
+      defaultPrice=maxSellPrice.doubleValue();
+    }
+    Double minSellPrice=minimumPriceValue != null ? minimumPriceValue.getDouble("price") : null;
+    if (minSellPrice != null && defaultPrice < minSellPrice.doubleValue()) {
+      defaultPrice=minSellPrice.doubleValue();
+      validPriceFound=true;
+    }
+    result.put("basePrice",new Double(defaultPrice));
+    result.put("price",new Double(defaultPrice));
+    result.put("defaultPrice",new Double(defaultPrice));
+    result.put("competitivePrice",competitivePriceValue != null ? competitivePriceValue.getDouble("price") : null);
+    result.put("averageCost",averageCostValue != null ? averageCostValue.getDouble("price") : null);
+    result.put("promoPrice",promoPriceValue != null ? promoPriceValue.getDouble("price") : null);
+    result.put("specialPromoPrice",specialPromoPriceValue != null ? specialPromoPriceValue.getDouble("price") : null);
+  }
+ else {
+    try {
+      double listPrice=listPriceDbl.doubleValue();
+      double averageCost=(averageCostValue != null && averageCostValue.get("price") != null) ? averageCostValue.getDouble("price").doubleValue() : listPrice;
+      double margin=listPrice - averageCost;
+      double price=listPrice;
+      Collection productPriceRules=null;
+      if (optimizeForLargeRuleSet) {
+        TreeSet productPriceRuleIds=new TreeSet();
+        Collection productCategoryIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PROD_CAT_ID"));
+        if (productCategoryIdConds != null && productCategoryIdConds.size() > 0) {
+          Iterator productCategoryIdCondsIter=productCategoryIdConds.iterator();
+          while (productCategoryIdCondsIter.hasNext()) {
+            GenericValue productCategoryIdCond=(GenericValue)productCategoryIdCondsIter.next();
+            productPriceRuleIds.add(productCategoryIdCond.getString("productPriceRuleId"));
+          }
+        }
+        Collection quantityConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_QUANTITY"));
+        if (quantityConds != null && quantityConds.size() > 0) {
+          Iterator quantityCondsIter=quantityConds.iterator();
+          while (quantityCondsIter.hasNext()) {
+            GenericValue quantityCond=(GenericValue)quantityCondsIter.next();
+            productPriceRuleIds.add(quantityCond.getString("productPriceRuleId"));
+          }
+        }
+        Collection roleTypeIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_ROLE_TYPE"));
+        if (roleTypeIdConds != null && roleTypeIdConds.size() > 0) {
+          Iterator roleTypeIdCondsIter=roleTypeIdConds.iterator();
+          while (roleTypeIdCondsIter.hasNext()) {
+            GenericValue roleTypeIdCond=(GenericValue)roleTypeIdCondsIter.next();
+            productPriceRuleIds.add(roleTypeIdCond.getString("productPriceRuleId"));
+          }
+        }
+        Collection listPriceConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_LIST_PRICE"));
+        if (listPriceConds != null && listPriceConds.size() > 0) {
+          Iterator listPriceCondsIter=listPriceConds.iterator();
+          while (listPriceCondsIter.hasNext()) {
+            GenericValue listPriceCond=(GenericValue)listPriceCondsIter.next();
+            productPriceRuleIds.add(listPriceCond.getString("productPriceRuleId"));
+          }
+        }
+        Collection productIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PRODUCT_ID","condValue",productId));
+        if (productIdConds != null && productIdConds.size() > 0) {
+          Iterator productIdCondsIter=productIdConds.iterator();
+          while (productIdCondsIter.hasNext()) {
+            GenericValue productIdCond=(GenericValue)productIdCondsIter.next();
+            productPriceRuleIds.add(productIdCond.getString("productPriceRuleId"));
+          }
+        }
+        if (virtualProductId != null) {
+          Collection virtualProductIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PRODUCT_ID","condValue",virtualProductId));
+          if (virtualProductIdConds != null && virtualProductIdConds.size() > 0) {
+            Iterator virtualProductIdCondsIter=virtualProductIdConds.iterator();
+            while (virtualProductIdCondsIter.hasNext()) {
+              GenericValue virtualProductIdCond=(GenericValue)virtualProductIdCondsIter.next();
+              productPriceRuleIds.add(virtualProductIdCond.getString("productPriceRuleId"));
+            }
+          }
+        }
+        if (UtilValidate.isNotEmpty(prodCatalogId)) {
+          Collection prodCatalogIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PROD_CLG_ID","condValue",prodCatalogId));
+          if (prodCatalogIdConds != null && prodCatalogIdConds.size() > 0) {
+            Iterator prodCatalogIdCondsIter=prodCatalogIdConds.iterator();
+            while (prodCatalogIdCondsIter.hasNext()) {
+              GenericValue prodCatalogIdCond=(GenericValue)prodCatalogIdCondsIter.next();
+              productPriceRuleIds.add(prodCatalogIdCond.getString("productPriceRuleId"));
+            }
+          }
+        }
+        if (UtilValidate.isNotEmpty(productStoreGroupId)) {
+          Collection storeGroupConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PROD_SGRP_ID","condValue",productStoreGroupId));
+          if (storeGroupConds != null && storeGroupConds.size() > 0) {
+            Iterator storeGroupCondsIter=storeGroupConds.iterator();
+            while (storeGroupCondsIter.hasNext()) {
+              GenericValue storeGroupCond=(GenericValue)storeGroupCondsIter.next();
+              productPriceRuleIds.add(storeGroupCond.getString("productPriceRuleId"));
+            }
+          }
+        }
+        if (UtilValidate.isNotEmpty(webSiteId)) {
+          Collection webSiteIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_WEBSITE_ID","condValue",webSiteId));
+          if (webSiteIdConds != null && webSiteIdConds.size() > 0) {
+            Iterator webSiteIdCondsIter=webSiteIdConds.iterator();
+            while (webSiteIdCondsIter.hasNext()) {
+              GenericValue webSiteIdCond=(GenericValue)webSiteIdCondsIter.next();
+              productPriceRuleIds.add(webSiteIdCond.getString("productPriceRuleId"));
+            }
+          }
+        }
+        if (UtilValidate.isNotEmpty(partyId)) {
+          Collection partyIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PARTY_ID","condValue",partyId));
+          if (partyIdConds != null && partyIdConds.size() > 0) {
+            Iterator partyIdCondsIter=partyIdConds.iterator();
+            while (partyIdCondsIter.hasNext()) {
+              GenericValue partyIdCond=(GenericValue)partyIdCondsIter.next();
+              productPriceRuleIds.add(partyIdCond.getString("productPriceRuleId"));
+            }
+          }
+        }
+        Collection currencyUomIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_CURRENCY_UOMID","condValue",currencyUomId));
+        if (currencyUomIdConds != null && currencyUomIdConds.size() > 0) {
+          Iterator currencyUomIdCondsIter=currencyUomIdConds.iterator();
+          while (currencyUomIdCondsIter.hasNext()) {
+            GenericValue currencyUomIdCond=(GenericValue)currencyUomIdCondsIter.next();
+            productPriceRuleIds.add(currencyUomIdCond.getString("productPriceRuleId"));
+          }
+        }
+        productPriceRules=new LinkedList();
+        Iterator productPriceRuleIdsIter=productPriceRuleIds.iterator();
+        while (productPriceRuleIdsIter.hasNext()) {
+          String productPriceRuleId=(String)productPriceRuleIdsIter.next();
+          GenericValue productPriceRule=delegator.findByPrimaryKeyCache("ProductPriceRule",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
+          if (productPriceRule == null)           continue;
+          productPriceRules.add(productPriceRule);
+        }
+      }
+ else {
+        productPriceRules=delegator.findAllCache("ProductPriceRule");
+        if (productPriceRules == null)         productPriceRules=new LinkedList();
+      }
+      int totalConds=0;
+      int totalActions=0;
+      int totalRules=0;
+      Iterator productPriceRulesIter=productPriceRules.iterator();
+      while (productPriceRulesIter.hasNext()) {
+        GenericValue productPriceRule=(GenericValue)productPriceRulesIter.next();
+        String productPriceRuleId=productPriceRule.getString("productPriceRuleId");
+        java.sql.Timestamp fromDate=productPriceRule.getTimestamp("fromDate");
+        java.sql.Timestamp thruDate=productPriceRule.getTimestamp("thruDate");
+        if (fromDate != null && fromDate.after(nowTimestamp)) {
+          continue;
+        }
+        if (thruDate != null && thruDate.before(nowTimestamp)) {
+          continue;
+        }
+        boolean allTrue=true;
+        StringBuffer condsDescription=new StringBuffer();
+        Collection productPriceConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
+        Iterator productPriceCondsIter=UtilMisc.toIterator(productPriceConds);
+        while (productPriceCondsIter != null && productPriceCondsIter.hasNext()) {
+          GenericValue productPriceCond=(GenericValue)productPriceCondsIter.next();
+          totalConds++;
+          if (!checkPriceCondition(productPriceCond,productId,prodCatalogId,productStoreGroupId,webSiteId,partyId,quantity,listPrice,currencyUomId,delegator)) {
+            if (virtualProductId != null) {
+              if (!checkPriceCondition(productPriceCond,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,quantity,listPrice,currencyUomId,delegator)) {
+                allTrue=false;
+                break;
+              }
+            }
+ else {
+              allTrue=false;
+              break;
+            }
+          }
+          condsDescription.append("[");
+          GenericValue inputParamEnum=productPriceCond.getRelatedOneCache("InputParamEnumeration");
+          condsDescription.append(inputParamEnum.getString("enumCode"));
+          GenericValue operatorEnum=productPriceCond.getRelatedOneCache("OperatorEnumeration");
+          condsDescription.append(operatorEnum.getString("description"));
+          condsDescription.append(productPriceCond.getString("condValue"));
+          condsDescription.append("] ");
+        }
+        condsDescription.append("[list:");
+        condsDescription.append(listPrice);
+        condsDescription.append(";avgCost:");
+        condsDescription.append(averageCost);
+        condsDescription.append(";margin:");
+        condsDescription.append(margin);
+        condsDescription.append("] ");
+        boolean foundFlatOverride=false;
+        if (allTrue) {
+          if ("Y".equals(productPriceRule.getString("isSale"))) {
+            isSale=true;
+          }
+          Collection productPriceActions=delegator.findByAndCache("ProductPriceAction",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
+          Iterator productPriceActionsIter=UtilMisc.toIterator(productPriceActions);
+          while (productPriceActionsIter != null && productPriceActionsIter.hasNext()) {
+            GenericValue productPriceAction=(GenericValue)productPriceActionsIter.next();
+            totalActions++;
+            double modifyAmount=0;
+            if ("PRICE_POD".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              if (productPriceAction.get("amount") != null) {
+                modifyAmount=defaultPrice * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
+              }
+            }
+ else             if ("PRICE_POL".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              if (productPriceAction.get("amount") != null) {
+                modifyAmount=listPrice * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
+              }
+            }
+ else             if ("PRICE_POAC".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              if (productPriceAction.get("amount") != null) {
+                modifyAmount=averageCost * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
+              }
+            }
+ else             if ("PRICE_POM".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              if (productPriceAction.get("amount") != null) {
+                modifyAmount=margin * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
+              }
+            }
+ else             if ("PRICE_FOL".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              if (productPriceAction.get("amount") != null) {
+                modifyAmount=productPriceAction.getDouble("amount").doubleValue();
+              }
+            }
+ else             if ("PRICE_FLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              foundFlatOverride=true;
+              if (productPriceAction.get("amount") != null) {
+                price=productPriceAction.getDouble("amount").doubleValue();
+              }
+ else {
+                Debug.logInfo("ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
+                price=defaultPrice;
+                isSale=false;
+              }
+            }
+ else             if ("PRICE_PFLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              foundFlatOverride=true;
+              price=promoPrice;
+              if (productPriceAction.get("amount") != null) {
+                price+=productPriceAction.getDouble("amount").doubleValue();
+              }
+              if (price == 0.00) {
+                if (defaultPrice != 0.00) {
+                  Debug.logInfo("PromoPrice and ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
+                  price=defaultPrice;
+                }
+ else                 if (listPrice != 0.00) {
+                  Debug.logInfo("PromoPrice and ProductPriceAction had null amount and no default price was available, using list price: " + listPrice + " for product with id "+ productId,module);
+                  price=listPrice;
+                }
+ else {
+                  Debug.logError("PromoPrice and ProductPriceAction had null amount and no default or list price was available, so price is set to zero for product with id " + productId,module);
+                  price=0.00;
+                }
+                isSale=false;
+              }
+            }
+ else             if ("PRICE_WFLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+              foundFlatOverride=true;
+              price=wholesalePrice;
+              if (productPriceAction.get("amount") != null) {
+                price+=productPriceAction.getDouble("amount").doubleValue();
+              }
+              if (price == 0.00) {
+                if (defaultPrice != 0.00) {
+                  Debug.logInfo("WholesalePrice and ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
+                  price=defaultPrice;
+                }
+ else                 if (listPrice != 0.00) {
+                  Debug.logInfo("WholesalePrice and ProductPriceAction had null amount and no default price was available, using list price: " + listPrice + " for product with id "+ productId,module);
+                  price=listPrice;
+                }
+ else {
+                  Debug.logError("WholesalePrice and ProductPriceAction had null amount and no default or list price was available, so price is set to zero for product with id " + productId,module);
+                  price=0.00;
+                }
+                isSale=false;
+              }
+            }
+            StringBuffer priceInfoDescription=new StringBuffer();
+            priceInfoDescription.append(condsDescription.toString());
+            priceInfoDescription.append("[type:");
+            priceInfoDescription.append(productPriceAction.getString("productPriceActionTypeId"));
+            priceInfoDescription.append("]");
+            GenericValue orderItemPriceInfo=delegator.makeValue("OrderItemPriceInfo",null);
+            orderItemPriceInfo.set("productPriceRuleId",productPriceAction.get("productPriceRuleId"));
+            orderItemPriceInfo.set("productPriceActionSeqId",productPriceAction.get("productPriceActionSeqId"));
+            orderItemPriceInfo.set("modifyAmount",new Double(modifyAmount));
+            String priceInfoDescriptionString=priceInfoDescription.toString();
+            if (priceInfoDescriptionString.length() > 250) {
+              priceInfoDescriptionString=priceInfoDescriptionString.substring(0,250);
+            }
+            orderItemPriceInfo.set("description",priceInfoDescriptionString);
+            orderItemPriceInfos.add(orderItemPriceInfo);
+            if (foundFlatOverride) {
+              break;
+            }
+ else {
+              price+=modifyAmount;
+            }
+          }
+        }
+        totalRules++;
+        if (foundFlatOverride) {
+          break;
+        }
+      }
+      if (Debug.verboseOn()) {
+        Debug.logVerbose("Unchecked Calculated price: " + price,module);
+        Debug.logVerbose("PriceInfo:",module);
+        Iterator orderItemPriceInfosIter=orderItemPriceInfos.iterator();
+        while (orderItemPriceInfosIter.hasNext()) {
+          GenericValue orderItemPriceInfo=(GenericValue)orderItemPriceInfosIter.next();
+          Debug.logVerbose(" --- " + orderItemPriceInfo.toString(),module);
+        }
+      }
+      if (totalActions == 0) {
+        price=defaultPrice;
+      }
+ else {
+        validPriceFound=true;
+      }
+      Double maxSellPrice=maximumPriceValue != null ? maximumPriceValue.getDouble("price") : null;
+      if (maxSellPrice != null && price > maxSellPrice.doubleValue()) {
+        price=maxSellPrice.doubleValue();
+      }
+      Double minSellPrice=minimumPriceValue != null ? minimumPriceValue.getDouble("price") : null;
+      if (minSellPrice != null && price < minSellPrice.doubleValue()) {
+        price=minSellPrice.doubleValue();
+        validPriceFound=true;
+      }
+      if (Debug.verboseOn())       Debug.logVerbose("Final Calculated price: " + price + ", rules: "+ totalRules+ ", conds: "+ totalConds+ ", actions: "+ totalActions,module);
+      result.put("basePrice",new Double(price));
+      result.put("price",new Double(price));
+      result.put("listPrice",new Double(listPrice));
+      result.put("defaultPrice",new Double(defaultPrice));
+      result.put("averageCost",new Double(averageCost));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error getting rules from the database while calculating price",module);
+      return ServiceUtil.returnError("Error getting rules from the database while calculating price: " + e.toString());
+    }
+  }
+  result.put("competitivePrice",competitivePriceValue != null ? competitivePriceValue.getDouble("price") : null);
+  result.put("specialPromoPrice",specialPromoPriceValue != null ? specialPromoPriceValue.getDouble("price") : null);
+  result.put("orderItemPriceInfos",orderItemPriceInfos);
+  result.put("isSale",new Boolean(isSale));
+  result.put("validPriceFound",new Boolean(validPriceFound));
+  result.put("currencyUsed",currencyUomId);
+  if ("Y".equals(checkIncludeVat) && productStore != null && "Y".equals(productStore.getString("showPricesWithVatTax"))) {
+    Map calcTaxForDisplayContext=UtilMisc.toMap("productStoreId",productStoreId,"productId",productId,"quantity",new BigDecimal(quantity),"basePrice",new BigDecimal(((Double)result.get("price")).doubleValue()));
+    if (UtilValidate.isNotEmpty(partyId)) {
+      calcTaxForDisplayContext.put("billToPartyId",partyId);
+    }
+    try {
+      Map calcTaxForDisplayResult=dispatcher.runSync("calcTaxForDisplay",calcTaxForDisplayContext);
+      if (ServiceUtil.isError(calcTaxForDisplayResult)) {
+        return ServiceUtil.returnError("Error calculating VAT tax (with calcTaxForDisplay service)",null,null,calcTaxForDisplayResult);
+      }
+      result.put("price",new Double(((BigDecimal)calcTaxForDisplayResult.get("priceWithTax")).doubleValue()));
+      BigDecimal taxPercentage=(BigDecimal)calcTaxForDisplayResult.get("taxPercentage");
+      BigDecimal taxMultiplier=ONE_BASE.add(taxPercentage.divide(PERCENT_SCALE,3));
+      if (result.get("listPrice") != null)       result.put("listPrice",new Double((new BigDecimal(((Double)result.get("listPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("defaultPrice") != null)       result.put("defaultPrice",new Double((new BigDecimal(((Double)result.get("defaultPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("averageCost") != null)       result.put("averageCost",new Double((new BigDecimal(((Double)result.get("averageCost")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("promoPrice") != null)       result.put("promoPrice",new Double((new BigDecimal(((Double)result.get("promoPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("competitivePrice") != null)       result.put("competitivePrice",new Double((new BigDecimal(((Double)result.get("competitivePrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error calculating VAT tax (with calcTaxForDisplay service): " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  return result;
+}

@@ -1,0 +1,147 @@
+{
+  HttpSession session=request.getSession();
+  Set attrNamesToSkip=FastSet.newInstance();
+  attrNamesToSkip.add("delegator");
+  attrNamesToSkip.add("dispatcher");
+  attrNamesToSkip.add("security");
+  attrNamesToSkip.add("webSiteId");
+  Map parameterMap=UtilHttp.getParameterMap(request);
+  Enumeration requestAttrNames=request.getAttributeNames();
+  while (requestAttrNames.hasMoreElements()) {
+    String attrName=(String)requestAttrNames.nextElement();
+    Object attrValue=request.getAttribute(attrName);
+    final boolean preserveRequestParameters=false;
+    if (preserveRequestParameters) {
+      Object param=parameterMap.get(attrName);
+      if (param == null) {
+        parameterMap.put(attrName,attrValue);
+      }
+ else       if (param instanceof String && ((String)param).length() == 0) {
+        parameterMap.put(attrName,attrValue);
+      }
+ else {
+        Debug.logInfo("Found request attribute that conflicts with parameter name, leaving request parameter in place for name: " + attrName,module);
+      }
+    }
+ else {
+      parameterMap.put(attrName,attrValue);
+    }
+  }
+  Enumeration sessionAttrNames=session.getAttributeNames();
+  while (sessionAttrNames.hasMoreElements()) {
+    String attrName=(String)sessionAttrNames.nextElement();
+    if (attrNamesToSkip.contains(attrName))     continue;
+    Object attrValue=session.getAttribute(attrName);
+    Object param=parameterMap.get(attrName);
+    if (param == null) {
+      parameterMap.put(attrName,attrValue);
+    }
+ else     if (param instanceof String && ((String)param).length() == 0) {
+      parameterMap.put(attrName,attrValue);
+    }
+ else {
+      Debug.logInfo("Found session attribute that conflicts with parameter name, leaving request parameter in place for name: " + attrName,module);
+    }
+  }
+  Enumeration applicationAttrNames=servletContext.getAttributeNames();
+  while (applicationAttrNames.hasMoreElements()) {
+    String attrName=(String)applicationAttrNames.nextElement();
+    if (attrNamesToSkip.contains(attrName))     continue;
+    Object param=parameterMap.get(attrName);
+    Object attrValue=servletContext.getAttribute(attrName);
+    if (Debug.verboseOn())     Debug.logVerbose("Getting parameter from application attrbute with name [" + attrName + "] and value ["+ attrValue+ "]",module);
+    if (param == null) {
+      parameterMap.put(attrName,attrValue);
+    }
+ else     if (param instanceof String && ((String)param).length() == 0) {
+      parameterMap.put(attrName,attrValue);
+    }
+ else {
+      Debug.logInfo("Found servlet context (application) attribute that conflicts with parameter name, leaving request parameter in place for name: " + attrName,module);
+    }
+  }
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  this.populateBasicContext(parameterMap,(GenericDelegator)request.getAttribute("delegator"),(LocalDispatcher)request.getAttribute("dispatcher"),(Security)request.getAttribute("security"),UtilHttp.getLocale(request),userLogin);
+  context.put("autoUserLogin",session.getAttribute("autoUserLogin"));
+  context.put("person",session.getAttribute("person"));
+  context.put("partyGroup",session.getAttribute("partyGroup"));
+  request.setAttribute("userLogin",userLogin);
+  context.put("formStringRenderer",new HtmlFormRenderer(request,response));
+  context.put("request",request);
+  context.put("response",response);
+  context.put("session",session);
+  context.put("application",servletContext);
+  if (servletContext != null) {
+    String rootDir=(String)context.get("rootDir");
+    String webSiteId=(String)context.get("webSiteId");
+    String https=(String)context.get("https");
+    if (UtilValidate.isEmpty(rootDir)) {
+      rootDir=servletContext.getRealPath("/");
+      context.put("rootDir",rootDir);
+    }
+    if (UtilValidate.isEmpty(webSiteId)) {
+      webSiteId=(String)servletContext.getAttribute("webSiteId");
+      context.put("webSiteId",webSiteId);
+    }
+    if (UtilValidate.isEmpty(https)) {
+      https=(String)servletContext.getAttribute("https");
+      context.put("https",https);
+    }
+  }
+  BeansWrapper wrapper=BeansWrapper.getDefaultInstance();
+  context.put("sessionAttributes",new HttpSessionHashModel(session,wrapper));
+  context.put("requestAttributes",new HttpRequestHashModel(request,wrapper));
+  TaglibFactory JspTaglibs=new TaglibFactory(servletContext);
+  context.put("JspTaglibs",JspTaglibs);
+  context.put("requestParameters",UtilHttp.getParameterMap(request));
+  context.put("page",FastMap.newInstance());
+  context.put("controlPath",request.getAttribute("_CONTROL_PATH_"));
+  context.put("contextRoot",request.getAttribute("_CONTEXT_ROOT_"));
+  context.put("serverRoot",request.getAttribute("_SERVER_ROOT_URL_"));
+  context.put("checkLoginUrl",LoginWorker.makeLoginUrl(request,"checkLogin"));
+  String externalLoginKey=LoginWorker.getExternalLoginKey(request);
+  String externalKeyParam=externalLoginKey == null ? "" : "&externalLoginKey=" + externalLoginKey;
+  context.put("externalLoginKey",externalLoginKey);
+  context.put("externalKeyParam",externalKeyParam);
+  List eventMessageList=(List)request.getAttribute("eventMessageList");
+  if (eventMessageList == null)   eventMessageList=new LinkedList();
+  List errorMessageList=(List)request.getAttribute("errorMessageList");
+  if (errorMessageList == null)   errorMessageList=new LinkedList();
+  if (request.getAttribute("_EVENT_MESSAGE_") != null) {
+    eventMessageList.add(UtilFormatOut.replaceString((String)request.getAttribute("_EVENT_MESSAGE_"),"\n","<br/>"));
+    request.removeAttribute("_EVENT_MESSAGE_");
+  }
+  if (request.getAttribute("_EVENT_MESSAGE_LIST_") != null) {
+    eventMessageList.addAll((List)request.getAttribute("_EVENT_MESSAGE_LIST_"));
+    request.removeAttribute("_EVENT_MESSAGE_LIST_");
+  }
+  if (request.getAttribute("_ERROR_MESSAGE_") != null) {
+    errorMessageList.add(UtilFormatOut.replaceString((String)request.getAttribute("_ERROR_MESSAGE_"),"\n","<br/>"));
+    request.removeAttribute("_ERROR_MESSAGE_");
+  }
+  if (session.getAttribute("_ERROR_MESSAGE_") != null) {
+    errorMessageList.add(UtilFormatOut.replaceString((String)session.getAttribute("_ERROR_MESSAGE_"),"\n","<br/>"));
+    session.removeAttribute("_ERROR_MESSAGE_");
+  }
+  if (request.getAttribute("_ERROR_MESSAGE_LIST_") != null) {
+    errorMessageList.addAll((List)request.getAttribute("_ERROR_MESSAGE_LIST_"));
+    request.removeAttribute("_ERROR_MESSAGE_LIST_");
+  }
+  context.put("eventMessageList",eventMessageList);
+  context.put("errorMessageList",errorMessageList);
+  if (request.getAttribute("serviceValidationException") != null) {
+    context.put("serviceValidationException",request.getAttribute("serviceValidationException"));
+    request.removeAttribute("serviceValidationException");
+  }
+  if (errorMessageList.size() > 0) {
+    context.put("isError",Boolean.TRUE);
+  }
+ else {
+    context.put("isError",Boolean.FALSE);
+  }
+  if ("true".equals((String)parameterMap.get("isError"))) {
+    context.put("isError",Boolean.TRUE);
+  }
+  context.put("nowTimestamp",UtilDateTime.nowTimestamp());
+  context.push();
+}

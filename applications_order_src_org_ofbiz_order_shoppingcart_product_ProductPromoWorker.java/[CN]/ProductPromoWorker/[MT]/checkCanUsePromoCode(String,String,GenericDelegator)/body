@@ -1,0 +1,39 @@
+{
+  try {
+    GenericValue productPromoCode=delegator.findByPrimaryKey("ProductPromoCode",UtilMisc.toMap("productPromoCodeId",productPromoCodeId));
+    if (productPromoCode == null) {
+      return "The promotion code [" + productPromoCodeId + "] is not valid.";
+    }
+    if ("Y".equals(productPromoCode.getString("requireEmailOrParty"))) {
+      boolean hasEmailOrParty=false;
+      if (UtilValidate.isNotEmpty(partyId)) {
+        if (delegator.findByPrimaryKey("ProductPromoCodeParty",UtilMisc.toMap("productPromoCodeId",productPromoCodeId,"partyId",partyId)) != null) {
+          return null;
+        }
+        Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+        List validEmailCondList=new ArrayList();
+        validEmailCondList.add(new EntityExpr("partyId",EntityOperator.EQUALS,partyId));
+        validEmailCondList.add(new EntityExpr("productPromoCodeId",EntityOperator.EQUALS,productPromoCodeId));
+        validEmailCondList.add(new EntityExpr("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp));
+        validEmailCondList.add(new EntityExpr(new EntityExpr("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp),EntityOperator.OR,new EntityExpr("thruDate",EntityOperator.EQUALS,null)));
+        EntityCondition validEmailCondition=new EntityConditionList(validEmailCondList,EntityOperator.AND);
+        long validEmailCount=delegator.findCountByCondition("ProductPromoCodeEmailParty",validEmailCondition,null);
+        if (validEmailCount > 0) {
+          return null;
+        }
+      }
+      if (!hasEmailOrParty) {
+        return "This promotion code [" + productPromoCodeId + "] requires you to be associated with it by account or email address and you are not associated with it.";
+      }
+    }
+    Long useLimit=getProductPromoCodeUseLimit(productPromoCode,partyId,delegator);
+    if (useLimit != null && useLimit.longValue() <= 0) {
+      return "This promotion code [" + productPromoCodeId + "] has reached it's maximum use limit for you and can no longer be used.";
+    }
+    return null;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up ProductPromoCode",module);
+    return "Error looking up code [" + productPromoCodeId + "]:"+ e.toString();
+  }
+}

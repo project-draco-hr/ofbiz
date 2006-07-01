@@ -1,0 +1,152 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  String returnId=(String)context.get("returnId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue returnHeader=null;
+  List returnItems=null;
+  try {
+    returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+    if (returnHeader != null) {
+      returnItems=returnHeader.getRelatedByAnd("ReturnItem",UtilMisc.toMap("returnTypeId","RTN_CREDIT"));
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems looking up return information",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+  }
+  if (returnHeader != null && returnItems != null && returnItems.size() > 0) {
+    String billingAccountId=returnHeader.getString("billingAccountId");
+    String fromPartyId=returnHeader.getString("fromPartyId");
+    String toPartyId=returnHeader.getString("toPartyId");
+    Map serviceResult=null;
+    try {
+      serviceResult=dispatcher.runSync("checkPaymentAmountForRefund",UtilMisc.toMap("returnId",returnId));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem running the checkPaymentAmountForRefund service",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsWithCheckPaymentAmountForRefund",locale));
+    }
+    if (ServiceUtil.isError(serviceResult)) {
+      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(serviceResult));
+    }
+    if (billingAccountId == null) {
+      try {
+        Map newBa=dispatcher.runSync("createBillingAccount",UtilMisc.toMap("accountLimit",new Double(0.00),"description","Credit Account","userLogin",userLogin));
+        if (!newBa.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
+          billingAccountId=(String)newBa.get("billingAccountId");
+          if (billingAccountId != null) {
+            Map newBaR=dispatcher.runSync("createBillingAccountRole",UtilMisc.toMap("billingAccountId",billingAccountId,"partyId",fromPartyId,"roleTypeId","BILL_TO_CUSTOMER","userLogin",userLogin));
+            if (newBaR.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
+              Debug.logError("Error with createBillingAccountRole: " + newBaR.get(ModelService.ERROR_MESSAGE),module);
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorWithCreateBillingAccountRole",locale) + newBaR.get(ModelService.ERROR_MESSAGE));
+            }
+          }
+        }
+ else {
+          Debug.logError("Error with createBillingAccount: " + newBa.get(ModelService.ERROR_MESSAGE),module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorWithCreateBillingAccount",locale) + newBa.get(ModelService.ERROR_MESSAGE));
+        }
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problems creating BillingAccount",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsCreatingBillingAccount",locale));
+      }
+    }
+    if (billingAccountId == null) {
+      Debug.logError("No available billing account, none was created",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderNoAvailableBillingAccount",locale));
+    }
+    Timestamp now=UtilDateTime.nowTimestamp();
+    BigDecimal creditTotal=ZERO;
+    for (Iterator itemsIter=returnItems.iterator(); itemsIter.hasNext(); ) {
+      GenericValue item=(GenericValue)itemsIter.next();
+      BigDecimal quantity=item.getBigDecimal("returnQuantity");
+      BigDecimal price=item.getBigDecimal("returnPrice");
+      if (quantity == null)       quantity=ZERO;
+      if (price == null)       price=ZERO;
+      creditTotal=creditTotal.add(price.multiply(quantity).setScale(decimals,rounding));
+    }
+    BigDecimal adjustments=new BigDecimal(getReturnAdjustmentTotal(delegator,UtilMisc.toMap("returnId",returnId)));
+    creditTotal=creditTotal.add(adjustments.setScale(decimals,rounding));
+    String paymentId=delegator.getNextSeqId("Payment").toString();
+    GenericValue payment=delegator.makeValue("Payment",UtilMisc.toMap("paymentId",paymentId));
+    payment.set("paymentTypeId","CUSTOMER_REFUND");
+    payment.set("paymentMethodTypeId","EXT_BILLACT");
+    payment.set("partyIdFrom",toPartyId);
+    payment.set("partyIdTo",fromPartyId);
+    payment.set("effectiveDate",now);
+    payment.set("amount",creditTotal);
+    payment.set("comments","Return Credit");
+    payment.set("statusId","PMNT_CONFIRMED");
+    try {
+      delegator.create(payment);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problem creating Payment record",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingPaymentRecord",locale));
+    }
+    Map itemResponse=UtilMisc.toMap("paymentId",paymentId);
+    itemResponse.put("billingAccountId",billingAccountId);
+    itemResponse.put("responseAmount",new Double(creditTotal.doubleValue()));
+    itemResponse.put("responseDate",now);
+    itemResponse.put("userLogin",userLogin);
+    Map serviceResults=null;
+    try {
+      serviceResults=dispatcher.runSync("createReturnItemResponse",itemResponse);
+      if (ServiceUtil.isError(serviceResults)) {
+        return ServiceUtil.returnError("Could not create ReturnItemResponse record",null,null,serviceResults);
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem creating ReturnItemResponse record",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingReturnItemResponseRecord",locale));
+    }
+    String itemResponseId=(String)serviceResults.get("returnItemResponseId");
+    List toBeStored=new ArrayList();
+    for (Iterator itemsIter=returnItems.iterator(); itemsIter.hasNext(); ) {
+      GenericValue item=(GenericValue)itemsIter.next();
+      item.set("returnItemResponseId",itemResponseId);
+      item.set("statusId","RETURN_COMPLETED");
+      toBeStored.add(item);
+      String returnStatusId=delegator.getNextSeqId("ReturnStatus").toString();
+      GenericValue returnStatus=delegator.makeValue("ReturnStatus",UtilMisc.toMap("returnStatusId",returnStatusId));
+      returnStatus.set("statusId",item.get("statusId"));
+      returnStatus.set("returnId",item.get("returnId"));
+      returnStatus.set("returnItemSeqId",item.get("returnItemSeqId"));
+      returnStatus.set("statusDatetime",now);
+      toBeStored.add(returnStatus);
+    }
+    try {
+      delegator.storeAll(toBeStored);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problem storing ReturnItem updates",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemStoringReturnItemUpdates",locale));
+    }
+    String paId=delegator.getNextSeqId("PaymentApplication").toString();
+    GenericValue pa=delegator.makeValue("PaymentApplication",UtilMisc.toMap("paymentApplicationId",paId));
+    pa.set("paymentId",paymentId);
+    pa.set("billingAccountId",billingAccountId);
+    pa.set("amountApplied",creditTotal);
+    try {
+      delegator.create(pa);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problem creating PaymentApplication record for billing account",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingPaymentApplicationRecord",locale));
+    }
+    try {
+      serviceResults=dispatcher.runSync("createPaymentApplicationsFromReturnItemResponse",UtilMisc.toMap("returnItemResponseId",itemResponseId,"userLogin",userLogin));
+      if (ServiceUtil.isError(serviceResults)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingPaymentApplicationRecord",locale),null,null,serviceResults);
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem creating PaymentApplication records for return invoice",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingPaymentApplicationRecord",locale));
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,105 @@
+{
+  if ("error".equals(CheckOutEvents.cartNotEmpty(request,response)) == true) {
+    return "error";
+  }
+  HttpSession session=request.getSession();
+  String curPage=request.getParameter("checkoutpage");
+  Debug.logInfo("CheckoutPage: " + curPage,module);
+  ShoppingCart cart=(ShoppingCart)session.getAttribute("shoppingCart");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
+  GenericValue userLogin=cart.getUserLogin();
+  if (userLogin == null)   userLogin=(GenericValue)session.getAttribute("userLogin");
+  if ("shippingaddress".equals(curPage) == true) {
+    String shippingContactMechId=request.getParameter("shipping_contact_mech_id");
+    String taxAuthPartyGeoIds=request.getParameter("taxAuthPartyGeoIds");
+    String partyTaxId=request.getParameter("partyTaxId");
+    String isExempt=request.getParameter("isExempt");
+    if (UtilValidate.isNotEmpty(taxAuthPartyGeoIds)) {
+      try {
+        Map createCustomerTaxAuthInfoResult=dispatcher.runSync("createCustomerTaxAuthInfo",UtilMisc.toMap("partyId",cart.getPartyId(),"taxAuthPartyGeoIds",taxAuthPartyGeoIds,"partyTaxId",partyTaxId,"isExempt",isExempt,"userLogin",userLogin));
+        ServiceUtil.getMessages(request,createCustomerTaxAuthInfoResult,null);
+        if (ServiceUtil.isError(createCustomerTaxAuthInfoResult)) {
+          return "error";
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error setting customer tax info: " + e.toString();
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
+    }
+    Map callResult=checkOutHelper.setCheckOutShippingAddress(shippingContactMechId);
+    ServiceUtil.getMessages(request,callResult,null);
+    if (!(ServiceUtil.isError(callResult))) {
+      curPage="shippingoptions";
+    }
+  }
+ else   if ("shippingoptions".equals(curPage) == true) {
+    String shippingMethod=request.getParameter("shipping_method");
+    String correspondingPoId=request.getParameter("corresponding_po_id");
+    String shippingInstructions=request.getParameter("shipping_instructions");
+    String orderAdditionalEmails=request.getParameter("order_additional_emails");
+    String maySplit=request.getParameter("may_split");
+    String giftMessage=request.getParameter("gift_message");
+    String isGift=request.getParameter("is_gift");
+    String internalCode=request.getParameter("internalCode");
+    String shipBeforeDate=request.getParameter("shipBeforeDate");
+    String shipAfterDate=request.getParameter("shipAfterDate");
+    Map callResult=checkOutHelper.setCheckOutShippingOptions(shippingMethod,correspondingPoId,shippingInstructions,orderAdditionalEmails,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate);
+    ServiceUtil.getMessages(request,callResult,null);
+    if (!(callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
+      curPage="payment";
+    }
+  }
+ else   if ("payment".equals(curPage) == true) {
+    String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
+    DecimalFormat formatter=new DecimalFormat(currencyFormat);
+    Map selectedPaymentMethods=getSelectedPaymentMethods(request);
+    if (selectedPaymentMethods == null) {
+      return "error";
+    }
+    String billingAccountId=request.getParameter("billingAccountId");
+    String billingAcctAmtStr=request.getParameter("amount_" + billingAccountId);
+    Double billingAccountAmt=null;
+    if (billingAcctAmtStr != null) {
+      try {
+        billingAccountAmt=new Double(formatter.parse(billingAcctAmtStr).doubleValue());
+      }
+ catch (      ParseException e) {
+        Debug.logError(e,module);
+        Map messageMap=UtilMisc.toMap("billingAccountId",billingAccountId);
+        String errMsg=UtilProperties.getMessage(resource,"checkevents.invalid_amount_set_for_billing_account",messageMap,(cart != null ? cart.getLocale() : Locale.getDefault()));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
+    }
+    List singleUsePayments=new ArrayList();
+    Map params=UtilHttp.getParameterMap(request);
+    Map gcResult=checkOutHelper.checkGiftCard(params,selectedPaymentMethods);
+    ServiceUtil.getMessages(request,gcResult,null);
+    if (gcResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
+      return "error";
+    }
+ else {
+      String gcPaymentMethodId=(String)gcResult.get("paymentMethodId");
+      Double gcAmount=(Double)gcResult.get("amount");
+      if (gcPaymentMethodId != null) {
+        selectedPaymentMethods.put(gcPaymentMethodId,gcAmount);
+        if ("Y".equalsIgnoreCase(request.getParameter("singleUseGiftCard"))) {
+          singleUsePayments.add(gcPaymentMethodId);
+        }
+      }
+    }
+    Map callResult=checkOutHelper.setCheckOutPayment(selectedPaymentMethods,singleUsePayments,billingAccountId,billingAccountAmt);
+    ServiceUtil.getMessages(request,callResult,null);
+    if (!(callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
+      curPage="confirm";
+    }
+  }
+ else {
+    curPage=determineInitialCheckOutPage(cart);
+  }
+  return curPage;
+}

@@ -1,0 +1,81 @@
+{
+  Iterator aliasAllIter=aliasAlls.iterator();
+  while (aliasAllIter.hasNext()) {
+    ModelAliasAll aliasAll=(ModelAliasAll)aliasAllIter.next();
+    String prefix=aliasAll.getPrefix();
+    ModelMemberEntity modelMemberEntity=(ModelMemberEntity)memberModelMemberEntities.get(aliasAll.getEntityAlias());
+    if (modelMemberEntity == null) {
+      Debug.logError("Member entity referred to in alias-all not found, ignoring: " + aliasAll.getEntityAlias(),module);
+      continue;
+    }
+    String aliasedEntityName=modelMemberEntity.getEntityName();
+    ModelEntity aliasedEntity=modelReader.getModelEntityNoCheck(aliasedEntityName);
+    if (aliasedEntity == null) {
+      Debug.logError("Entity referred to in member-entity " + aliasAll.getEntityAlias() + " not found, ignoring: "+ aliasedEntityName,module);
+      continue;
+    }
+    List entFieldList=aliasedEntity.getAllFieldNames();
+    if (entFieldList == null) {
+      Debug.logError("Entity referred to in member-entity " + aliasAll.getEntityAlias() + " has no fields, ignoring: "+ aliasedEntityName,module);
+      continue;
+    }
+    Iterator fieldnamesIterator=entFieldList.iterator();
+    while (fieldnamesIterator.hasNext()) {
+      String fieldName=(String)fieldnamesIterator.next();
+      String aliasName=fieldName;
+      ModelField modelField=aliasedEntity.getField(fieldName);
+      if (modelField.getIsAutoCreatedInternal()) {
+        continue;
+      }
+      if (aliasAll.shouldExclude(fieldName)) {
+        continue;
+      }
+      if (UtilValidate.isNotEmpty(prefix)) {
+        StringBuffer newAliasBuffer=new StringBuffer(prefix);
+        newAliasBuffer.append(Character.toUpperCase(aliasName.charAt(0)));
+        newAliasBuffer.append(aliasName.substring(1));
+        aliasName=newAliasBuffer.toString();
+      }
+      ModelAlias existingAlias=this.getAlias(aliasName);
+      if (existingAlias != null) {
+        boolean isInViewLink=false;
+        Iterator viewLinkIter=this.getViewLinksIterator();
+        while (viewLinkIter.hasNext() && !isInViewLink) {
+          ModelViewLink modelViewLink=(ModelViewLink)viewLinkIter.next();
+          boolean isRel=false;
+          if (modelViewLink.getRelEntityAlias().equals(aliasAll.getEntityAlias())) {
+            isRel=true;
+          }
+ else           if (!modelViewLink.getEntityAlias().equals(aliasAll.getEntityAlias())) {
+            continue;
+          }
+          Iterator keyMapIter=modelViewLink.getKeyMapsIterator();
+          while (keyMapIter.hasNext() && !isInViewLink) {
+            ModelKeyMap modelKeyMap=(ModelKeyMap)keyMapIter.next();
+            if (!isRel && modelKeyMap.getFieldName().equals(fieldName)) {
+              isInViewLink=true;
+            }
+ else             if (isRel && modelKeyMap.getRelFieldName().equals(fieldName)) {
+              isInViewLink=true;
+            }
+          }
+        }
+        String warnMsg="Throwing out field alias in view entity " + this.getEntityName() + " because one already exists with the alias name ["+ aliasName+ "] and field name ["+ modelMemberEntity.getEntityAlias()+ "("+ aliasedEntity.getEntityName()+ ")."+ fieldName+ "], existing field name is ["+ existingAlias.getEntityAlias()+ "."+ existingAlias.getField()+ "]";
+        if (isInViewLink) {
+          Debug.logVerbose(warnMsg,module);
+        }
+ else {
+          Debug.logInfo(warnMsg,module);
+        }
+        continue;
+      }
+      ModelAlias expandedAlias=new ModelAlias();
+      expandedAlias.name=aliasName;
+      expandedAlias.field=fieldName;
+      expandedAlias.entityAlias=aliasAll.getEntityAlias();
+      expandedAlias.isFromAliasAll=true;
+      expandedAlias.colAlias=ModelUtil.javaNameToDbName(UtilXml.checkEmpty(expandedAlias.name));
+      aliases.add(expandedAlias);
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  ShoppingCart.CartPaymentInfo inf=cart.getPaymentInfo(index);
+  GenericValue infValue=inf.getValueObject(session.getDelegator());
+  GenericValue paymentPref=null;
+  try {
+    Map fields=new HashMap();
+    fields.put("paymentMethodTypeId",inf.paymentMethodTypeId);
+    if (inf.paymentMethodId != null) {
+      fields.put("paymentMethodId",inf.paymentMethodId);
+    }
+    fields.put("maxAmount",inf.amount);
+    fields.put("orderId",this.getOrderId());
+    List paymentPrefs=session.getDelegator().findByAnd("OrderPaymentPreference",fields);
+    if (paymentPrefs != null && paymentPrefs.size() > 0) {
+      Debug.log("Found some prefs - " + paymentPrefs.size(),module);
+      if (paymentPrefs.size() > 1) {
+        Debug.logError("Multiple OrderPaymentPreferences found for the same payment method!",module);
+      }
+ else {
+        paymentPref=EntityUtil.getFirst(paymentPrefs);
+        Debug.log("Got the first pref - " + paymentPref,module);
+      }
+    }
+ else {
+      Debug.logError("No OrderPaymentPreference found - " + fields,module);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  Debug.log("PaymentPref - " + paymentPref,module);
+  Map payInfo=new HashMap();
+  GenericValue authTrans=null;
+  if (paymentPref != null) {
+    authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+    if (authTrans != null) {
+      payInfo.putAll(authTrans);
+      String authInfoString="Ref: " + authTrans.getString("referenceNum") + " Auth: "+ authTrans.getString("gatewayCode");
+      payInfo.put("authInfoString",authInfoString);
+    }
+ else {
+      Debug.logError("No Authorization transaction found for payment preference - " + paymentPref,module);
+    }
+  }
+ else {
+    Debug.logError("Payment preference is empty!",module);
+    return payInfo;
+  }
+  Debug.log("AuthTrans - " + authTrans,module);
+  if ("PaymentMethodType".equals(infValue.getEntityName())) {
+    payInfo.put("description",infValue.getString("description"));
+    payInfo.put("payInfo",infValue.getString("description"));
+    payInfo.put("amount",UtilFormatOut.formatPrice(inf.amount));
+  }
+ else {
+    String paymentMethodTypeId=infValue.getString("paymentMethodTypeId");
+    GenericValue pmt=null;
+    try {
+      pmt=infValue.getRelatedOne("PaymentMethodType");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (pmt != null) {
+      payInfo.put("description",pmt.getString("description"));
+      payInfo.put("amount",UtilFormatOut.formatPrice(inf.amount));
+    }
+    if ("CREDIT_CARD".equals(paymentMethodTypeId)) {
+      GenericValue cc=null;
+      try {
+        cc=infValue.getRelatedOne("CreditCard");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      String nameOnCard=cc.getString("firstNameOnCard") + " " + cc.getString("lastNameOnCard");
+      nameOnCard.trim();
+      payInfo.put("nameOnCard",nameOnCard);
+      String cardNum=cc.getString("cardNumber");
+      String cardStr=cardNum.substring(0,2);
+      cardStr=cardStr + "****";
+      cardStr=cardStr + cardNum.substring(cardNum.length() - 4);
+      String expDate=cc.getString("expireDate");
+      String infoString=cardStr + " " + expDate;
+      payInfo.put("payInfo",infoString);
+      payInfo.putAll(cc);
+    }
+ else     if ("GIFT_CARD".equals(paymentMethodTypeId)) {
+      GenericValue gc=null;
+      try {
+        gc=infValue.getRelatedOne("GiftCard");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+    }
+  }
+  return payInfo;
+}

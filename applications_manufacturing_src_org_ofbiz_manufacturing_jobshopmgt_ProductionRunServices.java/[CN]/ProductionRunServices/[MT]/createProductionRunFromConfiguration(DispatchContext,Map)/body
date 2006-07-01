@@ -1,0 +1,96 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List msgResult=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String facilityId=(String)context.get("facilityId");
+  String configId=(String)context.get("configId");
+  ProductConfigWrapper config=(ProductConfigWrapper)context.get("config");
+  Double quantity=(Double)context.get("quantity");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  if (config == null && configId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingConfigurationNotAvailable",locale));
+  }
+  if (config == null && configId != null) {
+    return ServiceUtil.returnError("Operation not yet implemented");
+  }
+  if (!config.isCompleted()) {
+    return ServiceUtil.returnError("ProductConfigurationNotValid");
+  }
+  if (quantity == null) {
+    quantity=new Double(1);
+  }
+  Map serviceContext=new HashMap();
+  serviceContext.clear();
+  serviceContext.put("productId",config.getProduct().getString("productId"));
+  serviceContext.put("pRQuantity",quantity);
+  serviceContext.put("startDate",UtilDateTime.nowTimestamp());
+  serviceContext.put("facilityId",facilityId);
+  serviceContext.put("userLogin",userLogin);
+  Map resultService=null;
+  try {
+    resultService=dispatcher.runSync("createProductionRun",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotCreated",locale));
+  }
+  String productionRunId=(String)resultService.get("productionRunId");
+  result.put("productionRunId",productionRunId);
+  Iterator options=config.getSelectedOptions().iterator();
+  HashMap components=new HashMap();
+  while (options.hasNext()) {
+    ConfigOption co=(ConfigOption)options.next();
+    Iterator selComponents=co.getComponents().iterator();
+    while (selComponents.hasNext()) {
+      Double componentQuantity=null;
+      GenericValue selComponent=(GenericValue)selComponents.next();
+      if (selComponent.get("quantity") != null) {
+        componentQuantity=selComponent.getDouble("quantity");
+      }
+      if (componentQuantity == null) {
+        componentQuantity=new Double(1);
+      }
+      componentQuantity=new Double(quantity.doubleValue() * componentQuantity.doubleValue());
+      if (components.containsKey(selComponent.getString("productId"))) {
+        Double totalQuantity=(Double)components.get(selComponent.getString("productId"));
+        componentQuantity=new Double(totalQuantity.doubleValue() + componentQuantity.doubleValue());
+      }
+      components.put(selComponent.getString("productId"),componentQuantity);
+    }
+  }
+  Iterator componentsIt=components.entrySet().iterator();
+  while (componentsIt.hasNext()) {
+    Map.Entry component=(Map.Entry)componentsIt.next();
+    String productId=(String)component.getKey();
+    Double componentQuantity=(Double)component.getValue();
+    if (componentQuantity == null) {
+      componentQuantity=new Double(1);
+    }
+    resultService=null;
+    serviceContext=new HashMap();
+    serviceContext.put("productionRunId",productionRunId);
+    serviceContext.put("productId",productId);
+    serviceContext.put("estimatedQuantity",componentQuantity);
+    serviceContext.put("userLogin",userLogin);
+    try {
+      resultService=dispatcher.runSync("addProductionRunComponent",serviceContext);
+    }
+ catch (    GenericServiceException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotCreated",locale));
+    }
+  }
+  try {
+    if (productionRunId != null && orderId != null && orderItemSeqId != null) {
+      delegator.create("WorkOrderItemFulfillment",UtilMisc.toMap("workEffortId",productionRunId,"orderId",orderId,"orderItemSeqId",orderItemSeqId));
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingRequirementNotDeleted",locale));
+  }
+  result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunCreated",UtilMisc.toMap("productionRunId",productionRunId),locale));
+  return result;
+}

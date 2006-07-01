@@ -1,0 +1,98 @@
+{
+  boolean passed=true;
+  if (this.condition != null) {
+    if (!this.condition.eval(context)) {
+      passed=false;
+    }
+  }
+  if (passed) {
+    context.put("processChildren",new Boolean(true));
+    ModelTreeAction.runSubActions(this.actions,context);
+    String pkName=getPkName();
+    String id=null;
+    if (UtilValidate.isNotEmpty(this.entryName)) {
+      Map map=(Map)context.get(this.entryName);
+      id=(String)map.get(pkName);
+    }
+ else {
+      id=(String)context.get(pkName);
+    }
+    if (id != null) {
+      modelTree.currentNodeTrail.add(id);
+    }
+    context.put("currentNodeTrail",modelTree.currentNodeTrail);
+    String currentNodeTrailPiped=StringUtil.join(modelTree.currentNodeTrail,"|");
+    context.put("currentNodeTrailPiped",currentNodeTrailPiped);
+    treeStringRenderer.renderNodeBegin(writer,context,this,depth,isLast);
+    try {
+      String screenName=null;
+      if (screenNameExdr != null)       screenName=screenNameExdr.expandString(context);
+      String screenLocation=null;
+      if (screenLocationExdr != null)       screenLocation=screenLocationExdr.expandString(context);
+      if (screenName != null && screenLocation != null) {
+        ScreenStringRenderer screenStringRenderer=treeStringRenderer.getScreenStringRenderer(context);
+        ModelScreen modelScreen=ScreenFactory.getScreenFromLocation(screenLocation,screenName);
+        modelScreen.renderScreenString(writer,context,screenStringRenderer);
+      }
+      if (label != null) {
+        label.renderLabelString(writer,context,treeStringRenderer);
+      }
+      if (link != null) {
+        link.renderLinkString(writer,context,treeStringRenderer);
+      }
+      Boolean processChildren=(Boolean)context.get("processChildren");
+      if (processChildren.booleanValue()) {
+        getChildren(context);
+        Iterator nodeIter=this.subNodeValues.iterator();
+        int nodeIndex=-1;
+        int newDepth=depth + 1;
+        while (nodeIter.hasNext()) {
+          nodeIndex++;
+          modelTree.setNodeIndexAtDepth(newDepth,nodeIndex);
+          Object[] arr=(Object[])nodeIter.next();
+          ModelNode node=(ModelNode)arr[0];
+          Map val=(Map)arr[1];
+          String thisPkName=node.getPkName();
+          String thisEntityId=(String)val.get(thisPkName);
+          Map newContext=((MapStack)context).standAloneChildStack();
+          String nodeEntryName=node.getEntryName();
+          if (UtilValidate.isNotEmpty(nodeEntryName)) {
+            newContext.put(nodeEntryName,val);
+          }
+ else {
+            newContext.putAll(val);
+          }
+          newContext.put("currentNodeIndex",new Integer(nodeIndex));
+          String targetEntityId=null;
+          List targetNodeTrail=this.modelTree.getTrailList();
+          if (newDepth < targetNodeTrail.size()) {
+            targetEntityId=(String)targetNodeTrail.get(newDepth);
+          }
+          if ((targetEntityId != null && targetEntityId.equals(thisEntityId)) || this.showPeers(newDepth)) {
+            boolean lastNode=!nodeIter.hasNext();
+            newContext.put("lastNode",new Boolean(lastNode));
+            node.renderNodeString(writer,newContext,treeStringRenderer,newDepth,lastNode);
+          }
+        }
+      }
+    }
+ catch (    SAXException e) {
+      String errMsg="Error rendering included label with name [" + name + "] : "+ e.toString();
+      Debug.logError(e,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+catch (    ParserConfigurationException e3) {
+      String errMsg="Error rendering included label with name [" + name + "] : "+ e3.toString();
+      Debug.logError(e3,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+catch (    IOException e2) {
+      String errMsg="Error rendering included label with name [" + name + "] : "+ e2.toString();
+      Debug.logError(e2,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+    treeStringRenderer.renderNodeEnd(writer,context,this);
+    int removeIdx=modelTree.currentNodeTrail.size() - 1;
+    if (removeIdx >= 0)     modelTree.currentNodeTrail.remove(removeIdx);
+  }
+}

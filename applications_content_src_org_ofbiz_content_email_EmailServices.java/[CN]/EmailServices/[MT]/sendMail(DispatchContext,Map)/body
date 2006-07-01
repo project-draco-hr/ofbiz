@@ -1,0 +1,129 @@
+{
+  Map results=ServiceUtil.returnSuccess();
+  String subject=(String)context.get("subject");
+  String partyId=(String)context.get("partyId");
+  String body=(String)context.get("body");
+  List bodyParts=(List)context.get("bodyParts");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  results.put("partyId",partyId);
+  results.put("subject",subject);
+  if (UtilValidate.isNotEmpty(body))   results.put("body",body);
+  if (UtilValidate.isNotEmpty(bodyParts))   results.put("bodyParts",bodyParts);
+  results.put("userLogin",userLogin);
+  String mailEnabled=UtilProperties.getPropertyValue("general.properties","mail.notifications.enabled","N");
+  if (!"Y".equalsIgnoreCase(mailEnabled)) {
+    Debug.logImportant("Mail notifications disabled in general.properties; here is the context with info that would have been sent: " + context,module);
+    return results;
+  }
+  String sendTo=(String)context.get("sendTo");
+  String sendCc=(String)context.get("sendCc");
+  String sendBcc=(String)context.get("sendBcc");
+  String redirectAddress=UtilProperties.getPropertyValue("general.properties","mail.notifications.redirectTo");
+  if (UtilValidate.isNotEmpty(redirectAddress)) {
+    String originalRecipients=" [To: " + sendTo + ", Cc: "+ sendCc+ ", Bcc: "+ sendBcc+ "]";
+    subject=subject + originalRecipients;
+    sendTo=redirectAddress;
+    sendCc=null;
+    sendBcc=null;
+  }
+  String sendFrom=(String)context.get("sendFrom");
+  String sendType=(String)context.get("sendType");
+  String sendVia=(String)context.get("sendVia");
+  String authUser=(String)context.get("authUser");
+  String authPass=(String)context.get("authPass");
+  String contentType=(String)context.get("contentType");
+  boolean useSmtpAuth=false;
+  if (sendType == null || sendType.equals("mail.smtp.host")) {
+    sendType="mail.smtp.host";
+    if (sendVia == null || sendVia.length() == 0) {
+      sendVia=UtilProperties.getPropertyValue("general.properties","mail.smtp.relay.host","localhost");
+    }
+    if (authUser == null || authUser.length() == 0) {
+      authUser=UtilProperties.getPropertyValue("general.properties","mail.smtp.auth.user");
+    }
+    if (authPass == null || authPass.length() == 0) {
+      authPass=UtilProperties.getPropertyValue("general.properties","mail.smtp.auth.password");
+    }
+    if (authUser != null && authUser.length() > 0) {
+      useSmtpAuth=true;
+    }
+  }
+ else   if (sendVia == null) {
+    return ServiceUtil.returnError("Parameter sendVia is required when sendType is not mail.smtp.host");
+  }
+  if (contentType == null) {
+    contentType="text/html";
+  }
+  if (UtilValidate.isNotEmpty(bodyParts)) {
+    contentType="multipart/mixed";
+  }
+  results.put("contentType",contentType);
+  try {
+    Properties props=System.getProperties();
+    props.put(sendType,sendVia);
+    if (useSmtpAuth) {
+      props.put("mail.smtp.auth","true");
+    }
+    Session session=Session.getInstance(props);
+    MimeMessage mail=new MimeMessage(session);
+    mail.setFrom(new InternetAddress(sendFrom));
+    mail.setSubject(subject);
+    mail.addRecipients(Message.RecipientType.TO,sendTo);
+    if (UtilValidate.isNotEmpty(sendCc)) {
+      mail.addRecipients(Message.RecipientType.CC,sendCc);
+    }
+    if (UtilValidate.isNotEmpty(sendBcc)) {
+      mail.addRecipients(Message.RecipientType.BCC,sendBcc);
+    }
+    if (UtilValidate.isNotEmpty(bodyParts)) {
+      MimeMultipart mp=new MimeMultipart();
+      Debug.logInfo(bodyParts.size() + " multiparts found",module);
+      Iterator bodyPartIter=bodyParts.iterator();
+      while (bodyPartIter.hasNext()) {
+        Map bodyPart=(Map)bodyPartIter.next();
+        Object bodyPartContent=bodyPart.get("content");
+        MimeBodyPart mbp=new MimeBodyPart();
+        if (bodyPartContent instanceof String) {
+          StringDataSource sdr=new StringDataSource((String)bodyPartContent,(String)bodyPart.get("type"));
+          Debug.logInfo("part of type: " + bodyPart.get("type") + " and size: "+ bodyPart.get("content").toString().length(),module);
+          mbp.setDataHandler(new DataHandler(sdr));
+        }
+ else         if (bodyPartContent instanceof byte[]) {
+          ByteArrayDataSource bads=new ByteArrayDataSource((byte[])bodyPartContent,(String)bodyPart.get("type"));
+          Debug.logInfo("part of type: " + bodyPart.get("type") + " and size: "+ ((byte[])bodyPartContent).length,module);
+          mbp.setDataHandler(new DataHandler(bads));
+        }
+ else {
+          mbp.setDataHandler(new DataHandler(bodyPartContent,(String)bodyPart.get("type")));
+        }
+        String fileName=(String)bodyPart.get("filename");
+        if (fileName != null) {
+          mbp.setFileName(fileName);
+        }
+        mp.addBodyPart(mbp);
+      }
+      mail.setContent(mp);
+      mail.saveChanges();
+    }
+ else {
+      mail.setContent(body,contentType);
+      mail.saveChanges();
+    }
+    Transport trans=session.getTransport("smtp");
+    if (!useSmtpAuth) {
+      trans.connect();
+    }
+ else {
+      trans.connect(sendVia,authUser,authPass);
+    }
+    trans.sendMessage(mail,mail.getAllRecipients());
+    trans.close();
+  }
+ catch (  Exception e) {
+    String errMsg="Cannot send email message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
+    Debug.logError(e,errMsg,module);
+    Debug.logError(e,"Email message that could not be sent to [" + sendTo + "] had context: "+ context,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return results;
+}

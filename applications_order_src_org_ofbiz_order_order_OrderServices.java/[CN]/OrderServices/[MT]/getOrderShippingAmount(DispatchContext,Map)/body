@@ -1,0 +1,29 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotGetOrderInformation",locale) + e.getMessage() + ").");
+  }
+  Map result=null;
+  if (orderHeader != null) {
+    OrderReadHelper orh=new OrderReadHelper(orderHeader);
+    List orderItems=orh.getValidOrderItems();
+    List orderAdjustments=orh.getAdjustments();
+    List orderHeaderAdjustments=orh.getOrderHeaderAdjustments();
+    double orderSubTotal=orh.getOrderItemsSubTotal();
+    double shippingAmount=OrderReadHelper.getAllOrderItemsAdjustmentsTotal(orderItems,orderAdjustments,false,false,true);
+    shippingAmount+=OrderReadHelper.calcOrderAdjustments(orderHeaderAdjustments,orderSubTotal,false,false,true);
+    result=ServiceUtil.returnSuccess();
+    result.put("shippingAmount",new Double(shippingAmount));
+  }
+ else {
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToFindOrderHeaderCannotGetShippingAmount",locale));
+  }
+  return result;
+}

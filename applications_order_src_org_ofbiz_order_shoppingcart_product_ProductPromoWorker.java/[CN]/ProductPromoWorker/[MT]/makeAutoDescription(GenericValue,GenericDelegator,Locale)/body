@@ -1,0 +1,76 @@
+{
+  if (productPromo == null) {
+    return "";
+  }
+  StringBuffer promoDescBuf=new StringBuffer();
+  List productPromoRules=productPromo.getRelatedCache("ProductPromoRule",null,null);
+  Iterator promoRulesIter=productPromoRules.iterator();
+  while (promoRulesIter != null && promoRulesIter.hasNext()) {
+    GenericValue productPromoRule=(GenericValue)promoRulesIter.next();
+    List productPromoConds=delegator.findByAndCache("ProductPromoCond",UtilMisc.toMap("productPromoId",productPromo.get("productPromoId")),UtilMisc.toList("productPromoCondSeqId"));
+    productPromoConds=EntityUtil.filterByAnd(productPromoConds,UtilMisc.toMap("productPromoRuleId",productPromoRule.get("productPromoRuleId")));
+    Iterator productPromoCondIter=UtilMisc.toIterator(productPromoConds);
+    while (productPromoCondIter != null && productPromoCondIter.hasNext()) {
+      GenericValue productPromoCond=(GenericValue)productPromoCondIter.next();
+      String equalityOperator=UtilProperties.getMessage("promotext","operator.equality." + productPromoCond.getString("operatorEnumId"),locale);
+      String quantityOperator=UtilProperties.getMessage("promotext","operator.quantity." + productPromoCond.getString("operatorEnumId"),locale);
+      String condValue="invalid";
+      if (UtilValidate.isNotEmpty(productPromoCond.getString("condValue"))) {
+        condValue=productPromoCond.getString("condValue");
+      }
+      Map messageContext=UtilMisc.toMap("condValue",condValue,"equalityOperator",equalityOperator,"quantityOperator",quantityOperator);
+      String msgProp=UtilProperties.getMessage("promotext","condition." + productPromoCond.getString("inputParamEnumId"),messageContext,locale);
+      promoDescBuf.append(msgProp);
+      promoDescBuf.append(" ");
+      if (promoRulesIter.hasNext()) {
+        promoDescBuf.append(" and ");
+      }
+    }
+    List productPromoActions=productPromoRule.getRelatedCache("ProductPromoAction",null,UtilMisc.toList("productPromoActionSeqId"));
+    Iterator productPromoActionIter=UtilMisc.toIterator(productPromoActions);
+    while (productPromoActionIter != null && productPromoActionIter.hasNext()) {
+      GenericValue productPromoAction=(GenericValue)productPromoActionIter.next();
+      String productId=productPromoAction.getString("productId");
+      Map messageContext=UtilMisc.toMap("quantity",productPromoAction.get("quantity"),"amount",productPromoAction.get("amount"),"productId",productId,"partyId",productPromoAction.get("partyId"));
+      if (UtilValidate.isEmpty((String)messageContext.get("productId")))       messageContext.put("productId","any");
+      if (UtilValidate.isEmpty((String)messageContext.get("partyId")))       messageContext.put("partyId","any");
+      GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+      if (product != null) {
+        messageContext.put("productName",ProductContentWrapper.getProductContentAsText(product,"PRODUCT_NAME",locale));
+      }
+      String msgProp=UtilProperties.getMessage("promotext","action." + productPromoAction.getString("productPromoActionEnumId"),messageContext,locale);
+      promoDescBuf.append(msgProp);
+      promoDescBuf.append(" ");
+      if (promoRulesIter.hasNext()) {
+        promoDescBuf.append(" and ");
+      }
+    }
+    if (promoRulesIter.hasNext()) {
+      promoDescBuf.append(" or ");
+    }
+  }
+  if (promoDescBuf.length() > 0) {
+    if (promoDescBuf.charAt(promoDescBuf.length() - 1) == ' ')     promoDescBuf.deleteCharAt(promoDescBuf.length() - 1);
+    promoDescBuf.append(". ");
+    promoDescBuf.setCharAt(0,Character.toUpperCase(promoDescBuf.charAt(0)));
+  }
+  if ("Y".equals(productPromo.getString("requireCode"))) {
+    promoDescBuf.append("Requires code to use. ");
+  }
+  if (productPromo.getLong("useLimitPerOrder") != null) {
+    promoDescBuf.append("Limit ");
+    promoDescBuf.append(productPromo.getLong("useLimitPerOrder"));
+    promoDescBuf.append(" per order. ");
+  }
+  if (productPromo.getLong("useLimitPerCustomer") != null) {
+    promoDescBuf.append("Limit ");
+    promoDescBuf.append(productPromo.getLong("useLimitPerCustomer"));
+    promoDescBuf.append(" per customer. ");
+  }
+  if (productPromo.getLong("useLimitPerPromotion") != null) {
+    promoDescBuf.append("Limit ");
+    promoDescBuf.append(productPromo.getLong("useLimitPerPromotion"));
+    promoDescBuf.append(" per promotion. ");
+  }
+  return promoDescBuf.toString();
+}

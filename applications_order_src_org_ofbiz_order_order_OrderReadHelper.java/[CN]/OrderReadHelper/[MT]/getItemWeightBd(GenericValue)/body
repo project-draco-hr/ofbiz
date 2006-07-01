@@ -1,0 +1,36 @@
+{
+  GenericDelegator delegator=orderHeader.getDelegator();
+  BigDecimal itemWeight=ZERO;
+  GenericValue product=null;
+  try {
+    product=item.getRelatedOne("Product");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting Product from OrderItem; returning 0",module);
+    return new BigDecimal("0.00");
+  }
+  if (product != null) {
+    if (ProductWorker.shippingApplies(product)) {
+      BigDecimal weight=product.getBigDecimal("weight");
+      String isVariant=product.getString("isVariant");
+      if (weight == null && "Y".equals(isVariant)) {
+        try {
+          String virtualId=ProductWorker.getVariantVirtualId(product);
+          if (UtilValidate.isNotEmpty(virtualId)) {
+            GenericValue virtual=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",virtualId));
+            if (virtual != null) {
+              weight=virtual.getBigDecimal("weight");
+            }
+          }
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Problem getting virtual product");
+        }
+      }
+      if (weight != null) {
+        itemWeight=weight;
+      }
+    }
+  }
+  return itemWeight;
+}

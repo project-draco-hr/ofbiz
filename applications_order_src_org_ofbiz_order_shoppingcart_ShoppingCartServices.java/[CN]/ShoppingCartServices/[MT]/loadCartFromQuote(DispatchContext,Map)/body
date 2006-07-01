@@ -1,0 +1,205 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String quoteId=(String)context.get("quoteId");
+  String applyQuoteAdjustmentsString=(String)context.get("applyQuoteAdjustments");
+  Locale locale=(Locale)context.get("locale");
+  boolean applyQuoteAdjustments=applyQuoteAdjustmentsString == null || "true".equals(applyQuoteAdjustmentsString);
+  GenericValue quote=null;
+  try {
+    quote=delegator.findByPrimaryKey("Quote",UtilMisc.toMap("quoteId",quoteId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String productStoreId=quote.getString("productStoreId");
+  String currency=quote.getString("currencyUomId");
+  ShoppingCart cart=new ShoppingCart(delegator,productStoreId,locale,currency);
+  try {
+    cart.setUserLogin(userLogin,dispatcher);
+  }
+ catch (  CartItemModifyException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  cart.setQuoteId(quoteId);
+  List quoteItems=null;
+  List quoteAdjs=null;
+  List quoteRoles=null;
+  List quoteAttributes=null;
+  try {
+    quoteItems=quote.getRelated("QuoteItem");
+    quoteAdjs=quote.getRelated("QuoteAdjustment");
+    quoteRoles=quote.getRelated("QuoteRole");
+    quoteAttributes=quote.getRelated("QuoteAttribute");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  cart.setOrderPartyId(quote.getString("partyId"));
+  if (quoteRoles != null) {
+    Iterator quoteRolesIt=quoteRoles.iterator();
+    while (quoteRolesIt.hasNext()) {
+      GenericValue quoteRole=(GenericValue)quoteRolesIt.next();
+      String quoteRoleTypeId=quoteRole.getString("roleTypeId");
+      String quoteRolePartyId=quoteRole.getString("partyId");
+      if ("PLACING_CUSTOMER".equals(quoteRoleTypeId)) {
+        cart.setPlacingCustomerPartyId(quoteRolePartyId);
+      }
+ else       if ("BILL_TO_CUSTOMER".equals(quoteRoleTypeId)) {
+        cart.setBillToCustomerPartyId(quoteRolePartyId);
+      }
+ else       if ("SHIP_TO_CUSTOMER".equals(quoteRoleTypeId)) {
+        cart.setShipToCustomerPartyId(quoteRolePartyId);
+      }
+ else       if ("END_USER_CUSTOMER".equals(quoteRoleTypeId)) {
+        cart.setEndUserCustomerPartyId(quoteRolePartyId);
+      }
+ else {
+        cart.addAdditionalPartyRole(quoteRolePartyId,quoteRoleTypeId);
+      }
+    }
+  }
+  if (quoteAttributes != null) {
+    Iterator quoteAttributesIt=quoteAttributes.iterator();
+    while (quoteAttributesIt.hasNext()) {
+      GenericValue quoteAttribute=(GenericValue)quoteAttributesIt.next();
+      cart.setOrderAttribute(quoteAttribute.getString("attrName"),quoteAttribute.getString("attrValue"));
+    }
+  }
+  Map orderAdjsMap=new HashMap();
+  Iterator quoteAdjsIter=quoteAdjs.iterator();
+  while (quoteAdjsIter.hasNext()) {
+    GenericValue quoteAdj=(GenericValue)quoteAdjsIter.next();
+    List orderAdjs=(List)orderAdjsMap.get(quoteAdj.get("quoteItemSeqId"));
+    if (orderAdjs == null) {
+      orderAdjs=new LinkedList();
+      orderAdjsMap.put(quoteAdj.get("quoteItemSeqId"),orderAdjs);
+    }
+    GenericValue orderAdj=delegator.makeValue("OrderAdjustment",null);
+    orderAdj.put("orderAdjustmentId",quoteAdj.get("quoteAdjustmentId"));
+    orderAdj.put("orderAdjustmentTypeId",quoteAdj.get("quoteAdjustmentTypeId"));
+    orderAdj.put("orderItemSeqId",quoteAdj.get("quoteItemSeqId"));
+    orderAdj.put("comments",quoteAdj.get("comments"));
+    orderAdj.put("description",quoteAdj.get("description"));
+    orderAdj.put("amount",quoteAdj.get("amount"));
+    orderAdj.put("productPromoId",quoteAdj.get("productPromoId"));
+    orderAdj.put("productPromoRuleId",quoteAdj.get("productPromoRuleId"));
+    orderAdj.put("productPromoActionSeqId",quoteAdj.get("productPromoActionSeqId"));
+    orderAdj.put("productFeatureId",quoteAdj.get("productFeatureId"));
+    orderAdj.put("correspondingProductId",quoteAdj.get("correspondingProductId"));
+    orderAdj.put("sourceReferenceId",quoteAdj.get("sourceReferenceId"));
+    orderAdj.put("sourcePercentage",quoteAdj.get("sourcePercentage"));
+    orderAdj.put("customerReferenceId",quoteAdj.get("customerReferenceId"));
+    orderAdj.put("primaryGeoId",quoteAdj.get("primaryGeoId"));
+    orderAdj.put("secondaryGeoId",quoteAdj.get("secondaryGeoId"));
+    orderAdj.put("exemptAmount",quoteAdj.get("exemptAmount"));
+    orderAdj.put("taxAuthGeoId",quoteAdj.get("taxAuthGeoId"));
+    orderAdj.put("taxAuthPartyId",quoteAdj.get("taxAuthPartyId"));
+    orderAdj.put("overrideGlAccountId",quoteAdj.get("overrideGlAccountId"));
+    orderAdj.put("includeInTax",quoteAdj.get("includeInTax"));
+    orderAdj.put("includeInShipping",quoteAdj.get("includeInShipping"));
+    orderAdj.put("createdDate",quoteAdj.get("createdDate"));
+    orderAdj.put("createdByUserLogin",quoteAdj.get("createdByUserLogin"));
+    orderAdjs.add(orderAdj);
+  }
+  long nextItemSeq=0;
+  if (quoteItems != null) {
+    Iterator i=quoteItems.iterator();
+    while (i.hasNext()) {
+      GenericValue item=(GenericValue)i.next();
+      String orderItemSeqId=item.getString("quoteItemSeqId");
+      try {
+        long seq=Long.parseLong(orderItemSeqId);
+        if (seq > nextItemSeq) {
+          nextItemSeq=seq;
+        }
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      boolean isPromo=item.get("isPromo") != null && "Y".equals(item.getString("isPromo"));
+      if (isPromo && !applyQuoteAdjustments) {
+        continue;
+      }
+      Double amount=item.getDouble("selectedAmount");
+      if (amount == null) {
+        amount=new Double(0);
+      }
+      Double quantity=item.getDouble("quantity");
+      if (quantity == null) {
+        quantity=new Double(0);
+      }
+      Double quoteUnitPrice=item.getDouble("quoteUnitPrice");
+      if (quoteUnitPrice == null) {
+        quoteUnitPrice=new Double(0);
+      }
+      if (amount.doubleValue() > 0) {
+        quoteUnitPrice=new Double(quoteUnitPrice.doubleValue() / amount.doubleValue());
+      }
+      int itemIndex=-1;
+      if (item.get("productId") == null) {
+        String desc=item.getString("comments");
+        try {
+          itemIndex=cart.addNonProductItem(null,desc,null,null,quantity.doubleValue(),null,null,null,dispatcher);
+        }
+ catch (        CartItemModifyException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+      }
+ else {
+        String productId=item.getString("productId");
+        try {
+          itemIndex=cart.addItemToEnd(productId,amount,quantity.doubleValue(),quoteUnitPrice,null,null,null,null,dispatcher,new Boolean(!applyQuoteAdjustments),new Boolean(quoteUnitPrice.doubleValue() == 0));
+        }
+ catch (        ItemNotFoundException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+catch (        CartItemModifyException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+      }
+      ShoppingCartItem cartItem=cart.findCartItem(itemIndex);
+      cartItem.setOrderItemSeqId(orderItemSeqId);
+      cartItem.setItemComment(item.getString("comments"));
+      cartItem.setQuoteId(item.getString("quoteId"));
+      cartItem.setQuoteItemSeqId(item.getString("quoteItemSeqId"));
+      cartItem.setIsPromo(isPromo);
+    }
+  }
+  if (applyQuoteAdjustments) {
+    List adjs=(List)orderAdjsMap.get(null);
+    if (adjs != null) {
+      cart.getAdjustments().addAll(adjs);
+    }
+    if (quoteItems != null) {
+      Iterator i=cart.iterator();
+      while (i.hasNext()) {
+        ShoppingCartItem item=(ShoppingCartItem)i.next();
+        adjs=(List)orderAdjsMap.get(item.getOrderItemSeqId());
+        if (adjs != null) {
+          item.getAdjustments().addAll(adjs);
+        }
+      }
+    }
+  }
+  if (nextItemSeq > 0) {
+    try {
+      cart.setNextItemSeq(nextItemSeq);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("shoppingCart",cart);
+  return result;
+}

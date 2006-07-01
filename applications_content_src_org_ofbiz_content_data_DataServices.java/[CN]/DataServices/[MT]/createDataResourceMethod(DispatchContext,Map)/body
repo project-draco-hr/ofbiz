@@ -1,0 +1,48 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String userLoginId=(String)userLogin.get("userLoginId");
+  String createdByUserLogin=userLoginId;
+  String lastModifiedByUserLogin=userLoginId;
+  Timestamp createdDate=UtilDateTime.nowTimestamp();
+  Timestamp lastModifiedDate=UtilDateTime.nowTimestamp();
+  String dataTemplateTypeId=(String)context.get("dataTemplateTypeId");
+  if (UtilValidate.isEmpty(dataTemplateTypeId)) {
+    dataTemplateTypeId="NONE";
+    context.put("dataTemplateTypeId",dataTemplateTypeId);
+  }
+  String dataResourceId=(String)context.get("dataResourceId");
+  if (UtilValidate.isEmpty(dataResourceId))   dataResourceId=delegator.getNextSeqId("DataResource").toString();
+  if (Debug.infoOn())   Debug.logInfo("in createDataResourceMethod, dataResourceId:" + dataResourceId,module);
+  GenericValue dataResource=delegator.makeValue("DataResource",UtilMisc.toMap("dataResourceId",dataResourceId));
+  dataResource.setNonPKFields(context);
+  dataResource.put("createdByUserLogin",createdByUserLogin);
+  dataResource.put("lastModifiedByUserLogin",lastModifiedByUserLogin);
+  dataResource.put("createdDate",createdDate);
+  dataResource.put("lastModifiedDate",lastModifiedDate);
+  if (UtilValidate.isEmpty(dataResource.get("statusId"))) {
+    try {
+      List statusItems=delegator.findByAnd("StatusItem",UtilMisc.toMap("statusTypeId","CONTENT_STATUS"),UtilMisc.toList("sequenceId"));
+      if (!UtilValidate.isEmpty(statusItems)) {
+        dataResource.put("statusId",((GenericValue)statusItems.get(0)).getString("statusId"));
+      }
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  try {
+    dataResource.create();
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  Exception e2) {
+    return ServiceUtil.returnError(e2.getMessage());
+  }
+  result.put("dataResourceId",dataResourceId);
+  result.put("dataResource",dataResource);
+  return result;
+}

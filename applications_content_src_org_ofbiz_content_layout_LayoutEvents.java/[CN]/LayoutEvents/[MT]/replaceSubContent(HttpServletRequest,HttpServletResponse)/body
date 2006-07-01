@@ -1,0 +1,49 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  HttpSession session=request.getSession();
+  Locale locale=UtilHttp.getLocale(request);
+  Map context=new HashMap();
+  Map paramMap=UtilHttp.getParameterMap(request);
+  Debug.logVerbose("in replaceSubContent, paramMap:" + paramMap,module);
+  String dataResourceId=(String)paramMap.get("dataResourceId");
+  if (UtilValidate.isEmpty(dataResourceId)) {
+    String errMsg=UtilProperties.getMessage(LayoutEvents.err_resource,"layoutEvents.data_ressource_id_null",locale);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String contentIdTo=(String)paramMap.get("contentIdTo");
+  if (UtilValidate.isEmpty(contentIdTo)) {
+    String errMsg=UtilProperties.getMessage(LayoutEvents.err_resource,"layoutEvents.content_id_to_null",locale);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String mapKey=(String)paramMap.get("mapKey");
+  context.put("dataResourceId",dataResourceId);
+  String contentId=(String)paramMap.get("contentId");
+  context.put("userLogin",session.getAttribute("userLogin"));
+  if (UtilValidate.isNotEmpty(contentId)) {
+    context.put("contentId",contentId);
+    context.put("contentIdTo",contentIdTo);
+    context.put("mapKey",mapKey);
+    context.put("contentAssocTypeId","SUB_CONTENT");
+    try {
+      Map result=dispatcher.runSync("persistContentAndAssoc",context);
+      request.setAttribute("contentId",contentIdTo);
+      Map context2=new HashMap();
+      context2.put("activeContentId",contentId);
+      context2.put("contentAssocTypeId","SUB_CONTENT");
+      context2.put("fromDate",result.get("fromDate"));
+      request.setAttribute("drDataResourceId",null);
+      request.setAttribute("currentEntityName","ContentDataResourceView");
+      context2.put("contentIdTo",contentIdTo);
+      context2.put("mapKey",mapKey);
+      Map result2=dispatcher.runSync("deactivateAssocs",context2);
+    }
+ catch (    GenericServiceException e) {
+      request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+      return "error";
+    }
+  }
+  return "success";
+}

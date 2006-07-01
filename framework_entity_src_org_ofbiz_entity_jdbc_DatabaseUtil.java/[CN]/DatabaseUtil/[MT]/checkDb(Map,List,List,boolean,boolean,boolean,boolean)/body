@@ -1,0 +1,387 @@
+{
+  if (isLegacy) {
+    throw new RuntimeException("Cannot run checkDb on a legacy database connection; configure a database helper (entityengine.xml)");
+  }
+  UtilTimer timer=new UtilTimer();
+  timer.timerString("Start - Before Get Database Meta Data");
+  TreeSet tableNames=this.getTableNames(messages);
+  TreeSet fkTableNames=tableNames == null ? null : new TreeSet(tableNames);
+  TreeSet indexTableNames=tableNames == null ? null : new TreeSet(tableNames);
+  if (tableNames == null) {
+    String message="Could not get table name information from the database, aborting.";
+    if (messages != null)     messages.add(message);
+    Debug.logError(message,module);
+    return;
+  }
+  timer.timerString("After Get All Table Names");
+  Map colInfo=this.getColumnInfo(tableNames,checkPks,messages);
+  if (colInfo == null) {
+    String message="Could not get column information from the database, aborting.";
+    if (messages != null)     messages.add(message);
+    Debug.logError(message,module);
+    return;
+  }
+  timer.timerString("After Get All Column Info");
+  timer.timerString("Before Individual Table/Column Check");
+  ArrayList modelEntityList=new ArrayList(modelEntities.values());
+  Collections.sort(modelEntityList);
+  Iterator modelEntityIter=modelEntityList.iterator();
+  int curEnt=0;
+  int totalEnt=modelEntityList.size();
+  List entitiesAdded=FastList.newInstance();
+  while (modelEntityIter.hasNext()) {
+    curEnt++;
+    ModelEntity entity=(ModelEntity)modelEntityIter.next();
+    if (entity instanceof ModelViewEntity) {
+      String entMessage="(" + timer.timeSinceLast() + "ms) NOT Checking #"+ curEnt+ "/"+ totalEnt+ " View Entity "+ entity.getEntityName();
+      Debug.logVerbose(entMessage,module);
+      if (messages != null)       messages.add(entMessage);
+      continue;
+    }
+    String entMessage="(" + timer.timeSinceLast() + "ms) Checking #"+ curEnt+ "/"+ totalEnt+ " Entity "+ entity.getEntityName()+ " with table "+ entity.getTableName(datasourceInfo);
+    Debug.logVerbose(entMessage,module);
+    if (messages != null)     messages.add(entMessage);
+    if (tableNames.contains(entity.getTableName(datasourceInfo))) {
+      tableNames.remove(entity.getTableName(datasourceInfo));
+      if (colInfo != null) {
+        Map fieldColNames=FastMap.newInstance();
+        Iterator fieldIter=entity.getFieldsIterator();
+        while (fieldIter.hasNext()) {
+          ModelField field=(ModelField)fieldIter.next();
+          fieldColNames.put(field.getColName(),field);
+        }
+        Map colMap=(Map)colInfo.get(entity.getTableName(datasourceInfo));
+        if (colMap != null) {
+          Iterator colEntryIter=colMap.entrySet().iterator();
+          while (colEntryIter.hasNext()) {
+            Map.Entry colEntry=(Map.Entry)colEntryIter.next();
+            ColumnCheckInfo ccInfo=(ColumnCheckInfo)colEntry.getValue();
+            if (fieldColNames.containsKey(ccInfo.columnName)) {
+              ModelField field=null;
+              field=(ModelField)fieldColNames.remove(ccInfo.columnName);
+              ModelFieldType modelFieldType=modelFieldTypeReader.getModelFieldType(field.getType());
+              if (modelFieldType != null) {
+                String fullTypeStr=modelFieldType.getSqlType();
+                String typeName;
+                int columnSize=-1;
+                int decimalDigits=-1;
+                int openParen=fullTypeStr.indexOf('(');
+                int closeParen=fullTypeStr.indexOf(')');
+                int comma=fullTypeStr.indexOf(',');
+                if (openParen > 0 && closeParen > 0 && closeParen > openParen) {
+                  typeName=fullTypeStr.substring(0,openParen);
+                  if (comma > 0 && comma > openParen && comma < closeParen) {
+                    String csStr=fullTypeStr.substring(openParen + 1,comma);
+                    try {
+                      columnSize=Integer.parseInt(csStr);
+                    }
+ catch (                    NumberFormatException e) {
+                      Debug.logError(e,module);
+                    }
+                    String ddStr=fullTypeStr.substring(comma + 1,closeParen);
+                    try {
+                      decimalDigits=Integer.parseInt(ddStr);
+                    }
+ catch (                    NumberFormatException e) {
+                      Debug.logError(e,module);
+                    }
+                  }
+ else {
+                    String csStr=fullTypeStr.substring(openParen + 1,closeParen);
+                    try {
+                      columnSize=Integer.parseInt(csStr);
+                    }
+ catch (                    NumberFormatException e) {
+                      Debug.logError(e,module);
+                    }
+                  }
+                }
+ else {
+                  typeName=fullTypeStr;
+                }
+                if (UtilValidate.isNotEmpty(modelFieldType.getSqlTypeAlias())) {
+                  typeName=modelFieldType.getSqlTypeAlias();
+                }
+                if (!ccInfo.typeName.equalsIgnoreCase(typeName)) {
+                  String message="WARNING: Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] is of type ["+ ccInfo.typeName+ "] in the database, but is defined as type ["+ typeName+ "] in the entity definition.";
+                  Debug.logError(message,module);
+                  if (messages != null)                   messages.add(message);
+                }
+                if (columnSize != -1 && ccInfo.columnSize != -1 && columnSize != ccInfo.columnSize && (columnSize * 3) != ccInfo.columnSize) {
+                  String message="WARNING: Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] has a column size of ["+ ccInfo.columnSize+ "] in the database, but is defined to have a column size of ["+ columnSize+ "] in the entity definition.";
+                  Debug.logWarning(message,module);
+                  if (messages != null)                   messages.add(message);
+                  if (columnSize > ccInfo.columnSize && colWrongSize != null) {
+                    colWrongSize.add(entity.getEntityName() + "." + field.getName());
+                  }
+                }
+                if (decimalDigits != -1 && decimalDigits != ccInfo.decimalDigits) {
+                  String message="WARNING: Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] has a decimalDigits of ["+ ccInfo.decimalDigits+ "] in the database, but is defined to have a decimalDigits of ["+ decimalDigits+ "] in the entity definition.";
+                  Debug.logWarning(message,module);
+                  if (messages != null)                   messages.add(message);
+                }
+                if (checkPks && ccInfo.isPk && !field.getIsPk()) {
+                  String message="WARNING: Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] IS a primary key in the database, but IS NOT a primary key in the entity definition. The primary key for this table needs to be re-created or modified so that this column is NOT party of the primary key.";
+                  Debug.logError(message,module);
+                  if (messages != null)                   messages.add(message);
+                }
+                if (checkPks && !ccInfo.isPk && field.getIsPk()) {
+                  String message="WARNING: Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] IS NOT a primary key in the database, but IS a primary key in the entity definition. The primary key for this table needs to be re-created or modified to add this column to the primary key. Note that data may need to be added first as a primary key column cannot have an null values.";
+                  Debug.logError(message,module);
+                  if (messages != null)                   messages.add(message);
+                }
+              }
+ else {
+                String message="Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] has a field type name of ["+ field.getType()+ "] which is not found in the field type definitions";
+                Debug.logError(message,module);
+                if (messages != null)                 messages.add(message);
+              }
+            }
+ else {
+              String message="Column [" + ccInfo.columnName + "] of table ["+ entity.getTableName(datasourceInfo)+ "] of entity ["+ entity.getEntityName()+ "] exists in the database but has no corresponding field"+ ((checkPks && ccInfo.isPk) ? " (and it is a PRIMARY KEY COLUMN)" : "");
+              Debug.logWarning(message,module);
+              if (messages != null)               messages.add(message);
+            }
+          }
+          if (colMap.size() != entity.getFieldsSize()) {
+            String message="Entity [" + entity.getEntityName() + "] has "+ entity.getFieldsSize()+ " fields but table ["+ entity.getTableName(datasourceInfo)+ "] has "+ colMap.size()+ " columns.";
+            Debug.logWarning(message,module);
+            if (messages != null)             messages.add(message);
+          }
+        }
+        Iterator fcnIter=fieldColNames.keySet().iterator();
+        while (fcnIter.hasNext()) {
+          String colName=(String)fcnIter.next();
+          ModelField field=(ModelField)fieldColNames.get(colName);
+          String message="Field [" + field.getName() + "] of entity ["+ entity.getEntityName()+ "] is missing its corresponding column ["+ field.getColName()+ "]"+ (field.getIsPk() ? " (and it is a PRIMARY KEY FIELD)" : "");
+          Debug.logWarning(message,module);
+          if (messages != null)           messages.add(message);
+          if (addMissing) {
+            String errMsg=addColumn(entity,field);
+            if (errMsg != null && errMsg.length() > 0) {
+              message="Could not add column [" + field.getColName() + "] to table ["+ entity.getTableName(datasourceInfo)+ "]: "+ errMsg;
+              Debug.logError(message,module);
+              if (messages != null)               messages.add(message);
+            }
+ else {
+              message="Added column [" + field.getColName() + "] to table ["+ entity.getTableName(datasourceInfo)+ "]"+ (field.getIsPk() ? " (NOTE: this is a PRIMARY KEY FIELD, but the primary key was not updated automatically (not considered a safe operation), be sure to fill in any needed data and re-create the primary key)" : "");
+              Debug.logImportant(message,module);
+              if (messages != null)               messages.add(message);
+            }
+          }
+        }
+      }
+    }
+ else {
+      String message="Entity [" + entity.getEntityName() + "] has no table in the database";
+      Debug.logWarning(message,module);
+      if (messages != null)       messages.add(message);
+      if (addMissing) {
+        String errMsg=createTable(entity,modelEntities,false);
+        if (errMsg != null && errMsg.length() > 0) {
+          message="Could not create table [" + entity.getTableName(datasourceInfo) + "]: "+ errMsg;
+          Debug.logError(message,module);
+          if (messages != null)           messages.add(message);
+        }
+ else {
+          entitiesAdded.add(entity);
+          message="Created table [" + entity.getTableName(datasourceInfo) + "]";
+          Debug.logImportant(message,module);
+          if (messages != null)           messages.add(message);
+        }
+      }
+    }
+  }
+  timer.timerString("After Individual Table/Column Check");
+  Iterator tableNamesIter=tableNames.iterator();
+  while (tableNamesIter != null && tableNamesIter.hasNext()) {
+    String tableName=(String)tableNamesIter.next();
+    String message="Table named [" + tableName + "] exists in the database but has no corresponding entity";
+    Debug.logWarning(message,module);
+    if (messages != null)     messages.add(message);
+  }
+  if (datasourceInfo.useFkIndices) {
+    int totalFkIndices=0;
+    Iterator eaIter=entitiesAdded.iterator();
+    while (eaIter.hasNext()) {
+      ModelEntity curEntity=(ModelEntity)eaIter.next();
+      if (curEntity.getRelationsOneSize() > 0) {
+        totalFkIndices+=this.createForeignKeyIndices(curEntity,datasourceInfo.constraintNameClipLength,messages);
+      }
+    }
+    if (totalFkIndices > 0)     Debug.logImportant("==== TOTAL Foreign Key Indices Created: " + totalFkIndices,module);
+  }
+  if (datasourceInfo.useFks) {
+    int totalFks=0;
+    Iterator eaIter=entitiesAdded.iterator();
+    while (eaIter.hasNext()) {
+      ModelEntity curEntity=(ModelEntity)eaIter.next();
+      totalFks+=this.createForeignKeys(curEntity,modelEntities,datasourceInfo.constraintNameClipLength,datasourceInfo.fkStyle,datasourceInfo.useFkInitiallyDeferred,messages);
+    }
+    if (totalFks > 0)     Debug.logImportant("==== TOTAL Foreign Keys Created: " + totalFks,module);
+  }
+  if (datasourceInfo.useIndices) {
+    int totalDis=0;
+    Iterator eaIter=entitiesAdded.iterator();
+    while (eaIter.hasNext()) {
+      ModelEntity curEntity=(ModelEntity)eaIter.next();
+      if (curEntity.getIndexesSize() > 0) {
+        totalDis+=this.createDeclaredIndices(curEntity,messages);
+      }
+    }
+    if (totalDis > 0)     Debug.logImportant("==== TOTAL Declared Indices Created: " + totalDis,module);
+  }
+  if (checkFks) {
+    int numFksCreated=0;
+    Map refTableInfoMap=this.getReferenceInfo(fkTableNames,messages);
+    if (refTableInfoMap == null) {
+      if (Debug.verboseOn())       Debug.logVerbose("Ref Table Info Map is null",module);
+    }
+ else {
+      Iterator refModelEntityIter=modelEntityList.iterator();
+      while (refModelEntityIter.hasNext()) {
+        ModelEntity entity=(ModelEntity)refModelEntityIter.next();
+        String entityName=entity.getEntityName();
+        if (entity instanceof ModelViewEntity) {
+          String entMessage="NOT Checking View Entity " + entity.getEntityName();
+          Debug.logVerbose(entMessage,module);
+          if (messages != null) {
+            messages.add(entMessage);
+          }
+          continue;
+        }
+        Map rcInfoMap=(Map)refTableInfoMap.get(entity.getTableName(datasourceInfo));
+        Iterator relations=entity.getRelationsIterator();
+        boolean createdConstraints=false;
+        while (relations.hasNext()) {
+          ModelRelation modelRelation=(ModelRelation)relations.next();
+          if (!"one".equals(modelRelation.getType())) {
+            continue;
+          }
+          ModelEntity relModelEntity=(ModelEntity)modelEntities.get(modelRelation.getRelEntityName());
+          if (relModelEntity == null) {
+            Debug.logError("No such relation: " + entity.getEntityName() + " -> "+ modelRelation.getRelEntityName(),module);
+            continue;
+          }
+          String relConstraintName=makeFkConstraintName(modelRelation,datasourceInfo.constraintNameClipLength);
+          ReferenceCheckInfo rcInfo=null;
+          if (rcInfoMap != null) {
+            rcInfo=(ReferenceCheckInfo)rcInfoMap.get(relConstraintName);
+          }
+          if (rcInfo != null) {
+            rcInfoMap.remove(relConstraintName);
+          }
+ else {
+            String noFkMessage="No Foreign Key Constraint [" + relConstraintName + "] found for entity ["+ entityName+ "]";
+            if (messages != null)             messages.add(noFkMessage);
+            if (Debug.infoOn())             Debug.logInfo(noFkMessage,module);
+            if (addMissing) {
+              String errMsg=createForeignKey(entity,modelRelation,relModelEntity,datasourceInfo.constraintNameClipLength,datasourceInfo.fkStyle,datasourceInfo.useFkInitiallyDeferred);
+              if (errMsg != null && errMsg.length() > 0) {
+                String message="Could not create foreign key " + relConstraintName + " for entity ["+ entity.getEntityName()+ "]: "+ errMsg;
+                Debug.logError(message,module);
+                if (messages != null)                 messages.add(message);
+              }
+ else {
+                String message="Created foreign key " + relConstraintName + " for entity ["+ entity.getEntityName()+ "]";
+                Debug.logVerbose(message,module);
+                if (messages != null)                 messages.add(message);
+                createdConstraints=true;
+                numFksCreated++;
+              }
+            }
+          }
+        }
+        if (createdConstraints) {
+          String message="Created foreign key(s) for entity [" + entity.getEntityName() + "]";
+          Debug.logImportant(message,module);
+          if (messages != null)           messages.add(message);
+        }
+        if (rcInfoMap != null) {
+          Iterator rcInfoKeysLeft=rcInfoMap.keySet().iterator();
+          while (rcInfoKeysLeft.hasNext()) {
+            String rcKeyLeft=(String)rcInfoKeysLeft.next();
+            String message="Unknown Foreign Key Constraint " + rcKeyLeft + " found in table "+ entity.getTableName(datasourceInfo);
+            Debug.logImportant(message,module);
+            if (messages != null)             messages.add(message);
+          }
+        }
+      }
+    }
+    if (Debug.infoOn())     Debug.logInfo("Created " + numFksCreated + " fk refs",module);
+  }
+  if (checkFkIdx) {
+    int numIndicesCreated=0;
+    Map tableIndexListMap=this.getIndexInfo(indexTableNames,messages);
+    if (tableIndexListMap == null) {
+      if (Debug.verboseOn())       Debug.logVerbose("Ref Table Info Map is null",module);
+    }
+ else {
+      Iterator refModelEntityIter=modelEntityList.iterator();
+      while (refModelEntityIter.hasNext()) {
+        ModelEntity entity=(ModelEntity)refModelEntityIter.next();
+        String entityName=entity.getEntityName();
+        if (entity instanceof ModelViewEntity) {
+          String entMessage="NOT Checking View Entity " + entity.getEntityName();
+          Debug.logVerbose(entMessage,module);
+          if (messages != null)           messages.add(entMessage);
+          continue;
+        }
+        TreeSet tableIndexList=(TreeSet)tableIndexListMap.get(entity.getTableName(datasourceInfo));
+        if (tableIndexList == null) {
+          this.createForeignKeyIndices(entity,datasourceInfo.constraintNameClipLength,messages);
+        }
+ else {
+          boolean createdConstraints=false;
+          Iterator relations=entity.getRelationsIterator();
+          while (relations.hasNext()) {
+            ModelRelation modelRelation=(ModelRelation)relations.next();
+            if (!"one".equals(modelRelation.getType())) {
+              continue;
+            }
+            String relConstraintName=makeFkConstraintName(modelRelation,datasourceInfo.constraintNameClipLength);
+            if (tableIndexList.contains(relConstraintName)) {
+              tableIndexList.remove(relConstraintName);
+            }
+ else {
+              String noIdxMessage="No Index [" + relConstraintName + "] found for entity ["+ entityName+ "]";
+              if (messages != null)               messages.add(noIdxMessage);
+              if (Debug.infoOn())               Debug.logInfo(noIdxMessage,module);
+              if (addMissing) {
+                String errMsg=createForeignKeyIndex(entity,modelRelation,datasourceInfo.constraintNameClipLength);
+                if (errMsg != null && errMsg.length() > 0) {
+                  String message="Could not create foreign key index " + relConstraintName + " for entity ["+ entity.getEntityName()+ "]: "+ errMsg;
+                  Debug.logError(message,module);
+                  if (messages != null)                   messages.add(message);
+                }
+ else {
+                  String message="Created foreign key index " + relConstraintName + " for entity ["+ entity.getEntityName()+ "]";
+                  Debug.logVerbose(message,module);
+                  if (messages != null)                   messages.add(message);
+                  createdConstraints=true;
+                  numIndicesCreated++;
+                }
+              }
+            }
+          }
+          if (createdConstraints) {
+            String message="Created foreign key index/indices for entity [" + entity.getEntityName() + "]";
+            Debug.logImportant(message,module);
+            if (messages != null)             messages.add(message);
+          }
+        }
+        if (tableIndexList != null) {
+          Iterator tableIndexListIter=tableIndexList.iterator();
+          while (tableIndexListIter.hasNext()) {
+            String indexLeft=(String)tableIndexListIter.next();
+            String message="Unknown Index " + indexLeft + " found in table "+ entity.getTableName(datasourceInfo);
+            Debug.logImportant(message,module);
+            if (messages != null)             messages.add(message);
+          }
+        }
+      }
+    }
+    if (Debug.infoOn())     Debug.logInfo("Created " + numIndicesCreated + " indices",module);
+  }
+  timer.timerString("Finished Checking Entity Database");
+}

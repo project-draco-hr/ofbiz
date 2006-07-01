@@ -1,0 +1,53 @@
+{
+  ServletContext context=(ServletContext)request.getAttribute("servletContext");
+  ClassLoader cl=Thread.currentThread().getContextClassLoader();
+  if (cl == null)   cl=this.getClass().getClassLoader();
+  if (context == null)   throw new EventHandlerException("Problem getting ServletContext");
+  try {
+    BSFManager bsfManager=new BSFManager();
+    bsfManager.setClassLoader(cl);
+    bsfManager.declareBean("request",request,HttpServletRequest.class);
+    bsfManager.declareBean("response",response,HttpServletResponse.class);
+    String scriptType=BSFManager.getLangFromFilename(eventMethod);
+    InputStream scriptStream=null;
+    String scriptString=null;
+    String cacheName=null;
+    if (eventPath == null || eventPath.length() == 0) {
+      cacheName=eventMethod;
+      scriptString=(String)eventCache.get(cacheName);
+      if (scriptString == null) {
+synchronized (this) {
+          if (scriptString == null) {
+            scriptStream=cl.getResourceAsStream(eventMethod);
+            scriptString=IOUtils.getStringFromReader(new InputStreamReader(scriptStream));
+            eventCache.put(cacheName,scriptString);
+          }
+        }
+      }
+    }
+ else {
+      cacheName=context.getServletContextName() + ":" + eventPath+ eventMethod;
+      scriptString=(String)eventCache.get(cacheName);
+      if (scriptString == null) {
+synchronized (this) {
+          if (scriptString == null) {
+            scriptStream=context.getResourceAsStream(eventPath + eventMethod);
+            scriptString=IOUtils.getStringFromReader(new InputStreamReader(scriptStream));
+            eventCache.put(cacheName,scriptString);
+          }
+        }
+      }
+    }
+    Object result=bsfManager.eval(scriptType,cacheName,0,0,scriptString);
+    if (result != null && !(result instanceof String)) {
+      throw new EventHandlerException("Event did not return a String result, it returned a " + result.getClass().getName());
+    }
+    return (String)result;
+  }
+ catch (  BSFException e) {
+    throw new EventHandlerException("BSF Error",e);
+  }
+catch (  IOException e) {
+    throw new EventHandlerException("Problems reading script",e);
+  }
+}

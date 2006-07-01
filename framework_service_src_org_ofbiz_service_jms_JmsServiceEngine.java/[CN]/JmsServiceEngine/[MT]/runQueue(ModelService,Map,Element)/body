@@ -1,0 +1,52 @@
+{
+  String serverName=server.getAttribute("jndi-server-name");
+  String jndiName=server.getAttribute("jndi-name");
+  String queueName=server.getAttribute("topic-queue");
+  String userName=server.getAttribute("username");
+  String password=server.getAttribute("password");
+  String clientId=server.getAttribute("client-id");
+  InitialContext jndi=null;
+  QueueConnectionFactory factory=null;
+  QueueConnection con=null;
+  try {
+    jndi=JNDIContextFactory.getInitialContext(serverName);
+    factory=(QueueConnectionFactory)jndi.lookup(jndiName);
+  }
+ catch (  GeneralException ge) {
+    throw new GenericServiceException("Problems getting JNDI InitialContext.",ge.getNested());
+  }
+catch (  NamingException ne) {
+    JNDIContextFactory.clearInitialContext(serverName);
+    try {
+      jndi=JNDIContextFactory.getInitialContext(serverName);
+      factory=(QueueConnectionFactory)jndi.lookup(jndiName);
+    }
+ catch (    GeneralException ge2) {
+      throw new GenericServiceException("Problems getting JNDI InitialContext.",ge2.getNested());
+    }
+catch (    NamingException ne2) {
+      throw new GenericServiceException("JNDI lookup problem.",ne2);
+    }
+  }
+  try {
+    con=factory.createQueueConnection(userName,password);
+    if (clientId != null && clientId.length() > 1)     con.setClientID(clientId);
+    con.start();
+    QueueSession session=con.createQueueSession(false,Session.AUTO_ACKNOWLEDGE);
+    Queue queue=(Queue)jndi.lookup(queueName);
+    QueueSender sender=session.createSender(queue);
+    Message message=makeMessage(session,modelService,context);
+    sender.send(message);
+    if (Debug.verboseOn())     Debug.logVerbose("Sent JMS Message to " + queueName,module);
+    sender.close();
+    session.close();
+    con.close();
+  }
+ catch (  NamingException ne) {
+    throw new GenericServiceException("Problems with JNDI lookup.",ne);
+  }
+catch (  JMSException je) {
+    throw new GenericServiceException("JMS Internal Error.",je);
+  }
+  return ServiceUtil.returnSuccess();
+}

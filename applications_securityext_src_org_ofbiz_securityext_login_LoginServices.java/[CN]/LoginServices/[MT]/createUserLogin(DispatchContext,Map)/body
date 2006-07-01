@@ -1,0 +1,70 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue loggedInUserLogin=(GenericValue)context.get("userLogin");
+  List errorMessageList=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
+  String userLoginId=(String)context.get("userLoginId");
+  String partyId=(String)context.get("partyId");
+  String currentPassword=(String)context.get("currentPassword");
+  String currentPasswordVerify=(String)context.get("currentPasswordVerify");
+  String passwordHint=(String)context.get("passwordHint");
+  String errMsg=null;
+  if (partyId != null && partyId.length() > 0) {
+    GenericValue party=null;
+    try {
+      party=delegator.findByPrimaryKey("Party",UtilMisc.toMap("partyId",partyId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"",module);
+    }
+    if (party != null) {
+      if (loggedInUserLogin != null) {
+        if (!partyId.equals(loggedInUserLogin.getString("partyId"))) {
+          if (!security.hasEntityPermission("PARTYMGR","_CREATE",loggedInUserLogin)) {
+            errMsg=UtilProperties.getMessage(resource,"loginservices.party_with_specified_party_ID_exists_not_have_permission",locale);
+            errorMessageList.add(errMsg);
+          }
+        }
+      }
+ else {
+        errMsg=UtilProperties.getMessage(resource,"loginservices.must_be_logged_in_and_permission_create_login_party_ID_exists",locale);
+        errorMessageList.add(errMsg);
+      }
+    }
+  }
+  checkNewPassword(null,null,currentPassword,currentPasswordVerify,passwordHint,errorMessageList,true,locale);
+  GenericValue userLoginToCreate=delegator.makeValue("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+  userLoginToCreate.set("passwordHint",passwordHint);
+  userLoginToCreate.set("partyId",partyId);
+  userLoginToCreate.set("currentPassword",useEncryption ? getPasswordHash(currentPassword) : currentPassword);
+  try {
+    if (delegator.findByPrimaryKey(userLoginToCreate.getPrimaryKey()) != null) {
+      Map messageMap=UtilMisc.toMap("userLoginId",userLoginId);
+      errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_with_ID_exists",messageMap,locale);
+      errorMessageList.add(errMsg);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"",module);
+    Map messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_read_failure",messageMap,locale);
+    errorMessageList.add(errMsg);
+  }
+  if (errorMessageList.size() > 0) {
+    return ServiceUtil.returnError(errorMessageList);
+  }
+  try {
+    userLoginToCreate.create();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"",module);
+    Map messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_write_failure",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

@@ -1,0 +1,39 @@
+{
+  ModelEntity modelEntity=entity.getModelEntity();
+  if (modelEntity == null) {
+    throw new GenericModelException("Could not find ModelEntity record for entityName: " + entity.getEntityName());
+  }
+  if (modelEntity.getPksSize() <= 0) {
+    throw new GenericEntityException("Entity has no primary keys, cannot select by primary key");
+  }
+  StringBuffer sqlBuffer=new StringBuffer("SELECT ");
+  if (modelEntity.getNopksSize() > 0) {
+    sqlBuffer.append(modelEntity.colNameString(modelEntity.getNopksCopy(),", ","",datasourceInfo.aliasViews));
+  }
+ else {
+    sqlBuffer.append("*");
+  }
+  sqlBuffer.append(SqlJdbcUtil.makeFromClause(modelEntity,datasourceInfo));
+  sqlBuffer.append(SqlJdbcUtil.makeWhereClause(modelEntity,modelEntity.getPksCopy(),entity,"AND",datasourceInfo.joinStyle));
+  try {
+    sqlP.prepareStatement(sqlBuffer.toString(),true,ResultSet.TYPE_FORWARD_ONLY,ResultSet.CONCUR_READ_ONLY);
+    SqlJdbcUtil.setPkValues(sqlP,modelEntity,entity,modelFieldTypeReader);
+    sqlP.executeQuery();
+    if (sqlP.next()) {
+      int idx=1;
+      Iterator nopkIter=modelEntity.getNopksIterator();
+      while (nopkIter.hasNext()) {
+        ModelField curField=(ModelField)nopkIter.next();
+        SqlJdbcUtil.getValue(sqlP.getResultSet(),idx,curField,entity,modelFieldTypeReader);
+        idx++;
+      }
+      entity.synchronizedWithDatasource();
+    }
+ else {
+      throw new GenericEntityNotFoundException("Result set was empty for entity: " + entity.toString());
+    }
+  }
+  finally {
+    sqlP.close();
+  }
+}

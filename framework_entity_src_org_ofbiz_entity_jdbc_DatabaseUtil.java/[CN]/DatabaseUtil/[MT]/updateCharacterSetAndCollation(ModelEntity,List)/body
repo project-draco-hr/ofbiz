@@ -1,0 +1,115 @@
+{
+  if (entity instanceof ModelViewEntity) {
+    return;
+  }
+  if (UtilValidate.isEmpty(this.datasourceInfo.characterSet) && UtilValidate.isEmpty(this.datasourceInfo.collate)) {
+    messages.add("Not setting character-set and collate for entity [" + entity.getEntityName() + "], options not specified in the datasource definition in the entityengine.xml file.");
+    return;
+  }
+  Connection connection=null;
+  try {
+    Statement stmt=null;
+    try {
+      connection=getConnection();
+    }
+ catch (    SQLException sqle) {
+      messages.add("Unable to esablish a connection with the database... Error was: " + sqle.toString());
+    }
+catch (    GenericEntityException e) {
+      messages.add("Unable to esablish a connection with the database... Error was: " + e.toString());
+    }
+    if (connection == null) {
+      return;
+    }
+    StringBuffer sqlTableBuf=new StringBuffer("ALTER TABLE ");
+    sqlTableBuf.append(entity.getTableName(this.datasourceInfo));
+    if (UtilValidate.isNotEmpty(this.datasourceInfo.characterSet)) {
+      sqlTableBuf.append(" DEFAULT CHARACTER SET ");
+      sqlTableBuf.append(this.datasourceInfo.characterSet);
+    }
+    if (UtilValidate.isNotEmpty(this.datasourceInfo.collate)) {
+      sqlTableBuf.append(" COLLATE ");
+      sqlTableBuf.append(this.datasourceInfo.collate);
+    }
+    if (Debug.verboseOn())     Debug.logVerbose("[updateCharacterSetAndCollation] character-set and collate sql=" + sqlTableBuf,module);
+    try {
+      stmt=connection.createStatement();
+      stmt.executeUpdate(sqlTableBuf.toString());
+    }
+ catch (    SQLException sqle) {
+      String errMsg="SQL Exception while executing the following:\n" + sqlTableBuf + "\nError was: "+ sqle.toString();
+      messages.add(errMsg);
+      Debug.logError(errMsg,module);
+    }
+ finally {
+      try {
+        if (stmt != null)         stmt.close();
+      }
+ catch (      SQLException sqle) {
+        Debug.logError(sqle,module);
+      }
+    }
+    Iterator fieldIter=entity.getFieldsIterator();
+    while (fieldIter.hasNext()) {
+      ModelField field=(ModelField)fieldIter.next();
+      ModelFieldType type=modelFieldTypeReader.getModelFieldType(field.getType());
+      if (type == null) {
+        messages.add("Field type [" + type + "] not found for field ["+ field.getName()+ "] of entity ["+ entity.getEntityName()+ "], not creating table.");
+        continue;
+      }
+      if (!"String".equals(type.getJavaType()) && !"java.lang.String".equals(type.getJavaType())) {
+        continue;
+      }
+      StringBuffer sqlBuf=new StringBuffer("ALTER TABLE ");
+      sqlBuf.append(entity.getTableName(this.datasourceInfo));
+      sqlBuf.append(" MODIFY COLUMN ");
+      sqlBuf.append(field.getColName());
+      sqlBuf.append(" ");
+      sqlBuf.append(type.getSqlType());
+      if (UtilValidate.isNotEmpty(this.datasourceInfo.characterSet)) {
+        sqlBuf.append(" CHARACTER SET ");
+        sqlBuf.append(this.datasourceInfo.characterSet);
+      }
+      if (UtilValidate.isNotEmpty(this.datasourceInfo.collate)) {
+        sqlBuf.append(" COLLATE ");
+        sqlBuf.append(this.datasourceInfo.collate);
+      }
+      if (field.getIsPk()) {
+        if (this.datasourceInfo.alwaysUseConstraintKeyword) {
+          sqlBuf.append(" CONSTRAINT NOT NULL");
+        }
+ else {
+          sqlBuf.append(" NOT NULL");
+        }
+      }
+      if (Debug.verboseOn())       Debug.logVerbose("[updateCharacterSetAndCollation] character-set and collate sql=" + sqlBuf,module);
+      try {
+        stmt=connection.createStatement();
+        stmt.executeUpdate(sqlBuf.toString());
+      }
+ catch (      SQLException sqle) {
+        String errMsg="SQL Exception while executing the following:\n" + sqlBuf + "\nError was: "+ sqle.toString();
+        messages.add(errMsg);
+        Debug.logError(errMsg,module);
+      }
+ finally {
+        try {
+          if (stmt != null)           stmt.close();
+        }
+ catch (        SQLException sqle) {
+          Debug.logError(sqle,module);
+        }
+      }
+    }
+  }
+  finally {
+    try {
+      if (connection != null) {
+        connection.close();
+      }
+    }
+ catch (    SQLException sqle) {
+      Debug.logError(sqle,module);
+    }
+  }
+}

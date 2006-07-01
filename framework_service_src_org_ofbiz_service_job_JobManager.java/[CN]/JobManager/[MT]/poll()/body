@@ -1,0 +1,72 @@
+{
+  List poll=new ArrayList();
+  Collection jobEnt=null;
+  List order=UtilMisc.toList("runTime");
+  List expressions=UtilMisc.toList(new EntityExpr("runTime",EntityOperator.LESS_THAN_EQUAL_TO,UtilDateTime.nowTimestamp()),new EntityExpr("startDateTime",EntityOperator.EQUALS,null),new EntityExpr("cancelDateTime",EntityOperator.EQUALS,null),new EntityExpr("runByInstanceId",EntityOperator.EQUALS,null));
+  List pools=ServiceConfigUtil.getRunPools();
+  List poolsExpr=UtilMisc.toList(new EntityExpr("poolId",EntityOperator.EQUALS,null));
+  if (pools != null) {
+    Iterator poolsIter=pools.iterator();
+    while (poolsIter.hasNext()) {
+      String poolName=(String)poolsIter.next();
+      poolsExpr.add(new EntityExpr("poolId",EntityOperator.EQUALS,poolName));
+    }
+  }
+  EntityCondition baseCondition=new EntityConditionList(expressions,EntityOperator.AND);
+  EntityCondition poolCondition=new EntityConditionList(poolsExpr,EntityOperator.OR);
+  EntityCondition mainCondition=new EntityConditionList(UtilMisc.toList(baseCondition,poolCondition),EntityOperator.AND);
+  boolean pollDone=false;
+  while (!pollDone) {
+    boolean beganTransaction;
+    try {
+      beganTransaction=TransactionUtil.begin();
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Unable to start transaction; not polling for jobs",module);
+      return null;
+    }
+    if (!beganTransaction) {
+      Debug.logError("Unable to poll for jobs; transaction was not started by this process",module);
+      return null;
+    }
+    try {
+      delegator.storeByCondition("JobSandbox",updateFields,mainCondition);
+      jobEnt=delegator.findByAnd("JobSandbox",updateFields,order);
+    }
+ catch (    GenericEntityException ee) {
+      Debug.logError(ee,"Cannot load jobs from datasource.",module);
+    }
+catch (    Exception e) {
+      Debug.logError(e,"Unknown error.",module);
+    }
+    if (jobEnt != null && jobEnt.size() > 0) {
+      Iterator i=jobEnt.iterator();
+      while (i.hasNext()) {
+        GenericValue v=(GenericValue)i.next();
+        DispatchContext dctx=getDispatcher().getDispatchContext();
+        if (dctx == null) {
+          Debug.logError("Unable to locate DispatchContext object; not running job!",module);
+          continue;
+        }
+        Job job=new PersistedServiceJob(dctx,v,null);
+        try {
+          job.queue();
+          poll.add(job);
+        }
+ catch (        InvalidJobException e) {
+          Debug.logError(e,module);
+        }
+      }
+    }
+ else {
+      pollDone=true;
+    }
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,module);
+    }
+  }
+  return poll.iterator();
+}

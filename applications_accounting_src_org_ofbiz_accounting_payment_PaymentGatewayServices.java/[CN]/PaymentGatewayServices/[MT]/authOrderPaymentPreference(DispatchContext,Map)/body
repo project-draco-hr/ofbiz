@@ -1,0 +1,88 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
+  Double overrideAmount=(Double)context.get("overrideAmount");
+  if (overrideAmount != null) {
+    if (overrideAmount.doubleValue() < 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is negative.");
+    if (overrideAmount.doubleValue() == 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is zero.");
+  }
+  GenericValue orderHeader=null;
+  GenericValue orderPaymentPreference=null;
+  try {
+    orderPaymentPreference=delegator.findByPrimaryKey("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId));
+    orderHeader=orderPaymentPreference.getRelatedOne("OrderHeader");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Problems getting required information: orderPaymentPreference [" + orderPaymentPreferenceId + "]");
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  double totalRemaining=0.0;
+  try {
+    totalRemaining=getTotalRemaining(orh);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Problem getting parsed grand total amount",module);
+    return ServiceUtil.returnError("ERROR: Cannot parse grand total from formatted string; see logs");
+  }
+  Long procAttempt=orderPaymentPreference.getLong("processAttempt");
+  if (procAttempt == null) {
+    procAttempt=new Long(0);
+  }
+  orderPaymentPreference.set("processAttempt",new Long(procAttempt.longValue() + 1));
+  try {
+    orderPaymentPreference.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to update OrderPaymentPreference record!");
+  }
+  boolean reAuth=false;
+  if (orderPaymentPreference.get("statusId") != null && "PAYMENT_AUTHORIZED".equals(orderPaymentPreference.getString("statusId"))) {
+    reAuth=true;
+  }
+  Double transAmount=null;
+  if (overrideAmount != null) {
+    transAmount=overrideAmount;
+  }
+ else {
+    transAmount=orderPaymentPreference.getDouble("maxAmount");
+  }
+  Map results=UtilMisc.toMap(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS,"finished",new Boolean(false),"errors",new Boolean(false));
+  if ((transAmount != null) && (transAmount.doubleValue() <= 0)) {
+    return results;
+  }
+  Map processorResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,overrideAmount);
+  if (processorResult != null) {
+    if (processorResult.get("customerRespMsgs") != null) {
+      results.put("messages",processorResult.get("customerRespMsgs"));
+    }
+    Double thisAmount=(Double)processorResult.get("processAmount");
+    boolean processResult=false;
+    try {
+      processResult=processResult(dctx,processorResult,userLogin,orderPaymentPreference);
+      if (processResult) {
+        results.put("processAmount",thisAmount);
+        results.put("finished",new Boolean(true));
+      }
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,"Trouble processing the result; processorResult: " + processorResult,module);
+      results.put("errors",new Boolean(true));
+    }
+  }
+ else {
+    Debug.logInfo("Invalid OrderPaymentPreference; maxAmount is 0",module);
+    orderPaymentPreference.set("statusId","PAYMENT_CANCELLED");
+    try {
+      orderPaymentPreference.store();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"ERROR: Problem setting OrderPaymentPreference status to CANCELLED",module);
+    }
+    results.put("errors",new Boolean(true));
+  }
+  return results;
+}

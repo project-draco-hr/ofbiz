@@ -1,0 +1,42 @@
+{
+  Map actionResult=null;
+  try {
+    Map actionContext=dctx.getModelService(serviceName).makeValid(value,ModelService.IN_PARAM);
+    if (valueAttr != null && valueAttr.length() > 0) {
+      actionContext.put(valueAttr,value);
+    }
+    GenericValue userLoginToRunAs=null;
+    if (UtilValidate.isNotEmpty(this.runAsUser)) {
+      userLoginToRunAs=dctx.getDelegator().findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId",this.runAsUser));
+      if (userLoginToRunAs != null) {
+        actionContext.put("userLogin",userLoginToRunAs);
+      }
+    }
+    LocalDispatcher dispatcher=dctx.getDispatcher();
+    if ("sync".equals(this.serviceMode)) {
+      actionResult=dispatcher.runSync(this.serviceName,actionContext);
+      if (ServiceUtil.isError(actionResult)) {
+        throw new GenericServiceException("Error running Entity ECA action service: " + ServiceUtil.getErrorMessage(actionResult));
+      }
+    }
+ else     if ("async".equals(this.serviceMode)) {
+      dispatcher.runAsync(serviceName,actionContext,persist);
+    }
+  }
+ catch (  GenericServiceException e) {
+    if (rollbackOnError) {
+      String errMsg="Entity ECA action service failed and rollback-on-error is true, so setting rollback only.";
+      Debug.logError(errMsg,module);
+      TransactionUtil.setRollbackOnly(errMsg,e);
+    }
+    if (this.abortOnError) {
+      throw new EntityEcaException("Error running Entity ECA action service: " + e.toString(),e);
+    }
+ else {
+      Debug.logError(e,"Error running Entity ECA action service",module);
+    }
+  }
+  if (resultToValue) {
+    value.setNonPKFields(actionResult);
+  }
+}

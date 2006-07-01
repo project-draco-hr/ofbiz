@@ -1,0 +1,33 @@
+{
+  Debug.logWarning("Running the getPartyFromUserLogin Service...",module);
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  Collection parties=new LinkedList();
+  String userLoginId=(String)context.get("userLoginId");
+  Locale locale=(Locale)context.get("locale");
+  if (userLoginId.length() == 0)   return ServiceUtil.returnError("Required parameter 'userLoginId' cannot be empty.");
+  try {
+    List exprs=new LinkedList();
+    exprs.add(new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue("userLoginId")),EntityOperator.LIKE,new EntityFunction.UPPER("%" + userLoginId.toUpperCase() + "%")));
+    Collection ulc=delegator.findByAnd("PartyAndUserLogin",exprs,UtilMisc.toList("userloginId"));
+    if (Debug.verboseOn())     Debug.logVerbose("Collection: " + ulc,module);
+    if (Debug.infoOn())     Debug.logInfo("PartyFromUserLogin number found: " + ulc.size(),module);
+    if (ulc != null) {
+      Iterator i=ulc.iterator();
+      while (i.hasNext()) {
+        GenericValue ul=(GenericValue)i.next();
+        GenericValue party=delegator.makeValue("Party",UtilMisc.toMap("partyId",ul.get("partyId"),"partyTypeId",ul.get("partyTypeId")));
+        parties.add(UtilMisc.toMap("party",party));
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    String errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_get_party_entities_read",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (parties.size() > 0) {
+    result.put("parties",parties);
+  }
+  return result;
+}

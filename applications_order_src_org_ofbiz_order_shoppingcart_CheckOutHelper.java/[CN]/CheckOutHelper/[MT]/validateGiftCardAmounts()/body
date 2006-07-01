@@ -1,0 +1,45 @@
+{
+  GenericValue productStore=ProductStoreWorker.getProductStore(cart.getProductStoreId(),delegator);
+  if (productStore != null && !"Y".equalsIgnoreCase(productStore.getString("checkGcBalance"))) {
+    return;
+  }
+  String paymentConfig=ProductStoreWorker.getProductStorePaymentProperties(delegator,cart.getProductStoreId(),"GIFT_CARD",null,true);
+  String giftCardType=UtilProperties.getPropertyValue(paymentConfig,"","ofbiz");
+  String balanceField=null;
+  Iterator i=cart.getGiftCards().iterator();
+  while (i.hasNext()) {
+    GenericValue gc=(GenericValue)i.next();
+    Map gcBalanceMap=null;
+    double gcBalance=0.00;
+    try {
+      Map ctx=UtilMisc.toMap("userLogin",cart.getUserLogin());
+      ctx.put("currency",cart.getCurrency());
+      if ("ofbiz".equalsIgnoreCase(giftCardType)) {
+        balanceField="balance";
+        ctx.put("cardNumber",gc.getString("cardNumber"));
+        ctx.put("pinNumber",gc.getString("pinNumber"));
+        gcBalanceMap=dispatcher.runSync("checkGiftCertificateBalance",ctx);
+      }
+      if ("valuelink".equalsIgnoreCase(giftCardType)) {
+        balanceField="balance";
+        ctx.put("paymentConfig",paymentConfig);
+        ctx.put("cardNumber",gc.getString("cardNumber"));
+        ctx.put("pin",gc.getString("pinNumber"));
+        gcBalanceMap=dispatcher.runSync("balanceInquireGiftCard",ctx);
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+    }
+    if (gcBalanceMap != null) {
+      Double bal=(Double)gcBalanceMap.get(balanceField);
+      if (bal != null) {
+        gcBalance=bal.doubleValue();
+      }
+    }
+    Double billUpTo=cart.getPaymentAmount(gc.getString("paymentMethodId"));
+    if (billUpTo == null || billUpTo.doubleValue() == 0 || gcBalance < billUpTo.doubleValue()) {
+      cart.addPaymentAmount(gc.getString("paymentMethodId"),new Double(gcBalance));
+    }
+  }
+}

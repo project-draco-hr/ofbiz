@@ -1,0 +1,55 @@
+{
+  if (value != null && UtilValidate.isEmpty(value.getString(seqFieldName))) {
+    String sequencedIdPrefix=this.getDelegatorInfo().sequencedIdPrefix;
+    value.remove(seqFieldName);
+    GenericValue lookupValue=this.makeValue(value.getEntityName(),null);
+    lookupValue.setPKFields(value);
+    boolean beganTransaction=false;
+    try {
+      if (alwaysUseTransaction) {
+        beganTransaction=TransactionUtil.begin();
+      }
+      List allValues=this.findByAnd(value.getEntityName(),lookupValue,null);
+      Iterator allValueIter=allValues.iterator();
+      Integer highestSeqVal=null;
+      while (allValueIter.hasNext()) {
+        GenericValue curValue=(GenericValue)allValueIter.next();
+        String currentSeqId=curValue.getString(seqFieldName);
+        if (currentSeqId != null) {
+          if (UtilValidate.isNotEmpty(sequencedIdPrefix)) {
+            if (currentSeqId.startsWith(sequencedIdPrefix)) {
+              currentSeqId=currentSeqId.substring(sequencedIdPrefix.length());
+            }
+ else {
+              continue;
+            }
+          }
+          try {
+            int seqVal=Integer.parseInt(currentSeqId);
+            if (highestSeqVal == null || seqVal > highestSeqVal.intValue()) {
+              highestSeqVal=new Integer(seqVal);
+            }
+          }
+ catch (          Exception e) {
+            Debug.logWarning("Error in make-next-seq-id converting SeqId [" + currentSeqId + "] to a number: "+ e.toString(),module);
+          }
+        }
+      }
+      int seqValToUse=(highestSeqVal == null ? 1 : highestSeqVal.intValue() + incrementBy);
+      String newSeqId=sequencedIdPrefix + UtilFormatOut.formatPaddedNumber(seqValToUse,numericPadding);
+      value.set(seqFieldName,newSeqId);
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    Exception e) {
+      String errMsg="Failure in setNextSubSeqId operation for entity [" + value.getEntityName() + "]: "+ e.toString()+ ". Rolling back transaction.";
+      Debug.logError(e,errMsg,module);
+      try {
+        TransactionUtil.rollback(beganTransaction,errMsg,e);
+      }
+ catch (      GenericEntityException e2) {
+        Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+      }
+      Debug.logError(e,"Error making next seqId",module);
+    }
+  }
+}

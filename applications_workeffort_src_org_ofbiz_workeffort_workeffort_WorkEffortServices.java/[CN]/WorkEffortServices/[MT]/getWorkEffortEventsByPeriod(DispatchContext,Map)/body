@@ -1,0 +1,87 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Map resultMap=new HashMap();
+  Timestamp startDay=(Timestamp)context.get("start");
+  Integer numPeriodsInteger=(Integer)context.get("numPeriods");
+  Integer periodInteger=(Integer)context.get("periodSeconds");
+  String partyId=(String)context.get("partyId");
+  String facilityId=(String)context.get("facilityId");
+  String fixedAssetId=(String)context.get("fixedAssetId");
+  Boolean filterOutCanceledEvents=(Boolean)context.get("filterOutCanceledEvents");
+  if (filterOutCanceledEvents == null) {
+    filterOutCanceledEvents=Boolean.FALSE;
+  }
+  int maxConcurrentEntries=0;
+  long period=periodInteger.intValue() * 1000;
+  int numPeriods=0;
+  if (numPeriodsInteger != null)   numPeriods=numPeriodsInteger.intValue();
+  Timestamp startStamp=UtilDateTime.getDayStart(startDay);
+  Timestamp endStamp=new Timestamp(startStamp.getTime() + (period * (numPeriods + 1)));
+  startStamp.setNanos(0);
+  List validWorkEfforts=null;
+  String partyIdToUse=null;
+  if (UtilValidate.isNotEmpty(partyId)) {
+    if (partyId.equals(userLogin.getString("partyId")) || security.hasEntityPermission("WORKEFFORTMGR","_VIEW",userLogin)) {
+      partyIdToUse=partyId;
+    }
+ else {
+      return ServiceUtil.returnError("You do not have permission to view information for party with ID [" + partyId + "], you must be logged in as a user associated with this party, or have the WORKEFFORTMGR_VIEW or WORKEFFORTMGR_ADMIN permissions.");
+    }
+  }
+ else {
+    if (UtilValidate.isEmpty(facilityId) && UtilValidate.isEmpty(fixedAssetId)) {
+      partyIdToUse=userLogin.getString("partyId");
+    }
+  }
+  if (UtilValidate.isNotEmpty(partyIdToUse) || UtilValidate.isNotEmpty(facilityId) || UtilValidate.isNotEmpty(fixedAssetId)) {
+    validWorkEfforts=getWorkEffortEvents(ctx,startStamp,endStamp,partyIdToUse,facilityId,fixedAssetId);
+  }
+  if (filterOutCanceledEvents.booleanValue()) {
+    validWorkEfforts=EntityUtil.filterOutByCondition(validWorkEfforts,new EntityExpr("currentStatusId",EntityOperator.EQUALS,"EVENT_CANCELLED"));
+  }
+  List periods=new ArrayList();
+  if (validWorkEfforts != null) {
+    for (int i=0; i < numPeriods; i++) {
+      Timestamp curPeriodStart=new Timestamp(startStamp.getTime() + (i * period));
+      Timestamp curPeriodEnd=new Timestamp(curPeriodStart.getTime() + period);
+      List curWorkEfforts=new ArrayList();
+      Map entry=new HashMap();
+      for (int j=0; j < validWorkEfforts.size(); j++) {
+        GenericValue workEffort=(GenericValue)validWorkEfforts.get(j);
+        Timestamp estimatedStartDate=workEffort.getTimestamp("estimatedStartDate");
+        Timestamp estimatedCompletionDate=workEffort.getTimestamp("estimatedCompletionDate");
+        if (estimatedStartDate == null || estimatedCompletionDate == null)         continue;
+        if (estimatedStartDate.compareTo(curPeriodEnd) < 0 && estimatedCompletionDate.compareTo(curPeriodStart) > 0) {
+          Map calEntry=new HashMap();
+          calEntry.put("workEffort",workEffort);
+          long length=((estimatedCompletionDate.after(endStamp) ? endStamp.getTime() : estimatedCompletionDate.getTime()) - (estimatedStartDate.before(startStamp) ? startStamp.getTime() : estimatedStartDate.getTime()));
+          int periodSpan=(int)Math.ceil((double)length / period);
+          calEntry.put("periodSpan",new Integer(periodSpan));
+          if (i == 0)           calEntry.put("startOfPeriod",new Boolean(true));
+ else {
+            boolean startOfPeriod=((estimatedStartDate.getTime() - curPeriodStart.getTime()) >= 0);
+            calEntry.put("startOfPeriod",new Boolean(startOfPeriod));
+          }
+          curWorkEfforts.add(calEntry);
+        }
+        if (estimatedStartDate.after(curPeriodEnd))         break;
+        if (estimatedCompletionDate.before(curPeriodEnd)) {
+          validWorkEfforts.remove(j);
+          j--;
+        }
+      }
+      int numEntries=curWorkEfforts.size();
+      if (numEntries > maxConcurrentEntries)       maxConcurrentEntries=numEntries;
+      entry.put("start",curPeriodStart);
+      entry.put("end",curPeriodEnd);
+      entry.put("calendarEntries",curWorkEfforts);
+      periods.add(entry);
+    }
+  }
+  Map result=new HashMap();
+  result.put("periods",periods);
+  result.put("maxConcurrentEntries",new Integer(maxConcurrentEntries));
+  return result;
+}

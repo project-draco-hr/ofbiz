@@ -1,0 +1,78 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String serviceName=request.getParameter("serviceName");
+  String serviceMode=request.getParameter("serviceMode");
+  String xmlContext=request.getParameter("serviceContext");
+  Map result=new HashMap();
+  Map context=null;
+  if (serviceName == null)   result.put(ModelService.ERROR_MESSAGE,"Cannot have null service name");
+  if (serviceMode == null)   serviceMode="SYNC";
+  if (!result.containsKey(ModelService.ERROR_MESSAGE)) {
+    if (xmlContext != null) {
+      try {
+        Object o=XmlSerializer.deserialize(xmlContext,delegator);
+        if (o instanceof Map)         context=(Map)o;
+ else {
+          Debug.logError("Context not an instance of Map error",module);
+          result.put(ModelService.ERROR_MESSAGE,"Context not an instance of Map");
+        }
+      }
+ catch (      Exception e) {
+        Debug.logError(e,"Deserialization error",module);
+        result.put(ModelService.ERROR_MESSAGE,"Error occurred deserializing context: " + e.toString());
+      }
+    }
+  }
+  if (!result.containsKey(ModelService.ERROR_MESSAGE)) {
+    try {
+      ModelService model=dispatcher.getDispatchContext().getModelService(serviceName);
+      if (model.export || exportAll) {
+        if (serviceMode.equals("ASYNC")) {
+          dispatcher.runAsync(serviceName,context);
+        }
+ else {
+          result=dispatcher.runSync(serviceName,context);
+        }
+      }
+ else {
+        Debug.logWarning("Attempt to invoke a non-exported service: " + serviceName,module);
+        throw new GenericServiceException("Cannot find requested service");
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Service invocation error",module);
+      result.put(ModelService.ERROR_MESSAGE,"Service invocation error: " + e.toString());
+    }
+  }
+  StringBuffer errorMessage=new StringBuffer();
+  String resultString=null;
+  try {
+    resultString=XmlSerializer.serialize(result);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Cannot serialize result",module);
+    if (result.containsKey(ModelService.ERROR_MESSAGE))     errorMessage.append(result.get(ModelService.ERROR_MESSAGE));
+    errorMessage.append("::");
+    errorMessage.append(e);
+  }
+  try {
+    PrintWriter out=response.getWriter();
+    response.setContentType("plain/text");
+    if (errorMessage.length() > 0) {
+      response.setContentLength(errorMessage.length());
+      out.write(errorMessage.toString());
+    }
+ else {
+      response.setContentLength(resultString.length());
+      out.write(resultString);
+    }
+    out.flush();
+    response.flushBuffer();
+  }
+ catch (  IOException e) {
+    Debug.logError(e,"Problems w/ getting the servlet writer.",module);
+    return "error";
+  }
+  return null;
+}

@@ -1,0 +1,216 @@
+{
+  Map result=null;
+  if (locale == null) {
+    locale=this.cart.getLocale();
+  }
+  NumberFormat nf=NumberFormat.getNumberInstance(locale);
+  ArrayList deleteList=new ArrayList();
+  ArrayList errorMsgs=new ArrayList();
+  Set parameterNames=context.keySet();
+  Iterator parameterNameIter=parameterNames.iterator();
+  double oldQuantity=-1;
+  String oldDescription="";
+  double oldPrice=-1;
+  if (this.cart.isReadOnlyCart()) {
+    String errMsg=UtilProperties.getMessage(resource,"cart.cart_is_in_read_only_mode",this.cart.getLocale());
+    errorMsgs.add(errMsg);
+    result=ServiceUtil.returnError(errorMsgs);
+    return result;
+  }
+  while (parameterNameIter.hasNext()) {
+    String parameterName=(String)parameterNameIter.next();
+    int underscorePos=parameterName.lastIndexOf('_');
+    if (underscorePos >= 0) {
+      try {
+        String indexStr=parameterName.substring(underscorePos + 1);
+        int index=Integer.parseInt(indexStr);
+        String quantString=(String)context.get(parameterName);
+        double quantity=-1;
+        String itemDescription="";
+        if (quantString != null)         quantString=quantString.trim();
+        ShoppingCartItem item=this.cart.findCartItem(index);
+        if (parameterName.toUpperCase().startsWith("OPTION")) {
+          if (quantString.toUpperCase().startsWith("NO^")) {
+            if (quantString.length() > 2) {
+              String featureTypeId=this.getRemoveFeatureTypeId(parameterName);
+              if (featureTypeId != null) {
+                item.removeAdditionalProductFeatureAndAppl(featureTypeId);
+              }
+            }
+          }
+ else {
+            GenericValue featureAppl=this.getFeatureAppl(item.getProductId(),parameterName,quantString);
+            if (featureAppl != null) {
+              item.putAdditionalProductFeatureAndAppl(featureAppl);
+            }
+          }
+        }
+ else         if (parameterName.toUpperCase().startsWith("DESCRIPTION")) {
+          itemDescription=quantString;
+        }
+ else         if (parameterName.startsWith("reservStart")) {
+          quantString+=" 00:00:00.000000000";
+          if (item != null) {
+            Timestamp reservStart=Timestamp.valueOf((String)quantString);
+            item.setReservStart(reservStart);
+          }
+        }
+ else         if (parameterName.startsWith("reservLength")) {
+          if (item != null) {
+            double reservLength=nf.parse(quantString).doubleValue();
+            item.setReservLength(reservLength);
+          }
+        }
+ else         if (parameterName.startsWith("reservPersons")) {
+          if (item != null) {
+            double reservPersons=nf.parse(quantString).doubleValue();
+            item.setReservPersons(reservPersons);
+          }
+        }
+ else         if (parameterName.startsWith("shipBeforeDate")) {
+          if (item != null && quantString.length() > 0) {
+            if (quantString.length() == 10)             quantString+=" 00:00:00.000";
+            item.setShipBeforeDate(Timestamp.valueOf(quantString));
+          }
+        }
+ else         if (parameterName.startsWith("shipAfterDate")) {
+          if (item != null && quantString.length() > 0) {
+            if (quantString.length() == 10)             quantString+=" 00:00:00.000";
+            item.setShipAfterDate(Timestamp.valueOf(quantString));
+          }
+        }
+ else         if (parameterName.startsWith("itemType")) {
+          if (item != null && quantString.length() > 0) {
+            item.setItemType(quantString);
+          }
+        }
+ else {
+          quantity=nf.parse(quantString).doubleValue();
+          if (quantity < 0) {
+            throw new CartItemModifyException("Quantity must be a positive number.");
+          }
+        }
+        if (parameterName.startsWith("shipAfterDate") || parameterName.startsWith("shipBeforeDate")) {
+          this.cart.setShipGroupShipDatesFromItem(item);
+        }
+        if (parameterName.toUpperCase().startsWith("UPDATE")) {
+          if (quantity == 0.0) {
+            deleteList.add(item);
+          }
+ else {
+            if (item != null) {
+              try {
+                if (cart.getOrderType().equals("PURCHASE_ORDER")) {
+                  oldQuantity=item.getQuantity();
+                  if (oldQuantity != quantity) {
+                    oldDescription=item.getName();
+                    oldPrice=item.getBasePrice();
+                    GenericValue productSupplier=this.getProductSupplier(item.getProductId(),new Double(quantity),cart.getCurrency());
+                    if (productSupplier == null) {
+                      if ("_NA_".equals(cart.getPartyId())) {
+                        item.setQuantity(quantity,dispatcher,this.cart);
+                        item.setName(item.getProduct().getString("internalName"));
+                      }
+ else {
+                        String errMsg=UtilProperties.getMessage(resource,"cart.product_not_valid_for_supplier",this.cart.getLocale());
+                        errMsg=errMsg + " (" + item.getProductId()+ ", "+ quantity+ ", "+ cart.getCurrency()+ ")";
+                        errorMsgs.add(errMsg);
+                      }
+                    }
+ else {
+                      item.setQuantity(quantity,dispatcher,this.cart);
+                      item.setBasePrice(productSupplier.getDouble("lastPrice").doubleValue());
+                      item.setName(ShoppingCartItem.getPurchaseOrderItemDescription(item.getProduct(),productSupplier,cart.getLocale()));
+                    }
+                  }
+                }
+ else {
+                  item.setQuantity(quantity,dispatcher,this.cart);
+                }
+              }
+ catch (              CartItemModifyException e) {
+                errorMsgs.add(e.getMessage());
+              }
+            }
+          }
+        }
+        if (parameterName.toUpperCase().startsWith("DESCRIPTION")) {
+          if (!oldDescription.equals(itemDescription)) {
+            if (security.hasEntityPermission("ORDERMGR","_CREATE",userLogin)) {
+              if (item != null) {
+                item.setName(itemDescription);
+              }
+            }
+          }
+        }
+        if (parameterName.toUpperCase().startsWith("PRICE")) {
+          NumberFormat pf=NumberFormat.getCurrencyInstance(locale);
+          String tmpQuantity=pf.format(quantity);
+          String tmpOldPrice=pf.format(oldPrice);
+          if (!tmpOldPrice.equals(tmpQuantity)) {
+            if (security.hasEntityPermission("ORDERMGR","_CREATE",userLogin)) {
+              if (item != null) {
+                item.setBasePrice(quantity);
+                item.setIsModifiedPrice(true);
+              }
+            }
+          }
+        }
+        if (parameterName.toUpperCase().startsWith("DELETE")) {
+          deleteList.add(this.cart.findCartItem(index));
+        }
+      }
+ catch (      NumberFormatException nfe) {
+        Debug.logWarning(nfe,UtilProperties.getMessage(resource_error,"OrderCaughtNumberFormatExceptionOnCartUpdate",cart.getLocale()));
+      }
+catch (      ParseException pe) {
+        Debug.logWarning(pe,UtilProperties.getMessage(resource_error,"OrderCaughtParseExceptionOnCartUpdate",cart.getLocale()));
+      }
+catch (      Exception e) {
+        Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderCaughtExceptionOnCartUpdate",cart.getLocale()));
+      }
+    }
+  }
+  if (removeSelected) {
+    for (int si=0; si < selectedItems.length; si++) {
+      String indexStr=selectedItems[si];
+      ShoppingCartItem item=null;
+      try {
+        int index=Integer.parseInt(indexStr);
+        item=this.cart.findCartItem(index);
+      }
+ catch (      Exception e) {
+        Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderProblemsGettingTheCartItemByIndex",cart.getLocale()));
+      }
+      if (item != null) {
+        deleteList.add(item);
+      }
+    }
+  }
+  Iterator di=deleteList.iterator();
+  while (di.hasNext()) {
+    ShoppingCartItem item=(ShoppingCartItem)di.next();
+    int itemIndex=this.cart.getItemIndex(item);
+    if (Debug.infoOn())     Debug.logInfo("Removing item index: " + itemIndex,module);
+    try {
+      this.cart.removeCartItem(itemIndex,dispatcher);
+    }
+ catch (    CartItemModifyException e) {
+      result=ServiceUtil.returnError(new Vector());
+      errorMsgs.add(e.getMessage());
+    }
+  }
+  if (context.containsKey("alwaysShowcart")) {
+    this.cart.setViewCartOnAdd(true);
+  }
+ else {
+    this.cart.setViewCartOnAdd(false);
+  }
+  ProductPromoWorker.doPromotions(this.cart,dispatcher);
+  if (errorMsgs.size() > 0) {
+    result=ServiceUtil.returnError(errorMsgs);
+    return result;
+  }
+  result=ServiceUtil.returnSuccess();
+  return result;
+}

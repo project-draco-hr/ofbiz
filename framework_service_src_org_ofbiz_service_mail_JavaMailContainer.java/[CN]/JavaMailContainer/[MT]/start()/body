@@ -1,0 +1,40 @@
+{
+  ContainerConfig.Container cfg=ContainerConfig.getContainer("javamail-container",configFile);
+  String dispatcherName=ContainerConfig.getPropertyValue(cfg,"dispatcher-name","JavaMailDispatcher");
+  String delegatorName=ContainerConfig.getPropertyValue(cfg,"delegator-name","default");
+  if ("true".equals(ContainerConfig.getPropertyValue(cfg,"delete-mail","false"))) {
+    this.deleteMail=true;
+  }
+ else {
+    this.deleteMail=false;
+  }
+  this.delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  this.dispatcher=new GenericDispatcher(dispatcherName,delegator);
+  this.timerDelay=(long)ContainerConfig.getPropertyValue(cfg,"poll-delay",300000);
+  String runAsUser=ContainerConfig.getPropertyValue(cfg,"run-as-user","system");
+  try {
+    this.userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",runAsUser));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to load run-as-user UserLogin; cannot start container",module);
+    return false;
+  }
+  ServiceMcaUtil.readConfig();
+  List configs=cfg.getPropertiesWithValue("store-listener");
+  Iterator i=configs.iterator();
+  while (i.hasNext()) {
+    ContainerConfig.Container.Property prop=(ContainerConfig.Container.Property)i.next();
+    Session session=this.makeSession(prop);
+    Store store=this.getStore(session);
+    if (store != null) {
+      stores.put(store,session);
+    }
+  }
+  if (stores != null && stores.size() > 0) {
+    pollTimer.schedule(new PollerTask(dispatcher,userLogin),timerDelay,timerDelay);
+  }
+ else {
+    Debug.logWarning("No JavaMail Store(s) configured; poller disabled.",module);
+  }
+  return true;
+}

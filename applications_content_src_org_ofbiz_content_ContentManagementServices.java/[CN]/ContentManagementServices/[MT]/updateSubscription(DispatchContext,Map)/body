@@ -1,0 +1,80 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String partyId=(String)context.get("partyId");
+  String webPubPt=(String)context.get("contentId");
+  String roleTypeId=(String)context.get("useRoleTypeId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Integer useTime=(Integer)context.get("useTime");
+  String useTimeUomId=(String)context.get("useTimeUomId");
+  boolean hasExistingContentRole=false;
+  GenericValue contentRole=null;
+  try {
+    List contentRoleList=delegator.findByAndCache("ContentRole",UtilMisc.toMap("partyId",partyId,"contentId",webPubPt,"roleTypeId",roleTypeId));
+    List listFiltered=EntityUtil.filterByDate(contentRoleList,true);
+    List listOrdered=EntityUtil.orderBy(listFiltered,UtilMisc.toList("fromDate DESC"));
+    if (listOrdered.size() > 0) {
+      contentRole=(GenericValue)listOrdered.get(0);
+      hasExistingContentRole=true;
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (contentRole == null) {
+    contentRole=delegator.makeValue("ContentRole",null);
+    contentRole.set("contentId",webPubPt);
+    contentRole.set("partyId",partyId);
+    contentRole.set("roleTypeId",roleTypeId);
+    contentRole.set("fromDate",nowTimestamp);
+  }
+  Timestamp thruDate=(Timestamp)contentRole.get("thruDate");
+  if (thruDate == null) {
+    thruDate=nowTimestamp;
+  }
+ else {
+    if (thruDate.before(nowTimestamp)) {
+      thruDate=nowTimestamp;
+    }
+  }
+  Calendar calendar=Calendar.getInstance();
+  calendar.setTime(thruDate);
+  int field=Calendar.MONTH;
+  if ("TF_day".equals(useTimeUomId)) {
+    field=Calendar.DAY_OF_YEAR;
+  }
+ else   if ("TF_wk".equals(useTimeUomId)) {
+    field=Calendar.WEEK_OF_YEAR;
+  }
+ else   if ("TF_mon".equals(useTimeUomId)) {
+    field=Calendar.MONTH;
+  }
+ else   if ("TF_yr".equals(useTimeUomId)) {
+    field=Calendar.YEAR;
+  }
+ else {
+    Debug.logWarning("Don't know anything about useTimeUomId [" + useTimeUomId + "], defaulting to month",module);
+  }
+  calendar.add(field,useTime.intValue());
+  thruDate=new Timestamp(calendar.getTimeInMillis());
+  contentRole.set("thruDate",thruDate);
+  try {
+    if (hasExistingContentRole) {
+      contentRole.store();
+    }
+ else {
+      Map map=new HashMap();
+      map.put("partyId",partyId);
+      map.put("roleTypeId",roleTypeId);
+      map.put("userLogin",userLogin);
+      Map thisResult=dispatcher.runSync("createPartyRole",map);
+      contentRole.create();
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}

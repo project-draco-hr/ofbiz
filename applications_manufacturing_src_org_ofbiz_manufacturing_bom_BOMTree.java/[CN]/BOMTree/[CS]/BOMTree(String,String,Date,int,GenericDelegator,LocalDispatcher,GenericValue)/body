@@ -1,0 +1,52 @@
+{
+  if (productId == null || bomTypeId == null || delegator == null || dispatcher == null)   return;
+  if (inDate == null)   inDate=new Date();
+  this.delegator=delegator;
+  this.dispatcher=dispatcher;
+  inputProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+  String productIdForRules=productId;
+  List productFeaturesAppl=delegator.findByAnd("ProductFeatureAppl",UtilMisc.toMap("productId",productId,"productFeatureApplTypeId","STANDARD_FEATURE"));
+  List productFeatures=new ArrayList();
+  GenericValue oneProductFeatureAppl=null;
+  for (int i=0; i < productFeaturesAppl.size(); i++) {
+    oneProductFeatureAppl=(GenericValue)productFeaturesAppl.get(i);
+    productFeatures.add(delegator.findByPrimaryKey("ProductFeature",UtilMisc.toMap("productFeatureId",oneProductFeatureAppl.getString("productFeatureId"))));
+  }
+  GenericValue manufacturedAsProduct=manufacturedAsProduct(productId,inDate);
+  GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",(manufacturedAsProduct != null ? manufacturedAsProduct.getString("productIdTo") : productId)));
+  if (product == null)   return;
+  BOMNode originalNode=new BOMNode(product,dispatcher,userLogin);
+  originalNode.setTree(this);
+  if (!hasBom(product,inDate)) {
+    List virtualProducts=product.getRelatedByAnd("AssocProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"));
+    if (virtualProducts != null && virtualProducts.size() > 0) {
+      virtualProducts=EntityUtil.filterByDate(virtualProducts,inDate);
+      if (virtualProducts != null && virtualProducts.size() > 0) {
+        GenericValue virtualProduct=(GenericValue)virtualProducts.get(0);
+        productIdForRules=virtualProduct.getString("productId");
+        manufacturedAsProduct=manufacturedAsProduct(virtualProduct.getString("productId"),inDate);
+        product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",(manufacturedAsProduct != null ? manufacturedAsProduct.getString("productIdTo") : virtualProduct.get("productId"))));
+      }
+    }
+  }
+  if (product == null)   return;
+  try {
+    root=new BOMNode(product,dispatcher,userLogin);
+    root.setTree(this);
+    root.setProductForRules(productIdForRules);
+    root.setSubstitutedNode(originalNode);
+    if (type == IMPLOSION) {
+      root.loadParents(bomTypeId,inDate,productFeatures);
+    }
+ else {
+      root.loadChildren(bomTypeId,inDate,productFeatures,type);
+    }
+  }
+ catch (  GenericEntityException gee) {
+    root=null;
+  }
+  this.bomTypeId=bomTypeId;
+  this.inDate=inDate;
+  rootQuantity=1;
+  rootAmount=0;
+}

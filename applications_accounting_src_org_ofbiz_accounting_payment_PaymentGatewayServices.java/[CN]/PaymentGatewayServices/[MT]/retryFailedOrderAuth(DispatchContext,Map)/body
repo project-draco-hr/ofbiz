@@ -1,0 +1,49 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String orderId=(String)context.get("orderId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (orderHeader == null || orderHeader.get("statusId") == null) {
+    return ServiceUtil.returnError("Invalid OrderHeader record for ID: " + orderId);
+  }
+  if (!"ORDER_CREATED".equals(orderHeader.getString("statusId"))) {
+    return ServiceUtil.returnSuccess();
+  }
+  Map serviceResult=null;
+  try {
+    serviceResult=dispatcher.runSync("authOrderPayments",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(serviceResult)) {
+    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(serviceResult));
+  }
+  String authResp=(String)serviceResult.get("processResult");
+  if (authResp == null) {
+    authResp="ERROR";
+  }
+  if ("ERROR".equals(authResp)) {
+    Debug.logWarning("The payment processor had a failure in processing, will not modify any status",module);
+  }
+ else {
+    if ("FAILED".equals(authResp)) {
+      OrderChangeHelper.rejectOrder(dispatcher,userLogin,orderId);
+    }
+ else     if ("APPROVED".equals(authResp)) {
+      OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
+    }
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("processResult",authResp);
+  return result;
+}

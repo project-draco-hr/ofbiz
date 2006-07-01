@@ -1,0 +1,36 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String productId=request.getParameter("productId");
+  String productFeatureTypeId=request.getParameter("productFeatureTypeId");
+  try {
+    GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+    List variantAssocs=product.getRelatedByAnd("MainProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"));
+    List variants=EntityUtil.getRelated("AssocProduct",variantAssocs);
+    Iterator variantIter=variants.iterator();
+    while (variantIter.hasNext()) {
+      GenericValue variant=(GenericValue)variantIter.next();
+      List productFeatureAndAppls=variant.getRelated("ProductFeatureAndAppl",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId,"productFeatureApplTypeId","STANDARD_FEATURE"),null);
+      Iterator productFeatureAndApplIter=productFeatureAndAppls.iterator();
+      while (productFeatureAndApplIter.hasNext()) {
+        GenericValue productFeatureAndAppl=(GenericValue)productFeatureAndApplIter.next();
+        GenericPK productFeatureApplPK=delegator.makePK("ProductFeatureAppl",null);
+        productFeatureApplPK.setPKFields(productFeatureAndAppl);
+        delegator.removeByPrimaryKey(productFeatureApplPK);
+      }
+    }
+    List productFeatureAndAppls=product.getRelated("ProductFeatureAndAppl",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId,"productFeatureApplTypeId","SELECTABLE_FEATURE"),null);
+    Iterator productFeatureAndApplIter=productFeatureAndAppls.iterator();
+    while (productFeatureAndApplIter.hasNext()) {
+      GenericValue productFeatureAndAppl=(GenericValue)productFeatureAndApplIter.next();
+      GenericPK productFeatureApplPK=delegator.makePK("ProductFeatureAppl",null);
+      productFeatureApplPK.setPKFields(productFeatureAndAppl);
+      delegator.removeByPrimaryKey(productFeatureApplPK);
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error creating new virtual product from variant products: " + e.toString();
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}

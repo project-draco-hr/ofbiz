@@ -1,0 +1,33 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="ERROR: Could not set grantTotal on OrderHeader entity: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (orderHeader != null) {
+    OrderReadHelper orh=new OrderReadHelper(orderHeader);
+    Double currentTotal=orderHeader.getDouble("grandTotal");
+    Double currentSubTotal=orderHeader.getDouble("remainingSubTotal");
+    double updatedTotal=orh.getOrderGrandTotal();
+    double remainingSubTotal=updatedTotal - orh.getOrderReturnedTotal() - orh.getOrderNonReturnedTaxAndShipping();
+    if (currentTotal == null || currentSubTotal == null || updatedTotal != currentTotal.doubleValue() || remainingSubTotal != currentSubTotal.doubleValue()) {
+      orderHeader.set("grandTotal",UtilFormatOut.formatPriceNumber(updatedTotal));
+      orderHeader.set("remainingSubTotal",UtilFormatOut.formatPriceNumber(remainingSubTotal));
+      try {
+        orderHeader.store();
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="ERROR: Could not set grandTotal on OrderHeader entity: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

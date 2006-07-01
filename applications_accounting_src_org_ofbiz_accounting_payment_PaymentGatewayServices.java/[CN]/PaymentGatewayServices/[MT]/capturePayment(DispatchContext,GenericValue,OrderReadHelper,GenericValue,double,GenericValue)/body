@@ -1,0 +1,84 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String serviceName=null;
+  String paymentConfig=null;
+  GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPref,CAPTURE_SERVICE_TYPE,false);
+  if (paymentSettings != null) {
+    paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+    serviceName=paymentSettings.getString("paymentService");
+    if (serviceName == null) {
+      Debug.logError("Service name is null for payment setting; cannot process",module);
+      return null;
+    }
+  }
+ else {
+    Debug.logError("Invalid payment settings entity, no payment settings found",module);
+    return null;
+  }
+  if (paymentConfig == null || paymentConfig.length() == 0) {
+    paymentConfig="payment.properties";
+  }
+  if (!PaymentGatewayServices.checkAuthValidity(paymentPref,paymentConfig)) {
+    Map processorResult=PaymentGatewayServices.authPayment(dispatcher,userLogin,orh,paymentPref,amount,true);
+    boolean authResult=false;
+    if (processorResult != null) {
+      try {
+        authResult=processResult(dctx,processorResult,userLogin,paymentPref);
+        if (!authResult) {
+          Debug.logError("Re-Authorization failed : " + paymentPref + " : "+ processorResult,module);
+        }
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,"Trouble processing the re-auth result : " + paymentPref + " : "+ processorResult,module);
+      }
+    }
+ else {
+      Debug.logError("Payment not re-authorized : " + paymentPref + " : "+ processorResult,module);
+    }
+    if (!authResult) {
+      return null;
+    }
+    authTrans=getAuthTransaction(paymentPref);
+  }
+  Map captureContext=new HashMap();
+  captureContext.put("userLogin",userLogin);
+  captureContext.put("orderPaymentPreference",paymentPref);
+  captureContext.put("paymentConfig",paymentConfig);
+  captureContext.put("currency",orh.getCurrency());
+  try {
+    ModelService captureService=dctx.getModelService(serviceName);
+    Set inParams=captureService.getInParamNames();
+    if (inParams.contains("captureAmount")) {
+      captureContext.put("captureAmount",new Double(amount));
+    }
+ else     if (inParams.contains("processAmount")) {
+      captureContext.put("processAmount",new Double(amount));
+    }
+ else {
+      return ServiceUtil.returnError("Service [" + serviceName + "] does not have a captureAmount or processAmount.  Its parameters are: "+ inParams);
+    }
+  }
+ catch (  GenericServiceException ex) {
+    return ServiceUtil.returnError("Cannot get model service for " + serviceName);
+  }
+  if (authTrans != null) {
+    captureContext.put("authTrans",authTrans);
+  }
+  Debug.logInfo("Capture [" + serviceName + "] : "+ captureContext,module);
+  Map captureResult=null;
+  try {
+    captureResult=dispatcher.runSync(serviceName,captureContext,TX_TIME,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Could not capture payment ... serviceName: " + serviceName + " ... context: "+ captureContext,module);
+    return null;
+  }
+  String payToPartyId=getPayToPartyId(orh.getOrderHeader());
+  captureResult.put("payToPartyId",payToPartyId);
+  captureResult.put("paymentSettings",paymentSettings);
+  captureResult.put("currencyUomId",orh.getCurrency());
+  if (ServiceUtil.isError(captureResult)) {
+    saveError(dispatcher,userLogin,paymentPref,captureResult,"PRDS_PAY_CAPTURE","PGT_CAPTURE");
+  }
+  return captureResult;
+}

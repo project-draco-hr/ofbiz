@@ -1,0 +1,108 @@
+{
+  ServletInputStream in=request.getInputStream();
+  String reqLengthString=request.getHeader("content-length");
+  System.out.println("expect " + reqLengthString + " bytes.");
+  int requestLength=0;
+  try {
+    requestLength=new Integer(reqLengthString).intValue();
+  }
+ catch (  Exception e2) {
+    e2.printStackTrace();
+    return;
+  }
+  byte[] line=new byte[BUFFER_SIZE];
+  int i=-1;
+  i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+  requestLength-=i;
+  if (i < 3)   return;
+  int boundaryLength=i - 2;
+  String boundary=new String(line,0,boundaryLength);
+  System.out.println("boundary=[" + boundary + "] length is "+ boundaryLength);
+  fields=new Hashtable();
+  while (requestLength > 0) {
+    String newLine="";
+    if (i > -1) {
+      newLine=new String(line,0,i);
+    }
+    if (newLine.startsWith("Content-Disposition: form-data; name=\"")) {
+      if (newLine.indexOf("filename=\"") != -1) {
+        setFilename(new String(line,0,i - 2));
+        if (filename == null)         return;
+        i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+        requestLength-=i;
+        setContentType(new String(line,0,i - 2));
+        i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+        requestLength-=i;
+        newLine=new String(line,0,i);
+        String filenameToUse=filename;
+        if (overrideFilename != null) {
+          filenameToUse=overrideFilename;
+        }
+        i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+        requestLength-=i;
+        newLine=new String(line,0,i);
+        byte[] lastTwoBytes=new byte[2];
+        if (i > 1) {
+          lastTwoBytes[0]=line[i - 2];
+          lastTwoBytes[1]=line[i - 1];
+        }
+        System.out.println("about to create a file:" + (savePath == null ? "" : savePath) + filenameToUse);
+        File savePathFile=new File(savePath);
+        if (!savePathFile.exists()) {
+          savePathFile.mkdirs();
+        }
+        FileOutputStream fos=new FileOutputStream((savePath == null ? "" : savePath) + filenameToUse);
+        boolean bail=(new String(line,0,i).startsWith(boundary));
+        boolean oneByteLine=(i == 1);
+        while ((requestLength > 0) && !bail) {
+          if (i > 1) {
+            fos.write(line,0,i - 2);
+          }
+          oneByteLine=(i == 1);
+          i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+          requestLength-=i;
+          if (requestLength < 1) {
+            bail=true;
+          }
+ else           if (oneByteLine) {
+            fos.write(lastTwoBytes,0,1);
+          }
+ else {
+            fos.write(lastTwoBytes,0,2);
+          }
+          if (i > 1) {
+            lastTwoBytes[0]=line[i - 2];
+            lastTwoBytes[1]=line[i - 1];
+          }
+ else {
+            lastTwoBytes[0]=line[0];
+          }
+        }
+        fos.flush();
+        fos.close();
+      }
+ else {
+        int pos=newLine.indexOf("name=\"");
+        String fieldName=newLine.substring(pos + 6,newLine.length() - 3);
+        i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+        requestLength-=i;
+        i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+        requestLength-=i;
+        newLine=new String(line,0,i);
+        StringBuffer fieldValue=new StringBuffer(BUFFER_SIZE);
+        while (requestLength > 0 && !newLine.startsWith(boundary)) {
+          i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+          requestLength-=i;
+          if ((i == boundaryLength + 2 || i == boundaryLength + 4) && (new String(line,0,i).startsWith(boundary)))           fieldValue.append(newLine.substring(0,newLine.length() - 2));
+ else           fieldValue.append(newLine);
+          newLine=new String(line,0,i);
+        }
+        fields.put(fieldName,fieldValue.toString());
+      }
+    }
+    i=waitingReadLine(in,line,0,BUFFER_SIZE,requestLength);
+    if (i > -1) {
+      requestLength-=i;
+    }
+  }
+}

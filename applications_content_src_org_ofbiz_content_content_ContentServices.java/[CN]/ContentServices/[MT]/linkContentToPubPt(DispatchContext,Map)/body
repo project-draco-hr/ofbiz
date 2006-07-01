@@ -1,0 +1,65 @@
+{
+  Map results=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String contentId=(String)context.get("contentId");
+  String contentIdTo=(String)context.get("contentIdTo");
+  String contentAssocTypeId=(String)context.get("contentAssocTypeId");
+  String statusId=(String)context.get("statusId");
+  String privilegeEnumId=(String)context.get("privilegeEnumId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (Debug.infoOn())   Debug.logInfo("in publishContent, statusId:" + statusId,module);
+  if (Debug.infoOn())   Debug.logInfo("in publishContent, userLogin:" + userLogin,module);
+  Map mapIn=new HashMap();
+  mapIn.put("contentId",contentId);
+  mapIn.put("contentIdTo",contentIdTo);
+  mapIn.put("contentAssocTypeId",contentAssocTypeId);
+  String publish=(String)context.get("publish");
+  try {
+    boolean isPublished=false;
+    GenericValue contentAssocViewFrom=ContentWorker.getContentAssocViewFrom(delegator,contentIdTo,contentId,contentAssocTypeId,statusId,privilegeEnumId);
+    if (contentAssocViewFrom != null)     isPublished=true;
+    if (Debug.infoOn())     Debug.logInfo("in publishContent, contentId:" + contentId + " contentIdTo:"+ contentIdTo+ " contentAssocTypeId:"+ contentAssocTypeId+ " publish:"+ publish+ " isPublished:"+ isPublished,module);
+    if (UtilValidate.isNotEmpty(publish) && publish.equalsIgnoreCase("Y")) {
+      GenericValue content=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+      String contentStatusId=(String)content.get("statusId");
+      String contentPrivilegeEnumId=(String)content.get("privilegeEnumId");
+      if (Debug.infoOn())       Debug.logInfo("in publishContent, statusId:" + statusId + " contentStatusId:"+ contentStatusId+ " privilegeEnumId:"+ privilegeEnumId+ " contentPrivilegeEnumId:"+ contentPrivilegeEnumId,module);
+      if (!isPublished) {
+        content.put("privilegeEnumId",privilegeEnumId);
+        content.put("statusId",statusId);
+        content.store();
+        mapIn=new HashMap();
+        mapIn.put("contentId",contentId);
+        mapIn.put("contentIdTo",contentIdTo);
+        mapIn.put("contentAssocTypeId",contentAssocTypeId);
+        mapIn.put("mapKey",context.get("mapKey"));
+        mapIn.put("fromDate",UtilDateTime.nowTimestamp());
+        mapIn.put("createdDate",UtilDateTime.nowTimestamp());
+        mapIn.put("lastModifiedDate",UtilDateTime.nowTimestamp());
+        mapIn.put("createdByUserLogin",userLogin.get("userLoginId"));
+        mapIn.put("lastModifiedByUserLogin",userLogin.get("userLoginId"));
+        delegator.create("ContentAssoc",mapIn);
+      }
+    }
+ else {
+      if (isPublished) {
+        Map thisResults=dispatcher.runSync("deactivateAssocs",mapIn);
+        String errorMsg=ServiceUtil.getErrorMessage(thisResults);
+        if (UtilValidate.isNotEmpty(errorMsg)) {
+          Debug.logError("Problem running deactivateAssocs. " + errorMsg,"ContentServices");
+          return ServiceUtil.returnError(errorMsg);
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting existing content","ContentServices");
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem running deactivateAssocs","ContentServices");
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return results;
+}

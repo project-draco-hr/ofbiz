@@ -1,0 +1,42 @@
+{
+  if (jm == null)   return 0;
+  Element root=null;
+  try {
+    root=ServiceConfigUtil.getXmlRootElement();
+  }
+ catch (  GenericConfigException e) {
+    Debug.logError(e,module);
+    return 0;
+  }
+  int servicesScheduled=0;
+  List startupServices=UtilXml.childElementList(root,"startup-service");
+  if (startupServices != null && startupServices.size() > 0) {
+    Iterator i=startupServices.iterator();
+    while (i.hasNext()) {
+      Element ss=(Element)i.next();
+      String serviceName=ss.getAttribute("name");
+      String runtimeDataId=ss.getAttribute("runtime-data-id");
+      String delayStr=ss.getAttribute("runtime-delay");
+      String sendToPool=ss.getAttribute("run-in-pool");
+      if (UtilValidate.isEmpty(sendToPool)) {
+        sendToPool=ServiceConfigUtil.getSendPool();
+      }
+      long runtimeDelay=0;
+      try {
+        runtimeDelay=Long.parseLong(delayStr);
+      }
+ catch (      Exception e) {
+        Debug.logError(e,"Unable to parse runtime-delay value; using 0",module);
+        runtimeDelay=0;
+      }
+      long runtime=System.currentTimeMillis() + 1000 + runtimeDelay;
+      try {
+        jm.schedule(sendToPool,serviceName,runtimeDataId,runtime);
+      }
+ catch (      JobManagerException e) {
+        Debug.logError(e,"Unable to schedule service [" + serviceName + "]",module);
+      }
+    }
+  }
+  return servicesScheduled;
+}

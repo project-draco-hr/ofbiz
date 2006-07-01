@@ -1,0 +1,64 @@
+{
+  Map result=null;
+  GenericValue agreement=null;
+  if ((this.delegator == null) || (this.dispatcher == null) || (this.cart == null)) {
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderDispatcherOrDelegatorOrCartArgumentIsNull",this.cart.getLocale()));
+    return result;
+  }
+  if ((agreementId == null) || (agreementId.length() <= 0)) {
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderNoAgreementSpecified",this.cart.getLocale()));
+    return result;
+  }
+  try {
+    agreement=this.delegator.findByPrimaryKeyCache("Agreement",UtilMisc.toMap("agreementId",agreementId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCouldNotGetAgreement",UtilMisc.toMap("agreementId",agreementId),this.cart.getLocale()) + UtilProperties.getMessage(resource_error,"OrderError",this.cart.getLocale()) + e.getMessage());
+    return result;
+  }
+  if (agreement == null) {
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCouldNotGetAgreement",UtilMisc.toMap("agreementId",agreementId),this.cart.getLocale()));
+  }
+ else {
+    cart.setAgreementId(agreementId);
+    try {
+      List agreementItems=agreement.getRelated("AgreementItem",UtilMisc.toMap("agreementItemTypeId","AGREEMENT_PRICING_PR"),null);
+      if (agreementItems.size() > 0) {
+        GenericValue agreementItem=(GenericValue)agreementItems.get(0);
+        String currencyUomId=(String)agreementItem.get("currencyUomId");
+        try {
+          cart.setCurrency(dispatcher,currencyUomId);
+        }
+ catch (        CartItemModifyException ex) {
+          result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderSetCurrencyError",this.cart.getLocale()) + ex.getMessage());
+          return result;
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e.toString(),module);
+      result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCouldNotGetAgreementItemsThrough",UtilMisc.toMap("agreementId",agreementId),this.cart.getLocale()) + UtilProperties.getMessage(resource_error,"OrderError",this.cart.getLocale()) + e.getMessage());
+      return result;
+    }
+    try {
+      cart.removeOrderTerms();
+      List agreementTerms=agreement.getRelated("AgreementTerm");
+      if (agreementTerms.size() > 0) {
+        for (int i=0; agreementTerms.size() > i; i++) {
+          GenericValue agreementTerm=(GenericValue)agreementTerms.get(i);
+          String termTypeId=(String)agreementTerm.get("termTypeId");
+          Double termValue=(Double)agreementTerm.get("termValue");
+          Long termDays=(Long)agreementTerm.get("termDays");
+          cart.addOrderTerm(termTypeId,termValue,termDays);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e.toString(),module);
+      result=ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCouldNotGetAgreementTermsThrough",UtilMisc.toMap("agreementId",agreementId),this.cart.getLocale()) + UtilProperties.getMessage(resource_error,"OrderError",this.cart.getLocale()) + e.getMessage());
+      return result;
+    }
+  }
+  return result;
+}

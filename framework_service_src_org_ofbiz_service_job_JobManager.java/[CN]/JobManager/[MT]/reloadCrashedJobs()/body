@@ -1,0 +1,58 @@
+{
+  String instanceId=UtilProperties.getPropertyValue("general.properties","unique.instanceId","ofbiz0");
+  List toStore=new ArrayList();
+  List crashed=null;
+  List exprs=UtilMisc.toList(new EntityExpr("finishDateTime",EntityOperator.EQUALS,null));
+  exprs.add(new EntityExpr("cancelDateTime",EntityOperator.EQUALS,null));
+  exprs.add(new EntityExpr("runByInstanceId",EntityOperator.EQUALS,instanceId));
+  try {
+    crashed=delegator.findByAnd("JobSandbox",exprs,UtilMisc.toList("startDateTime"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to load crashed jobs",module);
+  }
+  if (crashed != null && crashed.size() > 0) {
+    Iterator i=crashed.iterator();
+    while (i.hasNext()) {
+      GenericValue job=(GenericValue)i.next();
+      long runtime=job.getTimestamp("runTime").getTime();
+      RecurrenceInfo ri=JobManager.getRecurrenceInfo(job);
+      if (ri != null) {
+        long next=ri.next();
+        if (next <= runtime) {
+          Timestamp now=UtilDateTime.nowTimestamp();
+          Debug.log("Scheduling Job : " + job,module);
+          String newJobId=job.getDelegator().getNextSeqId("JobSandbox").toString();
+          String pJobId=job.getString("parentJobId");
+          if (pJobId == null) {
+            pJobId=job.getString("jobId");
+          }
+          GenericValue newJob=GenericValue.create(job);
+          newJob.set("statusId","SERVICE_PENDING");
+          newJob.set("runTime",now);
+          newJob.set("jobId",newJobId);
+          newJob.set("previousJobId",job.getString("jobId"));
+          newJob.set("parentJobId",pJobId);
+          newJob.set("startDateTime",null);
+          newJob.set("runByInstanceId",null);
+          toStore.add(newJob);
+          job.set("statusId","SERVICE_CRASHED");
+          job.set("cancelDateTime",now);
+          toStore.add(job);
+        }
+      }
+    }
+    if (toStore.size() > 0) {
+      try {
+        delegator.storeAll(toStore);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (Debug.infoOn())       Debug.logInfo("-- " + toStore.size() + " jobs re-scheduled",module);
+    }
+  }
+ else {
+    if (Debug.infoOn())     Debug.logInfo("No crashed jobs to re-schedule",module);
+  }
+}

@@ -1,0 +1,37 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    Map ecaEventMap=this.getEcaEntityEventMap(value.getEntityName());
+    this.evalEcaRules(EntityEcaHandler.EV_VALIDATE,EntityEcaHandler.OP_STORE,value,ecaEventMap,(ecaEventMap == null),false);
+    GenericHelper helper=getEntityHelper(value.getEntityName());
+    if (doCacheClear) {
+      this.evalEcaRules(EntityEcaHandler.EV_CACHE_CLEAR,EntityEcaHandler.OP_STORE,value,ecaEventMap,(ecaEventMap == null),false);
+      this.clearCacheLine(value);
+    }
+    this.evalEcaRules(EntityEcaHandler.EV_RUN,EntityEcaHandler.OP_STORE,value,ecaEventMap,(ecaEventMap == null),false);
+    this.encryptFields(value);
+    int retVal=helper.store(value);
+    if (value.lockEnabled()) {
+      refresh(value,doCacheClear);
+    }
+    this.evalEcaRules(EntityEcaHandler.EV_RETURN,EntityEcaHandler.OP_STORE,value,ecaEventMap,(ecaEventMap == null),false);
+    return retVal;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in store operation for entity [" + value.getEntityName() + "]: "+ e.toString()+ ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw e;
+  }
+ finally {
+    TransactionUtil.commit(beganTransaction);
+  }
+}

@@ -1,0 +1,61 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Security security=ctx.getSecurity();
+  Map resultMap=new HashMap();
+  String workEffortId=(String)context.get("workEffortId");
+  GenericValue workEffort=null;
+  try {
+    workEffort=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",workEffortId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+  }
+  Boolean canView=null;
+  Collection workEffortPartyAssignments=null;
+  Boolean tryEntity=null;
+  GenericValue currentStatus=null;
+  if (workEffort == null) {
+    tryEntity=new Boolean(false);
+    canView=new Boolean(true);
+    String statusId=(String)context.get("currentStatusId");
+    if (statusId != null && statusId.length() > 0) {
+      try {
+        currentStatus=delegator.findByPrimaryKeyCache("StatusItem",UtilMisc.toMap("statusId",statusId));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logWarning(e,module);
+      }
+    }
+  }
+ else {
+    if (userLogin != null && userLogin.get("partyId") != null && workEffortId != null) {
+      try {
+        workEffortPartyAssignments=delegator.findByAnd("WorkEffortPartyAssignment",UtilMisc.toMap("workEffortId",workEffortId,"partyId",userLogin.get("partyId")));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logWarning(e,module);
+      }
+    }
+    canView=(workEffortPartyAssignments != null && workEffortPartyAssignments.size() > 0) ? Boolean.TRUE : Boolean.FALSE;
+    if (!canView.booleanValue() && security.hasEntityPermission("WORKEFFORTMGR","_VIEW",userLogin)) {
+      canView=new Boolean(true);
+    }
+    tryEntity=new Boolean(true);
+    if (workEffort.get("currentStatusId") != null) {
+      try {
+        currentStatus=delegator.findByPrimaryKeyCache("StatusItem",UtilMisc.toMap("statusId",workEffort.get("currentStatusId")));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logWarning(e,module);
+      }
+    }
+  }
+  if (workEffortId != null)   resultMap.put("workEffortId",workEffortId);
+  if (workEffort != null)   resultMap.put("workEffort",workEffort);
+  if (canView != null)   resultMap.put("canView",canView);
+  if (workEffortPartyAssignments != null)   resultMap.put("partyAssigns",workEffortPartyAssignments);
+  if (tryEntity != null)   resultMap.put("tryEntity",tryEntity);
+  if (currentStatus != null)   resultMap.put("currentStatusItem",currentStatus);
+  return resultMap;
+}

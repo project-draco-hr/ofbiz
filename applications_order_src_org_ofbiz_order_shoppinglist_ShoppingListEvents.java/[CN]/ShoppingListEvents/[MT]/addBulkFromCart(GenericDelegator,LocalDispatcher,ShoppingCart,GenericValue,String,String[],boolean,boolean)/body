@@ -1,0 +1,69 @@
+{
+  String errMsg=null;
+  if (items == null || items.length == 0) {
+    errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.select_items_to_add_to_list",cart.getLocale());
+    throw new IllegalArgumentException(errMsg);
+  }
+  if (UtilValidate.isEmpty(shoppingListId)) {
+    Map newListResult=null;
+    try {
+      newListResult=dispatcher.runSync("createShoppingList",UtilMisc.toMap("userLogin",userLogin,"productStoreId",cart.getProductStoreId(),"partyId",cart.getOrderPartyId(),"currencyUom",cart.getCurrency()));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problems creating new ShoppingList",module);
+      errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.cannot_create_new_shopping_list",cart.getLocale());
+      throw new IllegalArgumentException(errMsg);
+    }
+    if (ServiceUtil.isError(newListResult)) {
+      throw new IllegalArgumentException(ServiceUtil.getErrorMessage(newListResult));
+    }
+    if (newListResult != null) {
+      shoppingListId=(String)newListResult.get("shoppingListId");
+    }
+    if (shoppingListId == null || shoppingListId.equals("")) {
+      errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.shoppingListId_is_required_parameter",cart.getLocale());
+      throw new IllegalArgumentException(errMsg);
+    }
+  }
+ else   if (!append) {
+    try {
+      clearListInfo(delegator,shoppingListId);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      throw new IllegalArgumentException("Could not clear current shopping list: " + e.toString());
+    }
+  }
+  for (int i=0; i < items.length; i++) {
+    Integer cartIdInt=null;
+    try {
+      cartIdInt=new Integer(items[i]);
+    }
+ catch (    Exception e) {
+      Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderIllegalCharacterInSelectedItemField",cart.getLocale()),module);
+    }
+    if (cartIdInt != null) {
+      ShoppingCartItem item=cart.findCartItem(cartIdInt.intValue());
+      if (allowPromo || !item.getIsPromo()) {
+        Debug.logInfo("Adding cart item to shopping list [" + shoppingListId + "], allowPromo="+ allowPromo+ ", item.getIsPromo()="+ item.getIsPromo()+ ", item.getProductId()="+ item.getProductId()+ ", item.getQuantity()="+ item.getQuantity(),module);
+        Map serviceResult=null;
+        try {
+          Map ctx=UtilMisc.toMap("userLogin",userLogin,"shoppingListId",shoppingListId,"productId",item.getProductId(),"quantity",new Double(item.getQuantity()));
+          ctx.put("reservStart",item.getReservStart());
+          ctx.put("reservLength",new Double(item.getReservLength()));
+          ctx.put("reservPersons",new Double(item.getReservPersons()));
+          serviceResult=dispatcher.runSync("createShoppingListItem",ctx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,"Problems creating ShoppingList item entity",module);
+          errMsg=UtilProperties.getMessage(resource,"shoppinglistevents.error_adding_item_to_shopping_list",cart.getLocale());
+          throw new IllegalArgumentException(errMsg);
+        }
+        if (ServiceUtil.isError(serviceResult)) {
+          throw new IllegalArgumentException(ServiceUtil.getErrorMessage(serviceResult));
+        }
+      }
+    }
+  }
+  return shoppingListId;
+}

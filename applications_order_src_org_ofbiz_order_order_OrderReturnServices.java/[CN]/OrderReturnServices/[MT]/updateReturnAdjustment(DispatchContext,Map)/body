@@ -1,0 +1,39 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue returnItem=null;
+  GenericValue returnAdjustment=null;
+  String returnAdjustmentTypeId=null;
+  Double amount;
+  try {
+    returnAdjustment=delegator.findByPrimaryKey("ReturnAdjustment",UtilMisc.toMap("returnAdjustmentId",context.get("returnAdjustmentId")));
+    if (returnAdjustment != null) {
+      returnItem=delegator.findByPrimaryKey("ReturnItem",UtilMisc.toMap("returnId",returnAdjustment.get("returnId"),"returnItemSeqId",returnAdjustment.get("returnItemSeqId")));
+      returnAdjustmentTypeId=returnAdjustment.getString("returnAdjustmentTypeId");
+    }
+    if (returnItem != null) {
+      double originalReturnPrice=(context.get("originalReturnPrice") != null) ? ((Double)context.get("originalReturnPrice")).doubleValue() : returnItem.getDouble("returnPrice").doubleValue();
+      double originalReturnQuantity=(context.get("originalReturnQuantity") != null) ? ((Double)context.get("originalReturnQuantity")).doubleValue() : returnItem.getDouble("returnQuantity").doubleValue();
+      if (needRecalculate(returnAdjustmentTypeId)) {
+        BigDecimal returnTotal=returnItem.getBigDecimal("returnPrice").multiply(returnItem.getBigDecimal("returnQuantity"));
+        BigDecimal originalReturnTotal=new BigDecimal(originalReturnPrice).multiply(new BigDecimal(originalReturnQuantity));
+        amount=getAdjustmentAmount("RET_SALES_TAX_ADJ".equals(returnAdjustmentTypeId),returnTotal,originalReturnTotal,returnAdjustment.getBigDecimal("amount"));
+      }
+ else {
+        amount=(Double)context.get("amount");
+      }
+    }
+ else {
+      amount=(Double)context.get("amount");
+    }
+    returnAdjustment.setNonPKFields(context);
+    returnAdjustment.set("amount",amount);
+    delegator.store(returnAdjustment);
+    Debug.logInfo("Update ReturnAdjustment with Id:" + context.get("returnAdjustmentId") + " to amount "+ amount+ " successfully.",module);
+    Map result=ServiceUtil.returnSuccess("Update ReturnAdjustment with Id:" + context.get("returnAdjustmentId") + " to amount "+ amount+ " successfully.");
+    return result;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Failed to store returnAdjustment",module);
+    return ServiceUtil.returnError("Failed to store returnAdjustment");
+  }
+}

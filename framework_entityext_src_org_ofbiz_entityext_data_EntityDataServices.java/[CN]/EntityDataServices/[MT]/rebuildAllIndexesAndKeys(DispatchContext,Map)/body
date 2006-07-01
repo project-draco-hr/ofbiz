@@ -1,0 +1,99 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Security security=dctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (!security.hasPermission("ENTITY_MAINT",userLogin)) {
+    return ServiceUtil.returnError("You do not have permission to run this service.");
+  }
+  String groupName=(String)context.get("groupName");
+  Boolean fixSizes=(Boolean)context.get("fixColSizes");
+  if (fixSizes == null)   fixSizes=new Boolean(false);
+  List messages=new ArrayList();
+  String helperName=delegator.getGroupHelperName(groupName);
+  DatabaseUtil dbUtil=new DatabaseUtil(helperName);
+  Map modelEntities=delegator.getModelEntityMapByGroup(groupName);
+  Set modelEntityNames=new TreeSet(modelEntities.keySet());
+  Iterator modelEntityNameIter=null;
+  Debug.logImportant("Removing all foreign key indices",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.deleteForeignKeyIndices(modelEntity,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Removing all foreign keys",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.deleteForeignKeys(modelEntity,modelEntities,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Removing all primary keys",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.deletePrimaryKey(modelEntity,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Removing all declared indices",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.deleteDeclaredIndices(modelEntity,messages);
+  }
+  modelEntityNameIter=null;
+  if (fixSizes.booleanValue()) {
+    Debug.logImportant("Updating column field size changes",module);
+    List fieldsWrongSize=new LinkedList();
+    dbUtil.checkDb(modelEntities,fieldsWrongSize,messages,true,true,true,true);
+    if (fieldsWrongSize.size() > 0) {
+      dbUtil.repairColumnSizeChanges(modelEntities,fieldsWrongSize,messages);
+    }
+ else {
+      String thisMsg="No field sizes to update";
+      messages.add(thisMsg);
+      Debug.logImportant(thisMsg,module);
+    }
+  }
+  Debug.logImportant("Creating all primary keys",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.createPrimaryKey(modelEntity,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Creating all foreign key indices",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.createForeignKeyIndices(modelEntity,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Creating all foreign keys",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.createForeignKeys(modelEntity,modelEntities,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Creating all declared indices",module);
+  modelEntityNameIter=modelEntityNames.iterator();
+  while (modelEntityNameIter.hasNext()) {
+    String modelEntityName=(String)modelEntityNameIter.next();
+    ModelEntity modelEntity=(ModelEntity)modelEntities.get(modelEntityName);
+    dbUtil.createDeclaredIndices(modelEntity,messages);
+  }
+  modelEntityNameIter=null;
+  Debug.logImportant("Running DB check with add missing enabled",module);
+  dbUtil.checkDb(modelEntities,messages,true);
+  Map result=ServiceUtil.returnSuccess();
+  result.put("messages",messages);
+  return result;
+}

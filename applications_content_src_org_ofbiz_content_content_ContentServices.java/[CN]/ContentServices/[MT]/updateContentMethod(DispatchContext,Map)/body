@@ -1,0 +1,52 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map result=new HashMap();
+  context.put("entityOperation","_UPDATE");
+  List targetOperationList=ContentWorker.prepTargetOperationList(context,"_UPDATE");
+  List contentPurposeList=ContentWorker.prepContentPurposeList(context);
+  context.put("targetOperationList",targetOperationList);
+  context.put("contentPurposeList",contentPurposeList);
+  GenericValue content=null;
+  String contentId=(String)context.get("contentId");
+  try {
+    content=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+    return ServiceUtil.returnError("content.update.read_failure" + e.getMessage());
+  }
+  context.put("currentContent",content);
+  Map permResults=ContentWorker.callContentPermissionCheckResult(delegator,dispatcher,context);
+  String permissionStatus=(String)permResults.get("permissionStatus");
+  if (permissionStatus != null && permissionStatus.equalsIgnoreCase("granted")) {
+    GenericValue userLogin=(GenericValue)context.get("userLogin");
+    String userLoginId=(String)userLogin.get("userLoginId");
+    String lastModifiedByUserLogin=userLoginId;
+    Timestamp lastModifiedDate=UtilDateTime.nowTimestamp();
+    if (UtilValidate.isNotEmpty((String)context.get("statusId"))) {
+      Map statusInMap=UtilMisc.toMap("contentId",context.get("contentId"),"statusId",context.get("statusId"),"userLogin",userLogin);
+      try {
+        dispatcher.runSync("setContentStatus",statusInMap);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem updating content Status","ContentServices");
+        return ServiceUtil.returnError("Problem updating content Status: " + e);
+      }
+    }
+    content.setNonPKFields(context);
+    content.put("lastModifiedByUserLogin",lastModifiedByUserLogin);
+    content.put("lastModifiedDate",lastModifiedDate);
+    try {
+      content.store();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+ else {
+    String errorMsg=ContentWorker.prepPermissionErrorMsg(permResults);
+    return ServiceUtil.returnError(errorMsg);
+  }
+  return result;
+}

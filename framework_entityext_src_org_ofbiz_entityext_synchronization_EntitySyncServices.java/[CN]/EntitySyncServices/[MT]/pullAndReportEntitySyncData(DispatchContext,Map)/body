@@ -1,0 +1,42 @@
+{
+  EntitySyncContext esc=null;
+  try {
+    esc=new EntitySyncContext(dctx,context);
+    Debug.logInfo("Doing pullAndReportEntitySyncData for entitySyncId=" + esc.entitySyncId + ", currentRunStartTime="+ esc.currentRunStartTime+ ", currentRunEndTime="+ esc.currentRunEndTime,module);
+    if ("Y".equals(esc.entitySync.get("forPushOnly"))) {
+      return ServiceUtil.returnError("Cannot do Entity Sync Pull because entitySyncId [] is set for Push Only.");
+    }
+    esc.runPullStartOrRestoreSavedResults();
+    while (esc.hasMoreTimeToSync()) {
+      esc.totalSplits++;
+      ArrayList valuesToCreate=esc.assembleValuesToCreate();
+      ArrayList valuesToStore=esc.assembleValuesToStore();
+      List keysToRemove=esc.assembleKeysToRemove();
+      esc.setTotalRowCounts(valuesToCreate,valuesToStore,keysToRemove);
+      if (Debug.infoOn())       Debug.logInfo("Service pullAndReportEntitySyncData returning - [" + valuesToCreate.size() + "] to create; ["+ valuesToStore.size()+ "] to store; ["+ keysToRemove.size()+ "] to remove; ["+ esc.totalRowsPerSplit+ "] total rows per split.",module);
+      if (esc.totalRowsPerSplit > 0) {
+        Map result=ServiceUtil.returnSuccess();
+        result.put("startDate",esc.startDate);
+        result.put("valuesToCreate",valuesToCreate);
+        result.put("valuesToStore",valuesToStore);
+        result.put("keysToRemove",keysToRemove);
+        return result;
+      }
+ else {
+        esc.saveResultsReportedFromDataStore();
+        esc.advanceRunTimes();
+      }
+    }
+    if (!esc.hasMoreTimeToSync()) {
+      esc.saveFinalSyncResults();
+    }
+  }
+ catch (  SyncAbortException e) {
+    return e.returnError(module);
+  }
+catch (  SyncErrorException e) {
+    e.saveSyncErrorInfo(esc);
+    return e.returnError(module);
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,127 @@
+{
+  final StringBuffer buf=new StringBuffer();
+  final Environment env=Environment.getCurrentEnvironment();
+  Map ctx=(Map)FreeMarkerWorker.getWrappedObject("context",env);
+  final String editTemplate=getArg(args,"editTemplate",ctx);
+  final String wrapTemplateId=getArg(args,"wrapTemplateId",ctx);
+  final String mapKey=getArg(args,"mapKey",ctx);
+  final String templateContentId=getArg(args,"templateContentId",ctx);
+  final String subContentId=getArg(args,"subContentId",ctx);
+  String subDataResourceTypeIdTemp=getArg(args,"subDataResourceTypeId",ctx);
+  final String contentId=getArg(args,"contentId",ctx);
+  final Locale locale=(Locale)FreeMarkerWorker.getWrappedObject("locale",env);
+  String mimeTypeIdTemp=getArg(args,"mimeTypeId",ctx);
+  final String rootDir=getArg(args,"rootDir",ctx);
+  final String webSiteId=getArg(args,"webSiteId",ctx);
+  final String https=getArg(args,"https",ctx);
+  final GenericDelegator delegator=(GenericDelegator)FreeMarkerWorker.getWrappedObject("delegator",env);
+  final GenericValue userLogin=(GenericValue)FreeMarkerWorker.getWrappedObject("userLogin",env);
+  GenericValue subContentDataResourceViewTemp=(GenericValue)FreeMarkerWorker.getWrappedObject("subContentDataResourceView",env);
+  ctx.put("mapKey",mapKey);
+  ctx.put("subDataResourceTypeIdTemp",subDataResourceTypeIdTemp);
+  ctx.put("contentId",contentId);
+  ctx.put("templateContentId",templateContentId);
+  ctx.put("locale",locale);
+  GenericValue parentContent=null;
+  List assocTypes=UtilMisc.toList("SUB_CONTENT");
+  Timestamp fromDate=UtilDateTime.nowTimestamp();
+  if (subContentDataResourceViewTemp == null) {
+    try {
+      subContentDataResourceViewTemp=ContentWorker.getSubContent(delegator,contentId,mapKey,subContentId,userLogin,assocTypes,fromDate);
+    }
+ catch (    IOException e) {
+      Debug.logError(e,"Error getting sub-content",module);
+      throw new RuntimeException(e.getMessage());
+    }
+  }
+  final GenericValue subContentDataResourceView=subContentDataResourceViewTemp;
+  String dataResourceIdTemp=null;
+  String subContentIdSubTemp=null;
+  if (subContentDataResourceView != null && subContentDataResourceView.get("contentId") != null) {
+    dataResourceIdTemp=(String)subContentDataResourceView.get("drDataResourceId");
+    subContentIdSubTemp=(String)subContentDataResourceView.get("contentId");
+    if (UtilValidate.isEmpty(subDataResourceTypeIdTemp)) {
+      subDataResourceTypeIdTemp=(String)subContentDataResourceView.get("drDataResourceTypeId");
+    }
+    if (UtilValidate.isEmpty(mimeTypeIdTemp)) {
+      mimeTypeIdTemp=(String)subContentDataResourceView.get("mimeTypeId");
+      if (UtilValidate.isEmpty(mimeTypeIdTemp) && UtilValidate.isNotEmpty(contentId)) {
+        try {
+          parentContent=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+          if (parentContent != null) {
+            mimeTypeIdTemp=(String)parentContent.get("mimeTypeId");
+          }
+        }
+ catch (        GenericEntityException e) {
+          throw new RuntimeException(e.getMessage());
+        }
+      }
+    }
+    ctx.put("subContentId",subContentIdSubTemp);
+    ctx.put("drDataResourceId",dataResourceIdTemp);
+    ctx.put("subContentDataResourceView",subContentDataResourceView);
+    ctx.put("mimeTypeId",mimeTypeIdTemp);
+  }
+ else {
+    ctx.put("subContentId",null);
+    ctx.put("drDataResourceId",null);
+    ctx.put("subContentDataResourceView",null);
+    ctx.put("mimeTypeId",null);
+  }
+  final String dataResourceId=dataResourceIdTemp;
+  final String subContentIdSub=subContentIdSubTemp;
+  final Map templateContext=ctx;
+  final String mimeTypeId=mimeTypeIdTemp;
+  final String subDataResourceTypeId=subDataResourceTypeIdTemp;
+  return new Writer(out){
+    public void write(    char cbuf[],    int off,    int len){
+      buf.append(cbuf,off,len);
+    }
+    public void flush() throws IOException {
+      out.flush();
+    }
+    public void close() throws IOException {
+      String wrappedFTL=buf.toString();
+      if (editTemplate != null && editTemplate.equalsIgnoreCase("true")) {
+        if (UtilValidate.isNotEmpty(wrapTemplateId)) {
+          templateContext.put("wrappedFTL",wrappedFTL);
+          templateContext.put("webSiteId",webSiteId);
+          templateContext.put("https",https);
+          templateContext.put("rootDir",rootDir);
+          Map templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
+          templateRoot.put("wrapDataResourceId",dataResourceId);
+          templateRoot.put("wrapDataResourceTypeId",subDataResourceTypeId);
+          templateRoot.put("wrapContentIdTo",contentId);
+          templateRoot.put("wrapSubContentId",subContentIdSub);
+          templateRoot.put("wrapMimeTypeId",mimeTypeId);
+          templateRoot.put("wrapMapKey",mapKey);
+          templateRoot.put("context",templateContext);
+          try {
+            ContentWorker.renderContentAsText(delegator,wrapTemplateId,out,templateRoot,null,locale,mimeTypeId);
+          }
+ catch (          IOException e) {
+            Debug.logError(e,"Error rendering content" + e.getMessage(),module);
+            throw new IOException("Error rendering content" + e.toString());
+          }
+catch (          GeneralException e2) {
+            Debug.logError(e2,"Error rendering content" + e2.getMessage(),module);
+            throw new IOException("Error rendering content" + e2.toString());
+          }
+          Map ctx=(Map)FreeMarkerWorker.getWrappedObject("context",env);
+          templateContext.put("contentId",contentId);
+          templateContext.put("locale",locale);
+          templateContext.put("mapKey",null);
+          templateContext.put("subContentId",null);
+          templateContext.put("templateContentId",null);
+          templateContext.put("subDataResourceTypeId",null);
+          templateContext.put("mimeTypeId",null);
+          templateContext.put("wrappedFTL",null);
+        }
+      }
+ else {
+        out.write(wrappedFTL);
+      }
+    }
+  }
+;
+}

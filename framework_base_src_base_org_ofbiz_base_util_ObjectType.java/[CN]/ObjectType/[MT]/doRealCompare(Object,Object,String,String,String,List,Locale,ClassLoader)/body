@@ -1,0 +1,222 @@
+{
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn)   Debug.logVerbose("Comparing value1: \"" + value1 + "\" "+ operator+ " value2:\""+ value2+ "\"",module);
+  try {
+    if (!"PlainString".equals(type)) {
+      Class clz=ObjectType.loadClass(type,loader);
+      type=clz.getName();
+    }
+  }
+ catch (  ClassNotFoundException e) {
+    Debug.logWarning("The specified type [" + type + "] is not a valid class or a known special type, may see more errors later because of this: "+ e.getMessage(),module);
+  }
+  if ("is-null".equals(operator) && value1 == null) {
+    return Boolean.TRUE;
+  }
+ else   if ("is-not-null".equals(operator) && value1 == null) {
+    return Boolean.FALSE;
+  }
+ else   if ("is-empty".equals(operator) && value1 == null) {
+    return Boolean.TRUE;
+  }
+ else   if ("is-not-empty".equals(operator) && value1 == null) {
+    return Boolean.FALSE;
+  }
+ else   if ("contains".equals(operator) && value1 == null) {
+    return Boolean.FALSE;
+  }
+  int result=0;
+  Object convertedValue2=null;
+  if (value2 != null) {
+    try {
+      convertedValue2=ObjectType.simpleTypeConvert(value2,type,format,locale);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      messages.add("Could not convert value2 for comparison: " + e.getMessage());
+      return null;
+    }
+  }
+  if ("contains".equals(operator) && value1 instanceof Collection) {
+    Collection col1=(Collection)value1;
+    if (col1.contains(convertedValue2)) {
+      return Boolean.TRUE;
+    }
+ else {
+      return Boolean.FALSE;
+    }
+  }
+  Object convertedValue1=null;
+  try {
+    convertedValue1=ObjectType.simpleTypeConvert(value1,type,format,locale);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    messages.add("Could not convert value1 for comparison: " + e.getMessage());
+    return null;
+  }
+  if (convertedValue1 == null || convertedValue2 == null) {
+    if ("equals".equals(operator)) {
+      if (convertedValue1 == null && convertedValue2 == null) {
+        return Boolean.TRUE;
+      }
+ else {
+        return Boolean.FALSE;
+      }
+    }
+ else     if ("not-equals".equals(operator)) {
+      if (convertedValue1 == null && convertedValue2 == null) {
+        return Boolean.FALSE;
+      }
+ else {
+        return Boolean.TRUE;
+      }
+    }
+ else     if ("is-not-empty".equals(operator) || "is-empty".equals(operator)) {
+    }
+ else {
+      if (convertedValue1 == null) {
+        messages.add("Left value is null, cannot complete compare for the operator " + operator);
+        return null;
+      }
+      if (convertedValue2 == null) {
+        messages.add("Right value is null, cannot complete compare for the operator " + operator);
+        return null;
+      }
+    }
+  }
+  if ("contains".equals(operator)) {
+    if ("java.lang.String".equals(type) || "PlainString".equals(type)) {
+      String str1=(String)convertedValue1;
+      String str2=(String)convertedValue2;
+      if (str1.indexOf(str2) < 0) {
+        return Boolean.FALSE;
+      }
+ else {
+        return Boolean.TRUE;
+      }
+    }
+ else {
+      messages.add("Error in XML file: cannot do a contains compare between a String and a non-String type");
+      return null;
+    }
+  }
+ else   if ("is-empty".equals(operator)) {
+    if (convertedValue1 == null)     return Boolean.TRUE;
+    if (convertedValue1 instanceof String && ((String)convertedValue1).length() == 0)     return Boolean.TRUE;
+    if (convertedValue1 instanceof List && ((List)convertedValue1).size() == 0)     return Boolean.TRUE;
+    if (convertedValue1 instanceof Map && ((Map)convertedValue1).size() == 0)     return Boolean.TRUE;
+    return Boolean.FALSE;
+  }
+ else   if ("is-not-empty".equals(operator)) {
+    if (convertedValue1 == null)     return Boolean.FALSE;
+    if (convertedValue1 instanceof String && ((String)convertedValue1).length() == 0)     return Boolean.FALSE;
+    if (convertedValue1 instanceof List && ((List)convertedValue1).size() == 0)     return Boolean.FALSE;
+    if (convertedValue1 instanceof Map && ((Map)convertedValue1).size() == 0)     return Boolean.FALSE;
+    return Boolean.TRUE;
+  }
+  if ("java.lang.String".equals(type) || "PlainString".equals(type)) {
+    String str1=(String)convertedValue1;
+    String str2=(String)convertedValue2;
+    if (str1.length() == 0 || str2.length() == 0) {
+      if ("equals".equals(operator)) {
+        if (str1.length() == 0 && str2.length() == 0) {
+          return Boolean.TRUE;
+        }
+ else {
+          return Boolean.FALSE;
+        }
+      }
+ else       if ("not-equals".equals(operator)) {
+        if (str1.length() == 0 && str2.length() == 0) {
+          return Boolean.FALSE;
+        }
+ else {
+          return Boolean.TRUE;
+        }
+      }
+ else {
+        messages.add("ERROR: Could not do a compare between strings with one empty string for the operator " + operator);
+        return null;
+      }
+    }
+    result=str1.compareTo(str2);
+  }
+ else   if ("java.lang.Double".equals(type) || "java.lang.Float".equals(type) || "java.lang.Long".equals(type)|| "java.lang.Integer".equals(type)|| "java.math.BigDecimal".equals(type)) {
+    Number tempNum=(Number)convertedValue1;
+    double value1Double=tempNum.doubleValue();
+    tempNum=(Number)convertedValue2;
+    double value2Double=tempNum.doubleValue();
+    if (value1Double < value2Double)     result=-1;
+ else     if (value1Double > value2Double)     result=1;
+ else     result=0;
+  }
+ else   if ("java.sql.Date".equals(type)) {
+    java.sql.Date value1Date=(java.sql.Date)convertedValue1;
+    java.sql.Date value2Date=(java.sql.Date)convertedValue2;
+    result=value1Date.compareTo(value2Date);
+  }
+ else   if ("java.sql.Time".equals(type)) {
+    java.sql.Time value1Time=(java.sql.Time)convertedValue1;
+    java.sql.Time value2Time=(java.sql.Time)convertedValue2;
+    result=value1Time.compareTo(value2Time);
+  }
+ else   if ("java.sql.Timestamp".equals(type)) {
+    java.sql.Timestamp value1Timestamp=(java.sql.Timestamp)convertedValue1;
+    java.sql.Timestamp value2Timestamp=(java.sql.Timestamp)convertedValue2;
+    result=value1Timestamp.compareTo(value2Timestamp);
+  }
+ else   if ("java.lang.Boolean".equals(type)) {
+    Boolean value1Boolean=(Boolean)convertedValue1;
+    Boolean value2Boolean=(Boolean)convertedValue2;
+    if ("equals".equals(operator)) {
+      if ((value1Boolean.booleanValue() && value2Boolean.booleanValue()) || (!value1Boolean.booleanValue() && !value2Boolean.booleanValue()))       result=0;
+ else       result=1;
+    }
+ else     if ("not-equals".equals(operator)) {
+      if ((!value1Boolean.booleanValue() && value2Boolean.booleanValue()) || (value1Boolean.booleanValue() && !value2Boolean.booleanValue()))       result=0;
+ else       result=1;
+    }
+ else {
+      messages.add("Can only compare Booleans using the operators 'equals' or 'not-equals'");
+      return null;
+    }
+  }
+ else   if ("java.lang.Object".equals(type)) {
+    if (convertedValue1.equals(convertedValue2)) {
+      result=0;
+    }
+ else {
+      result=1;
+    }
+  }
+ else {
+    messages.add("Type \"" + type + "\" specified for compare not supported.");
+    return null;
+  }
+  if (verboseOn)   Debug.logVerbose("Got Compare result: " + result + ", operator: "+ operator,module);
+  if ("less".equals(operator)) {
+    if (result >= 0)     return Boolean.FALSE;
+  }
+ else   if ("greater".equals(operator)) {
+    if (result <= 0)     return Boolean.FALSE;
+  }
+ else   if ("less-equals".equals(operator)) {
+    if (result > 0)     return Boolean.FALSE;
+  }
+ else   if ("greater-equals".equals(operator)) {
+    if (result < 0)     return Boolean.FALSE;
+  }
+ else   if ("equals".equals(operator)) {
+    if (result != 0)     return Boolean.FALSE;
+  }
+ else   if ("not-equals".equals(operator)) {
+    if (result == 0)     return Boolean.FALSE;
+  }
+ else {
+    messages.add("Specified compare operator \"" + operator + "\" not known.");
+    return null;
+  }
+  if (verboseOn)   Debug.logVerbose("Returning true",module);
+  return Boolean.TRUE;
+}

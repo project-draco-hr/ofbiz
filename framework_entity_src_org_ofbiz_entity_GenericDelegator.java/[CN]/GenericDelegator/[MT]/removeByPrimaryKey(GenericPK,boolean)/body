@@ -1,0 +1,34 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    Map ecaEventMap=this.getEcaEntityEventMap(primaryKey.getEntityName());
+    this.evalEcaRules(EntityEcaHandler.EV_VALIDATE,EntityEcaHandler.OP_REMOVE,primaryKey,ecaEventMap,(ecaEventMap == null),false);
+    GenericHelper helper=getEntityHelper(primaryKey.getEntityName());
+    if (doCacheClear) {
+      this.evalEcaRules(EntityEcaHandler.EV_CACHE_CLEAR,EntityEcaHandler.OP_REMOVE,primaryKey,ecaEventMap,(ecaEventMap == null),false);
+      this.clearCacheLine(primaryKey);
+    }
+    this.evalEcaRules(EntityEcaHandler.EV_RUN,EntityEcaHandler.OP_REMOVE,primaryKey,ecaEventMap,(ecaEventMap == null),false);
+    int num=helper.removeByPrimaryKey(primaryKey);
+    this.saveEntitySyncRemoveInfo(primaryKey);
+    this.evalEcaRules(EntityEcaHandler.EV_RETURN,EntityEcaHandler.OP_REMOVE,primaryKey,ecaEventMap,(ecaEventMap == null),false);
+    return num;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in removeByPrimaryKey operation for entity [" + primaryKey.getEntityName() + "]: "+ e.toString()+ ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw e;
+  }
+ finally {
+    TransactionUtil.commit(beganTransaction);
+  }
+}

@@ -1,0 +1,42 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String inventoryTransferId=(String)context.get("inventoryTransferId");
+  GenericValue inventoryTransfer=null;
+  GenericValue inventoryItem=null;
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  try {
+    inventoryTransfer=delegator.findByPrimaryKey("InventoryTransfer",UtilMisc.toMap("inventoryTransferId",inventoryTransferId));
+    inventoryItem=inventoryTransfer.getRelatedOne("InventoryItem");
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Inventory Item/Transfer lookup problem [" + e.getMessage() + "]");
+  }
+  if (inventoryTransfer == null || inventoryItem == null) {
+    return ServiceUtil.returnError("ERROR: Lookup of InventoryTransfer and/or InventoryItem failed!");
+  }
+  String inventoryType=inventoryItem.getString("inventoryItemTypeId");
+  if (inventoryType.equals("NON_SERIAL_INV_ITEM")) {
+    double atp=inventoryItem.get("availableToPromiseTotal") == null ? 0 : inventoryItem.getDouble("availableToPromiseTotal").doubleValue();
+    double qoh=inventoryItem.get("quantityOnHandTotal") == null ? 0 : inventoryItem.getDouble("quantityOnHandTotal").doubleValue();
+    Map createDetailMap=UtilMisc.toMap("availableToPromiseDiff",new Double(qoh - atp),"inventoryItemId",inventoryItem.get("inventoryItemId"),"userLogin",userLogin);
+    try {
+      Map result=dctx.getDispatcher().runSync("createInventoryItemDetail",createDetailMap);
+      if (ServiceUtil.isError(result)) {
+        return ServiceUtil.returnError("Inventory Item Detail create problem in cancel inventory transfer",null,null,result);
+      }
+    }
+ catch (    GenericServiceException e1) {
+      return ServiceUtil.returnError("Inventory Item Detail create problem in cancel inventory transfer: [" + e1.getMessage() + "]");
+    }
+  }
+ else   if (inventoryType.equals("SERIALIZED_INV_ITEM")) {
+    inventoryItem.set("statusId","INV_AVAILABLE");
+    try {
+      inventoryItem.store();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError("Inventory item store problem in cancel inventory transfer: [" + e.getMessage() + "]");
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

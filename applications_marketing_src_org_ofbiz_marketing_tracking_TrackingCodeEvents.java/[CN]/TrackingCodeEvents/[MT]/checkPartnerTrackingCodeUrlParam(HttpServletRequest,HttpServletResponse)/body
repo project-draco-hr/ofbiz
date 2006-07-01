@@ -1,0 +1,67 @@
+{
+  String trackingCodeId=request.getParameter("ptc");
+  if (UtilValidate.isNotEmpty(trackingCodeId)) {
+    GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+    GenericValue trackingCode=null;
+    try {
+      trackingCode=delegator.findByPrimaryKeyCache("TrackingCode",UtilMisc.toMap("trackingCodeId",trackingCodeId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error looking up TrackingCode with trackingCodeId [" + trackingCodeId + "], ignoring this trackingCodeId",module);
+      return "error";
+    }
+    if (trackingCode == null) {
+      String dtc=request.getParameter("dtc");
+      if (UtilValidate.isEmpty(dtc)) {
+        dtc=UtilProperties.getPropertyValue("general","partner.trackingCodeId.default");
+      }
+      if (UtilValidate.isNotEmpty(dtc)) {
+        GenericValue defaultTrackingCode=null;
+        try {
+          defaultTrackingCode=delegator.findByPrimaryKeyCache("TrackingCode",UtilMisc.toMap("trackingCodeId",dtc));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Error looking up Default values TrackingCode with trackingCodeId [" + dtc + "], not using the dtc value for new TrackingCode defaults",module);
+        }
+        if (defaultTrackingCode != null) {
+          defaultTrackingCode.set("trackingCodeId",trackingCodeId);
+          defaultTrackingCode.set("trackingCodeTypeId","PARTNER_MGD");
+          defaultTrackingCode.set("createdDate",UtilDateTime.nowTimestamp());
+          defaultTrackingCode.set("createdByUserLogin",null);
+          defaultTrackingCode.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+          defaultTrackingCode.set("lastModifiedByUserLogin",null);
+          trackingCode=defaultTrackingCode;
+          try {
+            trackingCode.create();
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"Error creating new Partner TrackingCode with trackingCodeId [" + trackingCodeId + "], ignoring this trackingCodeId",module);
+            return "error";
+          }
+        }
+      }
+      if (trackingCode == null) {
+        trackingCode=delegator.makeValue("TrackingCode",null);
+        trackingCode.set("trackingCodeId",trackingCodeId);
+        trackingCode.set("trackingCodeTypeId","PARTNER_MGD");
+        trackingCode.set("createdDate",UtilDateTime.nowTimestamp());
+        trackingCode.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+        trackingCode.set("trackableLifetime",new Long(10000000000L));
+        trackingCode.set("billableLifetime",new Long(2592000));
+        trackingCode.set("comments","This TrackingCode has default values because no default TrackingCode could be found.");
+        Debug.logWarning("No default TrackingCode record was found, using a TrackingCode with hard coded default values: " + trackingCode,module);
+        try {
+          trackingCode.create();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Error creating new Partner TrackingCode with trackingCodeId [" + trackingCodeId + "], ignoring this trackingCodeId",module);
+          return "error";
+        }
+      }
+    }
+    return processTrackingCode(trackingCode,request,response);
+  }
+ else {
+    return "success";
+  }
+}

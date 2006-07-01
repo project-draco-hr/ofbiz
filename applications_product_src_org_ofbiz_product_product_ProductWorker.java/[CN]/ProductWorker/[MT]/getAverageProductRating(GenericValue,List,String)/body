@@ -1,0 +1,59 @@
+{
+  if (product == null) {
+    Debug.logWarning("Invalid product entity passed; unable to obtain valid product rating",module);
+    return 0.00;
+  }
+  double productRating=0.00;
+  Double productEntityRating=product.getDouble("productRating");
+  String entityFieldType=product.getString("ratingTypeEnum");
+  if (productEntityRating == null) {
+    productEntityRating=new Double(0);
+  }
+  if (entityFieldType == null) {
+    entityFieldType=new String();
+  }
+  if ("PRDR_FLAT".equals(entityFieldType)) {
+    productRating=productEntityRating.doubleValue();
+  }
+ else {
+    Map reviewByAnd=UtilMisc.toMap("statusId","PRR_APPROVED");
+    if (productStoreId != null) {
+      reviewByAnd.put("productStoreId",productStoreId);
+    }
+    if (reviews == null) {
+      try {
+        reviews=product.getRelatedCache("ProductReview",reviewByAnd,UtilMisc.toList("-postedDateTime"));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+    }
+    double ratingTally=0;
+    double numRatings=0;
+    if (reviews != null) {
+      Iterator i=reviews.iterator();
+      while (i.hasNext()) {
+        GenericValue productReview=(GenericValue)i.next();
+        Double rating=productReview.getDouble("productRating");
+        if (rating != null) {
+          ratingTally+=rating.doubleValue();
+          numRatings++;
+        }
+      }
+    }
+    if (ratingTally > 0 && numRatings > 0) {
+      productRating=ratingTally / numRatings;
+    }
+    if ("PRDR_MIN".equals(entityFieldType)) {
+      if (productEntityRating.doubleValue() > productRating) {
+        productRating=productEntityRating.doubleValue();
+      }
+    }
+ else     if ("PRDR_MAX".equals(entityFieldType)) {
+      if (productRating > productEntityRating.doubleValue()) {
+        productRating=productEntityRating.doubleValue();
+      }
+    }
+  }
+  return productRating;
+}

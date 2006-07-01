@@ -1,0 +1,45 @@
+{
+  ShoppingCart cart=getCartObject(request);
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  String alternateGwpProductId=request.getParameter("alternateGwpProductId");
+  String alternateGwpLineStr=request.getParameter("alternateGwpLine");
+  Locale locale=UtilHttp.getLocale(request);
+  if (UtilValidate.isEmpty(alternateGwpProductId)) {
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderCouldNotSelectAlternateGiftNoAlternateGwpProductIdPassed",locale));
+    return "error";
+  }
+  if (UtilValidate.isEmpty(alternateGwpLineStr)) {
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderCouldNotSelectAlternateGiftNoAlternateGwpLinePassed",locale));
+    return "error";
+  }
+  int alternateGwpLine=0;
+  try {
+    alternateGwpLine=Integer.parseInt(alternateGwpLineStr);
+  }
+ catch (  Exception e) {
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderCouldNotSelectAlternateGiftAlternateGwpLineIsNotAValidNumber",locale));
+    return "error";
+  }
+  ShoppingCartItem cartLine=cart.findCartItem(alternateGwpLine);
+  if (cartLine == null) {
+    request.setAttribute("_ERROR_MESSAGE_","Could not select alternate gift, no cart line item found for #" + alternateGwpLine + ".");
+    return "error";
+  }
+  if (cartLine.getIsPromo()) {
+    Iterator checkOrderAdjustments=UtilMisc.toIterator(cartLine.getAdjustments());
+    while (checkOrderAdjustments != null && checkOrderAdjustments.hasNext()) {
+      GenericValue checkOrderAdjustment=(GenericValue)checkOrderAdjustments.next();
+      if (UtilValidate.isNotEmpty(checkOrderAdjustment.getString("productPromoId")) && UtilValidate.isNotEmpty(checkOrderAdjustment.getString("productPromoRuleId")) && UtilValidate.isNotEmpty(checkOrderAdjustment.getString("productPromoActionSeqId"))) {
+        GenericPK productPromoActionPk=delegator.makeValidValue("ProductPromoAction",checkOrderAdjustment).getPrimaryKey();
+        cart.setDesiredAlternateGiftByAction(productPromoActionPk,alternateGwpProductId);
+        if (cart.getOrderType().equals("SALES_ORDER")) {
+          org.ofbiz.order.shoppingcart.product.ProductPromoWorker.doPromotions(cart,dispatcher);
+        }
+        return "success";
+      }
+    }
+  }
+  request.setAttribute("_ERROR_MESSAGE_","Could not select alternate gift, cart line item found for #" + alternateGwpLine + " does not appear to be a valid promotional gift.");
+  return "error";
+}

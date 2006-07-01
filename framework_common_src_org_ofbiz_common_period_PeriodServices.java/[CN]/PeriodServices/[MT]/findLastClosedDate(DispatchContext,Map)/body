@@ -1,0 +1,42 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String organizationPartyId=(String)context.get("organizationPartyId");
+  String periodTypeId=(String)context.get("periodTypeId");
+  Timestamp findDate=(Timestamp)context.get("findDate");
+  if (findDate == null) {
+    findDate=UtilDateTime.nowTimestamp();
+  }
+  Timestamp lastClosedDate=null;
+  GenericValue lastClosedTimePeriod=null;
+  Map result=ServiceUtil.returnSuccess();
+  try {
+    List findClosedConditions=UtilMisc.toList(new EntityExpr("organizationPartyId",EntityOperator.EQUALS,organizationPartyId),new EntityExpr("thruDate",EntityOperator.LESS_THAN_EQUAL_TO,findDate),new EntityExpr("isClosed",EntityOperator.EQUALS,"Y"));
+    if ((periodTypeId != null) && !(periodTypeId.equals(""))) {
+      findClosedConditions.add(new EntityExpr("periodTypeId",EntityOperator.EQUALS,periodTypeId));
+    }
+    List closedTimePeriods=delegator.findByCondition("CustomTimePeriod",new EntityConditionList(findClosedConditions,EntityOperator.AND),UtilMisc.toList("customTimePeriodId","periodTypeId","isClosed","fromDate","thruDate"),UtilMisc.toList("thruDate DESC"));
+    if ((closedTimePeriods != null) && (closedTimePeriods.size() > 0) && (((GenericValue)closedTimePeriods.get(0)).get("thruDate") != null)) {
+      lastClosedTimePeriod=(GenericValue)closedTimePeriods.get(0);
+      lastClosedDate=UtilDateTime.toTimestamp(lastClosedTimePeriod.getDate("thruDate"));
+    }
+ else {
+      Map findParams=UtilMisc.toMap("organizationPartyId",organizationPartyId);
+      if ((periodTypeId != null) && !(periodTypeId.equals(""))) {
+        findParams.put("periodTypeId",periodTypeId);
+      }
+      List timePeriods=delegator.findByAnd("CustomTimePeriod",findParams,UtilMisc.toList("fromDate ASC"));
+      if ((timePeriods != null) && (timePeriods.size() > 0) && (((GenericValue)timePeriods.get(0)).get("fromDate") != null)) {
+        lastClosedDate=UtilDateTime.toTimestamp(((GenericValue)timePeriods.get(0)).getDate("fromDate"));
+      }
+ else {
+        return ServiceUtil.returnError("Cannot get a starting date for net income");
+      }
+    }
+    result.put("lastClosedTimePeriod",lastClosedTimePeriod);
+    result.put("lastClosedDate",lastClosedDate);
+    return result;
+  }
+ catch (  GenericEntityException ex) {
+    return (ServiceUtil.returnError(ex.getMessage()));
+  }
+}

@@ -1,0 +1,50 @@
+{
+  ModelEntity modelEntity=entity.getModelEntity();
+  if (modelEntity == null) {
+    throw new GenericModelException("Could not find ModelEntity record for entityName: " + entity.getEntityName());
+  }
+  if (modelEntity instanceof ModelViewEntity) {
+    throw new org.ofbiz.entity.GenericNotImplementedException("Operation partialSelect not supported yet for view entities");
+  }
+  List partialFields=FastList.newInstance();
+  Set tempKeys=new TreeSet(keys);
+  Iterator nopkIter=modelEntity.getNopksIterator();
+  while (nopkIter.hasNext()) {
+    ModelField curField=(ModelField)nopkIter.next();
+    if (tempKeys.contains(curField.getName())) {
+      partialFields.add(curField);
+      tempKeys.remove(curField.getName());
+    }
+  }
+  if (tempKeys.size() > 0) {
+    throw new GenericModelException("In partialSelect invalid field names specified: " + tempKeys.toString());
+  }
+  StringBuffer sqlBuffer=new StringBuffer("SELECT ");
+  if (partialFields.size() > 0) {
+    sqlBuffer.append(modelEntity.colNameString(partialFields,", ","",datasourceInfo.aliasViews));
+  }
+ else {
+    sqlBuffer.append("*");
+  }
+  sqlBuffer.append(SqlJdbcUtil.makeFromClause(modelEntity,datasourceInfo));
+  sqlBuffer.append(SqlJdbcUtil.makeWhereClause(modelEntity,modelEntity.getPksCopy(),entity,"AND",datasourceInfo.joinStyle));
+  SQLProcessor sqlP=new SQLProcessor(helperName);
+  try {
+    sqlP.prepareStatement(sqlBuffer.toString(),true,ResultSet.TYPE_FORWARD_ONLY,ResultSet.CONCUR_READ_ONLY);
+    SqlJdbcUtil.setPkValues(sqlP,modelEntity,entity,modelFieldTypeReader);
+    sqlP.executeQuery();
+    if (sqlP.next()) {
+      for (int j=0; j < partialFields.size(); j++) {
+        ModelField curField=(ModelField)partialFields.get(j);
+        SqlJdbcUtil.getValue(sqlP.getResultSet(),j + 1,curField,entity,modelFieldTypeReader);
+      }
+      entity.synchronizedWithDatasource();
+    }
+ else {
+      throw new GenericEntityNotFoundException("Result set was empty for entity: " + entity.toString());
+    }
+  }
+  finally {
+    sqlP.close();
+  }
+}

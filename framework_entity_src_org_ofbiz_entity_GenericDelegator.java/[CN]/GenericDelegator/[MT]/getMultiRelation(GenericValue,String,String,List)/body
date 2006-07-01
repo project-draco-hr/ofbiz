@@ -1,0 +1,29 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    ModelEntity modelEntity=value.getModelEntity();
+    ModelRelation modelRelationOne=modelEntity.getRelation(relationNameOne);
+    ModelEntity modelEntityOne=getModelEntity(modelRelationOne.getRelEntityName());
+    ModelRelation modelRelationTwo=modelEntityOne.getRelation(relationNameTwo);
+    ModelEntity modelEntityTwo=getModelEntity(modelRelationTwo.getRelEntityName());
+    GenericHelper helper=getEntityHelper(modelEntity);
+    return helper.findByMultiRelation(value,modelRelationOne,modelEntityOne,modelRelationTwo,modelEntityTwo,orderBy);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in getMultiRelation operation for entity [" + value.getEntityName() + "]: "+ e.toString()+ ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw e;
+  }
+ finally {
+    TransactionUtil.commit(beganTransaction);
+  }
+}

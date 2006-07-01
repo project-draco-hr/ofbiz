@@ -1,0 +1,53 @@
+{
+  String paymentConfig=(String)context.get("paymentConfig");
+  if (UtilValidate.isEmpty(paymentConfig)) {
+    paymentConfig="payment.properties";
+  }
+  Document requestDocument=createRequestDocument(paymentConfig);
+  Element engineDocElement=UtilXml.firstChildElement(requestDocument.getDocumentElement(),"EngineDoc");
+  Element orderFormDocElement=UtilXml.firstChildElement(engineDocElement,"OrderFormDoc");
+  UtilXml.addChildElementValue(orderFormDocElement,"Comments",refNum,requestDocument);
+  Element consumerElement=UtilXml.addChildElement(orderFormDocElement,"Consumer",requestDocument);
+  GenericValue billToEmail=(GenericValue)context.get("billToEmail");
+  if (billToEmail != null) {
+    UtilXml.addChildElementValue(consumerElement,"Email",billToEmail.getString("infoString"),requestDocument);
+  }
+  GenericValue creditCard=(GenericValue)context.get("creditCard");
+  boolean enableCVM=UtilProperties.propertyValueEqualsIgnoreCase(paymentConfig,"payment.clearcommerce.enableCVM","Y");
+  String cardSecurityCode=enableCVM ? (String)context.get("cardSecurityCode") : null;
+  String localCode=UtilProperties.getPropertyValue(paymentConfig,"payment.clearcommerce.localeCode","840");
+  appendPaymentMechNode(consumerElement,creditCard,cardSecurityCode,localCode);
+  GenericValue billingAddress=(GenericValue)context.get("billingAddress");
+  if (billingAddress != null) {
+    Element billToElement=UtilXml.addChildElement(consumerElement,"BillTo",requestDocument);
+    Element billToLocationElement=UtilXml.addChildElement(billToElement,"Location",requestDocument);
+    appendAddressNode(billToLocationElement,billingAddress);
+  }
+  GenericValue shippingAddress=(GenericValue)context.get("shippingAddress");
+  if (shippingAddress != null) {
+    Element shipToElement=UtilXml.addChildElement(consumerElement,"ShipTo",requestDocument);
+    Element shipToLocationElement=UtilXml.addChildElement(shipToElement,"Location",requestDocument);
+    appendAddressNode(shipToLocationElement,shippingAddress);
+  }
+  String currencyCode=UtilProperties.getPropertyValue(paymentConfig,"payment.clearcommerce.currencyCode","840");
+  appendTransactionNode(orderFormDocElement,type,amount,currencyCode);
+  Map pbOrder=(Map)context.get("pbOrder");
+  if (pbOrder != null) {
+    if (Debug.verboseOn())     Debug.logInfo("pbOrder Map not empty:" + pbOrder.toString(),module);
+    Element pbOrderElement=UtilXml.addChildElement(orderFormDocElement,"PbOrder",requestDocument);
+    UtilXml.addChildElementValue(pbOrderElement,"OrderFrequencyCycle",(String)pbOrder.get("OrderFrequencyCycle"),requestDocument);
+    Element interval=UtilXml.addChildElementValue(pbOrderElement,"OrderFrequencyInterval",(String)pbOrder.get("OrderFrequencyInterval"),requestDocument);
+    interval.setAttribute("DataType","S32");
+    Element total=UtilXml.addChildElementValue(pbOrderElement,"TotalNumberPayments",(String)pbOrder.get("TotalNumberPayments"),requestDocument);
+    total.setAttribute("DataType","S32");
+  }
+ else   if (context.get("OrderFrequencyCycle") != null && context.get("OrderFrequencyInterval") != null && context.get("TotalNumberPayments") != null) {
+    Element pbOrderElement=UtilXml.addChildElement(orderFormDocElement,"PbOrder",requestDocument);
+    UtilXml.addChildElementValue(pbOrderElement,"OrderFrequencyCycle",(String)context.get("OrderFrequencyCycle"),requestDocument);
+    Element interval=UtilXml.addChildElementValue(pbOrderElement,"OrderFrequencyInterval",(String)pbOrder.get("OrderFrequencyInterval"),requestDocument);
+    interval.setAttribute("DataType","S32");
+    Element total=UtilXml.addChildElementValue(pbOrderElement,"TotalNumberPayments",(String)pbOrder.get("TotalNumberPayments"),requestDocument);
+    total.setAttribute("DataType","S32");
+  }
+  return requestDocument;
+}

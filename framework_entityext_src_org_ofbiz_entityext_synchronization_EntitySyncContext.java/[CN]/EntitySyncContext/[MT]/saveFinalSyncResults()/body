@@ -1,0 +1,42 @@
+{
+  String newStatusId="ESR_COMPLETE";
+  if (this.isOfflineSync && totalRowsExported > 0) {
+    newStatusId="ESR_PENDING";
+  }
+  String esErrMsg="Could not mark Entity Sync as complete, but all synchronization was successful";
+  try {
+    Map completeEntitySyncRes=dispatcher.runSync("updateEntitySyncRunning",UtilMisc.toMap("entitySyncId",entitySyncId,"runStatusId",newStatusId,"userLogin",userLogin));
+    if (ServiceUtil.isError(completeEntitySyncRes)) {
+      throw new SyncDataErrorException(esErrMsg,null,null,completeEntitySyncRes,null);
+    }
+  }
+ catch (  GenericServiceException e) {
+    throw new SyncServiceErrorException(esErrMsg,e);
+  }
+  long totalRows=totalRowsToCreate + totalRowsToStore + totalRowsToRemove;
+  if (totalRows == 0) {
+    String eshRemoveErrMsg="Could not remove Entity Sync History (done becuase nothing was synced in this call), but all synchronization was successful";
+    try {
+      Map deleteEntitySyncHistRes=dispatcher.runSync("deleteEntitySyncHistory",UtilMisc.toMap("entitySyncId",entitySyncId,"startDate",startDate,"userLogin",userLogin));
+      if (ServiceUtil.isError(deleteEntitySyncHistRes)) {
+        throw new SyncDataErrorException(eshRemoveErrMsg,null,null,deleteEntitySyncHistRes,null);
+      }
+    }
+ catch (    GenericServiceException e) {
+      throw new SyncServiceErrorException(eshRemoveErrMsg,e);
+    }
+  }
+ else {
+    String eshCompleteErrMsg="Could not mark Entity Sync History as complete, but all synchronization was successful";
+    try {
+      Map completeEntitySyncHistRes=dispatcher.runSync("updateEntitySyncHistory",UtilMisc.toMap("entitySyncId",entitySyncId,"startDate",startDate,"runStatusId","ESR_COMPLETE","userLogin",userLogin));
+      if (ServiceUtil.isError(completeEntitySyncHistRes)) {
+        throw new SyncDataErrorException(eshCompleteErrMsg,null,null,completeEntitySyncHistRes,null);
+      }
+    }
+ catch (    GenericServiceException e) {
+      throw new SyncServiceErrorException(eshCompleteErrMsg,e);
+    }
+  }
+  if (Debug.infoOn())   Debug.logInfo("Finished saveFinalSyncResults [" + entitySyncId + "]: totalRows="+ totalRows+ ", totalRowsToCreate="+ totalRowsToCreate+ ", totalRowsToStore="+ totalRowsToStore+ ", totalRowsToRemove="+ totalRowsToRemove,module);
+}

@@ -1,0 +1,33 @@
+{
+  List productPromoList=FastList.newInstance();
+  GenericDelegator delegator=cart.getDelegator();
+  String productStoreId=cart.getProductStoreId();
+  GenericValue productStore=null;
+  try {
+    productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up store with id " + productStoreId,module);
+  }
+  if (productStore == null) {
+    Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderNoStoreFoundWithIdNotDoingPromotions",UtilMisc.toMap("productStoreId",productStoreId),cart.getLocale()),module);
+    return productPromoList;
+  }
+  try {
+    List productStorePromoApplsList=productStore.getRelatedCache("ProductStorePromoAppl",null,UtilMisc.toList("sequenceNum"));
+    productStorePromoApplsList=EntityUtil.filterByDate(productStorePromoApplsList,nowTimestamp);
+    if (productStorePromoApplsList == null || productStorePromoApplsList.size() == 0) {
+      if (Debug.verboseOn())       Debug.logVerbose("Not doing promotions, none applied to store with ID " + productStoreId,module);
+    }
+    Iterator prodCatalogPromoAppls=UtilMisc.toIterator(productStorePromoApplsList);
+    while (prodCatalogPromoAppls != null && prodCatalogPromoAppls.hasNext()) {
+      GenericValue prodCatalogPromoAppl=(GenericValue)prodCatalogPromoAppls.next();
+      GenericValue productPromo=prodCatalogPromoAppl.getRelatedOneCache("ProductPromo");
+      productPromoList.add(productPromo);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up promotion data while doing promotions",module);
+  }
+  return productPromoList;
+}

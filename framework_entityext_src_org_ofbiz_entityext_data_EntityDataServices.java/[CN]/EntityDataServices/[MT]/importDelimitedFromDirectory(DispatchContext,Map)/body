@@ -1,0 +1,46 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  Security security=dctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (!security.hasPermission("ENTITY_MAINT",userLogin)) {
+    return ServiceUtil.returnError("You do not have permission to run this service.");
+  }
+  String rootDirectory=(String)context.get("rootDirectory");
+  URL rootDirectoryUrl=UtilURL.fromResource(rootDirectory);
+  if (rootDirectoryUrl == null) {
+    return ServiceUtil.returnError("Unable to locate root directory : " + rootDirectory);
+  }
+  String delimiter=(String)context.get("delimiter");
+  if (delimiter == null) {
+    delimiter="\t";
+  }
+  File root=null;
+  try {
+    root=new File(new URI(rootDirectoryUrl.toExternalForm()));
+  }
+ catch (  URISyntaxException e) {
+    return ServiceUtil.returnError("Unable to get root directory URI");
+  }
+  if (!root.exists() || !root.isDirectory() || !root.canRead()) {
+    return ServiceUtil.returnError("Root directory does not exist or is not readable.");
+  }
+  List files=getFileList(root);
+  if (files != null && files.size() > 0) {
+    Iterator i=files.iterator();
+    while (i.hasNext()) {
+      File file=(File)i.next();
+      try {
+        Map serviceCtx=UtilMisc.toMap("file",file,"delimiter",delimiter,"userLogin",userLogin);
+        dispatcher.runSyncIgnore("importDelimitedEntityFile",serviceCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+      }
+    }
+  }
+ else {
+    return ServiceUtil.returnError("No files available for reading in this root directory : " + rootDirectory);
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,67 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  final String deposit="DEPOSIT";
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String cardNumber=(String)context.get("cardNumber");
+  String pinNumber=(String)context.get("pinNumber");
+  Double amount=(Double)context.get("amount");
+  String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId="_NA_";
+  }
+  String currencyUom=(String)context.get("currency");
+  if (UtilValidate.isEmpty(currencyUom)) {
+    currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  String finAccountId=null;
+  try {
+    GenericValue giftCertSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId));
+    if ("Y".equals(giftCertSettings.getString("requirePinCode"))) {
+      if (!validatePin(delegator,cardNumber,pinNumber)) {
+        return ServiceUtil.returnError("PIN number is not valid!");
+      }
+      finAccountId=cardNumber;
+    }
+ else {
+      GenericValue finAccount=FinAccountHelper.getFinAccountFromCode(cardNumber,delegator);
+      if (finAccount != null) {
+        finAccountId=finAccount.getString("finAccountId");
+      }
+    }
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError("Cannot get store fin account settings " + ex.getMessage());
+  }
+  if (finAccountId == null) {
+    return ServiceUtil.returnError("Cannot get fin account for adding to balance");
+  }
+  BigDecimal previousBalance=ZERO;
+  try {
+    previousBalance=FinAccountHelper.getAvailableBalance(cardNumber,currencyUom,delegator);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  BigDecimal balance=ZERO;
+  String refNum=null;
+  try {
+    refNum=GiftCertificateServices.createTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,deposit,finAccountId);
+    balance=FinAccountHelper.getAvailableBalance(cardNumber,currencyUom,delegator);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("previousBalance",new Double(previousBalance.doubleValue()));
+  result.put("balance",new Double(balance.doubleValue()));
+  result.put("amount",amount);
+  result.put("processResult",Boolean.TRUE);
+  result.put("responseCode","1");
+  result.put("referenceNum",refNum);
+  Debug.log("Add Funds GC Result - " + result,module);
+  return result;
+}

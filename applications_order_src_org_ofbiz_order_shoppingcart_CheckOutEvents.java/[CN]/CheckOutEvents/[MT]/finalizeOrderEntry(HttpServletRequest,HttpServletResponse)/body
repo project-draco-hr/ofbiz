@@ -1,0 +1,189 @@
+{
+  ShoppingCart cart=(ShoppingCart)request.getSession().getAttribute("shoppingCart");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map paramMap=UtilHttp.getParameterMap(request);
+  Boolean offlinePayments;
+  String shippingContactMechId=null;
+  String shippingMethod=null;
+  String shippingInstructions=null;
+  String maySplit=null;
+  String giftMessage=null;
+  String isGift=null;
+  String internalCode=null;
+  String methodType=null;
+  String checkOutPaymentId=null;
+  String singleUsePayment=null;
+  String appendPayment=null;
+  String shipBeforeDate=null;
+  String shipAfterDate=null;
+  String mode=request.getParameter("finalizeMode");
+  Debug.logInfo("FinalizeMode: " + mode,module);
+  if (mode == null) {
+    return "customer";
+  }
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  if (userLogin == null) {
+    request.getSession().removeAttribute("autoUserLogin");
+    request.getSession().removeAttribute("autoName");
+    try {
+      cart.setAutoUserLogin(null,dispatcher);
+    }
+ catch (    CartItemModifyException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (mode != null && mode.equals("default")) {
+    cart.setDefaultCheckoutOptions(dispatcher);
+  }
+  if (mode != null && mode.equals("cust")) {
+    String partyId=(String)request.getAttribute("partyId");
+    if (partyId != null) {
+      cart.setOrderPartyId(partyId);
+      if (userLogin == null) {
+        try {
+          userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","anonymous"));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+        }
+        if (userLogin != null) {
+          userLogin.set("partyId",partyId);
+        }
+        request.getSession().setAttribute("userLogin",userLogin);
+        try {
+          cart.setUserLogin(userLogin,dispatcher);
+        }
+ catch (        CartItemModifyException e) {
+          Debug.logError(e,module);
+        }
+        Debug.logInfo("Anonymous user-login has been activated",module);
+      }
+    }
+  }
+  if (mode != null && mode.equals("addpty")) {
+    cart.setAttribute("addpty","Y");
+  }
+  if (mode != null && mode.equals("term")) {
+    cart.setOrderTermSet(true);
+  }
+  boolean isAnonymousCheckout=false;
+  if (userLogin != null && "anonymous".equals(userLogin.getString("userLoginId"))) {
+    isAnonymousCheckout=true;
+  }
+  shippingContactMechId=request.getParameter("shipping_contact_mech_id");
+  if (shippingContactMechId == null) {
+    shippingContactMechId=(String)request.getAttribute("contactMechId");
+  }
+  shippingMethod=request.getParameter("shipping_method");
+  shippingInstructions=request.getParameter("shipping_instructions");
+  maySplit=request.getParameter("may_split");
+  giftMessage=request.getParameter("gift_message");
+  isGift=request.getParameter("is_gift");
+  internalCode=request.getParameter("internalCode");
+  shipBeforeDate=request.getParameter("shipBeforeDate");
+  shipAfterDate=request.getParameter("shipAfterDate");
+  Locale locale=UtilHttp.getLocale(request);
+  methodType=request.getParameter("paymentMethodType");
+  checkOutPaymentId=request.getParameter("checkOutPaymentId");
+  if (checkOutPaymentId == null) {
+    checkOutPaymentId=(String)request.getAttribute("paymentMethodId");
+  }
+  if ("offline".equals(methodType)) {
+    Debug.log("Changing mode from->to: " + mode + "->payment",module);
+    checkOutPaymentId="EXT_OFFLINE";
+    mode="payment";
+  }
+  singleUsePayment=request.getParameter("singleUsePayment");
+  appendPayment=request.getParameter("appendPayment");
+  boolean isSingleUsePayment=singleUsePayment != null && "Y".equalsIgnoreCase(singleUsePayment) ? true : false;
+  boolean doAppendPayment=appendPayment != null && "Y".equalsIgnoreCase(appendPayment) ? true : false;
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
+  String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
+  DecimalFormat formatter=new DecimalFormat(currencyFormat);
+  Map selectedPaymentMethods=getSelectedPaymentMethods(request);
+  if (selectedPaymentMethods == null) {
+    return "error";
+  }
+  String billingAccountId=request.getParameter("billingAccountId");
+  String billingAcctAmtStr=request.getParameter("amount_" + billingAccountId);
+  Double billingAccountAmt=null;
+  if (billingAcctAmtStr != null) {
+    try {
+      billingAccountAmt=new Double(formatter.parse(billingAcctAmtStr).doubleValue());
+    }
+ catch (    ParseException e) {
+      Debug.logError(e,module);
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderInvalidAmountSetForBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),locale));
+      return "error";
+    }
+  }
+  if (mode != null && mode.equals("payment")) {
+    checkOutHelper.setCheckOutPayment(selectedPaymentMethods,null,billingAccountId,billingAccountAmt);
+  }
+  Map callResult=checkOutHelper.finalizeOrderEntry(mode,shippingContactMechId,shippingMethod,shippingInstructions,maySplit,giftMessage,isGift,methodType,checkOutPaymentId,isSingleUsePayment,doAppendPayment,paramMap,internalCode,shipBeforeDate,shipAfterDate);
+  ServiceUtil.getMessages(request,callResult,null);
+  if (callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
+    return "error";
+  }
+  boolean requireCustomer=true;
+  boolean requireShipping=true;
+  boolean requireOptions=true;
+  boolean requirePayment=!cart.getOrderType().equals("PURCHASE_ORDER");
+  boolean requireTerm=cart.getOrderType().equals("PURCHASE_ORDER");
+  boolean requireAdditionalParty=isAnonymousCheckout;
+  if (userLogin != null && !"anonymous".equals(userLogin.getString("userLoginId"))) {
+    String requireCustomerStr=request.getParameter("finalizeReqCustInfo");
+    String requireShippingStr=request.getParameter("finalizeReqShipInfo");
+    String requireOptionsStr=request.getParameter("finalizeReqOptions");
+    String requirePaymentStr=request.getParameter("finalizeReqPayInfo");
+    String requireTermStr=request.getParameter("finalizeReqTermInfo");
+    String requireAdditionalPartyStr=request.getParameter("finalizeReqAdditionalParty");
+    requireCustomer=requireCustomerStr == null || requireCustomerStr.equalsIgnoreCase("true");
+    requireShipping=requireShippingStr == null || requireShippingStr.equalsIgnoreCase("true");
+    requireOptions=requireOptionsStr == null || requireOptionsStr.equalsIgnoreCase("true");
+    if (requirePayment) {
+      requirePayment=requirePaymentStr == null || requirePaymentStr.equalsIgnoreCase("true");
+    }
+    if (requireTerm) {
+      requireTerm=requireTermStr == null || requireTermStr.equalsIgnoreCase("true");
+    }
+    requireAdditionalParty=requireAdditionalPartyStr == null || requireAdditionalPartyStr.equalsIgnoreCase("true");
+  }
+  String shipContactMechId=cart.getShippingContactMechId();
+  String customerPartyId=cart.getPartyId();
+  String shipmentMethodTypeId=cart.getShipmentMethodTypeId();
+  List paymentMethodIds=cart.getPaymentMethodIds();
+  List paymentMethodTypeIds=cart.getPaymentMethodTypeIds();
+  if (requireCustomer && (customerPartyId == null || customerPartyId.equals("_NA_"))) {
+    return "customer";
+  }
+  if (requireShipping && shipContactMechId == null) {
+    return "shipping";
+  }
+  if (requireOptions && shipmentMethodTypeId == null) {
+    return "options";
+  }
+  if (requireTerm && !cart.isOrderTermSet()) {
+    return "term";
+  }
+  if (requirePayment && (paymentMethodIds == null || paymentMethodIds.size() == 0) && (paymentMethodTypeIds == null || paymentMethodTypeIds.size() == 0)) {
+    return "payment";
+  }
+  if (requireAdditionalParty && cart.getAttribute("addpty") == null) {
+    return "addparty";
+  }
+  if (isSingleUsePayment) {
+    return "paysplit";
+  }
+  String checkoutGoTo=request.getParameter("checkoutGoTo");
+  if (UtilValidate.isNotEmpty(checkoutGoTo)) {
+    return checkoutGoTo;
+  }
+  if ("SALES_ORDER".equals(cart.getOrderType())) {
+    return "sales";
+  }
+ else {
+    return "po";
+  }
+}

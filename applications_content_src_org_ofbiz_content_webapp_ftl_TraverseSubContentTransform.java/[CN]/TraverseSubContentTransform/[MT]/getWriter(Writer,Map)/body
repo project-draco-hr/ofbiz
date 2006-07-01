@@ -1,0 +1,187 @@
+{
+  final StringBuffer buf=new StringBuffer();
+  final Environment env=Environment.getCurrentEnvironment();
+  final Map templateCtx=(Map)FreeMarkerWorker.getWrappedObject("context",env);
+  final Map savedValues=FreeMarkerWorker.saveValues(templateCtx,saveKeyNames);
+  FreeMarkerWorker.overrideWithArgs(templateCtx,args);
+  final GenericDelegator delegator=(GenericDelegator)FreeMarkerWorker.getWrappedObject("delegator",env);
+  GenericValue view=(GenericValue)FreeMarkerWorker.getWrappedObject("subContentDataResourceView",env);
+  final Integer indent=(templateCtx.get("indent") == null) ? new Integer(0) : (Integer)templateCtx.get("indent");
+  String contentId=(String)templateCtx.get("contentId");
+  String subContentId=(String)templateCtx.get("subContentId");
+  if (view == null) {
+    String thisContentId=subContentId;
+    if (UtilValidate.isEmpty(thisContentId))     thisContentId=contentId;
+    if (UtilValidate.isNotEmpty(thisContentId)) {
+      try {
+        view=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",thisContentId));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error getting sub-content",module);
+        throw new RuntimeException(e.getMessage());
+      }
+    }
+  }
+  final GenericValue subContentDataResourceView=view;
+  final Map traverseContext=new HashMap();
+  traverseContext.put("delegator",delegator);
+  Map whenMap=new HashMap();
+  whenMap.put("followWhen",(String)templateCtx.get("followWhen"));
+  whenMap.put("pickWhen",(String)templateCtx.get("pickWhen"));
+  whenMap.put("returnBeforePickWhen",(String)templateCtx.get("returnBeforePickWhen"));
+  whenMap.put("returnAfterPickWhen",(String)templateCtx.get("returnAfterPickWhen"));
+  traverseContext.put("whenMap",whenMap);
+  String fromDateStr=(String)templateCtx.get("fromDateStr");
+  String thruDateStr=(String)templateCtx.get("thruDateStr");
+  Timestamp fromDate=null;
+  if (fromDateStr != null && fromDateStr.length() > 0) {
+    fromDate=UtilDateTime.toTimestamp(fromDateStr);
+  }
+  traverseContext.put("fromDate",fromDate);
+  Timestamp thruDate=null;
+  if (thruDateStr != null && thruDateStr.length() > 0) {
+    thruDate=UtilDateTime.toTimestamp(thruDateStr);
+  }
+  traverseContext.put("thruDate",thruDate);
+  String startContentAssocTypeId=(String)templateCtx.get("contentAssocTypeId");
+  if (startContentAssocTypeId != null)   startContentAssocTypeId="SUB_CONTENT";
+  traverseContext.put("contentAssocTypeId",startContentAssocTypeId);
+  String direction=(String)templateCtx.get("direction");
+  if (UtilValidate.isEmpty(direction))   direction="From";
+  traverseContext.put("direction",direction);
+  return new LoopWriter(out){
+    public void write(    char cbuf[],    int off,    int len){
+      buf.append(cbuf,off,len);
+    }
+    public void flush() throws IOException {
+      out.flush();
+    }
+    public int onStart() throws TemplateModelException, IOException {
+      List nodeTrail=new ArrayList();
+      traverseContext.put("nodeTrail",nodeTrail);
+      GenericValue content=null;
+      Map rootNode=ContentWorker.makeNode(subContentDataResourceView);
+      ContentWorker.traceNodeTrail("1",nodeTrail);
+      ContentWorker.selectKids(rootNode,traverseContext);
+      ContentWorker.traceNodeTrail("2",nodeTrail);
+      nodeTrail.add(rootNode);
+      boolean isPick=checkWhen(subContentDataResourceView,(String)traverseContext.get("contentAssocTypeId"));
+      rootNode.put("isPick",new Boolean(isPick));
+      if (!isPick) {
+        ContentWorker.traceNodeTrail("3",nodeTrail);
+        isPick=ContentWorker.traverseSubContent(traverseContext);
+        ContentWorker.traceNodeTrail("4",nodeTrail);
+      }
+      if (isPick) {
+        populateContext(traverseContext,templateCtx);
+        ContentWorker.traceNodeTrail("5",nodeTrail);
+        return TransformControl.EVALUATE_BODY;
+      }
+ else {
+        return TransformControl.SKIP_BODY;
+      }
+    }
+    public int afterBody() throws TemplateModelException, IOException {
+      List nodeTrail=(List)traverseContext.get("nodeTrail");
+      ContentWorker.traceNodeTrail("6",nodeTrail);
+      boolean inProgress=ContentWorker.traverseSubContent(traverseContext);
+      ContentWorker.traceNodeTrail("7",nodeTrail);
+      if (inProgress) {
+        populateContext(traverseContext,templateCtx);
+        ContentWorker.traceNodeTrail("8",nodeTrail);
+        return TransformControl.REPEAT_EVALUATION;
+      }
+ else       return TransformControl.END_EVALUATION;
+    }
+    public void close() throws IOException {
+      String wrappedFTL=buf.toString();
+      String encloseWrappedText=(String)templateCtx.get("encloseWrappedText");
+      if (UtilValidate.isEmpty(encloseWrappedText) || encloseWrappedText.equalsIgnoreCase("false")) {
+        out.write(wrappedFTL);
+        wrappedFTL=null;
+      }
+      String wrapTemplateId=(String)templateCtx.get("wrapTemplateId");
+      if (UtilValidate.isNotEmpty(wrapTemplateId)) {
+        templateCtx.put("wrappedFTL",wrappedFTL);
+        Map templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
+        templateRoot.put("context",templateCtx);
+        String mimeTypeId=(String)templateCtx.get("mimeTypeId");
+        Locale locale=(Locale)templateCtx.get("locale");
+        if (locale == null)         locale=Locale.getDefault();
+        try {
+          ContentWorker.renderContentAsText(delegator,wrapTemplateId,out,templateRoot,null,locale,mimeTypeId);
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,"Error rendering content",module);
+          throw new IOException("Error rendering content" + e.toString());
+        }
+      }
+ else {
+        if (UtilValidate.isNotEmpty(wrappedFTL))         out.write(wrappedFTL);
+      }
+      FreeMarkerWorker.removeValues(templateCtx,removeKeyNames);
+      FreeMarkerWorker.reloadValues(templateCtx,savedValues,env);
+    }
+    private boolean checkWhen(    GenericValue thisContent,    String contentAssocTypeId){
+      boolean isPick=false;
+      Map assocContext=new HashMap();
+      if (UtilValidate.isEmpty(contentAssocTypeId))       contentAssocTypeId="";
+      assocContext.put("contentAssocTypeId",contentAssocTypeId);
+      String assocRelation=null;
+      String thisDirection=(String)templateCtx.get("direction");
+      String thisContentId=(String)templateCtx.get("thisContentId");
+      String relatedDirection=null;
+      if (thisDirection != null && thisDirection.equalsIgnoreCase("From")) {
+        assocContext.put("contentIdFrom",thisContentId);
+        assocRelation="FromContent";
+        relatedDirection="From";
+      }
+ else {
+        assocContext.put("contentIdTo",thisContentId);
+        assocRelation="ToContent";
+        relatedDirection="To";
+      }
+      assocContext.put("content",thisContent);
+      List purposes=ContentWorker.getPurposes(thisContent);
+      assocContext.put("purposes",purposes);
+      List contentTypeAncestry=new ArrayList();
+      String contentTypeId=(String)thisContent.get("contentTypeId");
+      try {
+        ContentWorker.getContentTypeAncestry(delegator,contentTypeId,contentTypeAncestry);
+      }
+ catch (      GenericEntityException e) {
+        return false;
+      }
+      assocContext.put("typeAncestry",contentTypeAncestry);
+      Map whenMap=(Map)traverseContext.get("whenMap");
+      String pickWhen=(String)whenMap.get("pickWhen");
+      List nodeTrail=(List)traverseContext.get("nodeTrail");
+      int indentSz=indent.intValue() + nodeTrail.size();
+      assocContext.put("indentObj",new Integer(indentSz));
+      isPick=ContentWorker.checkWhen(assocContext,(String)whenMap.get("pickWhen"));
+      return isPick;
+    }
+    public void populateContext(    Map traverseContext,    Map templateContext){
+      List nodeTrail=(List)traverseContext.get("nodeTrail");
+      int sz=nodeTrail.size();
+      Map node=(Map)nodeTrail.get(sz - 1);
+      GenericValue content=(GenericValue)node.get("value");
+      String contentId=(String)node.get("contentId");
+      String subContentId=(String)node.get("subContentId");
+      templateContext.put("subContentId",contentId);
+      templateContext.put("subContentDataResourceView",null);
+      int indentSz=indent.intValue() + nodeTrail.size();
+      templateContext.put("indent",new Integer(indentSz));
+      if (sz >= 2) {
+        Map parentNode=(Map)nodeTrail.get(sz - 2);
+        GenericValue parentContent=(GenericValue)parentNode.get("value");
+        String parentContentId=(String)parentNode.get("contentId");
+        templateContext.put("parentContentId",parentContentId);
+        templateContext.put("parentContent",parentContent);
+        templateContext.put("nodeTrail",nodeTrail);
+      }
+      return;
+    }
+  }
+;
+}

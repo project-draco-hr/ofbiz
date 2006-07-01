@@ -1,0 +1,63 @@
+{
+  DiskFileUpload fu=new DiskFileUpload();
+  List lst=null;
+  Locale locale=UtilHttp.getLocale(request);
+  try {
+    lst=fu.parseRequest(request);
+  }
+ catch (  FileUploadException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    return "error";
+  }
+  if (lst.size() == 0) {
+    String errMsg=UtilProperties.getMessage(DataResourceWorker.err_resource,"dataResourceWorker.no_files_uploaded",locale);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    Debug.logWarning("[DataEvents.uploadImage] No files uploaded",module);
+    return "error";
+  }
+  FileItem fi=null;
+  FileItem imageFi=null;
+  String imageFileName=null;
+  Map passedParams=new HashMap();
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  passedParams.put("userLogin",userLogin);
+  byte[] imageBytes=null;
+  for (int i=0; i < lst.size(); i++) {
+    fi=(FileItem)lst.get(i);
+    String fieldName=fi.getFieldName();
+    if (fi.isFormField()) {
+      String fieldStr=fi.getString();
+      passedParams.put(fieldName,fieldStr);
+    }
+ else     if (fieldName.startsWith("imageData")) {
+      imageFi=fi;
+      imageBytes=imageFi.get();
+      passedParams.put(fieldName,imageBytes);
+      imageFileName=imageFi.getName();
+      passedParams.put("drObjectInfo",imageFileName);
+      if (Debug.infoOn())       Debug.logInfo("[UploadContentAndImage]imageData: " + imageBytes.length,module);
+    }
+  }
+  if (imageBytes != null && imageBytes.length > 0) {
+    String mimeType=getMimeTypeFromImageFileName(imageFileName);
+    if (UtilValidate.isNotEmpty(mimeType)) {
+      passedParams.put("drMimeTypeId",mimeType);
+      try {
+        String returnMsg=UploadContentAndImage.processContentUpload(passedParams,"",request);
+        if (returnMsg.equals("error")) {
+          return "error";
+        }
+      }
+ catch (      GenericServiceException e) {
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+        return "error";
+      }
+    }
+ else {
+      request.setAttribute("_ERROR_MESSAGE_","mimeType is empty.");
+      return "error";
+    }
+  }
+  return "success";
+}

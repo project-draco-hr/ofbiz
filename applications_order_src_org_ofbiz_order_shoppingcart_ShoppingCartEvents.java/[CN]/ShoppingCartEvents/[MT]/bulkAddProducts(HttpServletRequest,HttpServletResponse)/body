@@ -1,0 +1,85 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  ShoppingCart cart=ShoppingCartEvents.getCartObject(request);
+  ShoppingCartHelper cartHelper=new ShoppingCartHelper(delegator,dispatcher,cart);
+  String controlDirective=null;
+  Map result=null;
+  String productId=null;
+  String productCategoryId=null;
+  String quantityStr=null;
+  String itemDesiredDeliveryDateStr=null;
+  double quantity=0;
+  String catalogId=CatalogWorker.getCurrentCatalogId(request);
+  String rowCountField=null;
+  int rowCount=0;
+  String DELIMITER="_o_";
+  Map paramMap=UtilHttp.getParameterMap(request);
+  String itemGroupNumber=request.getParameter("itemGroupNumber");
+  String shoppingListId=request.getParameter("shoppingListId");
+  String shoppingListItemSeqId=request.getParameter("shoppingListItemSeqId");
+  if (paramMap.containsKey("_rowCount")) {
+    rowCountField=(String)paramMap.remove("_rowCount");
+  }
+ else {
+    Debug.logWarning("No _rowCount was passed in",ShoppingCartEvents.module);
+  }
+  try {
+    rowCount=Integer.parseInt(rowCountField);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logWarning("Invalid value for rowCount =" + rowCountField,module);
+  }
+  if (rowCount < 1) {
+    Debug.logWarning("No rows to process, as rowCount = " + rowCount,module);
+  }
+ else {
+    for (int i=0; i < rowCount; i++) {
+      controlDirective=null;
+      String thisSuffix=DELIMITER + i;
+      if (paramMap.containsKey("productId" + thisSuffix)) {
+        productId=(String)paramMap.remove("productId" + thisSuffix);
+      }
+      if (paramMap.containsKey("quantity" + thisSuffix)) {
+        quantityStr=(String)paramMap.remove("quantity" + thisSuffix);
+      }
+      if ((quantityStr == null) || (quantityStr.equals(""))) {
+        quantityStr="0";
+      }
+      try {
+        quantity=NumberFormat.getNumberInstance().parse(quantityStr).doubleValue();
+      }
+ catch (      Exception e) {
+        Debug.logWarning(e,"Problems parsing quantity string: " + quantityStr,module);
+        quantity=0;
+      }
+      String selectedAmountStr="0.00";
+      if (paramMap.containsKey("amount" + thisSuffix)) {
+        selectedAmountStr=(String)paramMap.remove("amount" + thisSuffix);
+      }
+      Double amount=null;
+      if (selectedAmountStr != null && selectedAmountStr.length() > 0) {
+        try {
+          amount=new Double(NumberFormat.getNumberInstance().parse(selectedAmountStr).doubleValue());
+        }
+ catch (        Exception e) {
+          Debug.logWarning(e,"Problem parsing amount string: " + selectedAmountStr,module);
+          amount=null;
+        }
+      }
+      if (paramMap.containsKey("itemDesiredDeliveryDate" + thisSuffix)) {
+        itemDesiredDeliveryDateStr=(String)paramMap.remove("itemDesiredDeliveryDate" + thisSuffix);
+      }
+      Map itemAttributes=UtilMisc.toMap("itemDesiredDeliveryDate",itemDesiredDeliveryDateStr);
+      if (quantity > 0) {
+        Debug.logInfo("Attempting to add to cart with productId = " + productId + ", categoryId = "+ productCategoryId+ " and quantity = "+ quantity,module);
+        result=cartHelper.addToCart(catalogId,shoppingListId,shoppingListItemSeqId,productId,productCategoryId,null,"",null,amount,quantity,null,null,null,null,null,null,itemGroupNumber,itemAttributes);
+        controlDirective=processResult(result,request);
+        if (controlDirective.equals(ERROR)) {
+          return "error";
+        }
+      }
+    }
+  }
+  return cart.viewCartOnAdd() ? "viewcart" : "success";
+}

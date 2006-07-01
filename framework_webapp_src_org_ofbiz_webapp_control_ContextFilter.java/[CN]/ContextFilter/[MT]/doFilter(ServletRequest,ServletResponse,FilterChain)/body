@@ -1,0 +1,112 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  HttpServletResponseWrapper wrapper=new HttpServletResponseWrapper((HttpServletResponse)response);
+  Thread.currentThread().setContextClassLoader(localCachedClassLoader);
+  httpRequest.getSession().setAttribute("webSiteId",config.getServletContext().getAttribute("webSiteId"));
+  request.setAttribute("servletContext",config.getServletContext());
+  request.setAttribute("_CONTEXT_ROOT_",config.getServletContext().getRealPath("/"));
+  StringBuffer serverRootUrl=UtilHttp.getServerRootUrl(httpRequest);
+  request.setAttribute("_SERVER_ROOT_URL_",serverRootUrl.toString());
+  String reqAttrMapHex=(String)httpRequest.getSession().getAttribute("_REQ_ATTR_MAP_");
+  if (UtilValidate.isNotEmpty(reqAttrMapHex)) {
+    byte[] reqAttrMapBytes=StringUtil.fromHexString(reqAttrMapHex);
+    Map reqAttrMap=(Map)UtilObject.getObject(reqAttrMapBytes);
+    if (reqAttrMap != null) {
+      Iterator i=reqAttrMap.keySet().iterator();
+      while (i.hasNext()) {
+        String key=(String)i.next();
+        request.setAttribute(key,reqAttrMap.get(key));
+      }
+    }
+    httpRequest.getSession().removeAttribute("_REQ_ATTR_MAP_");
+  }
+  String disableSecurity=config.getInitParameter("disableContextSecurity");
+  if (disableSecurity != null && "Y".equals(disableSecurity)) {
+    chain.doFilter(request,response);
+    return;
+  }
+  String redirectAllTo=config.getInitParameter("forceRedirectAll");
+  if (redirectAllTo != null && redirectAllTo.length() > 0) {
+    if (httpRequest.getSession().getAttribute("_FORCE_REDIRECT_") == null) {
+      httpRequest.getSession().setAttribute("_FORCE_REDIRECT_","true");
+      Debug.logWarning("Redirecting user to: " + redirectAllTo,module);
+      if (!redirectAllTo.toLowerCase().startsWith("http")) {
+        redirectAllTo=httpRequest.getContextPath() + redirectAllTo;
+      }
+      wrapper.sendRedirect(redirectAllTo);
+      return;
+    }
+ else {
+      httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
+      chain.doFilter(request,response);
+      return;
+    }
+  }
+  if (request.getAttribute(ContextFilter.FORWARDED_FROM_SERVLET) == null) {
+    String allowedPath=config.getInitParameter("allowedPaths");
+    String redirectPath=config.getInitParameter("redirectPath");
+    String errorCode=config.getInitParameter("errorCode");
+    List allowList=StringUtil.split(allowedPath,":");
+    allowList.add("/");
+    allowList.add("");
+    if (debug)     Debug.log("[Request]: " + httpRequest.getRequestURI(),module);
+    String requestPath=httpRequest.getServletPath();
+    if (requestPath == null)     requestPath="";
+    if (requestPath.lastIndexOf("/") > 0) {
+      if (requestPath.indexOf("/") == 0) {
+        requestPath="/" + requestPath.substring(1,requestPath.indexOf("/",1));
+      }
+ else {
+        requestPath=requestPath.substring(1,requestPath.indexOf("/"));
+      }
+    }
+    String requestInfo=httpRequest.getServletPath();
+    if (requestInfo == null)     requestInfo="";
+    if (requestInfo.lastIndexOf("/") >= 0) {
+      requestInfo=requestInfo.substring(0,requestInfo.lastIndexOf("/")) + "/*";
+    }
+    StringBuffer contextUriBuffer=new StringBuffer();
+    if (httpRequest.getContextPath() != null) {
+      contextUriBuffer.append(httpRequest.getContextPath());
+    }
+    if (httpRequest.getServletPath() != null) {
+      contextUriBuffer.append(httpRequest.getServletPath());
+    }
+    if (httpRequest.getPathInfo() != null) {
+      contextUriBuffer.append(httpRequest.getPathInfo());
+    }
+    String contextUri=contextUriBuffer.toString();
+    if (Debug.verboseOn()) {
+      for (int i=0; i < allowList.size(); i++) {
+        Debug.logVerbose("[Allow]: " + allowList.get(i),module);
+      }
+      Debug.logVerbose("[Request path]: " + requestPath,module);
+      Debug.logVerbose("[Request info]: " + requestInfo,module);
+      Debug.logVerbose("[Servlet path]: " + httpRequest.getServletPath(),module);
+    }
+    if (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())) {
+      String filterMessage="[Filtered request]: " + contextUri;
+      if (redirectPath == null) {
+        int error=404;
+        try {
+          error=Integer.parseInt(errorCode);
+        }
+ catch (        NumberFormatException nfe) {
+          Debug.logWarning(nfe,"Error code specified would not parse to Integer : " + errorCode,module);
+        }
+        filterMessage=filterMessage + " (" + error+ ")";
+        wrapper.sendError(error,contextUri);
+      }
+ else {
+        filterMessage=filterMessage + " (" + redirectPath+ ")";
+        if (!redirectPath.toLowerCase().startsWith("http")) {
+          redirectPath=httpRequest.getContextPath() + redirectPath;
+        }
+        wrapper.sendRedirect(redirectPath);
+      }
+      Debug.logWarning(filterMessage,module);
+      return;
+    }
+  }
+  chain.doFilter(request,response);
+}

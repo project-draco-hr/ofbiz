@@ -1,0 +1,38 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  String partyId=ServiceUtil.getPartyIdCheckSecurity(userLogin,security,context,result,"PARTYMGR","_PCM_DELETE");
+  String errMsg=null;
+  Locale locale=(Locale)context.get("locale");
+  if (result.size() > 0)   return result;
+  String contactMechId=(String)context.get("contactMechId");
+  GenericValue partyContactMech=null;
+  try {
+    List partyContactMechs=EntityUtil.filterByDate(delegator.findByAnd("PartyContactMech",UtilMisc.toMap("partyId",partyId,"contactMechId",contactMechId),UtilMisc.toList("fromDate")),true);
+    partyContactMech=EntityUtil.getFirst(partyContactMechs);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"contactmechservices.could_not_delete_contact_info_read",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (partyContactMech == null) {
+    errMsg=UtilProperties.getMessage(resource,"contactmechservices.could_not_delete_contact_info_no_contact_found",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  partyContactMech.set("thruDate",UtilDateTime.nowTimestamp());
+  try {
+    partyContactMech.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    errMsg=UtilProperties.getMessage(resource,"contactmechservices.could_not_delete_contact_info_write",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

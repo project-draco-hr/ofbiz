@@ -1,0 +1,267 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  ShoppingCart cart=getCartObject(request);
+  ShoppingCartHelper cartHelper=new ShoppingCartHelper(delegator,dispatcher,cart);
+  String controlDirective=null;
+  Map result=null;
+  String productId=null;
+  String itemType=null;
+  String itemDescription=null;
+  String productCategoryId=null;
+  String priceStr=null;
+  Double price=null;
+  String quantityStr=null;
+  double quantity=0;
+  String reservStartStr=null;
+  String reservEndStr=null;
+  java.sql.Timestamp reservStart=null;
+  java.sql.Timestamp reservEnd=null;
+  String reservLengthStr=null;
+  Double reservLength=null;
+  String reservPersonsStr=null;
+  Double reservPersons=null;
+  String shipBeforeStr=null;
+  String shipBeforeDateStr=null;
+  String shipAfterDateStr=null;
+  java.sql.Timestamp shipBeforeDate=null;
+  java.sql.Timestamp shipAfterDate=null;
+  String catalogId=CatalogWorker.getCurrentCatalogId(request);
+  Locale locale=UtilHttp.getLocale(request);
+  NumberFormat nf=NumberFormat.getNumberInstance(locale);
+  Map paramMap=UtilHttp.getParameterMap(request);
+  String itemGroupNumber=(String)paramMap.get("itemGroupNumber");
+  String shoppingListId=(String)paramMap.get("shoppingListId");
+  String shoppingListItemSeqId=(String)paramMap.get("shoppingListItemSeqId");
+  if (paramMap.containsKey("ADD_PRODUCT_ID")) {
+    productId=(String)paramMap.remove("ADD_PRODUCT_ID");
+  }
+ else   if (paramMap.containsKey("add_product_id")) {
+    productId=(String)paramMap.remove("add_product_id");
+  }
+  if (paramMap.containsKey("ADD_CATEGORY_ID")) {
+    productCategoryId=(String)paramMap.remove("ADD_CATEGORY_ID");
+  }
+ else   if (paramMap.containsKey("add_category_id")) {
+    productCategoryId=(String)paramMap.remove("add_category_id");
+  }
+  if (productCategoryId != null && productCategoryId.length() == 0) {
+    productCategoryId=null;
+  }
+  if (paramMap.containsKey("ADD_ITEM_TYPE")) {
+    itemType=(String)paramMap.remove("ADD_ITEM_TYPE");
+  }
+ else   if (paramMap.containsKey("add_item_type")) {
+    itemType=(String)paramMap.remove("add_item_type");
+  }
+  if (productId == null) {
+    if (UtilValidate.isEmpty(itemType)) {
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"cart.addToCart.noProductInfoPassed",locale));
+      return "success";
+    }
+  }
+ else {
+    try {
+      String pId=ProductWorker.findProductId(delegator,productId);
+      if (pId != null) {
+        productId=pId;
+      }
+    }
+ catch (    Throwable e) {
+      Debug.logWarning(e,module);
+    }
+  }
+  if (paramMap.containsKey("ADD_ITEM_DESCRIPTION")) {
+    itemDescription=(String)paramMap.remove("ADD_ITEM_DESCRIPTION");
+  }
+ else   if (paramMap.containsKey("add_item_description")) {
+    itemDescription=(String)paramMap.remove("add_item_description");
+  }
+  if (itemDescription != null && itemDescription.length() == 0) {
+    itemDescription=null;
+  }
+  ProductConfigWrapper configWrapper=null;
+  configWrapper=ProductConfigWorker.getProductConfigWrapper(productId,cart.getCurrency(),request);
+  if (configWrapper != null) {
+    ProductConfigWorker.fillProductConfigWrapper(configWrapper,request);
+    if (!configWrapper.isCompleted()) {
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"cart.addToCart.productConfigurationIsNotValid",locale));
+      return "error";
+    }
+  }
+  if (paramMap.containsKey("PRICE")) {
+    priceStr=(String)paramMap.remove("PRICE");
+  }
+ else   if (paramMap.containsKey("price")) {
+    priceStr=(String)paramMap.remove("price");
+  }
+  if (priceStr == null) {
+    priceStr="0";
+  }
+  if (paramMap.containsKey("reservStart")) {
+    reservStartStr=(String)paramMap.remove("reservStart");
+    if (reservStartStr.length() == 10)     reservStartStr+=" 00:00:00.000000000";
+    if (reservStartStr.length() > 0) {
+      try {
+        reservStart=java.sql.Timestamp.valueOf((String)reservStartStr);
+      }
+ catch (      Exception e) {
+        Debug.logWarning(e,"Problems parsing Reservation start string: " + reservStartStr,module);
+        reservStart=null;
+        request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"cart.addToCart.rental.startDate",locale));
+        return "error";
+      }
+    }
+ else     reservStart=null;
+    if (paramMap.containsKey("reservEnd")) {
+      reservEndStr=(String)paramMap.remove("reservEnd");
+      if (reservEndStr.length() == 10)       reservEndStr+=" 00:00:00.000000000";
+      if (reservEndStr.length() > 0) {
+        try {
+          reservEnd=java.sql.Timestamp.valueOf((String)reservEndStr);
+        }
+ catch (        Exception e) {
+          Debug.logWarning(e,"Problems parsing Reservation end string: " + reservEndStr,module);
+          reservEnd=null;
+          request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"cart.addToCart.rental.endDate",locale));
+          return "error";
+        }
+      }
+ else       reservEnd=null;
+    }
+    if (reservStart != null && reservEnd != null) {
+      reservLength=new Double(UtilDateTime.getInterval(reservStart,reservEnd) / 86400000);
+    }
+    if (reservStart != null && paramMap.containsKey("reservLength")) {
+      reservLengthStr=(String)paramMap.remove("reservLength");
+      try {
+        reservLength=new Double(nf.parse(reservLengthStr).doubleValue());
+      }
+ catch (      Exception e) {
+        Debug.logWarning(e,"Problems parsing reservation length string: " + reservLengthStr,module);
+        reservLength=new Double(1);
+        request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderReservationLengthShouldBeAPositiveNumber",locale));
+        return "error";
+      }
+    }
+    if (reservStart != null && paramMap.containsKey("reservPersons")) {
+      reservPersonsStr=(String)paramMap.remove("reservPersons");
+      try {
+        reservPersons=new Double(nf.parse(reservPersonsStr).doubleValue());
+      }
+ catch (      Exception e) {
+        Debug.logWarning(e,"Problems parsing reservation number of persons string: " + reservPersonsStr,module);
+        reservPersons=new Double(1);
+        request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderNumberOfPersonsShouldBeOneOrLarger",locale));
+        return "error";
+      }
+    }
+  }
+  if (paramMap.containsKey("QUANTITY")) {
+    quantityStr=(String)paramMap.remove("QUANTITY");
+  }
+ else   if (paramMap.containsKey("quantity")) {
+    quantityStr=(String)paramMap.remove("quantity");
+  }
+  if (quantityStr == null) {
+    quantityStr="1";
+  }
+  try {
+    price=new Double(nf.parse(priceStr).doubleValue());
+  }
+ catch (  Exception e) {
+    Debug.logWarning(e,"Problems parsing price string: " + priceStr,module);
+    price=null;
+  }
+  try {
+    quantity=nf.parse(quantityStr).doubleValue();
+  }
+ catch (  Exception e) {
+    Debug.logWarning(e,"Problems parsing quantity string: " + quantityStr,module);
+    quantity=1;
+  }
+  String selectedAmountStr="0.00";
+  if (paramMap.containsKey("ADD_AMOUNT")) {
+    selectedAmountStr=(String)paramMap.remove("ADD_AMOUNT");
+  }
+ else   if (paramMap.containsKey("add_amount")) {
+    selectedAmountStr=(String)paramMap.remove("add_amount");
+  }
+  Double amount=null;
+  if (selectedAmountStr != null && selectedAmountStr.length() > 0) {
+    try {
+      amount=new Double(nf.parse(selectedAmountStr).doubleValue());
+    }
+ catch (    Exception e) {
+      Debug.logWarning(e,"Problem parsing amount string: " + selectedAmountStr,module);
+      amount=null;
+    }
+  }
+  shipBeforeDateStr=(String)paramMap.remove("shipBeforeDate");
+  if (shipBeforeDateStr != null && shipBeforeDateStr.length() > 0) {
+    if (shipBeforeDateStr.length() == 10)     shipBeforeDateStr+=" 00:00:00.000";
+    try {
+      shipBeforeDate=java.sql.Timestamp.valueOf(shipBeforeDateStr);
+    }
+ catch (    IllegalArgumentException e) {
+      Debug.logWarning(e,"Bad shipBeforeDate input: " + e.getMessage(),module);
+      shipBeforeDate=null;
+    }
+  }
+  shipAfterDateStr=(String)paramMap.remove("shipAfterDate");
+  if (shipAfterDateStr != null && shipAfterDateStr.length() > 0) {
+    if (shipAfterDateStr.length() == 10)     shipAfterDateStr+=" 00:00:00.000";
+    try {
+      shipAfterDate=java.sql.Timestamp.valueOf(shipAfterDateStr);
+    }
+ catch (    IllegalArgumentException e) {
+      Debug.logWarning(e,"Bad shipAfterDate input: " + e.getMessage(),module);
+      shipAfterDate=null;
+    }
+  }
+  List surveyResponses=null;
+  if (productId != null) {
+    String productStoreId=ProductStoreWorker.getProductStoreId(request);
+    List productSurvey=ProductStoreWorker.getProductSurveys(delegator,productStoreId,productId,"CART_ADD");
+    if (productSurvey != null && productSurvey.size() > 0) {
+      GenericValue survey=EntityUtil.getFirst(productSurvey);
+      String surveyResponseId=(String)request.getAttribute("surveyResponseId");
+      if (surveyResponseId != null) {
+        surveyResponses=UtilMisc.toList(surveyResponseId);
+      }
+ else {
+        Map surveyContext=UtilHttp.getParameterMap(request);
+        GenericValue userLogin=cart.getUserLogin();
+        String partyId=null;
+        if (userLogin != null) {
+          partyId=userLogin.getString("partyId");
+        }
+        String formAction="/additemsurvey";
+        String nextPage=RequestHandler.getNextPageUri(request.getPathInfo());
+        if (nextPage != null) {
+          formAction=formAction + "/" + nextPage;
+        }
+        ProductStoreSurveyWrapper wrapper=new ProductStoreSurveyWrapper(survey,partyId,surveyContext);
+        request.setAttribute("surveyWrapper",wrapper);
+        request.setAttribute("surveyAction",formAction);
+        return "survey";
+      }
+    }
+  }
+  if (surveyResponses != null) {
+    paramMap.put("surveyResponses",surveyResponses);
+  }
+  result=cartHelper.addToCart(catalogId,shoppingListId,shoppingListItemSeqId,productId,productCategoryId,itemType,itemDescription,price,amount,quantity,reservStart,reservLength,reservPersons,shipBeforeDate,shipAfterDate,configWrapper,itemGroupNumber,paramMap);
+  controlDirective=processResult(result,request);
+  if (controlDirective.equals(ERROR)) {
+    return "error";
+  }
+ else {
+    if (cart.viewCartOnAdd()) {
+      return "viewcart";
+    }
+ else {
+      return "success";
+    }
+  }
+}

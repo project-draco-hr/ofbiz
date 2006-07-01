@@ -1,0 +1,57 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List msgResult=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunTaskId=(String)context.get("workEffortId");
+  String productId=(String)context.get("productId");
+  Double quantity=(Double)context.get("quantity");
+  if (quantity == null || quantity.doubleValue() == 0) {
+    return ServiceUtil.returnSuccess();
+  }
+  try {
+    Iterator issuances=(delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",productionRunTaskId,"productId",productId))).iterator();
+    double totalIssued=0.0;
+    while (issuances.hasNext()) {
+      GenericValue issuance=(GenericValue)issuances.next();
+      Double issued=issuance.getDouble("quantity");
+      if (issued != null) {
+        totalIssued+=issued.doubleValue();
+      }
+    }
+    Iterator returns=(delegator.findByAnd("WorkEffortAndInventoryProduced",UtilMisc.toMap("workEffortId",productionRunTaskId,"productId",productId))).iterator();
+    double totalReturned=0.0;
+    while (returns.hasNext()) {
+      GenericValue returned=(GenericValue)returns.next();
+      GenericValue returnDetail=EntityUtil.getFirst(delegator.findByAnd("InventoryItemDetail",UtilMisc.toMap("inventoryItemId",returned.getString("inventoryItemId")),UtilMisc.toList("inventoryItemDetailSeqId")));
+      if (returnDetail != null) {
+        Double qtyReturned=returnDetail.getDouble("quantityOnHandDiff");
+        if (qtyReturned != null) {
+          totalReturned+=qtyReturned.doubleValue();
+        }
+      }
+    }
+    if (quantity.doubleValue() > totalIssued - totalReturned) {
+      return ServiceUtil.returnError("Production Run Task with id [" + productionRunTaskId + "] cannot return more items ["+ quantity+ "] than the ones currently allocated ["+ (totalIssued - totalReturned)+ "]");
+    }
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(gee.getMessage());
+  }
+  Boolean createSerializedInventory=(Boolean)context.get("createSerializedInventory");
+  if (createSerializedInventory == null) {
+    createSerializedInventory=new Boolean(false);
+  }
+  try {
+    Map inventoryResult=dispatcher.runSync("productionRunTaskProduce",UtilMisc.toMap("workEffortId",productionRunTaskId,"productId",productId,"quantity",quantity,"createSerializedInventory",createSerializedInventory,"userLogin",userLogin));
+    if (ServiceUtil.isError(inventoryResult)) {
+      return ServiceUtil.returnError("Error calling productionRunTaskProduce: " + ServiceUtil.getErrorMessage(inventoryResult));
+    }
+  }
+ catch (  GenericServiceException exc) {
+    return ServiceUtil.returnError(exc.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,48 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String contentId=(String)context.get("contentId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String userLoginId=userLogin.getString("userLoginId");
+  try {
+    GenericValue content=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+    if (content == null) {
+      Debug.logError("content was null",module);
+      return ServiceUtil.returnError("content was null");
+    }
+    String dataResourceId=content.getString("dataResourceId");
+    content.set("dataResourceId",null);
+    content.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+    content.set("lastModifiedByUserLogin",userLoginId);
+    content.store();
+    if (UtilValidate.isNotEmpty(dataResourceId)) {
+      GenericValue contentClone=(GenericValue)content.clone();
+      contentClone.set("dataResourceId",dataResourceId);
+      content.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+      content.set("lastModifiedByUserLogin",userLoginId);
+      content.set("createdDate",UtilDateTime.nowTimestamp());
+      content.set("createdByUserLogin",userLoginId);
+      contentClone.set("contentId",null);
+      ModelService modelService=dctx.getModelService("persistContentAndAssoc");
+      Map serviceIn=modelService.makeValid(contentClone,"IN");
+      serviceIn.put("userLogin",userLogin);
+      serviceIn.put("contentIdTo",contentId);
+      serviceIn.put("contentAssocTypeId","SUB_CONTENT");
+      serviceIn.put("sequenceNum",new Long(50));
+      try {
+        Map thisResult=dispatcher.runSync("persistContentAndAssoc",serviceIn);
+      }
+ catch (      ServiceAuthException e) {
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      List typeList=UtilMisc.toList("SUB_CONTENT");
+      int leafCount=ContentManagementWorker.updateStatsTopDown(delegator,contentId,typeList);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}

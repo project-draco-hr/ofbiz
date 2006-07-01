@@ -1,0 +1,139 @@
+{
+  String defaultScreenLocation="component://securityext/widget/EmailSecurityScreens.xml#PasswordEmail";
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  String productStoreId=ProductStoreWorker.getProductStoreId(request);
+  String errMsg=null;
+  Map subjectData=FastMap.newInstance();
+  subjectData.put("productStoreId",productStoreId);
+  boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
+  String userLoginId=request.getParameter("USERNAME");
+  subjectData.put("userLoginId",userLoginId);
+  if ((userLoginId != null) && ("true".equals(UtilProperties.getPropertyValue("security.properties","username.lowercase")))) {
+    userLoginId=userLoginId.toLowerCase();
+  }
+  if (!UtilValidate.isNotEmpty(userLoginId)) {
+    errMsg=UtilProperties.getMessage(resource,"loginevents.username_was_empty_reenter",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  GenericValue supposedUserLogin=null;
+  String passwordToSend=null;
+  try {
+    supposedUserLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+    if (supposedUserLogin == null) {
+      errMsg=UtilProperties.getMessage(resource,"loginevents.username_not_found_reenter",UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    if (useEncryption) {
+      double randNum=Math.random();
+      passwordToSend="auto" + ((long)(randNum * 100000));
+      supposedUserLogin.set("currentPassword",LoginServices.getPasswordHash(passwordToSend));
+      supposedUserLogin.set("passwordHint","Auto-Generated Password");
+    }
+ else {
+      passwordToSend=supposedUserLogin.getString("currentPassword");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"",module);
+    Map messageMap=UtilMisc.toMap("errorMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"loginevents.error_accessing_password",messageMap,UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  if (supposedUserLogin == null) {
+    Map messageMap=UtilMisc.toMap("userLoginId",userLoginId);
+    errMsg=UtilProperties.getMessage(resource,"loginevents.user_with_the_username_not_found",messageMap,UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  StringBuffer emails=new StringBuffer();
+  GenericValue party=null;
+  try {
+    party=supposedUserLogin.getRelatedOne("Party");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"",module);
+    party=null;
+  }
+  if (party != null) {
+    Iterator emailIter=UtilMisc.toIterator(ContactHelper.getContactMechByPurpose(party,"PRIMARY_EMAIL",false));
+    while (emailIter != null && emailIter.hasNext()) {
+      GenericValue email=(GenericValue)emailIter.next();
+      emails.append(emails.length() > 0 ? "," : "").append(email.getString("infoString"));
+    }
+  }
+  if (!UtilValidate.isNotEmpty(emails.toString())) {
+    errMsg=UtilProperties.getMessage(resource,"loginevents.no_primary_email_address_set_contact_customer_service",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  GenericValue productStoreEmail=null;
+  try {
+    productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_PWD_RETRIEVE"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting ProductStoreEmailSetting",module);
+  }
+  if (productStoreEmail == null) {
+    errMsg=UtilProperties.getMessage(resource,"loginevents.problems_with_configuration_contact_customer_service",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+  if (UtilValidate.isEmpty(bodyScreenLocation)) {
+    bodyScreenLocation=defaultScreenLocation;
+  }
+  Map bodyParameters=FastMap.newInstance();
+  bodyParameters.put("useEncryption",new Boolean(useEncryption));
+  bodyParameters.put("password",UtilFormatOut.checkNull(passwordToSend));
+  bodyParameters.put("locale",UtilHttp.getLocale(request));
+  bodyParameters.put("userLogin",supposedUserLogin);
+  Map serviceContext=FastMap.newInstance();
+  serviceContext.put("bodyScreenUri",bodyScreenLocation);
+  serviceContext.put("bodyParameters",bodyParameters);
+  serviceContext.put("subject",productStoreEmail.getString("subject"));
+  serviceContext.put("sendFrom",productStoreEmail.get("fromAddress"));
+  serviceContext.put("sendCc",productStoreEmail.get("ccAddress"));
+  serviceContext.put("sendBcc",productStoreEmail.get("bccAddress"));
+  serviceContext.put("contentType",productStoreEmail.get("contentType"));
+  serviceContext.put("sendTo",emails.toString());
+  try {
+    Map result=dispatcher.runSync("sendMailFromScreen",serviceContext);
+    if (ModelService.RESPOND_ERROR.equals((String)result.get(ModelService.RESPONSE_MESSAGE))) {
+      Map messageMap=UtilMisc.toMap("errorMessage",result.get(ModelService.ERROR_MESSAGE));
+      errMsg=UtilProperties.getMessage(resource,"loginevents.error_unable_email_password_contact_customer_service_errorwas",messageMap,UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logWarning(e,"",module);
+    errMsg=UtilProperties.getMessage(resource,"loginevents.error_unable_email_password_contact_customer_service",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  if (useEncryption) {
+    try {
+      supposedUserLogin.store();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"",module);
+      Map messageMap=UtilMisc.toMap("errorMessage",e.toString());
+      errMsg=UtilProperties.getMessage(resource,"loginevents.error_saving_new_password_email_not_correct_password",messageMap,UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+  }
+  if (useEncryption) {
+    errMsg=UtilProperties.getMessage(resource,"loginevents.new_password_createdandsent_check_email",UtilHttp.getLocale(request));
+    request.setAttribute("_EVENT_MESSAGE_",errMsg);
+  }
+ else {
+    errMsg=UtilProperties.getMessage(resource,"loginevents.new_password_sent_check_email",UtilHttp.getLocale(request));
+    request.setAttribute("_EVENT_MESSAGE_",errMsg);
+  }
+  return "success";
+}

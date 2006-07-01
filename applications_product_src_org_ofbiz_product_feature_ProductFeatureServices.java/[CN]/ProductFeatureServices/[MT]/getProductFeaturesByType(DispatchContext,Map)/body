@@ -1,0 +1,50 @@
+{
+  Map results=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  String valueToSearch=(String)context.get("productFeatureCategoryId");
+  String productFeatureApplTypeId=(String)context.get("productFeatureApplTypeId");
+  String entityToSearch="ProductFeature";
+  String fieldToSearch="productFeatureCategoryId";
+  List orderBy=UtilMisc.toList("productFeatureTypeId","description");
+  if (valueToSearch == null && context.get("productFeatureGroupId") != null) {
+    entityToSearch="ProductFeatureGroupAndAppl";
+    fieldToSearch="productFeatureGroupId";
+    valueToSearch=(String)context.get("productFeatureGroupId");
+  }
+ else   if (valueToSearch == null && context.get("productId") != null) {
+    entityToSearch="ProductFeatureAndAppl";
+    fieldToSearch="productId";
+    valueToSearch=(String)context.get("productId");
+    orderBy=UtilMisc.toList("sequenceNum","productFeatureApplTypeId","productFeatureTypeId","description");
+  }
+  if (valueToSearch == null) {
+    return ServiceUtil.returnError("This service requires a productId, a productFeatureGroupId, or a productFeatureCategoryId to run.");
+  }
+  try {
+    List allFeatures=delegator.findByAnd(entityToSearch,UtilMisc.toMap(fieldToSearch,valueToSearch),orderBy);
+    if (entityToSearch.equals("ProductFeatureAndAppl") && productFeatureApplTypeId != null)     allFeatures=EntityUtil.filterByAnd(allFeatures,UtilMisc.toMap("productFeatureApplTypeId",productFeatureApplTypeId));
+    List featureTypes=new ArrayList();
+    Map featuresByType=new LinkedHashMap();
+    GenericValue feature=null;
+    for (Iterator featuresIter=allFeatures.iterator(); featuresIter.hasNext(); ) {
+      feature=(GenericValue)featuresIter.next();
+      String featureType=feature.getString("productFeatureTypeId");
+      if (!featureTypes.contains(featureType)) {
+        featureTypes.add(featureType);
+      }
+      if (!featuresByType.containsKey(featureType)) {
+        featuresByType.put(featureType,new ArrayList());
+      }
+      List features=(List)featuresByType.get(featureType);
+      features.add(feature);
+    }
+    results=ServiceUtil.returnSuccess();
+    results.put("productFeatureTypes",featureTypes);
+    results.put("productFeaturesByType",featuresByType);
+  }
+ catch (  GenericEntityException ex) {
+    Debug.logError(ex,ex.getMessage(),module);
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  return results;
+}

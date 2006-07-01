@@ -1,0 +1,105 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String webSiteId=WebSiteWorker.getWebSiteId(request);
+  String httpsPort=null;
+  String httpsServer=null;
+  String httpPort=null;
+  String httpServer=null;
+  Boolean enableHttps=null;
+  GenericValue webSite=null;
+  if (webSiteId != null) {
+    try {
+      webSite=delegator.findByPrimaryKeyCache("WebSite",UtilMisc.toMap("webSiteId",webSiteId));
+      if (webSite != null) {
+        httpsPort=webSite.getString("httpsPort");
+        httpsServer=webSite.getString("httpsHost");
+        httpPort=webSite.getString("httpPort");
+        httpServer=webSite.getString("httpHost");
+        enableHttps=webSite.getBoolean("enableHttps");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Problems with WebSite entity; using global defaults",module);
+    }
+  }
+  if (UtilValidate.isEmpty(httpsPort)) {
+    httpsPort=UtilProperties.getPropertyValue("url.properties","port.https","443");
+  }
+  if (UtilValidate.isEmpty(httpServer)) {
+    httpsServer=UtilProperties.getPropertyValue("url.properties","force.https.host");
+  }
+  if (UtilValidate.isEmpty(httpPort)) {
+    httpPort=UtilProperties.getPropertyValue("url.properties","port.http","80");
+  }
+  if (UtilValidate.isEmpty(httpServer)) {
+    httpServer=UtilProperties.getPropertyValue("url.properties","force.http.host");
+  }
+  if (enableHttps == null) {
+    enableHttps=new Boolean(UtilProperties.propertyValueEqualsIgnoreCase("url.properties","port.https.enabled","Y"));
+  }
+  String controlPath=(String)request.getAttribute("_CONTROL_PATH_");
+  String requestUri=RequestHandler.getRequestUri(url);
+  StringBuffer newURL=new StringBuffer();
+  boolean useHttps=enableHttps.booleanValue();
+  boolean didFullSecure=false;
+  boolean didFullStandard=false;
+  if (useHttps || fullPath || secure) {
+    if (secure || (useHttps && requestManager.requiresHttps(requestUri) && !request.isSecure())) {
+      String server=httpsServer;
+      if (server == null || server.length() == 0) {
+        server=request.getServerName();
+      }
+      newURL.append("https://");
+      newURL.append(server);
+      if (!httpsPort.equals("443")) {
+        newURL.append(":").append(httpsPort);
+      }
+      didFullSecure=true;
+    }
+ else     if (fullPath || (useHttps && !requestManager.requiresHttps(requestUri) && request.isSecure())) {
+      String server=httpServer;
+      if (server == null || server.length() == 0) {
+        server=request.getServerName();
+      }
+      newURL.append("http://");
+      newURL.append(server);
+      if (!httpPort.equals("80")) {
+        newURL.append(":" + httpPort);
+      }
+      didFullStandard=true;
+    }
+  }
+  newURL.append(controlPath);
+  if (!url.startsWith("/")) {
+    newURL.append("/");
+  }
+  newURL.append(url);
+  String encodedUrl=null;
+  if (encode) {
+    boolean forceManualJsessionid=false;
+    if (!request.isSecure() && didFullSecure) {
+      forceManualJsessionid=true;
+    }
+    if (request.isSecure() && didFullStandard) {
+      forceManualJsessionid=true;
+    }
+    if (response != null && !forceManualJsessionid) {
+      encodedUrl=response.encodeURL(newURL.toString());
+    }
+ else {
+      String sessionId=";jsessionid=" + request.getSession().getId();
+      int questionIndex=newURL.indexOf("?");
+      if (questionIndex == -1) {
+        newURL.append(sessionId);
+      }
+ else {
+        newURL.insert(questionIndex,sessionId);
+      }
+      encodedUrl=newURL.toString();
+    }
+  }
+ else {
+    encodedUrl=newURL.toString();
+  }
+  return encodedUrl;
+}

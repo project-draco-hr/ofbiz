@@ -1,0 +1,46 @@
+{
+  System.setProperty("catalina.home",System.getProperty("ofbiz.home") + "/framework/catalina");
+  ContainerConfig.Container cc=ContainerConfig.getContainer("catalina-container",configFile);
+  if (cc == null) {
+    throw new ContainerException("No catalina-container configuration found in container config!");
+  }
+  boolean useNaming=ContainerConfig.getPropertyValue(cc,"use-naming",false);
+  this.delegator=GenericDelegator.getGenericDelegator(ContainerConfig.getPropertyValue(cc,"delegator-name","default"));
+  this.contextReloadable=ContainerConfig.getPropertyValue(cc,"apps-context-reloadable",false);
+  this.crossContext=ContainerConfig.getPropertyValue(cc,"apps-cross-context",true);
+  this.distribute=ContainerConfig.getPropertyValue(cc,"apps-distributable",true);
+  StandardServer server=(StandardServer)ServerFactory.getServer();
+  try {
+    server.setGlobalNamingContext(new InitialContext());
+  }
+ catch (  NamingException e) {
+    throw new ContainerException(e);
+  }
+  embedded=new Embedded();
+  embedded.setUseNaming(useNaming);
+  List engineProps=cc.getPropertiesWithValue("engine");
+  if (engineProps == null && engineProps.size() == 0) {
+    throw new ContainerException("Cannot load CatalinaContainer; no engines defined!");
+  }
+  Iterator ei=engineProps.iterator();
+  while (ei.hasNext()) {
+    ContainerConfig.Container.Property engineProp=(ContainerConfig.Container.Property)ei.next();
+    createEngine(engineProp);
+  }
+  loadComponents();
+  List connectorProps=cc.getPropertiesWithValue("connector");
+  if (connectorProps == null && connectorProps.size() == 0) {
+    throw new ContainerException("Cannot load CatalinaContainer; no connectors defined!");
+  }
+  Iterator ci=connectorProps.iterator();
+  while (ci.hasNext()) {
+    ContainerConfig.Container.Property connectorProp=(ContainerConfig.Container.Property)ci.next();
+    createConnector(connectorProp);
+  }
+  try {
+    embedded.initialize();
+  }
+ catch (  LifecycleException e) {
+    throw new ContainerException(e);
+  }
+}

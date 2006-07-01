@@ -1,0 +1,83 @@
+{
+  if (serviceName == null || dctx == null || context == null || dctx.getClassLoader() == null) {
+    throw new GenericServiceException("Cannot have null Service, Context or DispatchContext!");
+  }
+  if (Debug.verboseOn())   Debug.logVerbose(this.toString() + ", In the context: " + context,module);
+  if (isService) {
+    LocalDispatcher dispatcher=dctx.getDispatcher();
+    Map conditionServiceResult=dispatcher.runSync(conditionService,UtilMisc.toMap("serviceContext",context,"serviceName",serviceName,"userLogin",context.get("userLogin")));
+    Boolean conditionReply=Boolean.FALSE;
+    if (ServiceUtil.isError(conditionServiceResult)) {
+      Debug.logError("Error in condition-service : " + ServiceUtil.getErrorMessage(conditionServiceResult),module);
+    }
+ else {
+      conditionReply=(Boolean)conditionServiceResult.get("conditionReply");
+    }
+    return conditionReply.booleanValue();
+  }
+  Object lhsValue=null;
+  Object rhsValue=null;
+  if (lhsMapName != null && lhsMapName.length() > 0) {
+    try {
+      if (context.containsKey(lhsMapName)) {
+        Map envMap=(Map)context.get(lhsMapName);
+        lhsValue=envMap.get(lhsValueName);
+      }
+ else {
+        Debug.logWarning("From Map (" + lhsMapName + ") not found in context, defaulting to null.",module);
+      }
+    }
+ catch (    ClassCastException e) {
+      throw new GenericServiceException("From Map field [" + lhsMapName + "] is not a Map.",e);
+    }
+  }
+ else {
+    if (context.containsKey(lhsValueName)) {
+      lhsValue=context.get(lhsValueName);
+    }
+ else {
+      Debug.logWarning("From Field (" + lhsValueName + ") is not found in context for "+ serviceName+ ", defaulting to null.",module);
+    }
+  }
+  if (isConstant) {
+    rhsValue=rhsValueName;
+  }
+ else   if (rhsMapName != null && rhsMapName.length() > 0) {
+    try {
+      if (context.containsKey(rhsMapName)) {
+        Map envMap=(Map)context.get(rhsMapName);
+        rhsValue=envMap.get(rhsValueName);
+      }
+ else {
+        Debug.logWarning("To Map (" + rhsMapName + ") not found in context for "+ serviceName+ ", defaulting to null.",module);
+      }
+    }
+ catch (    ClassCastException e) {
+      throw new GenericServiceException("To Map field [" + rhsMapName + "] is not a Map.",e);
+    }
+  }
+ else {
+    if (context.containsKey(rhsValueName)) {
+      rhsValue=context.get(rhsValueName);
+    }
+ else {
+      Debug.logInfo("To Field (" + rhsValueName + ") is not found in context for "+ serviceName+ ", defaulting to null.",module);
+    }
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Comparing : " + lhsValue + " "+ operator+ " "+ rhsValue,module);
+  List messages=new LinkedList();
+  Boolean cond=ObjectType.doRealCompare(lhsValue,rhsValue,operator,compareType,format,messages,null,dctx.getClassLoader());
+  if (messages.size() > 0) {
+    Iterator m=messages.iterator();
+    while (m.hasNext()) {
+      Debug.logWarning((String)m.next(),module);
+    }
+  }
+  if (cond != null) {
+    return cond.booleanValue();
+  }
+ else {
+    Debug.logWarning("doRealCompare returned null, returning false",module);
+    return false;
+  }
+}

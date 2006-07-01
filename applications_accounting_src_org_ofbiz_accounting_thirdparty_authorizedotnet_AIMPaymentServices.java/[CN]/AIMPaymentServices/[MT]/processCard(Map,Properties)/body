@@ -1,0 +1,40 @@
+{
+  Debug.logInfo("processCard.",module);
+  HashMap result=new HashMap();
+  String url=props.getProperty("url");
+  if (url == null || url.length() == 0) {
+    url="https://certification.authorize.net/gateway/transact.dll";
+  }
+  if (isTestMode()) {
+    Debug.logInfo("TEST Authorize.net",module);
+    Debug.logInfo("TEST Authorize.net request string " + request.toString(),module);
+    Debug.logInfo("TEST Authorize.net properties string " + props.toString(),module);
+  }
+  try {
+    Debug.logInfo("contacting Authorize.Net",module);
+    HttpClient httpClient=new HttpClient(url,request);
+    httpClient.setClientCertificateAlias("AUTHORIZE_NET");
+    String httpResponse=httpClient.post();
+    Debug.logInfo("transaction response: " + httpResponse,module);
+    AuthorizeResponse ar=new AuthorizeResponse(httpResponse);
+    String resp=ar.getResponseCode();
+    if (resp.equals(ar.APPROVED)) {
+      result.put("authResult",new Boolean(true));
+      Debug.logInfo("--> TRANSACTION APPROVED <--",module);
+    }
+ else {
+      result.put("authResult",new Boolean(false));
+      Debug.logInfo("--> TRANSACTION DECLINED <--",module);
+      Debug.logInfo("responseCode:   " + ar.getResponseField(AuthorizeResponse.RESPONSE_CODE),module);
+      Debug.logInfo("responseReason: " + ar.getResponseField(AuthorizeResponse.RESPONSE_REASON_CODE),module);
+      Debug.logInfo("reasonText:     " + ar.getResponseField(AuthorizeResponse.RESPONSE_REASON_TEXT),module);
+    }
+    result.put("httpResponse",httpResponse);
+    result.put("authorizeResponse",ar);
+  }
+ catch (  HttpClientException e) {
+    Debug.logInfo("       Could not complete Authorize.Net transaction: " + e.toString(),module);
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

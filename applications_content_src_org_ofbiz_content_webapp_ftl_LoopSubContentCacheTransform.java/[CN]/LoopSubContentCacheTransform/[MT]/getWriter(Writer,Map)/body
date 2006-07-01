@@ -1,0 +1,176 @@
+{
+  final StringBuffer buf=new StringBuffer();
+  final Environment env=Environment.getCurrentEnvironment();
+  final Map templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
+  final GenericDelegator delegator=(GenericDelegator)FreeMarkerWorker.getWrappedObject("delegator",env);
+  final HttpServletRequest request=(HttpServletRequest)FreeMarkerWorker.getWrappedObject("request",env);
+  FreeMarkerWorker.getSiteParameters(request,templateRoot);
+  final Map savedValuesUp=new HashMap();
+  FreeMarkerWorker.saveContextValues(templateRoot,upSaveKeyNames,savedValuesUp);
+  final Map savedValues=new HashMap();
+  FreeMarkerWorker.overrideWithArgs(templateRoot,args);
+  String contentAssocTypeId=(String)templateRoot.get("contentAssocTypeId");
+  List assocTypes=StringUtil.split(contentAssocTypeId,"|");
+  String contentPurposeTypeId=(String)templateRoot.get("contentPurposeTypeId");
+  List purposeTypes=StringUtil.split(contentPurposeTypeId,"|");
+  templateRoot.put("purposeTypes",purposeTypes);
+  Locale locale=(Locale)templateRoot.get("locale");
+  if (locale == null) {
+    locale=Locale.getDefault();
+    templateRoot.put("locale",locale);
+  }
+  Map whenMap=new HashMap();
+  whenMap.put("followWhen",(String)templateRoot.get("followWhen"));
+  whenMap.put("pickWhen",(String)templateRoot.get("pickWhen"));
+  whenMap.put("returnBeforePickWhen",(String)templateRoot.get("returnBeforePickWhen"));
+  whenMap.put("returnAfterPickWhen",(String)templateRoot.get("returnAfterPickWhen"));
+  templateRoot.put("whenMap",whenMap);
+  String fromDateStr=(String)templateRoot.get("fromDateStr");
+  Timestamp fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    fromDate=UtilDateTime.toTimestamp(fromDateStr);
+  }
+  if (fromDate == null)   fromDate=UtilDateTime.nowTimestamp();
+  final GenericValue userLogin=(GenericValue)FreeMarkerWorker.getWrappedObject("userLogin",env);
+  List globalNodeTrail=(List)templateRoot.get("globalNodeTrail");
+  String strNullThruDatesOnly=(String)templateRoot.get("nullThruDatesOnly");
+  String orderBy=(String)templateRoot.get("orderBy");
+  Boolean nullThruDatesOnly=(strNullThruDatesOnly != null && strNullThruDatesOnly.equalsIgnoreCase("true")) ? new Boolean(true) : new Boolean(false);
+  GenericValue val=null;
+  try {
+    val=ContentWorker.getCurrentContent(delegator,globalNodeTrail,userLogin,templateRoot,nullThruDatesOnly,null);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+  }
+  final GenericValue view=val;
+  if (view != null) {
+    templateRoot.put("contentId",null);
+    templateRoot.put("subContentId",null);
+    String contentId=(String)view.get("contentId");
+    final String contentIdTo=contentId;
+    String thisMapKey=(String)templateRoot.get("mapKey");
+    Map results=null;
+    String contentAssocPredicateId=(String)templateRoot.get("contentAssocPredicateId");
+    try {
+      results=ContentServicesComplex.getAssocAndContentAndDataResourceCacheMethod(delegator,contentId,thisMapKey,"From",fromDate,null,assocTypes,null,new Boolean(true),contentAssocPredicateId,orderBy);
+    }
+ catch (    MiniLangException e2) {
+      throw new RuntimeException(e2.getMessage());
+    }
+catch (    GenericEntityException e) {
+      throw new RuntimeException(e.getMessage());
+    }
+    List longList=(List)results.get("entityList");
+    String viewSizeStr=(String)templateRoot.get("viewSize");
+    if (UtilValidate.isEmpty(viewSizeStr))     viewSizeStr=UtilProperties.getPropertyValue("content","viewSize");
+    if (UtilValidate.isEmpty(viewSizeStr))     viewSizeStr="10";
+    int viewSize=Integer.parseInt(viewSizeStr);
+    String viewIndexStr=(String)templateRoot.get("viewIndex");
+    if (UtilValidate.isEmpty(viewIndexStr))     viewIndexStr="0";
+    int viewIndex=Integer.parseInt(viewIndexStr);
+    int lowIndex=viewIndex * viewSize;
+    int listSize=longList.size();
+    int highIndex=(viewIndex + 1) * viewSize;
+    if (highIndex > listSize)     highIndex=listSize;
+    Iterator it=longList.iterator();
+    List entityList=longList;
+    templateRoot.put("entityList",entityList);
+    templateRoot.put("viewIndex",new Integer(viewIndex));
+    templateRoot.put("viewSize",new Integer(viewSize));
+    templateRoot.put("lowIndex",new Integer(lowIndex));
+    templateRoot.put("highIndex",new Integer(highIndex));
+    templateRoot.put("listSize",new Integer(listSize));
+    env.setVariable("entityList",FreeMarkerWorker.autoWrap(entityList,env));
+    env.setVariable("viewIndex",FreeMarkerWorker.autoWrap(new Integer(viewIndex),env));
+    env.setVariable("viewSize",FreeMarkerWorker.autoWrap(new Integer(viewSize),env));
+    env.setVariable("lowIndex",FreeMarkerWorker.autoWrap(new Integer(lowIndex),env));
+    env.setVariable("highIndex",FreeMarkerWorker.autoWrap(new Integer(highIndex),env));
+    env.setVariable("listSize",FreeMarkerWorker.autoWrap(new Integer(listSize),env));
+  }
+  return new LoopWriter(out){
+    public void write(    char cbuf[],    int off,    int len){
+      buf.append(cbuf,off,len);
+    }
+    public void flush() throws IOException {
+      out.flush();
+    }
+    public int onStart() throws TemplateModelException, IOException {
+      if (view == null) {
+        return TransformControl.SKIP_BODY;
+      }
+      List globalNodeTrail=(List)templateRoot.get("globalNodeTrail");
+      String trailCsv=ContentWorker.nodeTrailToCsv(globalNodeTrail);
+      int viewIndex=((Integer)templateRoot.get("viewIndex")).intValue();
+      int viewSize=((Integer)templateRoot.get("viewSize")).intValue();
+      int listSize=((Integer)templateRoot.get("listSize")).intValue();
+      int lowIndex=viewIndex * viewSize;
+      int highIndex=(viewIndex + 1) * viewSize;
+      if (highIndex > listSize)       highIndex=listSize;
+      int outputIndex=0;
+      Integer highIndexInteger=new Integer(highIndex);
+      Integer lowIndexInteger=new Integer(lowIndex);
+      Integer outputIndexInteger=new Integer(outputIndex);
+      Integer entityIndexInteger=new Integer(0);
+      templateRoot.put("lowIndex",lowIndexInteger);
+      templateRoot.put("highIndex",highIndexInteger);
+      templateRoot.put("outputIndex",outputIndexInteger);
+      templateRoot.put("entityIndex",outputIndexInteger);
+      env.setVariable("lowIndex",FreeMarkerWorker.autoWrap(lowIndexInteger,env));
+      env.setVariable("highIndex",FreeMarkerWorker.autoWrap(highIndexInteger,env));
+      env.setVariable("outputIndex",FreeMarkerWorker.autoWrap(outputIndexInteger,env));
+      env.setVariable("entityIndex",FreeMarkerWorker.autoWrap(outputIndexInteger,env));
+      boolean inProgress=false;
+      if (outputIndex < highIndex) {
+        inProgress=getNextMatchingEntity(templateRoot,delegator,env);
+      }
+      FreeMarkerWorker.saveContextValues(templateRoot,saveKeyNames,savedValues);
+      if (inProgress) {
+        return TransformControl.EVALUATE_BODY;
+      }
+ else {
+        return TransformControl.SKIP_BODY;
+      }
+    }
+    public int afterBody() throws TemplateModelException, IOException {
+      FreeMarkerWorker.reloadValues(templateRoot,savedValues,env);
+      List list=(List)templateRoot.get("globalNodeTrail");
+      List subList=list.subList(0,list.size() - 1);
+      templateRoot.put("globalNodeTrail",subList);
+      env.setVariable("globalNodeTrail",FreeMarkerWorker.autoWrap(subList,env));
+      int outputIndex=((Integer)templateRoot.get("outputIndex")).intValue();
+      int highIndex=((Integer)templateRoot.get("highIndex")).intValue();
+      Integer highIndexInteger=new Integer(highIndex);
+      env.setVariable("highIndex",FreeMarkerWorker.autoWrap(highIndexInteger,env));
+      boolean inProgress=false;
+      if (outputIndex < highIndex) {
+        inProgress=getNextMatchingEntity(templateRoot,delegator,env);
+      }
+      FreeMarkerWorker.saveContextValues(templateRoot,saveKeyNames,savedValues);
+      if (inProgress) {
+        return TransformControl.REPEAT_EVALUATION;
+      }
+ else {
+        return TransformControl.END_EVALUATION;
+      }
+    }
+    public void close() throws IOException {
+      if (view == null) {
+        return;
+      }
+      FreeMarkerWorker.reloadValues(templateRoot,savedValuesUp,env);
+      int outputIndex=((Integer)templateRoot.get("outputIndex")).intValue();
+      int highIndex=((Integer)templateRoot.get("highIndex")).intValue();
+      Integer highIndexInteger=new Integer(highIndex);
+      env.setVariable("highIndex",FreeMarkerWorker.autoWrap(highIndexInteger,env));
+      if (outputIndex < highIndex) {
+        templateRoot.put("highIndex",new Integer(outputIndex));
+        templateRoot.put("listSize",new Integer(outputIndex));
+      }
+      Object highIndexObj=FreeMarkerWorker.getWrappedObject("highIndex",env);
+      String wrappedContent=buf.toString();
+      out.write(wrappedContent);
+    }
+  }
+;
+}

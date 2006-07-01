@@ -1,0 +1,57 @@
+{
+  Map result=new HashMap();
+  String postalCode=(String)context.get("postalCode");
+  String accountNbr=UtilProperties.getPropertyValue("shipment","shipment.dhl.access.accountNbr");
+  if (accountNbr == null) {
+    return ServiceUtil.returnError("accountNbr not found for Register Account.");
+  }
+  Document requestDocument=createAccessRequestDocument();
+  String requestString=null;
+  Element requesElement=requestDocument.getDocumentElement();
+  Element registerRequestElement=UtilXml.addChildElement(requesElement,"Register",requestDocument);
+  registerRequestElement.setAttribute("version","1.0");
+  registerRequestElement.setAttribute("action","ShippingKey");
+  UtilXml.addChildElementValue(registerRequestElement,"AccountNbr",accountNbr,requestDocument);
+  UtilXml.addChildElementValue(registerRequestElement,"PostalCode",postalCode,requestDocument);
+  try {
+    requestString=UtilXml.writeXmlDocument(requestDocument);
+    Debug.log("AccessRequest XML Document:" + requestString);
+  }
+ catch (  IOException e) {
+    String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
+    Debug.logError(e,ioeErrMsg,module);
+    return ServiceUtil.returnError(ioeErrMsg);
+  }
+  String registerResponseString=null;
+  try {
+    registerResponseString=sendDhlRequest(requestString);
+    Debug.log("DHL request for DHL Register Account:" + registerResponseString);
+  }
+ catch (  DhlConnectException e) {
+    String uceErrMsg="Error sending DHL request for DHL Register Account: " + e.toString();
+    Debug.logError(e,uceErrMsg,module);
+    return ServiceUtil.returnError(uceErrMsg);
+  }
+  Document registerResponseDocument=null;
+  try {
+    registerResponseDocument=UtilXml.readXmlDocument(registerResponseString,false);
+    result=handleDhlRegisterResponse(registerResponseDocument);
+    Debug.log("DHL response for DHL Register Account:" + registerResponseString);
+  }
+ catch (  SAXException e2) {
+    String excErrMsg="Error parsing the RegisterAccountServiceSelectionResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(excErrMsg);
+  }
+catch (  ParserConfigurationException e2) {
+    String excErrMsg="Error parsing the RegisterAccountServiceSelectionResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(excErrMsg);
+  }
+catch (  IOException e2) {
+    String excErrMsg="Error parsing the RegisterAccountServiceSelectionResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(excErrMsg);
+  }
+  return result;
+}

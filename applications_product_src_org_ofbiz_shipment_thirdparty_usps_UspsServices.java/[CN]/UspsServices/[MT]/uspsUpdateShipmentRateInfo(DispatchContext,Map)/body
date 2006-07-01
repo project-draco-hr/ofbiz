@@ -1,0 +1,169 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String shipmentId=(String)context.get("shipmentId");
+  String shipmentRouteSegmentId=(String)context.get("shipmentRouteSegmentId");
+  String srsKeyString="[" + shipmentId + ","+ shipmentRouteSegmentId+ "]";
+  try {
+    GenericValue shipmentRouteSegment=delegator.findByPrimaryKey("ShipmentRouteSegment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId));
+    if (shipmentRouteSegment == null) {
+      return ServiceUtil.returnError("ShipmentRouteSegment " + srsKeyString + " not found");
+    }
+    if (!"USPS".equals(shipmentRouteSegment.getString("carrierPartyId"))) {
+      return ServiceUtil.returnError("The Carrier for ShipmentRouteSegment " + srsKeyString + ", is not USPS");
+    }
+    GenericValue originAddress=shipmentRouteSegment.getRelatedOne("OriginPostalAddress");
+    if (originAddress == null) {
+      return ServiceUtil.returnError("OriginPostalAddress not found for ShipmentRouteSegment [" + shipmentId + ":"+ shipmentRouteSegmentId+ "]");
+    }
+    if (!"USA".equals(originAddress.getString("countryGeoId"))) {
+      return ServiceUtil.returnError("ShipmentRouteSeqment " + srsKeyString + " does not originate from a US address");
+    }
+    String originZip=originAddress.getString("postalCode");
+    if (UtilValidate.isEmpty(originZip)) {
+      return ServiceUtil.returnError("ZIP code is missing from the origin postal address" + " (contactMechId " + originAddress.getString("contactMechId") + ")");
+    }
+    GenericValue destinationAddress=shipmentRouteSegment.getRelatedOne("DestPostalAddress");
+    if (destinationAddress == null) {
+      return ServiceUtil.returnError("DestPostalAddress not found for ShipmentRouteSegment " + srsKeyString);
+    }
+    if (!"USA".equals(destinationAddress.getString("countryGeoId"))) {
+      return ServiceUtil.returnError("ShipmentRouteSeqment " + srsKeyString + " is not destined for a US address");
+    }
+    String destinationZip=destinationAddress.getString("postalCode");
+    if (UtilValidate.isEmpty(destinationZip)) {
+      return ServiceUtil.returnError("ZIP code is missing from the destination postal address" + " (contactMechId " + originAddress.getString("contactMechId") + ")");
+    }
+    String shipmentMethodTypeId=shipmentRouteSegment.getString("shipmentMethodTypeId");
+    String partyId=shipmentRouteSegment.getString("carrierPartyId");
+    String csmKeystring="[" + shipmentMethodTypeId + ","+ partyId+ ",CARRIER]";
+    GenericValue carrierShipmentMethod=delegator.findByPrimaryKey("CarrierShipmentMethod",UtilMisc.toMap("partyId",partyId,"roleTypeId","CARRIER","shipmentMethodTypeId",shipmentMethodTypeId));
+    if (carrierShipmentMethod == null) {
+      return ServiceUtil.returnError("CarrierShipmentMethod " + csmKeystring + " not found for ShipmentRouteSegment "+ srsKeyString);
+    }
+    String serviceType=carrierShipmentMethod.getString("carrierServiceCode");
+    if (UtilValidate.isEmpty(serviceType)) {
+      return ServiceUtil.returnError("carrierServiceCode not found for CarrierShipmentMethod" + csmKeystring);
+    }
+    List shipmentPackageRouteSegList=shipmentRouteSegment.getRelated("ShipmentPackageRouteSeg",null,UtilMisc.toList("+shipmentPackageSeqId"));
+    if (UtilValidate.isEmpty(shipmentPackageRouteSegList)) {
+      return ServiceUtil.returnError("No packages found for ShipmentRouteSegment " + srsKeyString);
+    }
+    double actualTransportCost=0;
+    String carrierDeliveryZone=null;
+    String carrierRestrictionCodes=null;
+    String carrierRestrictionDesc=null;
+    for (Iterator i=shipmentPackageRouteSegList.iterator(); i.hasNext(); ) {
+      GenericValue shipmentPackageRouteSeg=(GenericValue)i.next();
+      String sprsKeyString="[" + shipmentPackageRouteSeg.getString("shipmentId") + ","+ shipmentPackageRouteSeg.getString("shipmentPackageSeqId")+ ","+ shipmentPackageRouteSeg.getString("shipmentRouteSegmentId")+ "]";
+      Document requestDocument=createUspsRequestDocument("RateRequest");
+      Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
+      packageElement.setAttribute("ID","0");
+      UtilXml.addChildElementValue(packageElement,"Service",serviceType,requestDocument);
+      UtilXml.addChildElementValue(packageElement,"ZipOrigination",originZip,requestDocument);
+      UtilXml.addChildElementValue(packageElement,"ZipDestination",destinationZip,requestDocument);
+      GenericValue shipmentPackage=null;
+      shipmentPackage=shipmentPackageRouteSeg.getRelatedOne("ShipmentPackage");
+      String spKeyString="[" + shipmentPackage.getString("shipmentId") + ","+ shipmentPackage.getString("shipmentPackageSeqId")+ "]";
+      String weightStr=shipmentPackage.getString("weight");
+      if (UtilValidate.isEmpty(weightStr)) {
+        return ServiceUtil.returnError("weight not found for ShipmentPackage " + spKeyString);
+      }
+      double weight=0;
+      try {
+        weight=Double.parseDouble(weightStr);
+      }
+ catch (      NumberFormatException nfe) {
+        nfe.printStackTrace();
+      }
+      String weightUomId=shipmentPackage.getString("weightUomId");
+      if (UtilValidate.isEmpty(weightUomId)) {
+        weightUomId="WT_lb";
+      }
+      if (!"WT_lb".equals(weightUomId)) {
+        Map result=new HashMap();
+        try {
+          result=dispatcher.runSync("convertUom",UtilMisc.toMap("uomId",weightUomId,"uomIdTo","WT_lb","originalValue",new Double(weight)));
+        }
+ catch (        GenericServiceException ex) {
+          return ServiceUtil.returnError(ex.getMessage());
+        }
+        if (result.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_SUCCESS)) {
+          weight*=((Double)result.get("convertedValue")).doubleValue();
+        }
+ else {
+          return ServiceUtil.returnError("Unsupported weightUom [" + weightUomId + "] for ShipmentPackage "+ spKeyString+ ", could not find a conversion factor for WT_lb");
+        }
+      }
+      double weightPounds=Math.floor(weight);
+      double weightOunces=Math.ceil(weight % weightPounds * 16);
+      DecimalFormat df=new DecimalFormat("#");
+      UtilXml.addChildElementValue(packageElement,"Pounds",df.format(weightPounds),requestDocument);
+      UtilXml.addChildElementValue(packageElement,"Ounces",df.format(weightOunces),requestDocument);
+      GenericValue carrierShipmentBoxType=null;
+      List carrierShipmentBoxTypes=null;
+      carrierShipmentBoxTypes=shipmentPackage.getRelated("CarrierShipmentBoxType",UtilMisc.toMap("partyId","USPS"),null);
+      if (carrierShipmentBoxTypes.size() > 0) {
+        carrierShipmentBoxType=(GenericValue)carrierShipmentBoxTypes.get(0);
+      }
+      if (carrierShipmentBoxType != null && UtilValidate.isNotEmpty(carrierShipmentBoxType.getString("packagingTypeCode"))) {
+        UtilXml.addChildElementValue(packageElement,"Container",carrierShipmentBoxType.getString("packagingTypeCode"),requestDocument);
+      }
+ else {
+        UtilXml.addChildElementValue(packageElement,"Container","None",requestDocument);
+      }
+      if (carrierShipmentBoxType != null && UtilValidate.isNotEmpty("oversizeCode")) {
+        UtilXml.addChildElementValue(packageElement,"Size",carrierShipmentBoxType.getString("oversizeCode"),requestDocument);
+      }
+ else {
+        UtilXml.addChildElementValue(packageElement,"Size","Regular",requestDocument);
+      }
+      UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
+      Document responseDocument=null;
+      try {
+        responseDocument=sendUspsRequest("Rate",requestDocument);
+      }
+ catch (      UspsRequestException e) {
+        Debug.log(e,module);
+        return ServiceUtil.returnError("Error sending request for USPS Domestic Rate Calculation service: " + e.getMessage());
+      }
+      Element respPackageElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"Package");
+      if (respPackageElement == null) {
+        return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: " + "no Package element found");
+      }
+      Element respErrorElement=UtilXml.firstChildElement(respPackageElement,"Error");
+      if (respErrorElement != null) {
+        return ServiceUtil.returnError("The following error was returned by the USPS Domestic Rate Calculation " + "service for ShipmentPackage " + spKeyString + ": "+ UtilXml.childElementValue(respErrorElement,"Description"));
+      }
+      String postageString=UtilXml.childElementValue(respPackageElement,"Postage");
+      if (UtilValidate.isEmpty(postageString)) {
+        return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: " + "missing or empty Postage element");
+      }
+      double postage=0;
+      try {
+        postage=Double.parseDouble(postageString);
+      }
+ catch (      NumberFormatException nfe) {
+        nfe.printStackTrace();
+      }
+      actualTransportCost+=postage;
+      shipmentPackageRouteSeg.setString("packageTransportCost",postageString);
+      shipmentPackageRouteSeg.store();
+      if (!i.hasNext()) {
+        carrierDeliveryZone=UtilXml.childElementValue(respPackageElement,"Zone");
+        carrierRestrictionCodes=UtilXml.childElementValue(respPackageElement,"RestrictionCodes");
+        carrierRestrictionDesc=UtilXml.childElementValue(respPackageElement,"RestrictionDescription");
+      }
+    }
+    shipmentRouteSegment.set("carrierDeliveryZone",carrierDeliveryZone);
+    shipmentRouteSegment.set("carrierRestrictionCodes",carrierRestrictionCodes);
+    shipmentRouteSegment.set("carrierRestrictionDesc",carrierRestrictionDesc);
+    shipmentRouteSegment.setString("actualTransportCost",String.valueOf(actualTransportCost));
+    shipmentRouteSegment.store();
+  }
+ catch (  GenericEntityException gee) {
+    Debug.log(gee,module);
+    return ServiceUtil.returnError("Error reading or writing shipment data for the USPS " + "Domestic Rate Calculation service: " + gee.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}

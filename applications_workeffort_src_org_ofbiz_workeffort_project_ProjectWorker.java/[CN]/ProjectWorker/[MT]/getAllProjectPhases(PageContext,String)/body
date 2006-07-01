@@ -1,0 +1,33 @@
+{
+  GenericDelegator delegator=(GenericDelegator)pageContext.getRequest().getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)pageContext.getSession().getAttribute("userLogin");
+  String projectWorkEffortId=pageContext.getRequest().getParameter("projectWorkEffortId");
+  if (projectWorkEffortId == null)   projectWorkEffortId=(String)pageContext.getRequest().getAttribute("projectWorkEffortId");
+  Collection relatedWorkEfforts=null;
+  if (userLogin != null && userLogin.get("partyId") != null) {
+    try {
+      relatedWorkEfforts=delegator.findByAnd("WorkEffortAssoc",UtilMisc.toList(new EntityExpr("workEffortIdFrom",EntityOperator.EQUALS,projectWorkEffortId),new EntityExpr("workEffortAssocTypeId",EntityOperator.EQUALS,"WORK_EFF_BREAKDOWN")));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,module);
+    }
+  }
+  Collection validWorkEfforts=new ArrayList();
+  if (relatedWorkEfforts != null) {
+    Iterator relatedWorkEffortsIter=relatedWorkEfforts.iterator();
+    try {
+      while (relatedWorkEffortsIter.hasNext()) {
+        GenericValue workEffortAssoc=(GenericValue)relatedWorkEffortsIter.next();
+        GenericValue workEffort=workEffortAssoc.getRelatedOne("ToWorkEffort");
+        if ("TASK".equals(workEffort.getString("workEffortTypeId")) && ("WEPT_PHASE".equals(workEffort.getString("workEffortPurposeTypeId")))) {
+          validWorkEfforts.add(workEffort);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,module);
+    }
+  }
+  if (validWorkEfforts == null || validWorkEfforts.size() <= 0)   return;
+  pageContext.setAttribute(phasesAttrName,validWorkEfforts);
+}

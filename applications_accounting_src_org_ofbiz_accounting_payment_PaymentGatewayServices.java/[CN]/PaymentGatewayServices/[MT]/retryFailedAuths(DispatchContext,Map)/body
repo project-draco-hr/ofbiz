@@ -1,0 +1,38 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  List exprs=UtilMisc.toList(new EntityExpr("statusId",EntityOperator.EQUALS,"PAYMENT_NOT_AUTH"),new EntityExpr("processAttempt",EntityOperator.GREATER_THAN,new Long(0)));
+  EntityListIterator eli=null;
+  try {
+    eli=delegator.findListIteratorByCondition("OrderPaymentPreference",new EntityConditionList(exprs,EntityOperator.AND),null,UtilMisc.toList("orderId"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  List processList=new ArrayList();
+  if (eli != null) {
+    Debug.logInfo("Processing failed order re-auth(s)",module);
+    GenericValue value;
+    while (((value=(GenericValue)eli.next()) != null)) {
+      String orderId=value.getString("orderId");
+      if (!processList.contains(orderId)) {
+        try {
+          dispatcher.runAsync("retryFailedOrderAuth",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+          processList.add(orderId);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+        }
+      }
+    }
+    try {
+      eli.close();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  processList=null;
+  return ServiceUtil.returnSuccess();
+}

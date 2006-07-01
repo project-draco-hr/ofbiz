@@ -1,0 +1,36 @@
+{
+  List params=StringUtil.split(actualParameters,",");
+  Map actualContext=new HashMap();
+  Map extendedAttributes=StringUtil.strToMap(extendedAttr);
+  if (extendedAttributes != null && extendedAttributes.size() > 0)   actualContext.putAll(extendedAttributes);
+  GenericValue userLogin=null;
+  if (context.containsKey("runAsUser")) {
+    userLogin=getUserLogin(delegator,(String)context.get("runAsUser"));
+    actualContext.put("userLogin",userLogin);
+  }
+ else   if (context.containsKey("workflowOwnerId")) {
+    userLogin=getUserLogin(delegator,(String)context.get("workflowOwnerId"));
+  }
+  context.put("userLogin",userLogin);
+  context.put("workEffortId",workEffortId);
+  Iterator i=params.iterator();
+  while (i.hasNext()) {
+    Object keyExpr=i.next();
+    String keyExprStr=(String)keyExpr;
+    if (keyExprStr != null && keyExprStr.trim().toLowerCase().startsWith("expr:"))     try {
+      BshUtil.eval(keyExprStr.trim().substring(5).trim(),context);
+    }
+ catch (    EvalError e) {
+      throw new WfException("Error evaluating actual parameter: " + keyExprStr,e);
+    }
+ else     if (keyExprStr != null && keyExprStr.trim().toLowerCase().startsWith("name:")) {
+      List couple=StringUtil.split(keyExprStr.trim().substring(5).trim(),"=");
+      if (contextSignature.containsKey(((String)couple.get(0)).trim()))       actualContext.put(((String)couple.get(0)).trim(),context.get(couple.get(1)));
+    }
+ else     if (context.containsKey(keyExprStr)) {
+      if (contextSignature.containsKey(keyExprStr))       actualContext.put(keyExprStr,context.get(keyExprStr));
+    }
+ else     if (!actualContext.containsKey(keyExprStr))     throw new WfException("Context does not contain the key: '" + keyExprStr + "'");
+  }
+  return actualContext;
+}

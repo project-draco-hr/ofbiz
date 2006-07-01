@@ -1,0 +1,47 @@
+{
+  ModelEntity modelEntity=delegator.getModelEntity(entityName);
+  if (modelEntity == null) {
+    throw new IllegalArgumentException("Error in Entity Find: could not find entity with name [" + entityName + "]");
+  }
+  String fieldName=fieldNameExdr.expandString(context);
+  Object value=null;
+  if (envNameAcsr != null) {
+    value=envNameAcsr.get(context);
+  }
+  if (value == null && valueExdr != null) {
+    value=valueExdr.expandString(context);
+  }
+  String operatorName=operatorExdr.expandString(context);
+  EntityOperator operator=EntityOperator.lookup(operatorName);
+  if (operator == null) {
+    throw new IllegalArgumentException("Could not find an entity operator for the name: " + operatorName);
+  }
+  if (operator == EntityOperator.IN && value instanceof String) {
+    String delim=null;
+    if (((String)value).indexOf("|") >= 0) {
+      delim="|";
+    }
+ else     if (((String)value).indexOf(",") >= 0) {
+      delim=",";
+    }
+    if (UtilValidate.isNotEmpty(delim)) {
+      value=StringUtil.split((String)value,delim);
+    }
+  }
+  if (!(operator == EntityOperator.IN && value instanceof Collection)) {
+    value=modelEntity.convertFieldValue(fieldName,value,delegator);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Got value for fieldName [" + fieldName + "]: "+ value,module);
+  if (this.ignoreIfNull && value == null) {
+    return null;
+  }
+  if (this.ignoreIfEmpty && ObjectType.isEmpty(value)) {
+    return null;
+  }
+  if (operator == EntityOperator.NOT_EQUAL && value != null) {
+    return new EntityExpr(new EntityExpr(fieldName,(EntityComparisonOperator)operator,value),EntityOperator.OR,new EntityExpr(fieldName,EntityOperator.EQUALS,null));
+  }
+ else {
+    return new EntityExpr(fieldName,(EntityComparisonOperator)operator,value);
+  }
+}

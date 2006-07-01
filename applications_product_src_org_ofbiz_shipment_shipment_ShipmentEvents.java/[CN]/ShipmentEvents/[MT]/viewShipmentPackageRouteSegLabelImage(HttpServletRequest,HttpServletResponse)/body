@@ -1,0 +1,40 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String shipmentId=request.getParameter("shipmentId");
+  String shipmentRouteSegmentId=request.getParameter("shipmentRouteSegmentId");
+  String shipmentPackageSeqId=request.getParameter("shipmentPackageSeqId");
+  GenericValue shipmentPackageRouteSeg=null;
+  try {
+    shipmentPackageRouteSeg=delegator.findByPrimaryKey("ShipmentPackageRouteSeg",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId,"shipmentPackageSeqId",shipmentPackageSeqId));
+  }
+ catch (  GenericEntityException e) {
+    String errorMsg="Error looking up ShipmentPackageRouteSeg: " + e.toString();
+    Debug.logError(e,errorMsg,module);
+    request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+    return "error";
+  }
+  if (shipmentPackageRouteSeg == null) {
+    request.setAttribute("_ERROR_MESSAGE_","Could not find ShipmentPackageRouteSeg where shipmentId=[" + shipmentId + "], shipmentRouteSegmentId=["+ shipmentRouteSegmentId+ "], shipmentPackageSeqId=["+ shipmentPackageSeqId+ "]");
+    return "error";
+  }
+  byte[] bytes=shipmentPackageRouteSeg.getBytes("labelImage");
+  if (bytes == null || bytes.length == 0) {
+    request.setAttribute("_ERROR_MESSAGE_","The ShipmentPackageRouteSeg was found where shipmentId=[" + shipmentId + "], shipmentRouteSegmentId=["+ shipmentRouteSegmentId+ "], shipmentPackageSeqId=["+ shipmentPackageSeqId+ "], but there was no labelImage on the value.");
+    return "error";
+  }
+  try {
+    UtilHttp.streamContentToBrowser(response,bytes,"image/gif");
+  }
+ catch (  IOException e1) {
+    try {
+      UtilHttp.streamContentToBrowser(response,bytes,"image/png");
+    }
+ catch (    IOException e2) {
+      String errorMsg="Error writing labelImage to OutputStream: " + e2.toString();
+      Debug.logError(e2,errorMsg,module);
+      request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+      return "error";
+    }
+  }
+  return "success";
+}

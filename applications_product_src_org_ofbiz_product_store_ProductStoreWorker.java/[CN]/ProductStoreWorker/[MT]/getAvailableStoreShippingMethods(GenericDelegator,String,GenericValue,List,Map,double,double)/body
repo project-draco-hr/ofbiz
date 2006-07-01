@@ -1,0 +1,174 @@
+{
+  if (featureIdMap == null) {
+    featureIdMap=new HashMap();
+  }
+  List shippingMethods=null;
+  try {
+    shippingMethods=delegator.findByAndCache("ProductStoreShipmentMethView",UtilMisc.toMap("productStoreId",productStoreId),UtilMisc.toList("sequenceNumber"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to get ProductStore shipping methods",module);
+    return null;
+  }
+  List returnShippingMethods=new LinkedList(shippingMethods);
+  if (shippingMethods != null) {
+    Iterator i=shippingMethods.iterator();
+    while (i.hasNext()) {
+      GenericValue method=(GenericValue)i.next();
+      Double minWeight=method.getDouble("minWeight");
+      Double maxWeight=method.getDouble("maxWeight");
+      if (minWeight != null && minWeight.doubleValue() > 0 && minWeight.doubleValue() > weight) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      if (maxWeight != null && maxWeight.doubleValue() > 0 && maxWeight.doubleValue() < weight) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      Double minTotal=method.getDouble("minTotal");
+      Double maxTotal=method.getDouble("maxTotal");
+      if (minTotal != null && minTotal.doubleValue() > 0 && minTotal.doubleValue() > orderTotal) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      if (maxTotal != null && maxTotal.doubleValue() > 0 && maxTotal.doubleValue() < orderTotal) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      Double minSize=method.getDouble("minSize");
+      Double maxSize=method.getDouble("maxSize");
+      if (minSize != null && minSize.doubleValue() > 0) {
+        boolean allMatch=false;
+        if (itemSizes != null) {
+          allMatch=true;
+          Iterator isi=itemSizes.iterator();
+          while (isi.hasNext()) {
+            Double size=(Double)isi.next();
+            if (size.doubleValue() < minSize.doubleValue()) {
+              allMatch=false;
+            }
+          }
+        }
+        if (!allMatch) {
+          returnShippingMethods.remove(method);
+          continue;
+        }
+      }
+      if (maxSize != null && maxSize.doubleValue() > 0) {
+        boolean allMatch=false;
+        if (itemSizes != null) {
+          allMatch=true;
+          Iterator isi=itemSizes.iterator();
+          while (isi.hasNext()) {
+            Double size=(Double)isi.next();
+            if (size.doubleValue() > maxSize.doubleValue()) {
+              allMatch=false;
+            }
+          }
+        }
+        if (!allMatch) {
+          returnShippingMethods.remove(method);
+          continue;
+        }
+      }
+      String allowUspsAddr=method.getString("allowUspsAddr");
+      String requireUspsAddr=method.getString("requireUspsAddr");
+      boolean isUspsAddress=ContactMechWorker.isUspsAddress(shippingAddress);
+      if ("N".equals(allowUspsAddr) && isUspsAddress) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      if ("Y".equals(requireUspsAddr) && !isUspsAddress) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      String companyPartyId=method.getString("companyPartyId");
+      String allowCompanyAddr=method.getString("allowCompanyAddr");
+      String requireCompanyAddr=method.getString("requireCompanyAddr");
+      boolean isCompanyAddress=ContactMechWorker.isCompanyAddress(shippingAddress,companyPartyId);
+      if ("N".equals(allowCompanyAddr) && isCompanyAddress) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      if ("Y".equals(requireCompanyAddr) && !isCompanyAddress) {
+        returnShippingMethods.remove(method);
+        continue;
+      }
+      String includeFreeShipping=method.getString("includeNoChargeItems");
+      if (includeFreeShipping != null && "N".equalsIgnoreCase(includeFreeShipping)) {
+        if ((itemSizes == null || itemSizes.size() == 0) && orderTotal == 0) {
+          returnShippingMethods.remove(method);
+          continue;
+        }
+      }
+      String includeGeoId=method.getString("includeGeoId");
+      String excludeGeoId=method.getString("excludeGeoId");
+      if ((includeGeoId != null && includeGeoId.length() > 0) || (excludeGeoId != null && excludeGeoId.length() > 0)) {
+        if (shippingAddress == null) {
+          returnShippingMethods.remove(method);
+          continue;
+        }
+      }
+      if (includeGeoId != null && includeGeoId.length() > 0) {
+        List includeGeoGroup=GeoWorker.expandGeoGroup(includeGeoId,delegator);
+        if (!GeoWorker.containsGeo(includeGeoGroup,shippingAddress.getString("countryGeoId"),delegator) && !GeoWorker.containsGeo(includeGeoGroup,shippingAddress.getString("stateProvinceGeoId"),delegator) && !GeoWorker.containsGeo(includeGeoGroup,shippingAddress.getString("postalCodeGeoId"),delegator)) {
+          returnShippingMethods.remove(method);
+          continue;
+        }
+      }
+      if (excludeGeoId != null && excludeGeoId.length() > 0) {
+        List excludeGeoGroup=GeoWorker.expandGeoGroup(excludeGeoId,delegator);
+        if (GeoWorker.containsGeo(excludeGeoGroup,shippingAddress.getString("countryGeoId"),delegator) || GeoWorker.containsGeo(excludeGeoGroup,shippingAddress.getString("stateProvinceGeoId"),delegator) || GeoWorker.containsGeo(excludeGeoGroup,shippingAddress.getString("postalCodeGeoId"),delegator)) {
+          returnShippingMethods.remove(method);
+          continue;
+        }
+      }
+      String includeFeatures=method.getString("includeFeatureGroup");
+      String excludeFeatures=method.getString("excludeFeatureGroup");
+      if (includeFeatures != null && includeFeatures.length() > 0) {
+        List includedFeatures=null;
+        try {
+          includedFeatures=delegator.findByAndCache("ProductFeatureGroupAppl",UtilMisc.toMap("productFeatureGroupId",includeFeatures));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Unable to lookup ProductFeatureGroupAppl records for group : " + includeFeatures,module);
+        }
+        if (includedFeatures != null) {
+          boolean foundOne=false;
+          Iterator ifet=includedFeatures.iterator();
+          while (ifet.hasNext()) {
+            GenericValue appl=(GenericValue)ifet.next();
+            if (featureIdMap.containsKey(appl.getString("productFeatureId"))) {
+              foundOne=true;
+              break;
+            }
+          }
+          if (!foundOne) {
+            returnShippingMethods.remove(method);
+            continue;
+          }
+        }
+      }
+      if (excludeFeatures != null && excludeFeatures.length() > 0) {
+        List excludedFeatures=null;
+        try {
+          excludedFeatures=delegator.findByAndCache("ProductFeatureGroupAppl",UtilMisc.toMap("productFeatureGroupId",excludeFeatures));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Unable to lookup ProductFeatureGroupAppl records for group : " + excludeFeatures,module);
+        }
+        if (excludedFeatures != null) {
+          Iterator ifet=excludedFeatures.iterator();
+          while (ifet.hasNext()) {
+            GenericValue appl=(GenericValue)ifet.next();
+            if (featureIdMap.containsKey(appl.getString("productFeatureId"))) {
+              returnShippingMethods.remove(method);
+              continue;
+            }
+          }
+        }
+      }
+    }
+  }
+  return returnShippingMethods;
+}

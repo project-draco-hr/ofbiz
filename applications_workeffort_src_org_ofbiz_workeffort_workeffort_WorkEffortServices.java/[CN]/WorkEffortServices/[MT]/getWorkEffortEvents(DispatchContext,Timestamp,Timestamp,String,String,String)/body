@@ -1,0 +1,51 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  List validWorkEfforts=new ArrayList();
+  try {
+    List entityExprList=UtilMisc.toList(new EntityExpr("estimatedCompletionDate",EntityOperator.GREATER_THAN_EQUAL_TO,startStamp),new EntityExpr("estimatedStartDate",EntityOperator.LESS_THAN,endStamp));
+    List typesList=UtilMisc.toList(new EntityExpr("workEffortTypeId",EntityOperator.EQUALS,"EVENT"));
+    if (UtilValidate.isNotEmpty(partyId)) {
+      entityExprList.add(new EntityExpr("partyId",EntityOperator.EQUALS,partyId));
+    }
+    if (UtilValidate.isNotEmpty(facilityId)) {
+      entityExprList.add(new EntityExpr("facilityId",EntityOperator.EQUALS,facilityId));
+      typesList.add(new EntityExpr("workEffortTypeId",EntityOperator.EQUALS,"PROD_ORDER_HEADER"));
+    }
+    if (UtilValidate.isNotEmpty(fixedAssetId)) {
+      entityExprList.add(new EntityExpr("fixedAssetId",EntityOperator.EQUALS,fixedAssetId));
+      typesList.add(new EntityExpr("workEffortTypeId",EntityOperator.EQUALS,"PROD_ORDER_TASK"));
+    }
+    EntityCondition typesCondition=null;
+    if (typesList.size() == 1) {
+      typesCondition=(EntityExpr)typesList.get(0);
+    }
+ else {
+      typesCondition=new EntityConditionList(typesList,EntityJoinOperator.OR);
+    }
+    entityExprList.add(typesCondition);
+    List tempWorkEfforts=null;
+    if (UtilValidate.isNotEmpty(partyId)) {
+      tempWorkEfforts=delegator.findByAnd("WorkEffortAndPartyAssign",entityExprList,UtilMisc.toList("estimatedStartDate"));
+    }
+ else {
+      tempWorkEfforts=delegator.findByAnd("WorkEffort",entityExprList,UtilMisc.toList("estimatedStartDate"));
+    }
+    Set tempWeKeys=new HashSet();
+    Iterator tempWorkEffortIter=tempWorkEfforts.iterator();
+    while (tempWorkEffortIter.hasNext()) {
+      GenericValue tempWorkEffort=(GenericValue)tempWorkEffortIter.next();
+      String tempWorkEffortId=tempWorkEffort.getString("workEffortId");
+      if (tempWeKeys.contains(tempWorkEffortId)) {
+        tempWorkEffortIter.remove();
+      }
+ else {
+        tempWeKeys.add(tempWorkEffortId);
+      }
+    }
+    validWorkEfforts=new ArrayList(tempWorkEfforts);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+  }
+  return validWorkEfforts;
+}

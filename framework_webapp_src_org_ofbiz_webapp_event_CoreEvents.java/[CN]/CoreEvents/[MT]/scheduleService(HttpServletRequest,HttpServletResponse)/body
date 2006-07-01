@@ -1,0 +1,191 @@
+{
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  Security security=(Security)request.getAttribute("security");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Locale locale=UtilHttp.getLocale(request);
+  Map params=UtilHttp.getParameterMap(request);
+  String serviceName=(String)params.remove("SERVICE_NAME");
+  String poolName=(String)params.remove("POOL_NAME");
+  String serviceTime=(String)params.remove("SERVICE_TIME");
+  String serviceEndTime=(String)params.remove("SERVICE_END_TIME");
+  String serviceFreq=(String)params.remove("SERVICE_FREQUENCY");
+  String serviceIntr=(String)params.remove("SERVICE_INTERVAL");
+  String serviceCnt=(String)params.remove("SERVICE_COUNT");
+  String retryCnt=(String)params.remove("SERVICE_MAXRETRY");
+  Map freqMap=new HashMap();
+  freqMap.put("SECONDLY",new Integer(1));
+  freqMap.put("MINUTELY",new Integer(2));
+  freqMap.put("HOURLY",new Integer(3));
+  freqMap.put("DAILY",new Integer(4));
+  freqMap.put("WEEKLY",new Integer(5));
+  freqMap.put("MONTHLY",new Integer(6));
+  freqMap.put("YEARLY",new Integer(7));
+  long startTime=(new Date()).getTime();
+  long endTime=0;
+  int maxRetry=-1;
+  int count=1;
+  int interval=1;
+  int frequency=RecurrenceRule.DAILY;
+  StringBuffer errorBuf=new StringBuffer();
+  if (serviceName == null) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.must_specify_service",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg);
+    return "error";
+  }
+  ModelService modelService=null;
+  try {
+    modelService=dispatcher.getDispatchContext().getModelService(serviceName);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error looking up ModelService for serviceName [" + serviceName + "]",module);
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.error_modelservice_for_srv_name",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + " ["+ serviceName+ "]: "+ e.toString());
+    return "error";
+  }
+  if (modelService == null) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_name_not_find",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + " ["+ serviceName+ "]");
+    return "error";
+  }
+  Map serviceContext=new HashMap();
+  Iterator ci=modelService.getInParamNames().iterator();
+  while (ci.hasNext()) {
+    String name=(String)ci.next();
+    if ("userLogin".equals(name))     continue;
+    if ("locale".equals(name))     continue;
+    Object value=request.getParameter(name);
+    if (value == null) {
+      value=request.getAttribute(name);
+    }
+    if (value == null) {
+      value=request.getSession().getAttribute(name);
+    }
+    if (value == null) {
+      continue;
+    }
+    if (value instanceof String && ((String)value).length() == 0) {
+      value=null;
+    }
+    serviceContext.put(name,value);
+  }
+  serviceContext=modelService.makeValid(serviceContext,ModelService.IN_PARAM,true,null,locale);
+  if (userLogin != null) {
+    serviceContext.put("userLogin",userLogin);
+  }
+  if (locale != null) {
+    serviceContext.put("locale",locale);
+  }
+  if (!modelService.export && !security.hasPermission("SERVICE_INVOKE_ANY",request.getSession())) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.not_authorized_to_call",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg);
+    return "error";
+  }
+  if (serviceTime != null && serviceTime.length() > 0) {
+    try {
+      Timestamp ts1=Timestamp.valueOf(serviceTime);
+      startTime=ts1.getTime();
+    }
+ catch (    IllegalArgumentException e) {
+      try {
+        startTime=Long.parseLong(serviceTime);
+      }
+ catch (      NumberFormatException nfe) {
+        String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.invalid_format_time",locale);
+        errorBuf.append("<li>" + errMsg);
+      }
+    }
+    if (startTime < (new Date()).getTime()) {
+      String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_time_already_passed",locale);
+      errorBuf.append("<li>" + errMsg);
+    }
+  }
+  if (serviceEndTime != null && serviceEndTime.length() > 0) {
+    try {
+      Timestamp ts1=Timestamp.valueOf(serviceEndTime);
+      endTime=ts1.getTime();
+    }
+ catch (    IllegalArgumentException e) {
+      try {
+        endTime=Long.parseLong(serviceTime);
+      }
+ catch (      NumberFormatException nfe) {
+        String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.invalid_format_time",locale);
+        errorBuf.append("<li>" + errMsg);
+      }
+    }
+    if (endTime < (new Date()).getTime()) {
+      String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_time_already_passed",locale);
+      errorBuf.append("<li>" + errMsg);
+    }
+  }
+  if (serviceIntr != null && serviceIntr.length() > 0) {
+    try {
+      interval=Integer.parseInt(serviceIntr);
+    }
+ catch (    NumberFormatException nfe) {
+      String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.invalid_format_interval",locale);
+      errorBuf.append("<li>" + errMsg);
+    }
+  }
+  if (serviceCnt != null && serviceCnt.length() > 0) {
+    try {
+      count=Integer.parseInt(serviceCnt);
+    }
+ catch (    NumberFormatException nfe) {
+      String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.invalid_format_count",locale);
+      errorBuf.append("<li>" + errMsg);
+    }
+  }
+  if (serviceFreq != null && serviceFreq.length() > 0) {
+    int parsedValue=0;
+    try {
+      parsedValue=Integer.parseInt(serviceFreq);
+      if (parsedValue > 0 && parsedValue < 8)       frequency=parsedValue;
+    }
+ catch (    NumberFormatException nfe) {
+      parsedValue=0;
+    }
+    if (parsedValue == 0) {
+      if (!freqMap.containsKey(serviceFreq.toUpperCase())) {
+        String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.invalid_format_frequency",locale);
+        errorBuf.append("<li>" + errMsg);
+      }
+ else {
+        frequency=((Integer)freqMap.get(serviceFreq.toUpperCase())).intValue();
+      }
+    }
+  }
+  if (retryCnt != null && retryCnt.length() > 0) {
+    int parsedValue=-2;
+    try {
+      parsedValue=Integer.parseInt(retryCnt);
+    }
+ catch (    NumberFormatException e) {
+      parsedValue=-2;
+    }
+    if (parsedValue > -2) {
+      maxRetry=parsedValue;
+    }
+ else {
+      maxRetry=modelService.maxRetry;
+    }
+  }
+ else {
+    maxRetry=modelService.maxRetry;
+  }
+  if (errorBuf.length() > 0) {
+    request.setAttribute("_ERROR_MESSAGE_",errorBuf.toString());
+    return "error";
+  }
+  try {
+    dispatcher.schedule(poolName,serviceName,serviceContext,startTime,frequency,interval,count,endTime,maxRetry);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_dispatcher_exception",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + e.getMessage());
+    return "error";
+  }
+  String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_scheduled",locale);
+  request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg);
+  return "success";
+}

@@ -1,0 +1,136 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  HttpSession session=request.getSession();
+  Locale locale=UtilHttp.getLocale(request);
+  Map paramMap=UtilHttp.getParameterMap(request);
+  String contentId=(String)paramMap.get("contentId");
+  Debug.logVerbose("in cloneLayout, contentId:" + contentId,"");
+  if (UtilValidate.isEmpty(contentId)) {
+    String errMsg=UtilProperties.getMessage(LayoutEvents.err_resource,"layoutEvents.content_id_empty",locale);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String contentIdTo=(String)paramMap.get("contentIdTo");
+  Debug.logVerbose("in cloneLayout, contentIdTo:" + contentIdTo,"");
+  GenericValue content=null;
+  GenericValue newContent=null;
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  String userLoginId=(String)userLogin.get("userLoginId");
+  List entityList=null;
+  String newId=null;
+  String newDataResourceId=null;
+  try {
+    content=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+    Debug.logVerbose("in cloneLayout, content:" + content,"");
+    if (content == null) {
+      String errMsg=UtilProperties.getMessage(LayoutEvents.err_resource,"layoutEvents.content_empty",locale);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    newContent=delegator.makeValue("Content",content);
+    Debug.logVerbose("in cloneLayout, newContent:" + newContent,"");
+    String oldName=(String)content.get("contentName");
+    newId=delegator.getNextSeqId("Content").toString();
+    newContent.set("contentId",newId);
+    String dataResourceId=(String)content.get("dataResourceId");
+    GenericValue dataResource=delegator.findByPrimaryKey("DataResource",UtilMisc.toMap("dataResourceId",dataResourceId));
+    if (dataResource != null) {
+      GenericValue newDataResource=delegator.makeValue("DataResource",dataResource);
+      Debug.logVerbose("in cloneLayout, newDataResource:" + newDataResource,"");
+      String dataResourceName="Copy:" + (String)dataResource.get("dataResourceName");
+      newDataResource.set("dataResourceName",dataResourceName);
+      newDataResourceId=delegator.getNextSeqId("DataResource").toString();
+      newDataResource.set("dataResourceId",newDataResourceId);
+      newDataResource.set("createdDate",UtilDateTime.nowTimestamp());
+      newDataResource.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+      newDataResource.set("createdByUserLogin",userLoginId);
+      newDataResource.set("lastModifiedByUserLogin",userLoginId);
+      newDataResource.create();
+    }
+    newContent.set("contentName","Copy - " + oldName);
+    newContent.set("createdDate",UtilDateTime.nowTimestamp());
+    newContent.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+    newContent.set("createdByUserLogin",userLoginId);
+    newContent.set("lastModifiedByUserLogin",userLoginId);
+    newContent.create();
+    Debug.logVerbose("in cloneLayout, newContent:" + newContent,"");
+    GenericValue newContentAssoc=delegator.makeValue("ContentAssoc",null);
+    newContentAssoc.set("contentId",newId);
+    newContentAssoc.set("contentIdTo","TEMPLATE_MASTER");
+    newContentAssoc.set("contentAssocTypeId","SUB_CONTENT");
+    newContentAssoc.set("fromDate",UtilDateTime.nowTimestamp());
+    newContentAssoc.create();
+    Debug.logVerbose("in cloneLayout, newContentAssoc:" + newContentAssoc,"");
+  }
+ catch (  GenericEntityException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+  Map serviceIn=new HashMap();
+  Map results=null;
+  serviceIn.put("fromDate",UtilDateTime.nowTimestamp());
+  serviceIn.put("contentId",contentId);
+  serviceIn.put("userLogin",session.getAttribute("userLogin"));
+  serviceIn.put("direction","From");
+  serviceIn.put("thruDate",null);
+  serviceIn.put("assocTypes",UtilMisc.toList("SUB_CONTENT"));
+  try {
+    results=dispatcher.runSync("getAssocAndContentAndDataResource",serviceIn);
+    entityList=(List)results.get("entityList");
+    if (entityList == null || entityList.size() == 0) {
+      String errMsg=UtilProperties.getMessage(LayoutEvents.err_resource,"layoutEvents.no_subcontent",locale);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    }
+  }
+ catch (  GenericServiceException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+  serviceIn=new HashMap();
+  serviceIn.put("userLogin",session.getAttribute("userLogin"));
+  Map beenThere=new HashMap();
+  for (int i=0; i < entityList.size(); i++) {
+    GenericValue view=(GenericValue)entityList.get(i);
+    List errorMessages=new ArrayList();
+    if (locale == null)     locale=Locale.getDefault();
+    try {
+      SimpleMapProcessor.runSimpleMapProcessor("org/ofbiz/content/ContentManagementMapProcessors.xml","contentAssocIn",view,serviceIn,errorMessages,locale);
+    }
+ catch (    IllegalArgumentException e) {
+      request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+      return "error";
+    }
+catch (    MiniLangException e) {
+      request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+      return "error";
+    }
+    String contentIdFrom=(String)view.get("contentId");
+    String mapKey=(String)view.get("caMapKey");
+    Timestamp fromDate=(Timestamp)view.get("caFromDate");
+    Timestamp thruDate=(Timestamp)view.get("caThruDate");
+    Debug.logVerbose("in cloneLayout, contentIdFrom:" + contentIdFrom + " fromDate:"+ fromDate+ " thruDate:"+ thruDate+ " mapKey:"+ mapKey,"");
+    if (beenThere.get(contentIdFrom) == null) {
+      serviceIn.put("contentIdFrom",contentIdFrom);
+      serviceIn.put("contentIdTo",newId);
+      serviceIn.put("fromDate",UtilDateTime.nowTimestamp());
+      serviceIn.put("thruDate",null);
+      try {
+        results=dispatcher.runSync("persistContentAndAssoc",serviceIn);
+      }
+ catch (      GenericServiceException e) {
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+        return "error";
+      }
+      beenThere.put(contentIdFrom,view);
+    }
+  }
+  GenericValue view=delegator.makeValue("ContentDataResourceView",null);
+  view.set("contentId",newId);
+  view.set("drDataResourceId",newDataResourceId);
+  Debug.logVerbose("in cloneLayout, view:" + view,"");
+  ContentManagementWorker.setCurrentEntityMap(request,view);
+  request.setAttribute("contentId",view.get("contentId"));
+  request.setAttribute("drDataResourceId",view.get("drDataResourceId"));
+  return "success";
+}

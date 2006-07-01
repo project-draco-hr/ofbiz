@@ -1,0 +1,48 @@
+{
+  Iterator itemIt=returnItems.iterator();
+  while (itemIt.hasNext()) {
+    GenericValue item=(GenericValue)itemIt.next();
+    String orderId=item.getString("orderId");
+    if (orderId != null) {
+      if (itemsByOrder != null) {
+        List orderList=(List)itemsByOrder.get(orderId);
+        Double totalForOrder=null;
+        if (totalByOrder != null) {
+          totalForOrder=(Double)totalByOrder.get(orderId);
+        }
+        if (orderList == null) {
+          orderList=new ArrayList();
+        }
+        if (totalForOrder == null) {
+          totalForOrder=new Double(0.00);
+        }
+        orderList.add(item);
+        itemsByOrder.put(orderId,orderList);
+        if (totalByOrder != null) {
+          Double quantity=item.getDouble("returnQuantity");
+          Double amount=item.getDouble("returnPrice");
+          if (quantity == null) {
+            quantity=new Double(0);
+          }
+          if (amount == null) {
+            amount=new Double(0.00);
+          }
+          double thisTotal=amount.doubleValue() * quantity.doubleValue();
+          double existingTotal=totalForOrder.doubleValue();
+          Map condition=UtilMisc.toMap("returnId",item.get("returnId"),"returnItemSeqId",item.get("returnItemSeqId"));
+          Double newTotal=new Double(existingTotal + thisTotal + getReturnAdjustmentTotal(delegator,condition));
+          totalByOrder.put(orderId,newTotal);
+        }
+      }
+    }
+  }
+  if ((totalByOrder != null) && (totalByOrder.keySet() != null)) {
+    Iterator orderIterator=totalByOrder.keySet().iterator();
+    while (orderIterator.hasNext()) {
+      String orderId=(String)orderIterator.next();
+      Map condition=UtilMisc.toMap("returnId",returnId,"returnItemSeqId",org.ofbiz.common.DataModelConstants.SEQ_ID_NA);
+      double existingTotal=((Double)totalByOrder.get(orderId)).doubleValue() + getReturnAdjustmentTotal(delegator,condition);
+      totalByOrder.put(orderId,new Double(existingTotal));
+    }
+  }
+}

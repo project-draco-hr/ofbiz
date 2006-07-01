@@ -1,0 +1,27 @@
+{
+  HttpSession session=request.getSession();
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (productStore != null && userLogin != null) {
+    if ("Y".equals(productStore.getString("requireCustomerRole"))) {
+      List productStoreRoleList=null;
+      try {
+        productStoreRoleList=delegator.findByAnd("ProductStoreRole",UtilMisc.toMap("productStoreId",productStore.get("productStoreId"),"partyId",userLogin.get("partyId"),"roleTypeId","CUSTOMER"));
+        productStoreRoleList=EntityUtil.filterByDate(productStoreRoleList,true);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Database error finding CUSTOMER ProductStoreRole records, required by the ProductStore with ID [" + productStore.getString("productStoreId") + "]",module);
+      }
+      if (productStoreRoleList == null || productStoreRoleList.size() == 0) {
+        String errorMsg="The " + productStore.getString("storeName") + " ["+ productStore.getString("productStoreId")+ "] ProductStore requires that customers be associated with it, and the logged in user is NOT associated with it in the CUSTOMER role; userLoginId=["+ userLogin.getString("userLoginId")+ "], partyId=["+ userLogin.getString("partyId")+ "]";
+        Debug.logWarning(errorMsg,module);
+        request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+        session.removeAttribute("userLogin");
+        session.removeAttribute("autoUserLogin");
+        return "error";
+      }
+    }
+  }
+  return "success";
+}

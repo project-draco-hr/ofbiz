@@ -1,0 +1,81 @@
+{
+  Map results=new HashMap();
+  Map featuresByType=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String productId=(String)context.get("productId");
+  try {
+    Map featuresResults=dispatcher.runSync("getProductFeaturesByType",UtilMisc.toMap("productId",productId));
+    Map features=new HashMap();
+    if (featuresResults.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_SUCCESS))     features=(Map)featuresResults.get("productFeaturesByType");
+ else     return ServiceUtil.returnError((String)featuresResults.get(ModelService.ERROR_MESSAGE_LIST));
+    List oldCombinations=new LinkedList();
+    for (Iterator fi=features.keySet().iterator(); fi.hasNext(); ) {
+      String currentFeatureType=(String)fi.next();
+      List currentFeatures=(List)features.get(currentFeatureType);
+      List newCombinations=new LinkedList();
+      List combinations;
+      if (oldCombinations.size() > 0)       combinations=oldCombinations;
+ else       combinations=new LinkedList();
+      if (combinations.size() == 0) {
+        for (Iterator cFi=currentFeatures.iterator(); cFi.hasNext(); ) {
+          GenericEntity currentFeature=(GenericEntity)cFi.next();
+          if (currentFeature.getString("productFeatureApplTypeId").equals("SELECTABLE_FEATURE")) {
+            Map newCombination=new HashMap();
+            List newFeatures=new LinkedList();
+            List newFeatureIds=new LinkedList();
+            if (currentFeature.getString("idCode") != null)             newCombination.put("defaultVariantProductId",productId + currentFeature.getString("idCode"));
+ else             newCombination.put("defaultVariantProductId",productId);
+            newFeatures.add(currentFeature);
+            newFeatureIds.add(currentFeature.getString("productFeatureId"));
+            newCombination.put("curProductFeatureAndAppls",newFeatures);
+            newCombination.put("curProductFeatureIds",newFeatureIds);
+            newCombinations.add(newCombination);
+          }
+        }
+      }
+ else {
+        for (Iterator comboIt=combinations.iterator(); comboIt.hasNext(); ) {
+          Map combination=(Map)comboIt.next();
+          for (Iterator cFi=currentFeatures.iterator(); cFi.hasNext(); ) {
+            GenericEntity currentFeature=(GenericEntity)cFi.next();
+            String defaultVariantProductId=null;
+            if (currentFeature.getString("productFeatureApplTypeId").equals("SELECTABLE_FEATURE")) {
+              Map newCombination=new HashMap();
+              List newFeatures=((List)((LinkedList)combination.get("curProductFeatureAndAppls")).clone());
+              List newFeatureIds=((List)((LinkedList)combination.get("curProductFeatureIds")).clone());
+              if (currentFeature.getString("idCode") != null)               newCombination.put("defaultVariantProductId",combination.get("defaultVariantProductId") + currentFeature.getString("idCode"));
+ else               newCombination.put("defaultVariantProductId",combination.get("defaultVariantProductId"));
+              newFeatures.add(currentFeature);
+              newFeatureIds.add(currentFeature.getString("productFeatureId"));
+              newCombination.put("curProductFeatureAndAppls",newFeatures);
+              newCombination.put("curProductFeatureIds",newFeatureIds);
+              newCombinations.add(newCombination);
+            }
+          }
+        }
+      }
+      if (newCombinations.size() >= oldCombinations.size())       oldCombinations=newCombinations;
+    }
+    int defaultCodeCounter=1;
+    HashMap defaultVariantProductIds=new HashMap();
+    defaultVariantProductIds.put(productId,null);
+    for (Iterator fCi=oldCombinations.iterator(); fCi.hasNext(); ) {
+      Map combination=(Map)fCi.next();
+      if (defaultVariantProductIds.containsKey(combination.get("defaultVariantProductId"))) {
+        combination.put("defaultVariantProductId",combination.get("defaultVariantProductId") + (defaultCodeCounter < 10 ? "0" + defaultCodeCounter : "" + defaultCodeCounter));
+        defaultCodeCounter++;
+      }
+      defaultVariantProductIds.put(combination.get("defaultVariantProductId"),null);
+      results=dispatcher.runSync("getAllExistingVariants",UtilMisc.toMap("productId",productId,"productFeatureAppls",combination.get("curProductFeatureIds")));
+      combination.put("existingVariantProductIds",results.get("variantProductIds"));
+    }
+    results=ServiceUtil.returnSuccess();
+    results.put("featureCombinations",oldCombinations);
+  }
+ catch (  GenericServiceException ex) {
+    Debug.logError(ex,ex.getMessage(),module);
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  return results;
+}

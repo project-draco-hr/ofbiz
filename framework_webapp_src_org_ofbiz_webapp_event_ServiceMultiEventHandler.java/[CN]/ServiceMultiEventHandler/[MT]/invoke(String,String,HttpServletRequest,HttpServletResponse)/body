@@ -1,0 +1,217 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  if (dispatcher == null) {
+    throw new EventHandlerException("The local service dispatcher is null");
+  }
+  DispatchContext dctx=dispatcher.getDispatchContext();
+  if (dctx == null) {
+    throw new EventHandlerException("Dispatch context cannot be found");
+  }
+  String mode=SYNC;
+  String serviceName=null;
+  if (eventPath == null || eventPath.length() == 0) {
+    mode=SYNC;
+  }
+ else {
+    mode=eventPath;
+  }
+  if (mode != SYNC) {
+    throw new EventHandlerException("Async mode is not supported");
+  }
+  serviceName=eventMethod;
+  if (serviceName == null) {
+    throw new EventHandlerException("Service name (eventMethod) cannot be null");
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Set mode/service]: " + mode + "/"+ serviceName,module);
+  Locale locale=UtilHttp.getLocale(request);
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  ModelService modelService=null;
+  try {
+    modelService=dctx.getModelService(serviceName);
+  }
+ catch (  GenericServiceException e) {
+    throw new EventHandlerException("Problems getting the service model",e);
+  }
+  if (modelService == null) {
+    throw new EventHandlerException("Problems getting the service model");
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Processing]: SERVICE Event",module);
+  if (Debug.verboseOn())   Debug.logVerbose("[Using delegator]: " + dispatcher.getDelegator().getDelegatorName(),module);
+  boolean useRowSubmit=request.getParameter("_useRowSubmit") == null ? false : "Y".equalsIgnoreCase(request.getParameter("_useRowSubmit"));
+  boolean checkGlobalScope=request.getParameter("_checkGlobalScope") == null ? true : !"N".equalsIgnoreCase(request.getParameter("_checkGlobalScope"));
+  String rowCountField=request.getParameter("_rowCount");
+  if (rowCountField == null) {
+    throw new EventHandlerException("Required field _rowCount is missing");
+  }
+  int rowCount=0;
+  try {
+    rowCount=Integer.parseInt(rowCountField);
+  }
+ catch (  NumberFormatException e) {
+    throw new EventHandlerException("Invalid value for _rowCount");
+  }
+  if (rowCount < 1) {
+    throw new EventHandlerException("No rows to process");
+  }
+  String errorPrefixStr=UtilProperties.getMessage("DefaultMessages","service.error.prefix",locale);
+  String errorSuffixStr=UtilProperties.getMessage("DefaultMessages","service.error.suffix",locale);
+  String messagePrefixStr=UtilProperties.getMessage("DefaultMessages","service.message.prefix",locale);
+  String messageSuffixStr=UtilProperties.getMessage("DefaultMessages","service.message.suffix",locale);
+  List errorMessages=FastList.newInstance();
+  boolean beganTrans=false;
+  String returnString=null;
+  try {
+    try {
+      beganTrans=TransactionUtil.begin();
+    }
+ catch (    GenericTransactionException e) {
+      throw new EventHandlerException("Problem starting transaction",e);
+    }
+    for (int i=0; i < rowCount; i++) {
+      String curSuffix=UtilHttp.MULTI_ROW_DELIMITER + i;
+      boolean rowSelected=request.getParameter(UtilHttp.ROW_SUBMIT_PREFIX + i) == null ? false : "Y".equalsIgnoreCase(request.getParameter(UtilHttp.ROW_SUBMIT_PREFIX + i));
+      if (useRowSubmit && !rowSelected) {
+        continue;
+      }
+      Map serviceContext=FastMap.newInstance();
+      List modelParmInList=modelService.getInModelParamList();
+      Iterator modelParmInIter=modelParmInList.iterator();
+      while (modelParmInIter.hasNext()) {
+        ModelParam modelParam=(ModelParam)modelParmInIter.next();
+        String paramName=(String)modelParam.name;
+        if ("userLogin".equals(paramName))         continue;
+        if ("locale".equals(paramName))         continue;
+        Object value=null;
+        if (modelParam.stringMapPrefix != null && modelParam.stringMapPrefix.length() > 0) {
+          Map paramMap=UtilHttp.makeParamMapWithPrefix(request,modelParam.stringMapPrefix,curSuffix);
+          value=paramMap;
+        }
+ else         if (modelParam.stringListSuffix != null && modelParam.stringListSuffix.length() > 0) {
+          List paramList=UtilHttp.makeParamListWithSuffix(request,modelParam.stringListSuffix,null);
+          value=paramList;
+        }
+ else {
+          String[] paramArr=request.getParameterValues(paramName + curSuffix);
+          if (paramArr != null) {
+            if (paramArr.length > 1) {
+              value=Arrays.asList(paramArr);
+            }
+ else {
+              value=paramArr[0];
+            }
+          }
+          if (value == null) {
+            value=request.getAttribute(paramName + curSuffix);
+          }
+          if (value == null) {
+            value=session.getAttribute(paramName + curSuffix);
+          }
+          if (value == null) {
+            if (checkGlobalScope) {
+              String[] gParamArr=request.getParameterValues(paramName);
+              if (gParamArr != null) {
+                if (gParamArr.length > 1) {
+                  value=Arrays.asList(gParamArr);
+                }
+ else {
+                  value=gParamArr[0];
+                }
+              }
+              if (value == null) {
+                value=request.getAttribute(paramName);
+              }
+              if (value == null) {
+                value=session.getAttribute(paramName);
+              }
+            }
+          }
+          if (value == null) {
+            continue;
+          }
+          if (value instanceof String && ((String)value).length() == 0) {
+            value=null;
+          }
+        }
+        serviceContext.put(paramName,value);
+      }
+      serviceContext=modelService.makeValid(serviceContext,ModelService.IN_PARAM,true,null,locale);
+      if (userLogin != null) {
+        serviceContext.put("userLogin",userLogin);
+      }
+      if (locale != null) {
+        serviceContext.put("locale",locale);
+      }
+      Map result=null;
+      try {
+        result=dispatcher.runSync(serviceName,serviceContext);
+      }
+ catch (      ServiceAuthException e) {
+        errorMessages.add(messagePrefixStr + "Service invocation error on row (" + i+ "): "+ e.getNonNestedMessage());
+      }
+catch (      ServiceValidationException e) {
+        request.setAttribute("serviceValidationException",e);
+        List errors=e.getMessageList();
+        if (errors != null) {
+          Iterator erri=errors.iterator();
+          while (erri.hasNext()) {
+            errorMessages.add("Service invocation error on row (" + i + "): "+ erri.next());
+          }
+        }
+ else {
+          errorMessages.add(messagePrefixStr + "Service invocation error on row (" + i+ "): "+ e.getNonNestedMessage());
+        }
+      }
+catch (      GenericServiceException e) {
+        Debug.logError(e,"Service invocation error",module);
+        errorMessages.add(messagePrefixStr + "Service invocation error on row (" + i+ "): "+ e.getNested()+ messageSuffixStr);
+      }
+      String errorMessage=ServiceUtil.makeErrorMessage(result,messagePrefixStr,messageSuffixStr,"","");
+      if (UtilValidate.isNotEmpty(errorMessage)) {
+        errorMessages.add(errorMessage);
+      }
+      if ((result != null) && (result.entrySet() != null)) {
+        Iterator rmei=result.entrySet().iterator();
+        while (rmei.hasNext()) {
+          Map.Entry rme=(Map.Entry)rmei.next();
+          String resultKey=(String)rme.getKey();
+          Object resultValue=rme.getValue();
+          if (resultKey != null && !ModelService.RESPONSE_MESSAGE.equals(resultKey) && !ModelService.ERROR_MESSAGE.equals(resultKey) && !ModelService.ERROR_MESSAGE_LIST.equals(resultKey) && !ModelService.ERROR_MESSAGE_MAP.equals(resultKey) && !ModelService.SUCCESS_MESSAGE.equals(resultKey) && !ModelService.SUCCESS_MESSAGE_LIST.equals(resultKey)) {
+            request.setAttribute(resultKey,resultValue);
+          }
+        }
+      }
+    }
+  }
+  finally {
+    if (errorMessages.size() > 0) {
+      try {
+        TransactionUtil.rollback(beganTrans,"Error in multi-service event handling: " + errorMessages.toString(),null);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not rollback transaction",module);
+      }
+      errorMessages.add(0,errorPrefixStr);
+      errorMessages.add(errorSuffixStr);
+      StringBuffer errorBuf=new StringBuffer();
+      Iterator ei=errorMessages.iterator();
+      while (ei.hasNext()) {
+        String em=(String)ei.next();
+        errorBuf.append(em + "\n");
+      }
+      request.setAttribute("_ERROR_MESSAGE_",errorBuf.toString());
+      returnString="error";
+    }
+ else {
+      try {
+        TransactionUtil.commit(beganTrans);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not commit transaction",module);
+        throw new EventHandlerException("Commit transaction failed");
+      }
+      returnString="success";
+    }
+  }
+  return returnString;
+}

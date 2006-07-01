@@ -1,0 +1,137 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String surveyId=null;
+  try {
+    String surveyName=(String)context.get("surveyName");
+    ByteArrayOutputStream os=new ByteArrayOutputStream();
+    ByteWrapper byteWrapper=getInputByteWrapper(context,delegator);
+    PdfReader pdfReader=new PdfReader(byteWrapper.getBytes());
+    PdfStamper pdfStamper=new PdfStamper(pdfReader,os);
+    AcroFields acroFields=pdfStamper.getAcroFields();
+    HashMap acroFieldMap=acroFields.getFields();
+    String contentId=(String)context.get("contentId");
+    GenericValue survey=null;
+    surveyId=(String)context.get("surveyId");
+    if (UtilValidate.isEmpty(surveyId)) {
+      surveyId=delegator.getNextSeqId("Survey");
+      survey=delegator.makeValue("Survey",UtilMisc.toMap("surveyName",surveyName));
+      survey.set("surveyId",surveyId);
+      survey.set("allowMultiple","Y");
+      survey.set("allowUpdate","Y");
+      survey.create();
+    }
+    Map createCategoryResultMap=dispatcher.runSync("createSurveyQuestionCategory",UtilMisc.toMap("description","From AcroForm in Content [" + contentId + "] for Survey ["+ surveyId+ "]","userLogin",userLogin));
+    String surveyQuestionCategoryId=(String)createCategoryResultMap.get("surveyQuestionCategoryId");
+    pdfStamper.setFormFlattening(true);
+    Iterator i=acroFieldMap.keySet().iterator();
+    while (i.hasNext()) {
+      String fieldName=(String)i.next();
+      AcroFields.Item item=acroFields.getFieldItem(fieldName);
+      int type=acroFields.getFieldType(fieldName);
+      String value=acroFields.getField(fieldName);
+      Debug.logInfo("fieldName:" + fieldName + "; item: "+ item+ "; value: "+ value,module);
+      GenericValue surveyQuestion=delegator.makeValue("SurveyQuestion",UtilMisc.toMap("question",fieldName));
+      String surveyQuestionId=delegator.getNextSeqId("SurveyQuestion");
+      surveyQuestion.set("surveyQuestionId",surveyQuestionId);
+      surveyQuestion.set("surveyQuestionCategoryId",surveyQuestionCategoryId);
+      if (type == AcroFields.FIELD_TYPE_TEXT) {
+        surveyQuestion.set("surveyQuestionTypeId","TEXT_SHORT");
+      }
+ else       if (type == AcroFields.FIELD_TYPE_RADIOBUTTON) {
+        surveyQuestion.set("surveyQuestionTypeId","OPTION");
+      }
+ else       if (type == AcroFields.FIELD_TYPE_LIST || type == AcroFields.FIELD_TYPE_COMBO) {
+        surveyQuestion.set("surveyQuestionTypeId","OPTION");
+        String[] listOptionDisplayArray=acroFields.getListOptionDisplay(fieldName);
+        String[] listOptionExportArray=acroFields.getListOptionExport(fieldName);
+        Debug.logInfo("listOptionDisplayArray: " + listOptionDisplayArray + "; listOptionExportArray: "+ listOptionExportArray,module);
+      }
+ else {
+        surveyQuestion.set("surveyQuestionTypeId","TEXT_SHORT");
+        Debug.logWarning("Building Survey from PDF, fieldName=[" + fieldName + "]: don't know how to handle field type: "+ type+ "; defaulting to short text",module);
+      }
+      Integer tabPage=(Integer)item.page.get(0);
+      Integer tabOrder=(Integer)item.tabOrder.get(0);
+      Debug.logInfo("tabPage=" + tabPage + ", tabOrder="+ tabOrder,module);
+      float[] fieldPositions=acroFields.getFieldPositions(fieldName);
+      float fieldPage=fieldPositions[0];
+      float fieldLlx=fieldPositions[1];
+      float fieldLly=fieldPositions[2];
+      float fieldUrx=fieldPositions[3];
+      float fieldUry=fieldPositions[4];
+      Debug.logInfo("fieldPage=" + fieldPage + ", fieldLlx="+ fieldLlx+ ", fieldLly="+ fieldLly+ ", fieldUrx="+ fieldUrx+ ", fieldUry="+ fieldUry,module);
+      Long sequenceNum=null;
+      if (tabPage != null && tabOrder != null) {
+        sequenceNum=new Long(tabPage.intValue() * 1000 + tabOrder.intValue());
+        Debug.logInfo("tabPage=" + tabPage + ", tabOrder="+ tabOrder+ ", sequenceNum="+ sequenceNum,module);
+      }
+ else       if (fieldPositions.length > 0) {
+        sequenceNum=new Long((long)fieldPage * 10000 + (long)fieldLly * 1000 + (long)fieldLlx);
+        Debug.logInfo("fieldPage=" + fieldPage + ", fieldLlx="+ fieldLlx+ ", fieldLly="+ fieldLly+ ", fieldUrx="+ fieldUrx+ ", fieldUry="+ fieldUry+ ", sequenceNum="+ sequenceNum,module);
+      }
+      String annotation=null;
+      Iterator widgetIter=item.widgets.iterator();
+      while (widgetIter.hasNext()) {
+        PdfDictionary dict=(PdfDictionary)widgetIter.next();
+        PdfObject typeValue=null;
+        PdfObject tuValue=null;
+        Set dictKeys=dict.getKeys();
+        Iterator dictKeyIter=dictKeys.iterator();
+        while (dictKeyIter.hasNext()) {
+          PdfName dictKeyName=(PdfName)dictKeyIter.next();
+          PdfObject dictObject=dict.get(dictKeyName);
+          if ("/Type".equals(dictKeyName.toString())) {
+            typeValue=dictObject;
+          }
+ else           if ("/TU".equals(dictKeyName.toString())) {
+            tuValue=dictObject;
+          }
+        }
+        if (tuValue != null && typeValue != null && "/Annot".equals(typeValue.toString())) {
+          annotation=tuValue.toString();
+        }
+      }
+      surveyQuestion.set("description",fieldName);
+      if (UtilValidate.isNotEmpty(annotation)) {
+        surveyQuestion.set("question",annotation);
+      }
+ else {
+        surveyQuestion.set("question",fieldName);
+      }
+      GenericValue surveyQuestionAppl=delegator.makeValue("SurveyQuestionAppl",UtilMisc.toMap("surveyId",surveyId,"surveyQuestionId",surveyQuestionId));
+      surveyQuestionAppl.set("fromDate",nowTimestamp);
+      surveyQuestionAppl.set("externalFieldRef",fieldName);
+      if (sequenceNum != null) {
+        surveyQuestionAppl.set("sequenceNum",sequenceNum);
+      }
+      surveyQuestion.create();
+      surveyQuestionAppl.create();
+    }
+    pdfStamper.close();
+    if (UtilValidate.isNotEmpty(contentId)) {
+      survey=delegator.findByPrimaryKey("Survey",UtilMisc.toMap("surveyId",surveyId));
+      survey.set("acroFormContentId",contentId);
+      survey.store();
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error generating PDF: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  GeneralException e) {
+    System.err.println(e.getMessage());
+    ServiceUtil.returnError(e.getMessage());
+  }
+catch (  Exception e) {
+    String errMsg="Error generating PDF: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  Map results=ServiceUtil.returnSuccess();
+  results.put("surveyId",surveyId);
+  return results;
+}

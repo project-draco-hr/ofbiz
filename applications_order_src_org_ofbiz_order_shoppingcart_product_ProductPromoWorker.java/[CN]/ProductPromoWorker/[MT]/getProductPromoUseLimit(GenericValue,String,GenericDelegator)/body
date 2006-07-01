@@ -1,0 +1,32 @@
+{
+  String productPromoId=productPromo.getString("productPromoId");
+  Long candidateUseLimit=null;
+  Long useLimitPerOrder=productPromo.getLong("useLimitPerOrder");
+  if (useLimitPerOrder != null) {
+    if (candidateUseLimit == null || candidateUseLimit.longValue() > useLimitPerOrder.longValue()) {
+      candidateUseLimit=useLimitPerOrder;
+    }
+  }
+  Long useLimitPerCustomer=productPromo.getLong("useLimitPerCustomer");
+  if (useLimitPerCustomer != null) {
+    long productPromoCustomerUseSize=0;
+    if (UtilValidate.isNotEmpty(partyId)) {
+      EntityCondition checkCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr("productPromoId",EntityOperator.EQUALS,productPromoId),new EntityExpr("partyId",EntityOperator.EQUALS,partyId),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED")),EntityOperator.AND);
+      productPromoCustomerUseSize=delegator.findCountByCondition("ProductPromoUseCheck",checkCondition,null);
+    }
+    long perCustomerThisOrder=useLimitPerCustomer.longValue() - productPromoCustomerUseSize;
+    if (candidateUseLimit == null || candidateUseLimit.longValue() > perCustomerThisOrder) {
+      candidateUseLimit=new Long(perCustomerThisOrder);
+    }
+  }
+  Long useLimitPerPromotion=productPromo.getLong("useLimitPerPromotion");
+  if (useLimitPerPromotion != null) {
+    EntityCondition checkCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr("productPromoId",EntityOperator.EQUALS,productPromoId),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED")),EntityOperator.AND);
+    long productPromoUseSize=delegator.findCountByCondition("ProductPromoUseCheck",checkCondition,null);
+    long perPromotionThisOrder=useLimitPerPromotion.longValue() - productPromoUseSize;
+    if (candidateUseLimit == null || candidateUseLimit.longValue() > perPromotionThisOrder) {
+      candidateUseLimit=new Long(perPromotionThisOrder);
+    }
+  }
+  return candidateUseLimit;
+}

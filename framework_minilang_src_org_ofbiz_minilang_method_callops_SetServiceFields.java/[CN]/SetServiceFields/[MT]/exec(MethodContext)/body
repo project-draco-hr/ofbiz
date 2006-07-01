@@ -1,0 +1,43 @@
+{
+  String serviceName=methodContext.expandString(this.serviceName);
+  Map fromMap=(Map)mapAcsr.get(methodContext);
+  if (fromMap == null) {
+    Debug.logWarning("The from map in set-service-field was not found with name: " + mapAcsr,module);
+    return true;
+  }
+  Map toMap=(Map)toMapAcsr.get(methodContext);
+  if (toMap == null) {
+    toMap=new HashMap();
+    toMapAcsr.put(methodContext,toMap);
+  }
+  LocalDispatcher dispatcher=methodContext.getDispatcher();
+  ModelService modelService=null;
+  try {
+    modelService=dispatcher.getDispatchContext().getModelService(serviceName);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="In set-service-fields could not get service definition for service name [" + serviceName + "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    methodContext.setErrorReturn(errMsg,simpleMethod);
+    return false;
+  }
+  Iterator inModelParamIter=modelService.getInModelParamList().iterator();
+  while (inModelParamIter.hasNext()) {
+    ModelParam modelParam=(ModelParam)inModelParamIter.next();
+    if (fromMap.containsKey(modelParam.name)) {
+      Object value=fromMap.get(modelParam.name);
+      if (UtilValidate.isNotEmpty(modelParam.type)) {
+        try {
+          value=ObjectType.simpleTypeConvert(value,modelParam.type,null,null,false);
+        }
+ catch (        GeneralException e) {
+          String errMsg="Could not convert field value for the parameter/attribute: [" + modelParam.name + "] on the ["+ serviceName+ "] service to the ["+ modelParam.type+ "] type for the value ["+ value+ "]: "+ e.toString();
+          Debug.logError(e,errMsg,module);
+          throw new IllegalArgumentException(errMsg);
+        }
+      }
+      toMap.put(modelParam.name,value);
+    }
+  }
+  return true;
+}

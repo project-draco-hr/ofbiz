@@ -1,0 +1,47 @@
+{
+  String service=ServiceConfigUtil.getElementAttr("authorization","service-name");
+  if (service == null) {
+    throw new GenericServiceException("No Authentication Service Defined");
+  }
+  if (service.equals(origService.name)) {
+    return context;
+  }
+  if (context.containsKey("login.username")) {
+    String username=(String)context.get("login.username");
+    if (context.containsKey("login.password")) {
+      String password=(String)context.get("login.password");
+      context.put("userLogin",getLoginObject(service,localName,username,password,(Locale)context.get("locale")));
+      context.remove("login.password");
+    }
+ else {
+      context.put("userLogin",getLoginObject(service,localName,username,null,(Locale)context.get("locale")));
+    }
+    context.remove("login.username");
+  }
+ else {
+    GenericValue userLogin=(GenericValue)context.get("userLogin");
+    if (userLogin != null) {
+      GenericValue newUserLogin=null;
+      try {
+        newUserLogin=this.getDelegator().findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId",userLogin.get("userLoginId")));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error looking up service authentication UserLogin: " + e.toString(),module);
+      }
+      if (newUserLogin == null) {
+        Debug.logInfo("Service auth failed for userLoginId [" + userLogin.get("userLoginId") + "] because UserLogin record not found.",module);
+        context.remove("userLogin");
+      }
+ else       if (newUserLogin.getString("currentPassword") != null && !newUserLogin.getString("currentPassword").equals(userLogin.getString("currentPassword"))) {
+        Debug.logInfo("Service auth failed for userLoginId [" + userLogin.get("userLoginId") + "] because UserLogin record currentPassword fields did not match; note that the UserLogin object passed into a service may need to have the currentPassword encrypted.",module);
+        context.remove("userLogin");
+      }
+    }
+  }
+  DispatchContext dctx=this.getLocalContext(localName);
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (!origService.evalPermissions(dctx.getSecurity(),userLogin)) {
+    throw new ServiceAuthException("You do not have permission to invoke this service");
+  }
+  return context;
+}

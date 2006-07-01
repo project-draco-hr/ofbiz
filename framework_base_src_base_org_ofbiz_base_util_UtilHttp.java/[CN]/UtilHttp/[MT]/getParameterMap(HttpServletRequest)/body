@@ -1,0 +1,65 @@
+{
+  Map paramMap=FastMap.newInstance();
+  Enumeration e=request.getParameterNames();
+  while (e.hasMoreElements()) {
+    String name=(String)e.nextElement();
+    Object value=null;
+    String[] paramArr=request.getParameterValues(name);
+    if (paramArr != null) {
+      if (paramArr.length > 1) {
+        value=Arrays.asList(paramArr);
+      }
+ else {
+        value=paramArr[0];
+      }
+    }
+    paramMap.put(name,value);
+  }
+  String pathInfoStr=request.getPathInfo();
+  if (pathInfoStr != null && pathInfoStr.length() > 0) {
+    if (!pathInfoStr.endsWith("/"))     pathInfoStr+="/";
+    int current=pathInfoStr.indexOf('/');
+    int last=current;
+    while ((current=pathInfoStr.indexOf('/',last + 1)) != -1) {
+      String element=pathInfoStr.substring(last + 1,current);
+      last=current;
+      if (element.charAt(0) == '~' && element.indexOf('=') > -1) {
+        String name=element.substring(1,element.indexOf('='));
+        String value=element.substring(element.indexOf('=') + 1);
+        Object curValue=paramMap.get(name);
+        if (curValue != null) {
+          List paramList=null;
+          if (curValue instanceof List) {
+            paramList=(List)curValue;
+            paramList.add(value);
+          }
+ else {
+            String paramString=(String)curValue;
+            paramList=FastList.newInstance();
+            paramList.add(paramString);
+            paramList.add(value);
+          }
+          paramMap.put(name,paramList);
+        }
+ else {
+          paramMap.put(name,value);
+        }
+      }
+    }
+  }
+  if (paramMap.size() == 0) {
+    Map multiPartMap=(Map)request.getAttribute("multiPartMap");
+    if (multiPartMap != null && multiPartMap.size() > 0) {
+      paramMap.putAll(multiPartMap);
+    }
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("Made Request Parameter Map with [" + paramMap.size() + "] Entries",module);
+    Iterator entryIter=paramMap.entrySet().iterator();
+    while (entryIter.hasNext()) {
+      Map.Entry entry=(Map.Entry)entryIter.next();
+      Debug.logVerbose("Request Parameter Map Entry: [" + entry.getKey() + "] --> "+ entry.getValue(),module);
+    }
+  }
+  return paramMap;
+}

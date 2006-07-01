@@ -1,0 +1,51 @@
+{
+  String paymentConfig=null;
+  String serviceName=null;
+  String serviceType=AUTH_SERVICE_TYPE;
+  if (reauth) {
+    serviceType=REAUTH_SERVICE_TYPE;
+  }
+  GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPref,serviceType,false);
+  if (paymentSettings != null) {
+    serviceName=paymentSettings.getString("paymentService");
+    paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+  }
+ else {
+    Debug.logError("Invalid payment settings entity, no payment settings found",module);
+    return null;
+  }
+  if (serviceName == null) {
+    Debug.logError("Invalid payment processor: + " + paymentSettings,module);
+    return null;
+  }
+  Map processContext=null;
+  try {
+    processContext=makeAuthContext(orh,userLogin,paymentPref,paymentConfig,totalRemaining,overrideAmount);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,"Problems creating the context for the auth service",module);
+    return null;
+  }
+  Map processorResult=null;
+  try {
+    processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
+  }
+ catch (  GenericServiceException gse) {
+    Debug.logError("Error occurred on: " + serviceName + " => "+ processContext,module);
+    Debug.logError(gse,"Problems invoking payment processor! Will retry later." + "(" + orh.getOrderId() + ")",module);
+    return null;
+  }
+  if (processorResult != null) {
+    String resultResponseCode=(String)processorResult.get(ModelService.RESPONSE_MESSAGE);
+    if (resultResponseCode != null && resultResponseCode.equals(ModelService.RESPOND_ERROR)) {
+      Debug.logError("Processor failed; will retry later : " + processorResult.get(ModelService.ERROR_MESSAGE),module);
+      saveError(dispatcher,userLogin,paymentPref,processorResult,"PRDS_PAY_AUTH","PGT_AUTHORIZE");
+      return null;
+    }
+    String payToPartyId=getPayToPartyId(orh.getOrderHeader());
+    processorResult.put("payToPartyId",payToPartyId);
+    processorResult.put("paymentSettings",paymentSettings);
+    processorResult.put("currencyUomId",orh.getCurrency());
+  }
+  return processorResult;
+}

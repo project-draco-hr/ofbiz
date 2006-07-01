@@ -1,0 +1,43 @@
+{
+  List transList=new ArrayList();
+  Collection fromCol=null;
+  try {
+    fromCol=fromActivity.getDefinitionObject().getRelated("FromWorkflowTransition");
+  }
+ catch (  GenericEntityException e) {
+    throw new WfException(e.getMessage(),e);
+  }
+  String split="WST_AND";
+  if (fromActivity.getDefinitionObject().get("splitTypeEnumId") != null)   split=fromActivity.getDefinitionObject().getString("splitTypeEnumId");
+  boolean transitionOk=true;
+  GenericValue otherwise=null;
+  Iterator fromIt=fromCol.iterator();
+  while (fromIt.hasNext()) {
+    GenericValue transition=(GenericValue)fromIt.next();
+    if (transition.get("conditionTypeEnumId") != null && transition.getString("conditionTypeEnumId").equals("WTC_OTHERWISE")) {
+      otherwise=transition;
+      continue;
+    }
+    String conditionBody=transition.getString("conditionExpr");
+    Map extendedAttr=StringUtil.strToMap(transition.getString("extendedAttributes"));
+    if (extendedAttr != null && extendedAttr.get("conditionClassName") != null) {
+      String conditionClassName=(String)extendedAttr.get("conditionClassName");
+      transitionOk=this.evalConditionClass(conditionClassName,conditionBody,this.processContext(),extendedAttr);
+    }
+ else {
+      if (conditionBody != null) {
+        transitionOk=this.evalBshCondition(conditionBody,this.processContext());
+      }
+    }
+    if (transitionOk) {
+      transList.add(transition);
+      if (split.equals("WST_XOR"))       break;
+    }
+  }
+  if (split.equals("WST_XOR") && transList.size() == 0 && otherwise != null) {
+    transList.add(otherwise);
+    Debug.logVerbose("Used OTHERWISE Transition.",module);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[WfProcess.getTransFrom] : Transitions: " + transList.size(),module);
+  return transList;
+}

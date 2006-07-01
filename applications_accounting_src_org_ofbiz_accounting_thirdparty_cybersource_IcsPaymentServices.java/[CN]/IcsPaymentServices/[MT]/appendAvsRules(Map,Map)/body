@@ -1,0 +1,28 @@
+{
+  String configString=(String)context.get("paymentConfig");
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  String avsCodes=UtilProperties.getPropertyValue(configString,"payment.cybersource.avsDeclineCodes",null);
+  GenericValue party=(GenericValue)context.get("billToParty");
+  if (party != null) {
+    GenericValue avsOverride=null;
+    try {
+      avsOverride=party.getDelegator().findByPrimaryKey("PartyIcsAvsOverride",UtilMisc.toMap("partyId",party.getString("partyId")));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (avsOverride != null && avsOverride.get("avsDeclineString") != null) {
+      String overrideString=avsOverride.getString("avsDeclineString");
+      if (overrideString != null && overrideString.length() > 0) {
+        avsCodes=overrideString;
+      }
+    }
+  }
+  if (avsCodes != null && avsCodes.length() > 0) {
+    request.put("businessRules_declineAVSFlags",avsCodes);
+  }
+  String avsIgnore=UtilProperties.getPropertyValue(configString,"payment.cybersource.avsDeclineCodes","false");
+  request.put("businessRules_ignoreAVS",avsIgnore);
+}

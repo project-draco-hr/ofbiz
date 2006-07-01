@@ -1,0 +1,41 @@
+{
+  ModelEntity model=this.getModelEntity();
+  Iterator relItr=model.getRelationsIterator();
+  while (relItr.hasNext()) {
+    ModelRelation relation=(ModelRelation)relItr.next();
+    if ("one".equalsIgnoreCase(relation.getType())) {
+      Map fields=FastMap.newInstance();
+      for (int i=0; i < relation.getKeyMapsSize(); i++) {
+        ModelKeyMap keyMap=relation.getKeyMap(i);
+        fields.put(keyMap.getRelFieldName(),this.get(keyMap.getFieldName()));
+      }
+      long count=this.getDelegator().findCountByAnd(relation.getRelEntityName(),fields);
+      if (count == 0) {
+        if (insertDummy) {
+          GenericValue newValue=this.getDelegator().makeValue(relation.getRelEntityName(),null);
+          Iterator keyMapIter=relation.getKeyMapsIterator();
+          boolean allFieldsSet=true;
+          while (keyMapIter.hasNext()) {
+            ModelKeyMap mkm=(ModelKeyMap)keyMapIter.next();
+            if (this.get(mkm.getFieldName()) != null) {
+              newValue.set(mkm.getRelFieldName(),this.get(mkm.getFieldName()));
+              if (Debug.infoOn())               Debug.logInfo("Set [" + mkm.getRelFieldName() + "] to - "+ this.get(mkm.getFieldName()),module);
+            }
+ else {
+              allFieldsSet=false;
+            }
+          }
+          if (allFieldsSet) {
+            if (Debug.infoOn())             Debug.logInfo("Creating place holder value : " + newValue,module);
+            newValue.checkFks(true);
+            newValue.create();
+          }
+        }
+ else {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}

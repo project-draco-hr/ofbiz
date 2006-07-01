@@ -1,0 +1,52 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map results=new HashMap();
+  GenericValue currentContent=(GenericValue)context.get("currentContent");
+  String fromDate=(String)context.get("fromDate");
+  String thruDate=(String)context.get("thruDate");
+  String toFrom=(String)context.get("toFrom");
+  if (toFrom == null) {
+    toFrom="TO";
+  }
+ else {
+    toFrom=toFrom.toUpperCase();
+  }
+  List assocTypes=(List)context.get("contentAssocTypeList");
+  List targetOperations=(List)context.get("targetOperationList");
+  List contentList=null;
+  List contentTypes=(List)context.get("contentTypeList");
+  try {
+    contentList=ContentWorker.getAssociatedContent(currentContent,toFrom,assocTypes,contentTypes,fromDate,thruDate);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Error getting associated content: " + e.toString());
+  }
+  if (targetOperations == null || targetOperations.isEmpty()) {
+    results.put("contentList",contentList);
+    return results;
+  }
+  Map serviceInMap=new HashMap();
+  serviceInMap.put("userLogin",context.get("userLogin"));
+  serviceInMap.put("targetOperationList",targetOperations);
+  serviceInMap.put("entityOperation",context.get("entityOperation"));
+  List permittedList=new ArrayList();
+  Iterator it=contentList.iterator();
+  Map permResults=null;
+  while (it.hasNext()) {
+    GenericValue content=(GenericValue)it.next();
+    serviceInMap.put("currentContent",content);
+    try {
+      permResults=dispatcher.runSync("checkContentPermission",serviceInMap);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem checking permissions","ContentServices");
+      return ServiceUtil.returnError("Problem checking permissions");
+    }
+    String permissionStatus=(String)permResults.get("permissionStatus");
+    if (permissionStatus != null && permissionStatus.equalsIgnoreCase("granted")) {
+      permittedList.add(content);
+    }
+  }
+  results.put("contentList",permittedList);
+  return results;
+}

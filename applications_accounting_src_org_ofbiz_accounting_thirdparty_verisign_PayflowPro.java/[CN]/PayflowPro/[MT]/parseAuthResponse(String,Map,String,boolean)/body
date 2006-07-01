@@ -1,0 +1,53 @@
+{
+  Debug.logInfo("Verisign response string: " + resp,module);
+  Map parameters=new LinkedMap();
+  List params=StringUtil.split(resp,"&");
+  Iterator i=params.iterator();
+  while (i.hasNext()) {
+    String str=(String)i.next();
+    if (str.length() > 0) {
+      List kv=StringUtil.split(str,"=");
+      Object k=kv.get(0);
+      Object v=kv.get(1);
+      if (k != null && v != null)       parameters.put(k,v);
+    }
+  }
+  boolean isSale=!UtilProperties.propertyValueEqualsIgnoreCase(resource,"payment.verisign.preAuth","Y");
+  boolean avsCheckOkay=true;
+  String avsCode=null;
+  if (!isReAuth) {
+    boolean checkAvs=UtilProperties.propertyValueEqualsIgnoreCase(resource,"payment.verisign.checkAvs","Y");
+    if (checkAvs && !isSale) {
+      String addAvs=(String)parameters.get("AVSADDR");
+      String zipAvs=(String)parameters.get("AVSZIP");
+      avsCode=addAvs + zipAvs;
+      if ("N".equals(addAvs) || "N".equals(zipAvs)) {
+        avsCheckOkay=false;
+      }
+    }
+  }
+  boolean cvv2CheckOkay=true;
+  String cvvCode=null;
+  if (!isReAuth) {
+    boolean checkCvv2=UtilProperties.propertyValueEqualsIgnoreCase(resource,"payment.verisign.checkAvs","Y");
+    if (checkCvv2 && !isSale) {
+      cvvCode=(String)parameters.get("CVV2MATCH");
+      if ("N".equals(cvvCode)) {
+        cvv2CheckOkay=false;
+      }
+    }
+  }
+  String respCode=(String)parameters.get("RESULT");
+  if (respCode.equals("0") && avsCheckOkay && cvv2CheckOkay) {
+    result.put("authResult",Boolean.TRUE);
+    result.put("authCode",parameters.get("AUTHCODE"));
+  }
+ else {
+    result.put("authResult",Boolean.FALSE);
+  }
+  result.put("cvCode",cvvCode);
+  result.put("avsCode",avsCode);
+  result.put("authRefNum",parameters.get("PNREF"));
+  result.put("authFlag",parameters.get("RESULT"));
+  result.put("authMessage",parameters.get("RESPMSG"));
+}

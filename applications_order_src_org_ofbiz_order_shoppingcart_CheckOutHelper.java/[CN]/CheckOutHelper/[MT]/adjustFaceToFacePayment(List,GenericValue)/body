@@ -1,0 +1,55 @@
+{
+  String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
+  DecimalFormat formatter=new DecimalFormat(currencyFormat);
+  double cartTotal=this.cart.getGrandTotal();
+  String grandTotalString=formatter.format(cartTotal);
+  Double grandTotal=null;
+  try {
+    grandTotal=new Double(formatter.parse(grandTotalString).doubleValue());
+  }
+ catch (  ParseException e) {
+    throw new GeneralException("Problem getting parsed currency amount from DecimalFormat",e);
+  }
+  double prefTotal=0.00;
+  if (allPaymentPrefs != null) {
+    Iterator i=allPaymentPrefs.iterator();
+    while (i.hasNext()) {
+      GenericValue pref=(GenericValue)i.next();
+      Double maxAmount=pref.getDouble("maxAmount");
+      if (maxAmount == null)       maxAmount=new Double(0.00);
+      prefTotal+=maxAmount.doubleValue();
+    }
+  }
+  String payTotalString=formatter.format(prefTotal);
+  Double payTotal=null;
+  try {
+    payTotal=new Double(formatter.parse(payTotalString).doubleValue());
+  }
+ catch (  ParseException e) {
+    throw new GeneralException("Problem getting parsed currency amount from DecimalFormat",e);
+  }
+  if (grandTotal == null)   grandTotal=new Double(0.00);
+  if (payTotal == null)   payTotal=new Double(0.00);
+  if (payTotal.doubleValue() > grandTotal.doubleValue()) {
+    double diff=(payTotal.doubleValue() - grandTotal.doubleValue()) * -1;
+    String diffString=formatter.format(diff);
+    Double change=null;
+    try {
+      change=new Double(formatter.parse(diffString).doubleValue());
+    }
+ catch (    ParseException e) {
+      throw new GeneralException("Problem getting parsed currency amount from DecimalFormat",e);
+    }
+    GenericValue newPref=delegator.makeValue("OrderPaymentPreference",null);
+    newPref.set("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference"));
+    newPref.set("orderId",cart.getOrderId());
+    newPref.set("paymentMethodTypeId","CASH");
+    newPref.set("statusId","PAYMENT_RECEIVED");
+    newPref.set("maxAmount",change);
+    newPref.set("createdDate",UtilDateTime.nowTimestamp());
+    if (userLogin != null) {
+      newPref.set("createdByUserLogin",userLogin.getString("userLoginId"));
+    }
+    delegator.create(newPref);
+  }
+}

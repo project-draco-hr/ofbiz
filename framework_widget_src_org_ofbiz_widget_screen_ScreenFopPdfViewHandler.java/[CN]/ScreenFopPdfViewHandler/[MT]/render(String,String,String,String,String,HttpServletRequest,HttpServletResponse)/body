@@ -1,0 +1,45 @@
+{
+  Writer writer=new StringWriter();
+  try {
+    ScreenRenderer screens=new ScreenRenderer(writer,null,htmlScreenRenderer);
+    screens.populateContextForRequest(request,response,servletContext);
+    screens.render(page);
+  }
+ catch (  Throwable t) {
+    throw new ViewHandlerException("Problems with the response writer/output stream",t);
+  }
+  if (Debug.verboseOn()) {
+  }
+  Logger logger=new Log4JLogger(Debug.getLogger(module));
+  MessageHandler.setScreenLogger(logger);
+  Driver driver=new Driver();
+  driver.setRenderer(Driver.RENDER_PDF);
+  driver.setLogger(logger);
+  Document xslfo=null;
+  try {
+    xslfo=UtilXml.readXmlDocument(writer.toString());
+  }
+ catch (  Throwable t) {
+    throw new ViewHandlerException("Problems reading the parsed content to XML Document",t);
+  }
+  ByteArrayOutputStream out=new ByteArrayOutputStream();
+  driver.setOutputStream(out);
+  InputSource is=new DocumentInputSource(xslfo);
+  driver.setInputSource(is);
+  try {
+    driver.run();
+    FopImageFactory.resetCache();
+  }
+ catch (  Throwable t) {
+    throw new ViewHandlerException("Unable to generate PDF from XSL-FO",t);
+  }
+  response.setContentType("application/pdf");
+  response.setContentLength(out.size());
+  try {
+    out.writeTo(response.getOutputStream());
+    response.getOutputStream().flush();
+  }
+ catch (  IOException e) {
+    throw new ViewHandlerException("Unable write to browser OutputStream",e);
+  }
+}

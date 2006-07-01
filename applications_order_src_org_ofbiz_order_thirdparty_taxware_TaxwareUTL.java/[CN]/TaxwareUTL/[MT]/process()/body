@@ -1,0 +1,52 @@
+{
+  checkFields();
+  if (processed)   throw new TaxwareException("Cannot re-process records.");
+  processed=true;
+  Iterator i=records.iterator();
+  while (i.hasNext()) {
+    Record rec=(Record)i.next();
+    rec=makeItemData(rec);
+    outItem.addRecord(rec);
+  }
+  if (shippingAmount > 0) {
+    Record shipping=outItem.makeRecord("outItem");
+    shipping=makeItemData(shipping);
+    shipping.set("FREIGHT_AMOUNT",new Double(shippingAmount));
+    outItem.addRecord(shipping);
+  }
+  Record header=outHead.makeRecord("outHead");
+  header.set("NUMBER_RECORDS",new Long(outItem.getRecords().size()));
+  header.set("PROCESS_INDICATOR","1");
+  outHead.addRecord(header);
+  int returnCode=-1;
+  try {
+    StringBuffer outBuffer=new StringBuffer();
+    outBuffer.append(outHead.writeDataFile());
+    outBuffer.append(outItem.writeDataFile());
+    if (Debug.verboseOn())     Debug.logVerbose("::Out String::",module);
+    if (Debug.verboseOn())     Debug.logVerbose("\"" + outBuffer.toString() + "\"",module);
+    File outFile=new File("TAXWARE-TEST.IN");
+    FileOutputStream fos=null;
+    try {
+      fos=new FileOutputStream(outFile);
+    }
+ catch (    FileNotFoundException e) {
+      e.printStackTrace();
+    }
+    outHead.writeDataFile(fos);
+    outItem.writeDataFile(fos);
+    try {
+      fos.close();
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+    }
+    outItem.writeDataFile("TaxwareTest.in");
+    StringBuffer retBuffer=taxCalc(outBuffer);
+    returnCode=processOutFile(retBuffer);
+  }
+ catch (  DataFileException dfe) {
+    throw new TaxwareException("Problems with the data file.",dfe);
+  }
+  return returnCode;
+}

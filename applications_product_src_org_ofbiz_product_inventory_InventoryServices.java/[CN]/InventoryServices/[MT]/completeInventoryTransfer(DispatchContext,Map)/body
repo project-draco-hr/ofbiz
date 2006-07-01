@@ -1,0 +1,70 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String inventoryTransferId=(String)context.get("inventoryTransferId");
+  GenericValue inventoryTransfer=null;
+  GenericValue inventoryItem=null;
+  GenericValue destinationFacility=null;
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  try {
+    inventoryTransfer=delegator.findByPrimaryKey("InventoryTransfer",UtilMisc.toMap("inventoryTransferId",inventoryTransferId));
+    inventoryItem=inventoryTransfer.getRelatedOne("InventoryItem");
+    destinationFacility=inventoryTransfer.getRelatedOne("ToFacility");
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Inventory Item/Transfer lookup problem [" + e.getMessage() + "]");
+  }
+  if (inventoryTransfer == null || inventoryItem == null) {
+    return ServiceUtil.returnError("ERROR: Lookup of InventoryTransfer and/or InventoryItem failed!");
+  }
+  String inventoryType=inventoryItem.getString("inventoryItemTypeId");
+  if (inventoryTransfer.get("receiveDate") == null) {
+    inventoryTransfer.set("receiveDate",UtilDateTime.nowTimestamp());
+  }
+  if (inventoryType.equals("NON_SERIAL_INV_ITEM")) {
+    double atp=inventoryItem.get("availableToPromiseTotal") == null ? 0 : inventoryItem.getDouble("availableToPromiseTotal").doubleValue();
+    double qoh=inventoryItem.get("quantityOnHandTotal") == null ? 0 : inventoryItem.getDouble("quantityOnHandTotal").doubleValue();
+    Map createDetailMap=UtilMisc.toMap("availableToPromiseDiff",new Double(qoh - atp),"inventoryItemId",inventoryItem.get("inventoryItemId"),"userLogin",userLogin);
+    try {
+      Map result=dctx.getDispatcher().runSync("createInventoryItemDetail",createDetailMap);
+      if (ServiceUtil.isError(result)) {
+        return ServiceUtil.returnError("Inventory Item Detail create problem in complete inventory transfer",null,null,result);
+      }
+    }
+ catch (    GenericServiceException e1) {
+      return ServiceUtil.returnError("Inventory Item Detail create problem in complete inventory transfer: [" + e1.getMessage() + "]");
+    }
+    try {
+      inventoryItem.refresh();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError("Inventory refresh problem [" + e.getMessage() + "]");
+    }
+  }
+ else   if (inventoryType.equals("SERIALIZED_INV_ITEM")) {
+    inventoryItem.set("statusId","INV_AVAILABLE");
+  }
+  Map updateInventoryItemMap=UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId"),"facilityId",inventoryTransfer.get("facilityIdTo"),"containerId",inventoryTransfer.get("containerIdTo"),"locationSeqId",inventoryTransfer.get("locationSeqIdTo"),"userLogin",userLogin);
+  if (destinationFacility != null && destinationFacility.get("ownerPartyId") != null) {
+    String fromPartyId=inventoryItem.getString("ownerPartyId");
+    String toPartyId=destinationFacility.getString("ownerPartyId");
+    if (fromPartyId == null || !fromPartyId.equals(toPartyId)) {
+      updateInventoryItemMap.put("ownerPartyId",toPartyId);
+    }
+  }
+  try {
+    Map result=dctx.getDispatcher().runSync("updateInventoryItem",updateInventoryItemMap);
+    if (ServiceUtil.isError(result)) {
+      return ServiceUtil.returnError("Inventory item store problem",null,null,result);
+    }
+  }
+ catch (  GenericServiceException exc) {
+    return ServiceUtil.returnError("Inventory item store problem [" + exc.getMessage() + "]");
+  }
+  try {
+    inventoryTransfer.store();
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Inventory store problem [" + e.getMessage() + "]");
+  }
+  return ServiceUtil.returnSuccess();
+}

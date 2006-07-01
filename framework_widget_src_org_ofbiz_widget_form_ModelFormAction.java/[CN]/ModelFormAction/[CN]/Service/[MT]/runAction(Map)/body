@@ -1,0 +1,52 @@
+{
+  String serviceNameExpanded=this.serviceNameExdr.expandString(context);
+  if (UtilValidate.isEmpty(serviceNameExpanded)) {
+    throw new IllegalArgumentException("Service name was empty, expanded from: " + this.serviceNameExdr.getOriginal());
+  }
+  String autoFieldMapString=this.autoFieldMapExdr.expandString(context);
+  boolean autoFieldMapBool=!"false".equals(autoFieldMapString);
+  try {
+    Map serviceContext=null;
+    if (autoFieldMapBool) {
+      serviceContext=this.modelForm.getDispatcher(context).getDispatchContext().makeValidContext(serviceNameExpanded,ModelService.IN_PARAM,context);
+    }
+ else {
+      serviceContext=new HashMap();
+    }
+    if (this.fieldMap != null) {
+      EntityFinderUtil.expandFieldMapToContext(this.fieldMap,context,serviceContext);
+    }
+    Map result=this.modelForm.getDispatcher(context).runSync(serviceNameExpanded,serviceContext);
+    if (this.resultMapNameAcsr != null) {
+      this.resultMapNameAcsr.put(context,result);
+      String queryString=(String)result.get("queryString");
+      context.put("queryString",queryString);
+      context.put("queryStringMap",result.get("queryStringMap"));
+      if (UtilValidate.isNotEmpty(queryString)) {
+        try {
+          String queryStringEncoded=queryString.replaceAll("&","%26");
+          context.put("queryStringEncoded",queryStringEncoded);
+        }
+ catch (        PatternSyntaxException e) {
+        }
+      }
+    }
+ else {
+      context.putAll(result);
+    }
+    String listName=resultMapListNameExdr.expandString(context);
+    Object listObj=result.get(listName);
+    if (listObj != null) {
+      if (!(listObj instanceof List) && !(listObj instanceof ListIterator)) {
+        throw new IllegalArgumentException("Error in form [" + this.modelForm.getName() + "] calling service with name ["+ serviceNameExpanded+ "]: the result that is supposed to be a List or ListIterator and is not.");
+      }
+      context.put("listName",listName);
+      context.put(listName,listObj);
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error in form [" + this.modelForm.getName() + "] calling service with name ["+ serviceNameExpanded+ "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new IllegalArgumentException(errMsg);
+  }
+}

@@ -1,0 +1,58 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String returnId=(String)context.get("returnId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue returnHeader=null;
+  List returnItems=null;
+  try {
+    returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+    if (returnHeader != null) {
+      returnItems=returnHeader.getRelated("ReturnItem");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems looking up return information",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+  }
+  if (returnHeader != null && returnHeader.get("statusId") != null) {
+    String currentStatus=returnHeader.getString("statusId");
+    if ("RETURN_COMPLETED".equals(currentStatus) || "RETURN_CANCELLED".equals(currentStatus)) {
+      return ServiceUtil.returnSuccess();
+    }
+  }
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List completedItems=new ArrayList();
+  if (returnHeader != null && returnItems != null && returnItems.size() > 0) {
+    Iterator itemsIter=returnItems.iterator();
+    while (itemsIter.hasNext()) {
+      GenericValue item=(GenericValue)itemsIter.next();
+      String itemStatus=item != null ? item.getString("statusId") : null;
+      if (itemStatus != null) {
+        if ("RETURN_COMPLETED".equals(itemStatus) || "RETURN_CANCELLED".equals(itemStatus)) {
+          completedItems.add(item);
+        }
+      }
+    }
+    if (completedItems.size() == returnItems.size()) {
+      List toStore=new LinkedList();
+      returnHeader.set("statusId","RETURN_COMPLETED");
+      toStore.add(returnHeader);
+      String returnStatusId=delegator.getNextSeqId("ReturnStatus").toString();
+      GenericValue returnStatus=delegator.makeValue("ReturnStatus",UtilMisc.toMap("returnStatusId",returnStatusId));
+      returnStatus.set("statusId","RETURN_COMPLETED");
+      returnStatus.set("returnId",returnId);
+      returnStatus.set("statusDatetime",now);
+      toStore.add(returnStatus);
+      try {
+        delegator.storeAll(toStore);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToCreateReturnStatusHistory",locale));
+      }
+    }
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("statusId",returnHeader.get("statusId"));
+  return result;
+}

@@ -1,0 +1,76 @@
+{
+  this.globalName=globalName;
+  if (!rootLocation.endsWith("/")) {
+    rootLocation=rootLocation + "/";
+  }
+  this.rootLocation=rootLocation.replace('\\','/');
+  File rootLocationDir=new File(rootLocation);
+  if (rootLocationDir == null) {
+    throw new ComponentException("The given component root location is does not exist: " + rootLocation);
+  }
+  if (!rootLocationDir.isDirectory()) {
+    throw new ComponentException("The given component root location is not a directory: " + rootLocation);
+  }
+  String xmlFilename=rootLocation + "/" + OFBIZ_COMPONENT_XML_FILENAME;
+  URL xmlUrl=UtilURL.fromFilename(xmlFilename);
+  if (xmlUrl == null) {
+    throw new ComponentException("Could not find the " + OFBIZ_COMPONENT_XML_FILENAME + " configuration file in the component root location: "+ rootLocation);
+  }
+  Document ofbizComponentDocument=null;
+  try {
+    ofbizComponentDocument=UtilXml.readXmlDocument(xmlUrl,true);
+  }
+ catch (  SAXException e) {
+    throw new ComponentException("Error reading the component config file: " + xmlUrl,e);
+  }
+catch (  ParserConfigurationException e) {
+    throw new ComponentException("Error reading the component config file: " + xmlUrl,e);
+  }
+catch (  IOException e) {
+    throw new ComponentException("Error reading the component config file: " + xmlUrl,e);
+  }
+  Element ofbizComponentElement=ofbizComponentDocument.getDocumentElement();
+  this.componentName=ofbizComponentElement.getAttribute("name");
+  this.enabled="true".equalsIgnoreCase(ofbizComponentElement.getAttribute("enabled"));
+  if (UtilValidate.isEmpty(this.globalName)) {
+    this.globalName=this.componentName;
+  }
+  Iterator elementIter=null;
+  elementIter=UtilXml.childElementList(ofbizComponentElement,"resource-loader").iterator();
+  while (elementIter.hasNext()) {
+    Element curElement=(Element)elementIter.next();
+    ResourceLoaderInfo resourceLoaderInfo=new ResourceLoaderInfo(curElement);
+    this.resourceLoaderInfos.put(resourceLoaderInfo.name,resourceLoaderInfo);
+  }
+  elementIter=UtilXml.childElementList(ofbizComponentElement,"classpath").iterator();
+  while (elementIter.hasNext()) {
+    Element curElement=(Element)elementIter.next();
+    ClasspathInfo classpathInfo=new ClasspathInfo(this,curElement);
+    this.classpathInfos.add(classpathInfo);
+  }
+  elementIter=UtilXml.childElementList(ofbizComponentElement,"entity-resource").iterator();
+  while (elementIter.hasNext()) {
+    Element curElement=(Element)elementIter.next();
+    EntityResourceInfo entityResourceInfo=new EntityResourceInfo(this,curElement);
+    this.entityResourceInfos.add(entityResourceInfo);
+  }
+  elementIter=UtilXml.childElementList(ofbizComponentElement,"service-resource").iterator();
+  while (elementIter.hasNext()) {
+    Element curElement=(Element)elementIter.next();
+    ServiceResourceInfo serviceResourceInfo=new ServiceResourceInfo(this,curElement);
+    this.serviceResourceInfos.add(serviceResourceInfo);
+  }
+  elementIter=UtilXml.childElementList(ofbizComponentElement,"test-suite").iterator();
+  while (elementIter.hasNext()) {
+    Element curElement=(Element)elementIter.next();
+    TestSuiteInfo testSuiteInfo=new TestSuiteInfo(this,curElement);
+    this.testSuiteInfos.add(testSuiteInfo);
+  }
+  elementIter=UtilXml.childElementList(ofbizComponentElement,"webapp").iterator();
+  while (elementIter.hasNext()) {
+    Element curElement=(Element)elementIter.next();
+    WebappInfo webappInfo=new WebappInfo(this,curElement);
+    this.webappInfos.add(webappInfo);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Read component config : [" + rootLocation + "]",module);
+}

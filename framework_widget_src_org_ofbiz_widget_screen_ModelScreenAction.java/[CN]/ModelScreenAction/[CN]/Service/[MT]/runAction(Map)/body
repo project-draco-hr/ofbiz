@@ -1,0 +1,49 @@
+{
+  String serviceNameExpanded=this.serviceNameExdr.expandString(context);
+  if (UtilValidate.isEmpty(serviceNameExpanded)) {
+    throw new IllegalArgumentException("Service name was empty, expanded from: " + this.serviceNameExdr.getOriginal());
+  }
+  String autoFieldMapString=this.autoFieldMapExdr.expandString(context);
+  try {
+    Map serviceContext=null;
+    if ("true".equals(autoFieldMapString)) {
+      serviceContext=this.modelScreen.getDispatcher(context).getDispatchContext().makeValidContext(serviceNameExpanded,ModelService.IN_PARAM,context);
+    }
+ else     if (UtilValidate.isNotEmpty(autoFieldMapString) && !"false".equals(autoFieldMapString)) {
+      FlexibleMapAccessor fieldFma=new FlexibleMapAccessor(autoFieldMapString);
+      Map autoFieldMap=(Map)fieldFma.get(context);
+      if (autoFieldMap != null) {
+        serviceContext=this.modelScreen.getDispatcher(context).getDispatchContext().makeValidContext(serviceNameExpanded,ModelService.IN_PARAM,autoFieldMap);
+      }
+    }
+    if (serviceContext == null) {
+      serviceContext=FastMap.newInstance();
+    }
+    if (this.fieldMap != null) {
+      EntityFinderUtil.expandFieldMapToContext(this.fieldMap,context,serviceContext);
+    }
+    Map result=this.modelScreen.getDispatcher(context).runSync(serviceNameExpanded,serviceContext);
+    if (this.resultMapNameAcsr != null) {
+      this.resultMapNameAcsr.put(context,result);
+      String queryString=(String)result.get("queryString");
+      context.put("queryString",queryString);
+      context.put("queryStringMap",result.get("queryStringMap"));
+      if (UtilValidate.isNotEmpty(queryString)) {
+        try {
+          String queryStringEncoded=queryString.replaceAll("&","%26");
+          context.put("queryStringEncoded",queryStringEncoded);
+        }
+ catch (        PatternSyntaxException e) {
+        }
+      }
+    }
+ else {
+      context.putAll(result);
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error calling service with name " + serviceNameExpanded + ": "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new IllegalArgumentException(errMsg);
+  }
+}

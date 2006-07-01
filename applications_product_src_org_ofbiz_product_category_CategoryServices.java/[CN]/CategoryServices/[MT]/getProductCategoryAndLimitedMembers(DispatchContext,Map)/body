@@ -1,0 +1,108 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String productCategoryId=(String)context.get("productCategoryId");
+  boolean limitView=((Boolean)context.get("limitView")).booleanValue();
+  int defaultViewSize=((Integer)context.get("defaultViewSize")).intValue();
+  String prodCatalogId=(String)context.get("prodCatalogId");
+  boolean useCacheForMembers=(context.get("useCacheForMembers") != null ? ((Boolean)context.get("useCacheForMembers")).booleanValue() : true);
+  boolean activeOnly=(context.get("activeOnly") != null ? ((Boolean)context.get("activeOnly")).booleanValue() : true);
+  boolean checkViewAllow=(context.get("checkViewAllow") != null ? ((Boolean)context.get("checkViewAllow")).booleanValue() : false);
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  int viewIndex=1;
+  try {
+    viewIndex=Integer.valueOf((String)context.get("viewIndexString")).intValue();
+  }
+ catch (  Exception e) {
+    viewIndex=1;
+  }
+  int viewSize=defaultViewSize;
+  try {
+    viewSize=Integer.valueOf((String)context.get("viewSizeString")).intValue();
+  }
+ catch (  Exception e) {
+    viewSize=defaultViewSize;
+  }
+  GenericValue productCategory=null;
+  try {
+    productCategory=delegator.findByPrimaryKeyCache("ProductCategory",UtilMisc.toMap("productCategoryId",productCategoryId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    productCategory=null;
+  }
+  int listSize=0;
+  int lowIndex=0;
+  int highIndex=0;
+  if (limitView) {
+    lowIndex=(((viewIndex - 1) * viewSize) + 1);
+    highIndex=viewIndex * viewSize;
+  }
+  List productCategoryMembers=null;
+  if (productCategory != null) {
+    try {
+      if (useCacheForMembers) {
+        productCategoryMembers=productCategory.getRelatedCache("ProductCategoryMember",null,UtilMisc.toList("sequenceNum"));
+        if (activeOnly) {
+          productCategoryMembers=EntityUtil.filterByDate(productCategoryMembers,true);
+        }
+        listSize=productCategoryMembers.size();
+        if (highIndex > listSize) {
+          highIndex=listSize;
+        }
+        if (limitView) {
+          productCategoryMembers=productCategoryMembers.subList(lowIndex - 1,highIndex);
+        }
+ else {
+          lowIndex=1;
+          highIndex=listSize;
+        }
+      }
+ else {
+        List mainCondList=UtilMisc.toList(new EntityExpr("productCategoryId",EntityOperator.EQUALS,productCategory.getString("productCategoryId")));
+        if (activeOnly) {
+          mainCondList.add(new EntityExpr("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp));
+          mainCondList.add(new EntityExpr(new EntityExpr("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,new EntityExpr("thruDate",EntityOperator.GREATER_THAN,nowTimestamp)));
+        }
+        EntityCondition mainCond=new EntityConditionList(mainCondList,EntityOperator.AND);
+        EntityFindOptions findOpts=new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true);
+        EntityListIterator pli=delegator.findListIteratorByCondition("ProductCategoryMember",mainCond,null,null,UtilMisc.toList("sequenceNum","productId"),findOpts);
+        if (limitView) {
+          productCategoryMembers=pli.getPartialList(lowIndex,viewSize);
+          pli.last();
+          listSize=pli.currentIndex();
+        }
+ else {
+          productCategoryMembers=pli.getCompleteList();
+          listSize=productCategoryMembers.size();
+          lowIndex=1;
+          highIndex=listSize;
+        }
+        if (productCategoryMembers == null) {
+          productCategoryMembers=FastList.newInstance();
+        }
+        if (highIndex > listSize) {
+          highIndex=listSize;
+        }
+        pli.close();
+      }
+      if (checkViewAllow && prodCatalogId != null && productCategoryMembers != null && productCategoryMembers.size() > 0) {
+        String viewProductCategoryId=CatalogWorker.getCatalogViewAllowCategoryId(delegator,prodCatalogId);
+        if (viewProductCategoryId != null) {
+          productCategoryMembers=CategoryWorker.filterProductsInCategory(delegator,productCategoryMembers,viewProductCategoryId);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  Map result=new HashMap();
+  result.put("viewIndex",new Integer(viewIndex));
+  result.put("viewSize",new Integer(viewSize));
+  result.put("lowIndex",new Integer(lowIndex));
+  result.put("highIndex",new Integer(highIndex));
+  result.put("listSize",new Integer(listSize));
+  if (productCategory != null)   result.put("productCategory",productCategory);
+  if (productCategoryMembers != null)   result.put("productCategoryMembers",productCategoryMembers);
+  return result;
+}

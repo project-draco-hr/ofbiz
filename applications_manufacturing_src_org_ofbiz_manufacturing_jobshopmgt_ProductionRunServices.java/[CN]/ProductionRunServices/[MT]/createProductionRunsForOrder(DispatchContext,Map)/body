@@ -1,0 +1,93 @@
+{
+  Map result=new HashMap();
+  Security security=dctx.getSecurity();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  String shipmentId=(String)context.get("shipmentId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  Double quantity=(Double)context.get("quantity");
+  String fromDateStr=(String)context.get("fromDate");
+  Double amount=null;
+  Date fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    try {
+      fromDate=Timestamp.valueOf(fromDateStr);
+    }
+ catch (    Exception e) {
+    }
+  }
+  if (fromDate == null) {
+    fromDate=new Date();
+  }
+  List orderItems=null;
+  if (orderItemSeqId != null) {
+    try {
+      GenericValue orderItem=delegator.findByPrimaryKey("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId));
+      if (orderItem == null) {
+        return ServiceUtil.returnError("OrderItem [" + orderItemSeqId + "] not found.");
+      }
+      if (quantity != null) {
+        orderItem.set("quantity",quantity);
+      }
+      orderItems=UtilMisc.toList(orderItem);
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError("Error reading the OrderItem: " + gee.getMessage());
+    }
+  }
+ else {
+    try {
+      orderItems=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId));
+      if (orderItems == null) {
+        return ServiceUtil.returnError("OrderItems for order [" + orderId + "] not found.");
+      }
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError("Error reading the OrderItems: " + gee.getMessage());
+    }
+  }
+  for (int i=0; i < orderItems.size(); i++) {
+    GenericValue orderItem=(GenericValue)orderItems.get(i);
+    if (orderItem.get("productId") == null) {
+      continue;
+    }
+    if (orderItem.get("quantity") != null) {
+      quantity=orderItem.getDouble("quantity");
+    }
+ else {
+      continue;
+    }
+    try {
+      List existingProductionRuns=delegator.findByAndCache("WorkOrderItemFulfillment",UtilMisc.toMap("orderId",orderItem.getString("orderId"),"orderItemSeqId",orderItem.getString("orderItemSeqId")));
+      if (existingProductionRuns != null && existingProductionRuns.size() > 0) {
+        Debug.logWarning("Production Run for order item [" + orderItem.getString("orderId") + "/"+ orderItem.getString("orderItemSeqId")+ "] already exists.",module);
+        continue;
+      }
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError("Error reading the WorkOrderItemFulfillment: " + gee.getMessage());
+    }
+    if (orderItem.get("selectedAmount") != null) {
+      amount=orderItem.getDouble("selectedAmount");
+    }
+    if (amount == null) {
+      amount=new Double(0);
+    }
+    try {
+      ArrayList components=new ArrayList();
+      BOMTree tree=new BOMTree(orderItem.getString("productId"),"MANUF_COMPONENT",fromDate,BOMTree.EXPLOSION_MANUFACTURING,delegator,dispatcher,userLogin);
+      tree.setRootQuantity(quantity.doubleValue());
+      tree.setRootAmount(amount.doubleValue());
+      tree.print(components);
+      tree.createManufacturingOrders(orderId,orderItem.getString("orderItemSeqId"),shipmentId,fromDate,userLogin);
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError("Error creating bill of materials tree: " + gee.getMessage());
+    }
+  }
+  ArrayList productionRuns=new ArrayList();
+  result.put("productionRuns",productionRuns);
+  return result;
+}

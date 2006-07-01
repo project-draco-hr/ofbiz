@@ -1,0 +1,41 @@
+{
+  if (isReadOnlyCart()) {
+    throw new CartItemModifyException("Cart items cannot be changed");
+  }
+  double selectedAmount=selectedAmountDbl == null ? 0.0 : selectedAmountDbl.doubleValue();
+  double reservLength=reservLengthDbl == null ? 0.0 : reservLengthDbl.doubleValue();
+  double reservPersons=reservPersonsDbl == null ? 0.0 : reservPersonsDbl.doubleValue();
+  ShoppingCart.ShoppingCartItemGroup itemGroup=this.getItemGroupByNumber(itemGroupNumber);
+  GenericValue supplierProduct=null;
+  for (int i=0; i < this.cartLines.size(); i++) {
+    ShoppingCartItem sci=(ShoppingCartItem)cartLines.get(i);
+    if (sci.equals(productId,reservStart,reservLength,reservPersons,features,attributes,prodCatalogId,configWrapper,itemType,itemGroup,selectedAmount)) {
+      double newQuantity=sci.getQuantity() + quantity;
+      if (Debug.verboseOn())       Debug.logVerbose("Found a match for id " + productId + " on line "+ i+ ", updating quantity to "+ newQuantity,module);
+      sci.setQuantity(newQuantity,dispatcher,this);
+      if (getOrderType().equals("PURCHASE_ORDER")) {
+        supplierProduct=getSupplierProduct(productId,newQuantity,dispatcher);
+        if (supplierProduct != null && supplierProduct.getDouble("lastPrice") != null) {
+          sci.setBasePrice(supplierProduct.getDouble("lastPrice").doubleValue());
+          sci.setName(ShoppingCartItem.getPurchaseOrderItemDescription(sci.getProduct(),supplierProduct,this.getLocale()));
+        }
+ else {
+          throw new CartItemModifyException("SupplierProduct not found");
+        }
+      }
+      return i;
+    }
+  }
+  if (getOrderType().equals("PURCHASE_ORDER")) {
+    supplierProduct=getSupplierProduct(productId,quantity,dispatcher);
+    if (supplierProduct != null || "_NA_".equals(this.getPartyId())) {
+      return this.addItem(0,ShoppingCartItem.makePurchaseOrderItem(new Integer(0),productId,selectedAmountDbl,quantity,features,attributes,prodCatalogId,configWrapper,itemType,itemGroup,dispatcher,this,supplierProduct,shipBeforeDate,shipAfterDate));
+    }
+ else {
+      throw new CartItemModifyException("SupplierProduct not found");
+    }
+  }
+ else {
+    return this.addItem(0,ShoppingCartItem.makeItem(new Integer(0),productId,selectedAmountDbl,quantity,null,reservStart,reservLengthDbl,reservPersonsDbl,shipBeforeDate,shipAfterDate,features,attributes,prodCatalogId,configWrapper,itemType,itemGroup,dispatcher,this,Boolean.TRUE,Boolean.TRUE));
+  }
+}

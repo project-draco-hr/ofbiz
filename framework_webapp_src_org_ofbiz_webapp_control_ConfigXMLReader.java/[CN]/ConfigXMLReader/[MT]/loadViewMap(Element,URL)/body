@@ -1,0 +1,81 @@
+{
+  long startTime=System.currentTimeMillis();
+  FastMap map=FastMap.newInstance();
+  if (root == null) {
+    root=loadDocument(xml);
+  }
+  if (root == null) {
+    return map;
+  }
+  List includeElementList=UtilXml.childElementList(root,INCLUDE);
+  Iterator includeElementIter=includeElementList.iterator();
+  while (includeElementIter.hasNext()) {
+    Element includeElement=(Element)includeElementIter.next();
+    String includeFile=includeElement.getAttribute(INCLUDE_FILE);
+    if ((includeFile != null) && (includeFile.length() > 0)) {
+      File oldFile=new File(xml.getFile());
+      File newFile=new java.io.File("" + oldFile.getParent() + java.io.File.separator+ includeFile);
+      try {
+        Map subMap=loadRequestMap(null,newFile.toURL());
+        map.putAll(subMap);
+      }
+ catch (      MalformedURLException mue) {
+        mue.printStackTrace();
+      }
+    }
+    String includeURL=includeElement.getAttribute(INCLUDE_URL);
+    if ((includeURL != null) && (includeURL.length() > 0)) {
+      try {
+        Map subMap=loadRequestMap(null,new URL(includeURL));
+        map.putAll(subMap);
+      }
+ catch (      MalformedURLException mue) {
+        mue.printStackTrace();
+      }
+    }
+  }
+  List viewMapElementList=UtilXml.childElementList(root,VIEW_MAPPING);
+  Iterator viewMapElementIter=viewMapElementList.iterator();
+  while (viewMapElementIter.hasNext()) {
+    Element viewMapElement=(Element)viewMapElementIter.next();
+    FastMap uriMap=FastMap.newInstance();
+    String name=viewMapElement.getAttribute(VIEW_NAME);
+    String page=viewMapElement.getAttribute(VIEW_PAGE);
+    if (page == null || page.length() == 0) {
+      page=name;
+    }
+    uriMap.put(VIEW_NAME,name);
+    uriMap.put(VIEW_PAGE,page);
+    uriMap.put(VIEW_TYPE,viewMapElement.getAttribute(VIEW_TYPE));
+    uriMap.put(VIEW_INFO,viewMapElement.getAttribute(VIEW_INFO));
+    uriMap.put(VIEW_CONTENT_TYPE,viewMapElement.getAttribute(VIEW_CONTENT_TYPE));
+    uriMap.put(VIEW_ENCODING,viewMapElement.getAttribute(VIEW_ENCODING));
+    String description=UtilXml.childElementValue(viewMapElement,VIEW_DESCRIPTION);
+    uriMap.put(VIEW_DESCRIPTION,UtilValidate.isNotEmpty(description) ? description : "");
+    if (name != null)     map.put(name,uriMap);
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("-------- View Mappings --------",module);
+    FastMap debugMap=map;
+    Set debugSet=debugMap.keySet();
+    Iterator i=debugSet.iterator();
+    while (i.hasNext()) {
+      Object o=i.next();
+      String request=(String)o;
+      FastMap thisURI=(FastMap)debugMap.get(o);
+      StringBuffer verboseMessageBuffer=verboseMessageBuffer=new StringBuffer();
+      Iterator debugIter=((Set)thisURI.keySet()).iterator();
+      while (debugIter.hasNext()) {
+        Object lo=debugIter.next();
+        String name=(String)lo;
+        String value=(String)thisURI.get(lo);
+        verboseMessageBuffer.append("[" + name + "=>"+ value+ "]");
+      }
+      Debug.logVerbose(request + " :: " + verboseMessageBuffer.toString(),module);
+    }
+    Debug.logVerbose("------ End View Mappings ------",module);
+  }
+  double totalSeconds=(System.currentTimeMillis() - startTime) / 1000.0;
+  if (Debug.infoOn())   Debug.logInfo("ViewMap Created: (" + map.size() + ") records in "+ totalSeconds+ "s",module);
+  return map;
+}

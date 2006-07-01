@@ -1,0 +1,30 @@
+{
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  Double amount=(Double)context.get("refundAmount");
+  String configString=(String)context.get("paymentConfig");
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  GenericValue captureTrans=PaymentGatewayServices.getCaptureTransaction(paymentPref);
+  if (captureTrans == null) {
+    return ServiceUtil.returnError("No capture transaction found for the OrderPaymentPreference; cannot refund");
+  }
+  String refNum=captureTrans.getString("referenceNum");
+  Map data=UtilMisc.toMap("ORIGID",refNum);
+  data.put("TRXTYPE","C");
+  data.put("TENDER","C");
+  String orderId=paymentPref.getString("orderId");
+  data.put("COMMENT1",orderId);
+  data.put("AMT",amount.toString());
+  PFProAPI pn=init(configString);
+  StringBuffer params=makeBaseParams(configString);
+  params.append("&" + parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp=pn.SubmitTransaction(params.toString());
+  if (Debug.verboseOn())   Debug.logVerbose("Response from Verisign: " + resp,module);
+  pn.DestroyContext();
+  Map result=ServiceUtil.returnSuccess();
+  parseRefundResponse(resp,result,configString);
+  result.put("refundAmount",amount);
+  return result;
+}

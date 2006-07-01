@@ -1,0 +1,45 @@
+{
+  String entityName=(String)context.get("entityName");
+  String orderBy=(String)context.get("orderBy");
+  Map inputFields=(Map)context.get("inputFields");
+  String noConditionFind=(String)context.get("noConditionFind");
+  if (UtilValidate.isEmpty(noConditionFind)) {
+    noConditionFind=(String)inputFields.get("noConditionFind");
+  }
+  String filterByDate=(String)context.get("filterByDate");
+  if (UtilValidate.isEmpty(filterByDate)) {
+    filterByDate=(String)inputFields.get("filterByDate");
+  }
+  Map queryStringMap=new HashMap();
+  Map origValueMap=new HashMap();
+  HashMap normalizedFields=prepareField(inputFields,queryStringMap,origValueMap);
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue entityValue=delegator.makeValue(entityName,new HashMap());
+  ModelEntity modelEntity=entityValue.getModelEntity();
+  List keys=modelEntity.getAllFieldNames();
+  ArrayList tmpList=createCondition(keys,normalizedFields,queryStringMap,origValueMap);
+  if ((tmpList.size() > 0) || ((noConditionFind != null) && (noConditionFind.equals("Y")))) {
+    if (!UtilValidate.isEmpty(filterByDate) && "Y".equals(filterByDate)) {
+      EntityCondition filterByDateCondition=EntityUtil.getFilterByDateExpr();
+      tmpList.add(filterByDateCondition);
+    }
+  }
+  EntityConditionList exprList=null;
+  if (tmpList.size() > 0) {
+    exprList=new EntityConditionList(tmpList,(EntityJoinOperator)EntityOperator.AND);
+  }
+  List orderByList=null;
+  if (UtilValidate.isNotEmpty(orderBy)) {
+    orderByList=StringUtil.split(orderBy,"|");
+  }
+  Map results=ServiceUtil.returnSuccess();
+  Map reducedQueryStringMap=buildReducedQueryString(inputFields,entityName,delegator);
+  reducedQueryStringMap.put("noConditionFind",noConditionFind);
+  reducedQueryStringMap.put("filterByDate",filterByDate);
+  String queryString=UtilHttp.urlEncodeArgs(reducedQueryStringMap);
+  results.put("queryString",queryString);
+  results.put("queryStringMap",reducedQueryStringMap);
+  results.put("orderByList",orderByList);
+  results.put("entityConditionList",exprList);
+  return results;
+}

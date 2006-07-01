@@ -1,0 +1,129 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  Map overridePriceMap=(Map)context.get("overridePriceMap");
+  Map itemPriceMap=(Map)context.get("itemPriceMap");
+  Map itemQtyMap=(Map)context.get("itemQtyMap");
+  ShoppingCart cart=null;
+  try {
+    cart=loadCartForUpdate(dispatcher,delegator,userLogin,orderId);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (cart == null) {
+    return ServiceUtil.returnError("ERROR: Null shopping cart object returned!");
+  }
+  Map itemTotals=new HashMap();
+  Iterator i=itemQtyMap.keySet().iterator();
+  while (i.hasNext()) {
+    String key=(String)i.next();
+    String quantityStr=(String)itemQtyMap.get(key);
+    double groupQty=0.0;
+    try {
+      groupQty=Double.parseDouble(quantityStr);
+    }
+ catch (    NumberFormatException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (groupQty == 0) {
+      return ServiceUtil.returnError("Quantity must be >0, use cancel item to cancel completely!");
+    }
+    String[] itemInfo=key.split(":");
+    Double tally=(Double)itemTotals.get(itemInfo[0]);
+    if (tally == null) {
+      tally=new Double(groupQty);
+    }
+ else {
+      tally=new Double(tally.doubleValue() + groupQty);
+    }
+    itemTotals.put(itemInfo[0],tally);
+  }
+  Iterator iai=itemTotals.keySet().iterator();
+  while (iai.hasNext()) {
+    String itemSeqId=(String)iai.next();
+    ShoppingCartItem cartItem=cart.findCartItem(itemSeqId);
+    if (cartItem != null) {
+      Double qty=(Double)itemTotals.get(itemSeqId);
+      double priceSave=cartItem.getBasePrice();
+      try {
+        cartItem.setQuantity(qty.doubleValue(),dispatcher,cart,true,false);
+      }
+ catch (      CartItemModifyException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      Debug.log("Set item quantity: [" + itemSeqId + "] "+ qty,module);
+      if (cartItem.getIsModifiedPrice())       cartItem.setBasePrice(priceSave);
+      if (overridePriceMap.containsKey(itemSeqId)) {
+        String priceStr=(String)itemPriceMap.get(itemSeqId);
+        if (UtilValidate.isNotEmpty(priceStr)) {
+          double price=-1;
+          NumberFormat nf=null;
+          if (locale != null) {
+            nf=NumberFormat.getNumberInstance(locale);
+          }
+ else {
+            nf=NumberFormat.getNumberInstance();
+          }
+          try {
+            price=nf.parse(priceStr).doubleValue();
+          }
+ catch (          ParseException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+          cartItem.setBasePrice(price);
+          cartItem.setIsModifiedPrice(true);
+          Debug.log("Set item price: [" + itemSeqId + "] "+ price,module);
+        }
+      }
+    }
+ else {
+      Debug.logInfo("Unable to locate shopping cart item for seqId #" + itemSeqId,module);
+    }
+  }
+  Iterator gai=itemQtyMap.keySet().iterator();
+  while (gai.hasNext()) {
+    String key=(String)gai.next();
+    String quantityStr=(String)itemQtyMap.get(key);
+    double groupQty=0.0;
+    try {
+      groupQty=Double.parseDouble(quantityStr);
+    }
+ catch (    NumberFormatException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    String[] itemInfo=key.split(":");
+    int groupIdx=-1;
+    try {
+      groupIdx=Integer.parseInt(itemInfo[1]);
+    }
+ catch (    NumberFormatException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    ShoppingCartItem cartItem=cart.findCartItem(itemInfo[0]);
+    if (cartItem != null) {
+      Debug.log("Shipping info (before) for group #" + (groupIdx - 1) + " ["+ cart.getShipmentMethodTypeId(groupIdx - 1)+ " / "+ cart.getCarrierPartyId(groupIdx - 1)+ "]",module);
+      cart.setItemShipGroupQty(cartItem,groupQty,groupIdx - 1);
+      Debug.log("Set ship group qty: [" + itemInfo[0] + " / "+ itemInfo[1]+ " ("+ (groupIdx - 1)+ ")] "+ groupQty,module);
+      Debug.log("Shipping info (after) for group #" + (groupIdx - 1) + " ["+ cart.getShipmentMethodTypeId(groupIdx - 1)+ " / "+ cart.getCarrierPartyId(groupIdx - 1)+ "]",module);
+    }
+  }
+  try {
+    saveUpdatedCartToOrder(dispatcher,delegator,cart,locale,userLogin,orderId);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("shoppingCart",cart);
+  result.put("orderId",orderId);
+  return result;
+}

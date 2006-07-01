@@ -1,0 +1,65 @@
+{
+  String surveyResponseId=null;
+  try {
+    GenericDelegator delegator=dctx.getDelegator();
+    String partyId=(String)context.get("partyId");
+    String surveyId=(String)context.get("surveyId");
+    surveyResponseId=(String)context.get("surveyResponseId");
+    if (UtilValidate.isNotEmpty(surveyResponseId)) {
+      GenericValue surveyResponse=delegator.findByPrimaryKey("SurveyResponse",UtilMisc.toMap("surveyResponseId",surveyResponseId));
+      if (surveyResponse != null) {
+        surveyId=surveyResponse.getString("surveyId");
+      }
+    }
+ else {
+      surveyResponseId=delegator.getNextSeqId("SurveyResponse");
+      GenericValue surveyResponse=delegator.makeValue("SurveyResponse",UtilMisc.toMap("surveyResponseId",surveyResponseId,"surveyId",surveyId,"partyId",partyId));
+      surveyResponse.set("responseDate",UtilDateTime.nowTimestamp());
+      surveyResponse.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+      surveyResponse.create();
+    }
+    ByteArrayOutputStream os=new ByteArrayOutputStream();
+    ByteWrapper byteWrapper=getInputByteWrapper(context,delegator);
+    PdfReader r=new PdfReader(byteWrapper.getBytes());
+    PdfStamper s=new PdfStamper(r,os);
+    AcroFields fs=s.getAcroFields();
+    HashMap hm=fs.getFields();
+    s.setFormFlattening(true);
+    Iterator i=hm.keySet().iterator();
+    while (i.hasNext()) {
+      String fieldName=(String)i.next();
+      String value=fs.getField(fieldName);
+      List questions=delegator.findByAnd("SurveyQuestionAndAppl",UtilMisc.toMap("surveyId",surveyId,"externalFieldRef",fieldName));
+      if (questions.size() == 0) {
+        Debug.logInfo("No question found for surveyId:" + surveyId + " and externalFieldRef:"+ fieldName,module);
+        continue;
+      }
+      GenericValue surveyQuestionAndAppl=(GenericValue)questions.get(0);
+      String surveyQuestionId=(String)surveyQuestionAndAppl.get("surveyQuestionId");
+      String surveyQuestionTypeId=(String)surveyQuestionAndAppl.get("surveyQuestionTypeId");
+      GenericValue surveyResponseAnswer=delegator.makeValue("SurveyResponseAnswer",UtilMisc.toMap("surveyResponseId",surveyResponseId,"surveyQuestionId",surveyQuestionId));
+      if (surveyQuestionTypeId == null || surveyQuestionTypeId.equals("TEXT_SHORT")) {
+        surveyResponseAnswer.set("textResponse",value);
+      }
+      delegator.create(surveyResponseAnswer);
+    }
+    s.close();
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error generating PDF: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  GeneralException e) {
+    System.err.println(e.getMessage());
+    ServiceUtil.returnError(e.getMessage());
+  }
+catch (  Exception e) {
+    String errMsg="Error generating PDF: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  Map results=ServiceUtil.returnSuccess();
+  results.put("surveyResponseId",surveyResponseId);
+  return results;
+}

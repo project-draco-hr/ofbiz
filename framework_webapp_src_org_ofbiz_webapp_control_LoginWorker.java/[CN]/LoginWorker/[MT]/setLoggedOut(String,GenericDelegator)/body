@@ -1,0 +1,47 @@
+{
+  Transaction parentTx=null;
+  boolean beganTransaction=false;
+  try {
+    try {
+      parentTx=TransactionUtil.suspend();
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Cannot suspend current transaction: " + e.getMessage(),module);
+    }
+    try {
+      beganTransaction=TransactionUtil.begin();
+      GenericValue userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+      userLogin.set("hasLoggedOut","Y");
+      userLogin.store();
+    }
+ catch (    GenericEntityException e) {
+      String errMsg="Unable to set logged out flag on UserLogin";
+      Debug.logError(e,errMsg,module);
+      try {
+        TransactionUtil.rollback(beganTransaction,errMsg,e);
+      }
+ catch (      GenericTransactionException e2) {
+        Debug.logError(e2,"Could not rollback nested transaction: " + e.getMessage(),module);
+      }
+    }
+ finally {
+      try {
+        TransactionUtil.commit(beganTransaction);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not commit nested transaction: " + e.getMessage(),module);
+      }
+    }
+  }
+  finally {
+    if (parentTx != null) {
+      try {
+        TransactionUtil.resume(parentTx);
+        Debug.logVerbose("Resumed the parent transaction.",module);
+      }
+ catch (      GenericTransactionException ite) {
+        Debug.logError(ite,"Cannot resume transaction: " + ite.getMessage(),module);
+      }
+    }
+  }
+}

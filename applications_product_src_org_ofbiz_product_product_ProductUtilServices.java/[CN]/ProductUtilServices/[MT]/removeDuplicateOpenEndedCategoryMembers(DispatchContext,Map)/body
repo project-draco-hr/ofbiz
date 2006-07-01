@@ -1,0 +1,44 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  try {
+    DynamicViewEntity dve=new DynamicViewEntity();
+    dve.addMemberEntity("PCM","ProductCategoryMember");
+    dve.addAlias("PCM","productId",null,null,null,Boolean.TRUE,null);
+    dve.addAlias("PCM","productCategoryId",null,null,null,Boolean.TRUE,null);
+    dve.addAlias("PCM","fromDate",null,null,null,null,null);
+    dve.addAlias("PCM","thruDate",null,null,null,null,null);
+    dve.addAlias("PCM","productIdCount","productId",null,null,null,"count");
+    EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("fromDate",EntityOperator.LESS_THAN,nowTimestamp),new EntityExpr("thruDate",EntityOperator.EQUALS,null)),EntityOperator.AND);
+    EntityCondition havingCond=new EntityExpr("productIdCount",EntityOperator.GREATER_THAN,new Long(1));
+    EntityListIterator eli=delegator.findListIteratorByCondition(dve,condition,havingCond,UtilMisc.toList("productId","productCategoryId","productIdCount"),null,null);
+    GenericValue pcm=null;
+    int numSoFar=0;
+    while ((pcm=(GenericValue)eli.next()) != null) {
+      List productCategoryMemberList=delegator.findByAnd("ProductCategoryMember",UtilMisc.toMap("productId",pcm.get("productId"),"productCategoryId",pcm.get("productCategoryId")));
+      if (productCategoryMemberList.size() > 1) {
+        productCategoryMemberList.remove(0);
+        Iterator productCategoryMemberIter=productCategoryMemberList.iterator();
+        while (productCategoryMemberIter.hasNext()) {
+          GenericValue productCategoryMember=(GenericValue)productCategoryMemberIter.next();
+          productCategoryMember.remove();
+        }
+        numSoFar++;
+        if (numSoFar % 500 == 0) {
+          Debug.logInfo("Removed category members for " + numSoFar + " products with duplicate category members.",module);
+        }
+      }
+    }
+    eli.close();
+    Debug.logInfo("Completed - Removed category members for " + numSoFar + " products with duplicate category members.",module);
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productutilservices.entity_error_running_removeDuplicateOpenEndedCategoryMembers",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

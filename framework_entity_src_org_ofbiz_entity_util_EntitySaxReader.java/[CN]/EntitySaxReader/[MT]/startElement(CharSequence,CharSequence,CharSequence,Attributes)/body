@@ -1,0 +1,94 @@
+{
+  if (Debug.verboseOn())   Debug.logVerbose("startElement: localName=" + localName + ", fullName="+ fullName+ ", attributes="+ attributes,module);
+  String fullNameString=fullName.toString();
+  if ("entity-engine-xml".equals(fullNameString)) {
+    CharSequence maintainTx=attributes.getValue("maintain-timestamps");
+    if (maintainTx != null) {
+      this.setMaintainTxStamps("true".equalsIgnoreCase(maintainTx.toString()));
+    }
+    CharSequence doCacheClear=attributes.getValue("do-cache-clear");
+    if (doCacheClear != null) {
+      this.setDoCacheClear("true".equalsIgnoreCase(doCacheClear.toString()));
+    }
+    CharSequence ecaDisable=attributes.getValue("disable-eeca");
+    if (ecaDisable != null) {
+      this.setDisableEeca("true".equalsIgnoreCase(ecaDisable.toString()));
+    }
+    CharSequence dummyFk=attributes.getValue("create-dummy-fk");
+    if (dummyFk != null) {
+      this.setCreateDummyFks("true".equalsIgnoreCase(dummyFk.toString()));
+    }
+    return;
+  }
+  if ("entity-engine-transform-xml".equals(fullNameString)) {
+    templatePath=attributes.getValue("template");
+    isParseForTemplate=true;
+    documentForTemplate=UtilXml.makeEmptyXmlDocument();
+    return;
+  }
+  if (isParseForTemplate) {
+    Element newElement=this.documentForTemplate.createElement(fullNameString);
+    int length=attributes.getLength();
+    for (int i=0; i < length; i++) {
+      CharSequence name=attributes.getLocalName(i);
+      CharSequence value=attributes.getValue(i);
+      if (name == null || name.length() == 0) {
+        name=attributes.getQName(i);
+      }
+      newElement.setAttribute(name.toString(),value.toString());
+    }
+    if (this.currentNodeForTemplate == null) {
+      this.currentNodeForTemplate=newElement;
+      this.rootNodeForTemplate=newElement;
+    }
+ else {
+      this.currentNodeForTemplate.appendChild(newElement);
+      this.currentNodeForTemplate=newElement;
+    }
+    return;
+  }
+  if (currentValue != null) {
+    currentFieldName=fullName;
+  }
+ else {
+    String entityName=fullNameString;
+    if (entityName.indexOf('-') > 0) {
+      entityName=entityName.substring(entityName.indexOf('-') + 1);
+    }
+    if (entityName.indexOf(':') > 0) {
+      entityName=entityName.substring(entityName.indexOf(':') + 1);
+    }
+    try {
+      currentValue=delegator.makeValue(entityName,null);
+      if (this.maintainTxStamps) {
+        currentValue.setIsFromEntitySync(true);
+      }
+    }
+ catch (    Exception e) {
+      Debug.logError(e,module);
+    }
+    if (currentValue != null) {
+      int length=attributes.getLength();
+      for (int i=0; i < length; i++) {
+        CharSequence name=attributes.getLocalName(i);
+        CharSequence value=attributes.getValue(i);
+        if (name == null || name.length() == 0) {
+          name=attributes.getQName(i);
+        }
+        try {
+          if (value != null && value.length() > 0) {
+            if (currentValue.getModelEntity().isField(name.toString())) {
+              currentValue.setString(name.toString(),value.toString());
+            }
+ else {
+              Debug.logWarning("Ignoring invalid field name [" + name + "] found for the entity: "+ currentValue.getEntityName()+ " with value="+ value,module);
+            }
+          }
+        }
+ catch (        Exception e) {
+          Debug.logWarning(e,"Could not set field " + entityName + "."+ name+ " to the value "+ value,module);
+        }
+      }
+    }
+  }
+}

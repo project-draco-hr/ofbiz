@@ -1,0 +1,70 @@
+{
+  if (context == null)   context=new HashMap();
+  String text=null;
+  String webSiteId=(String)context.get("webSiteId");
+  String https=(String)context.get("https");
+  String dataResourceId=dataResource.getString("dataResourceId");
+  String dataResourceTypeId=dataResource.getString("dataResourceTypeId");
+  String dataResourceMimeTypeId=dataResource.getString("mimeTypeId");
+  if (UtilValidate.isEmpty(dataResourceTypeId)) {
+    dataResourceTypeId="SHORT_TEXT";
+  }
+  if (dataResourceTypeId.equals("SHORT_TEXT")) {
+    text=dataResource.getString("objectInfo");
+    writeText(text,dataResourceMimeTypeId,mimeTypeId,outWriter);
+  }
+ else   if (dataResourceTypeId.equals("ELECTRONIC_TEXT")) {
+    GenericValue electronicText=delegator.findByPrimaryKeyCache("ElectronicText",UtilMisc.toMap("dataResourceId",dataResourceId));
+    if (electronicText != null) {
+      text=electronicText.getString("textData");
+      writeText(text,dataResourceMimeTypeId,mimeTypeId,outWriter);
+    }
+  }
+ else   if (dataResourceTypeId.equals("IMAGE_OBJECT")) {
+    text=(String)dataResource.get("dataResourceId");
+    writeText(text,dataResourceMimeTypeId,mimeTypeId,outWriter);
+  }
+ else   if (dataResourceTypeId.equals("LINK")) {
+    text=dataResource.getString("objectInfo");
+    writeText(text,dataResourceMimeTypeId,mimeTypeId,outWriter);
+  }
+ else   if (dataResourceTypeId.equals("URL_RESOURCE")) {
+    URL url=new URL(dataResource.getString("objectInfo"));
+    if (url.getHost() != null) {
+      InputStream in=url.openStream();
+      int c;
+      StringWriter sw=new StringWriter();
+      while ((c=in.read()) != -1) {
+        sw.write(c);
+      }
+      sw.close();
+      text=sw.toString();
+    }
+ else {
+      String prefix=buildRequestPrefix(delegator,locale,webSiteId,https);
+      String sep="";
+      if (url.toString().indexOf("/") != 0 && prefix.lastIndexOf("/") != (prefix.length() - 1)) {
+        sep="/";
+      }
+      String s2=prefix + sep + url.toString();
+      URL url2=new URL(s2);
+      text=(String)url2.getContent();
+    }
+    writeText(text,dataResourceMimeTypeId,mimeTypeId,outWriter);
+  }
+ else   if (dataResourceTypeId.indexOf("_FILE_BIN") >= 0) {
+    String rootDir=(String)context.get("rootDir");
+    String objectInfo=dataResource.getString("objectInfo");
+    dataResourceMimeTypeId=dataResource.getString("mimeTypeId");
+    writeText(dataResourceId,dataResourceMimeTypeId,"text/html",outWriter);
+  }
+ else   if (dataResourceTypeId.indexOf("_FILE") >= 0) {
+    String rootDir=(String)context.get("rootDir");
+    dataResourceMimeTypeId=dataResource.getString("mimeTypeId");
+    if (dataResourceMimeTypeId == null || dataResourceMimeTypeId.startsWith("text"))     renderFile(dataResourceTypeId,dataResource.getString("objectInfo"),rootDir,outWriter);
+ else     writeText(dataResourceId,dataResourceMimeTypeId,"text/html",outWriter);
+  }
+ else {
+    throw new GeneralException("The dataResourceTypeId [" + dataResourceTypeId + "] is not supported in renderDataResourceAsText");
+  }
+}

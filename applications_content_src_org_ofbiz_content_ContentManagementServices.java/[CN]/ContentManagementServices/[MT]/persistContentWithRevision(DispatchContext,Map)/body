@@ -1,0 +1,65 @@
+{
+  Map result=null;
+  boolean dataResourceExists=false;
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue dataResource=null;
+  String masterRevisionContentId=(String)context.get("masterRevisionContentId");
+  String oldDataResourceId=(String)context.get("drDataResourceId");
+  if (UtilValidate.isEmpty(oldDataResourceId)) {
+    oldDataResourceId=(String)context.get("dataResourceId");
+  }
+  if (UtilValidate.isNotEmpty(oldDataResourceId)) {
+    try {
+      dataResource=delegator.findByPrimaryKey("DataResource",UtilMisc.toMap("dataResourceId",oldDataResourceId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e.getMessage(),module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  try {
+    ModelService persistContentAndAssocModel=dispatcher.getDispatchContext().getModelService("persistContentAndAssoc");
+    Map ctx=persistContentAndAssocModel.makeValid(context,"IN");
+    if (dataResource != null) {
+      ctx.remove("dataResourceId");
+      ctx.remove("drDataResourceId");
+    }
+    result=dispatcher.runSync("persistContentAndAssoc",ctx);
+    String errorMsg=ServiceUtil.getErrorMessage(result);
+    if (UtilValidate.isNotEmpty(errorMsg)) {
+      return ServiceUtil.returnError(errorMsg);
+    }
+    String contentId=(String)result.get("contentId");
+    List parentList=new ArrayList();
+    if (UtilValidate.isEmpty(masterRevisionContentId)) {
+      Map traversMap=new HashMap();
+      traversMap.put("contentId",contentId);
+      traversMap.put("direction","To");
+      traversMap.put("contentAssocTypeId","COMPDOC_PART");
+      Map traversResult=dispatcher.runSync("traverseContent",traversMap);
+      parentList=(List)traversResult.get("parentList");
+    }
+ else {
+      parentList.add(masterRevisionContentId);
+    }
+    Map contentRevisionMap=new HashMap();
+    contentRevisionMap.put("itemContentId",contentId);
+    contentRevisionMap.put("newDataResourceId",result.get("dataResourceId"));
+    contentRevisionMap.put("oldDataResourceId",oldDataResourceId);
+    for (int i=0; i < parentList.size(); i++) {
+      String thisContentId=(String)parentList.get(i);
+      contentRevisionMap.put("contentId",thisContentId);
+      result=dispatcher.runSync("persistContentRevisionAndItem",contentRevisionMap);
+      errorMsg=ServiceUtil.getErrorMessage(result);
+      if (UtilValidate.isNotEmpty(errorMsg)) {
+        return ServiceUtil.returnError(errorMsg);
+      }
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e.getMessage(),module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}

@@ -1,0 +1,43 @@
+{
+  Debug.logInfo("getRouting called",module);
+  List listRouting=null;
+  try {
+    listRouting=product.getRelated("WorkEffortGoodStandard",UtilMisc.toMap("workEffortGoodStdTypeId","ROU_PROD_TEMPLATE"),UtilMisc.toList("estimatedQuantity DESC"));
+    if (listRouting.size() > 0)     listRouting=EntityUtil.filterByDate(listRouting,eventDate);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error : product.getRelated routing... productId=" + product.getString("productId"),module);
+    return null;
+  }
+  if (listRouting == null || listRouting.size() == 0) {
+    Map serviceResponse=null;
+    try {
+      serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.toMap("productId",product.getString("productId"),"quantity",new Double(quantity)));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError("Error : getManufacturingComponents for productId =" + product.getString("productId") + "--"+ e.getMessage(),module);
+      return null;
+    }
+    String routingId=(String)serviceResponse.get("workEffortId");
+    try {
+      return product.getDelegator().findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",routingId));
+    }
+ catch (    GenericEntityException e) {
+      return null;
+    }
+  }
+  Iterator listRoutingIter=listRouting.iterator();
+  boolean found=false;
+  GenericValue routingProduct=null;
+  while (listRoutingIter.hasNext() && !found) {
+    routingProduct=(GenericValue)listRoutingIter.next();
+    if (routingProduct.getDouble("estimatedQuantity") == null || routingProduct.getDouble("estimatedQuantity").doubleValue() < quantity)     found=true;
+  }
+  try {
+    return routingProduct.getRelatedOneCache("WorkEffort");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error : routingProduct.getRelated routing... workEffortId=" + routingProduct.getString("workEffortId") + " productId="+ routingProduct.getString("productId"),module);
+    return null;
+  }
+}

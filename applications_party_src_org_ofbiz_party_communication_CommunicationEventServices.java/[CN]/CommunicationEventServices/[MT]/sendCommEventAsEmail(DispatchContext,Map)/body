@@ -1,0 +1,71 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String communicationEventId=(String)context.get("communicationEventId");
+  Map result=ServiceUtil.returnSuccess();
+  List errorMessages=new LinkedList();
+  try {
+    GenericValue communicationEvent=delegator.findByPrimaryKey("CommunicationEvent",UtilMisc.toMap("communicationEventId",communicationEventId));
+    if (communicationEvent == null) {
+      String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_not_found_failure",locale);
+      return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+    }
+    if ((communicationEvent.getString("communicationEventTypeId") == null) || !(communicationEvent.getString("communicationEventTypeId").equals("EMAIL_COMMUNICATION"))) {
+      String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_must_be_email_for_email",locale);
+      return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+    }
+    if ((communicationEvent.getRelatedOne("FromContactMech") == null) || (!(communicationEvent.getRelatedOne("FromContactMech").getString("contactMechTypeId").equals("EMAIL_ADDRESS")) || (communicationEvent.getRelatedOne("FromContactMech").getString("infoString") == null))) {
+      String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_from_contact_mech_must_be_email",locale);
+      return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+    }
+    Map sendMailParams=new HashMap();
+    sendMailParams.put("sendFrom",communicationEvent.getRelatedOne("FromContactMech").getString("infoString"));
+    sendMailParams.put("subject",communicationEvent.getString("subject"));
+    sendMailParams.put("body",communicationEvent.getString("content"));
+    sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
+    sendMailParams.put("userLogin",userLogin);
+    if ((communicationEvent.getString("contactListId") == null) || (communicationEvent.getString("contactListId").equals(""))) {
+      if ((communicationEvent.getRelatedOne("ToContactMech") == null) || (!(communicationEvent.getRelatedOne("ToContactMech").getString("contactMechTypeId").equals("EMAIL_ADDRESS")) || (communicationEvent.getRelatedOne("ToContactMech").getString("infoString") == null))) {
+        String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_to_contact_mech_must_be_email",locale);
+        return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+      }
+      sendMailParams.put("communicationEventId",communicationEventId);
+      sendMailParams.put("sendTo",communicationEvent.getRelatedOne("ToContactMech").getString("infoString"));
+      sendMailParams.put("partyId",communicationEvent.getString("partyIdTo"));
+      Map tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+      if (ServiceUtil.isError(tmpResult)) {
+        errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+      }
+    }
+ else {
+      GenericValue ContactList=communicationEvent.getRelatedOne("ContactList");
+      List sendToParties=ContactList.getRelated("ContactListParty");
+      for (Iterator it=sendToParties.iterator(); it.hasNext(); ) {
+        GenericValue nextSendToParty=(GenericValue)it.next();
+        if ((nextSendToParty != null) && (nextSendToParty.getRelatedOne("PreferredContactMech") != null)) {
+          sendMailParams.put("sendTo",nextSendToParty.getRelatedOne("PreferredContactMech").getString("infoString"));
+          sendMailParams.put("partyId",nextSendToParty.getString("partyId"));
+        }
+ else {
+          Debug.logWarning("Cannot find a preferred contact mech for [" + nextSendToParty + "]",module);
+        }
+        Map tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+        if (ServiceUtil.isError(tmpResult)) {
+          errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException eex) {
+    ServiceUtil.returnError(eex.getMessage());
+  }
+catch (  GenericServiceException esx) {
+    ServiceUtil.returnError(esx.getMessage());
+  }
+  if (errorMessages.size() > 0) {
+    result=ServiceUtil.returnError(errorMessages);
+  }
+  return result;
+}

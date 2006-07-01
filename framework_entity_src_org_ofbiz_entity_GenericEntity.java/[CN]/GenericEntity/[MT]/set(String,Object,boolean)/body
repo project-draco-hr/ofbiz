@@ -1,0 +1,47 @@
+{
+  if (!this.mutable) {
+    throw new IllegalStateException("This object has been flagged as immutable (unchangeable), probably because it came from an Entity Engine cache. Cannot set a value in an immutable entity object.");
+  }
+  ModelField modelField=getModelEntity().getField(name);
+  if (modelField == null) {
+    throw new IllegalArgumentException("[GenericEntity.set] \"" + name + "\" is not a field of "+ entityName+ ", must be one of: "+ getModelEntity().fieldNameString());
+  }
+  if (value != null || setIfNull) {
+    ModelFieldType type=null;
+    try {
+      type=getDelegator().getEntityFieldType(getModelEntity(),modelField.getType());
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,module);
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("Type " + modelField.getType() + " not found");
+    }
+    if (value instanceof Boolean) {
+      try {
+        int fieldType=SqlJdbcUtil.getType(type.getJavaType());
+        if (fieldType != 9) {
+          value=((Boolean)value).booleanValue() ? "Y" : "N";
+        }
+      }
+ catch (      GenericNotImplementedException e) {
+        throw new IllegalArgumentException(e.getMessage());
+      }
+    }
+ else     if (value != null) {
+      if (!ObjectType.instanceOf(value,type.getJavaType())) {
+        String errMsg="In entity field set the value passed in [" + value.getClass().getName() + "] is not compatible with the Java type of the field ["+ type.getJavaType()+ "]";
+        Debug.logWarning(errMsg,module);
+      }
+    }
+    Object old=fields.put(name,value);
+    generateHashCode=true;
+    modified=true;
+    this.setChanged();
+    this.notifyObservers(name);
+    return old;
+  }
+ else {
+    return fields.get(name);
+  }
+}

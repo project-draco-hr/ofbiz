@@ -1,0 +1,64 @@
+{
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTrans=(GenericValue)context.get("authTrans");
+  String orderId=(String)context.get("orderId");
+  String cvv2=(String)context.get("cardSecurityCode");
+  Double processAmount=(Double)context.get("processAmount");
+  GenericValue party=(GenericValue)context.get("billToParty");
+  GenericValue cc=(GenericValue)context.get("creditCard");
+  GenericValue ps=(GenericValue)context.get("billingAddress");
+  String configString=(String)context.get("paymentConfig");
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  if (authTrans == null) {
+    authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  }
+  boolean isReAuth=false;
+  Map data=UtilMisc.toMap("COMMENT1",orderId);
+  data.put("PONUM",orderId);
+  data.put("CUSTCODE",party.getString("partyId"));
+  if (UtilProperties.propertyValueEqualsIgnoreCase(configString,"payment.verisign.preAuth","Y")) {
+    data.put("TRXTYPE","A");
+    if (authTrans != null) {
+      String refNum=authTrans.getString("referenceNum");
+      data.put("ORIGID",refNum);
+      isReAuth=true;
+    }
+  }
+ else {
+    data.put("TRXTYPE","S");
+  }
+  data.put("TENDER","C");
+  if (UtilValidate.isNotEmpty(cvv2)) {
+    data.put("CVV2",cvv2);
+  }
+  data.put("AMT",processAmount.toString());
+  data.put("ACCT",cc.getString("cardNumber"));
+  String name=cc.getString("firstNameOnCard") + " " + cc.getString("lastNameOnCard");
+  data.put("FIRSTNAME",cc.getString("firstNameOnCard"));
+  data.put("LASTNAME",cc.getString("lastNameOnCard"));
+  data.put("COMMENT2",name);
+  if (cc.get("expireDate") != null) {
+    String exp=cc.getString("expireDate");
+    String expDate=exp.substring(0,2);
+    expDate=expDate + exp.substring(exp.length() - 2);
+    data.put("EXPDATE",expDate);
+  }
+  if (ps != null) {
+    String street=ps.getString("address1") + (ps.get("address2") != null && ps.getString("address2").length() > 0 ? " " + ps.getString("address2") : "");
+    data.put("STREET",street);
+    data.put("ZIP",ps.getString("postalCode"));
+  }
+  PFProAPI pn=init(configString);
+  StringBuffer params=makeBaseParams(configString);
+  params.append("&" + parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp=pn.SubmitTransaction(params.toString());
+  if (Debug.verboseOn())   Debug.logVerbose("Response from Verisign: " + resp,module);
+  pn.DestroyContext();
+  Map result=ServiceUtil.returnSuccess();
+  parseAuthResponse(resp,result,configString,isReAuth);
+  result.put("processAmount",processAmount);
+  return result;
+}

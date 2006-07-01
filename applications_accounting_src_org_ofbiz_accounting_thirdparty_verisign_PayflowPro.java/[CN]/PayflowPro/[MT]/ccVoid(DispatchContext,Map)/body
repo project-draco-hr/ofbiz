@@ -1,0 +1,33 @@
+{
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTrans=(GenericValue)context.get("authTrans");
+  Double amount=(Double)context.get("releaseAmount");
+  String configString=(String)context.get("paymentConfig");
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  if (authTrans == null) {
+    authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  }
+  if (authTrans == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot capture");
+  }
+  String refNum=authTrans.getString("referenceNum");
+  Map data=UtilMisc.toMap("ORIGID",refNum);
+  data.put("TRXTYPE","V");
+  data.put("TENDER","C");
+  String orderId=paymentPref.getString("orderId");
+  data.put("COMMENT1",orderId);
+  data.put("AMT",amount.toString());
+  PFProAPI pn=init(configString);
+  StringBuffer params=makeBaseParams(configString);
+  params.append("&" + parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp=pn.SubmitTransaction(params.toString());
+  if (Debug.verboseOn())   Debug.logVerbose("Response from Verisign: " + resp,module);
+  pn.DestroyContext();
+  Map result=ServiceUtil.returnSuccess();
+  parseVoidResponse(resp,result,configString);
+  result.put("releaseAmount",amount);
+  return result;
+}

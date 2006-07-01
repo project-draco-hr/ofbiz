@@ -1,0 +1,68 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String dataResourceTypeId=(String)context.get("dataResourceTypeId");
+  String objectInfo=(String)context.get("objectInfo");
+  ByteWrapper binData=(ByteWrapper)context.get("binData");
+  String textData=(String)context.get("textData");
+  String prefix="";
+  String sep="";
+  if (UtilValidate.isNotEmpty(textData) && binData != null) {
+    return ServiceUtil.returnError("Cannot process both character and binary data in the same file");
+  }
+  File file=null;
+  if (UtilValidate.isEmpty(dataResourceTypeId) || dataResourceTypeId.equals("LOCAL_FILE")) {
+    file=new File(objectInfo);
+    if (!file.isAbsolute()) {
+      return ServiceUtil.returnError("DataResource LOCAL_FILE does not point to an absolute location");
+    }
+  }
+ else   if (dataResourceTypeId.equals("OFBIZ_FILE")) {
+    prefix=System.getProperty("ofbiz.home");
+    if (objectInfo.indexOf("/") != 0 && prefix.lastIndexOf("/") != (prefix.length() - 1)) {
+      sep="/";
+    }
+    file=new File(prefix + sep + objectInfo);
+  }
+ else   if (dataResourceTypeId.equals("CONTEXT_FILE")) {
+    prefix=(String)context.get("rootDir");
+    if (objectInfo.indexOf("/") != 0 && prefix.lastIndexOf("/") != (prefix.length() - 1)) {
+      sep="/";
+    }
+    file=new File(prefix + sep + objectInfo);
+  }
+  if (file == null) {
+    return ServiceUtil.returnError("Unable to obtain a reference to file - " + objectInfo);
+  }
+  if (UtilValidate.isNotEmpty(textData)) {
+    try {
+      FileWriter out=new FileWriter(file);
+      out.write(textData);
+      out.close();
+    }
+ catch (    IOException e) {
+      Debug.logWarning(e,module);
+      return ServiceUtil.returnError("Unable to write character data to: " + file.getAbsolutePath());
+    }
+  }
+ else   if (binData != null) {
+    try {
+      RandomAccessFile out=new RandomAccessFile(file,"rw");
+      out.write(binData.getBytes());
+      out.close();
+    }
+ catch (    FileNotFoundException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError("Unable to open file for writing: " + file.getAbsolutePath());
+    }
+catch (    IOException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError("Unable to write binary data to: " + file.getAbsolutePath());
+    }
+  }
+ else {
+    return ServiceUtil.returnError("No file content passed for: " + file.getAbsolutePath());
+  }
+  Map result=ServiceUtil.returnSuccess();
+  return result;
+}

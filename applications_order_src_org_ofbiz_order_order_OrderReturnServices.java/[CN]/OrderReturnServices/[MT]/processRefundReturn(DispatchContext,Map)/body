@@ -1,0 +1,182 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String returnId=(String)context.get("returnId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue returnHeader=null;
+  List returnItems=null;
+  try {
+    returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+    if (returnHeader != null) {
+      returnItems=returnHeader.getRelatedByAnd("ReturnItem",UtilMisc.toMap("returnTypeId","RTN_REFUND"));
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems looking up return information",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+  }
+  if (returnHeader != null && returnItems != null && returnItems.size() > 0) {
+    Map itemsByOrder=new HashMap();
+    Map totalByOrder=new HashMap();
+    Map serviceResult=null;
+    try {
+      serviceResult=dispatcher.runSync("checkPaymentAmountForRefund",UtilMisc.toMap("returnId",returnId));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem running the checkPaymentAmountForRefund service",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsWithCheckPaymentAmountForRefund",locale));
+    }
+    if (ServiceUtil.isError(serviceResult)) {
+      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(serviceResult));
+    }
+    groupReturnItemsByOrder(returnItems,itemsByOrder,totalByOrder,delegator,returnId);
+    Set itemSet=itemsByOrder.entrySet();
+    Iterator itemByOrderIt=itemSet.iterator();
+    while (itemByOrderIt.hasNext()) {
+      Map.Entry entry=(Map.Entry)itemByOrderIt.next();
+      String orderId=(String)entry.getKey();
+      List items=(List)entry.getValue();
+      Double orderTotal=(Double)totalByOrder.get(orderId);
+      GenericValue orderHeader=null;
+      List orderPayPrefs=null;
+      try {
+        orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+        orderPayPrefs=orderHeader.getRelated("OrderPaymentPreference",null,UtilMisc.toList("-maxAmount"));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Cannot get Order details for #" + orderId,module);
+        continue;
+      }
+      List prefsToUse=new ArrayList();
+      Map prefsAmount=new HashMap();
+      double neededAmount=orderTotal.doubleValue();
+      if (orderPayPrefs != null && orderPayPrefs.size() > 0) {
+        Iterator payPrefIter=orderPayPrefs.iterator();
+        do {
+          GenericValue pref=(GenericValue)payPrefIter.next();
+          Double maxAmount=pref.getDouble("maxAmount");
+          String statusId=pref.getString("statusId");
+          Debug.logInfo("maxAmount:" + maxAmount + ", statusId:"+ statusId,module);
+          if ("PAYMENT_SETTLED".equals(statusId)) {
+            if (maxAmount == null || maxAmount.doubleValue() == 0.00) {
+              prefsToUse.add(pref);
+              prefsAmount.put(pref,orderTotal);
+              neededAmount=0.00;
+            }
+ else             if (maxAmount.doubleValue() > orderTotal.doubleValue()) {
+              prefsToUse.add(pref);
+              prefsAmount.put(pref,orderTotal);
+              neededAmount=0.00;
+            }
+ else {
+              prefsToUse.add(pref);
+              if (maxAmount.doubleValue() > neededAmount) {
+                prefsAmount.put(pref,new Double(maxAmount.doubleValue() - neededAmount));
+              }
+ else {
+                prefsAmount.put(pref,maxAmount);
+              }
+              neededAmount-=maxAmount.doubleValue();
+            }
+          }
+        }
+ while (neededAmount > 0 && payPrefIter.hasNext());
+      }
+      if (neededAmount != 0) {
+        Debug.logError("Was not able to find needed payment preferences for the order RTN: " + returnId + " ORD: "+ orderId,module);
+        return ServiceUtil.returnError("Unable to refund order #" + orderId + "; there are no available payment preferences.");
+      }
+      Map prefSplitMap=new HashMap();
+      if (prefsToUse == null || prefsToUse.size() == 0) {
+        Debug.logError("We didn't find any possible payment prefs to use for RTN: " + returnId + " ORD: "+ orderId,module);
+        return ServiceUtil.returnError("Unable to refund order #" + orderId + "; there are no available payment preferences.");
+      }
+ else       if (prefsToUse.size() > 1) {
+      }
+ else {
+        prefSplitMap.put(prefsToUse.get(0),items);
+      }
+      Set prefItemSet=prefSplitMap.entrySet();
+      Iterator prefItemIt=prefItemSet.iterator();
+      while (prefItemIt.hasNext()) {
+        Map.Entry prefItemEntry=(Map.Entry)prefItemIt.next();
+        GenericValue orderPayPref=(GenericValue)prefItemEntry.getKey();
+        List itemList=(List)prefItemEntry.getValue();
+        BigDecimal thisRefundAmount=ZERO;
+        Double thisRefundAmountDouble=(Double)prefsAmount.get(orderPayPref);
+        if (thisRefundAmountDouble != null)         thisRefundAmount=new BigDecimal(thisRefundAmountDouble.doubleValue());
+        thisRefundAmount=thisRefundAmount.setScale(decimals,rounding);
+        String paymentId=null;
+        List electronicTypes=UtilMisc.toList("CREDIT_CARD","EFT_ACCOUNT","GIFT_CARD");
+        if (electronicTypes.contains(orderPayPref.getString("paymentMethodTypeId"))) {
+          try {
+            serviceResult=dispatcher.runSync("refundPayment",UtilMisc.toMap("orderPaymentPreference",orderPayPref,"refundAmount",new Double(thisRefundAmount.doubleValue()),"userLogin",userLogin));
+            if (ServiceUtil.isError(serviceResult)) {
+              return ServiceUtil.returnError("Error in refund payment",null,null,serviceResult);
+            }
+            paymentId=(String)serviceResult.get("paymentId");
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,"Problem running the refundPayment service",module);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsWithTheRefundSeeLogs",locale));
+          }
+        }
+ else {
+        }
+        Timestamp now=UtilDateTime.nowTimestamp();
+        Map response=FastMap.newInstance();
+        response.put("orderPaymentPreferenceId",orderPayPref.getString("orderPaymentPreferenceId"));
+        response.put("responseAmount",new Double(thisRefundAmount.doubleValue()));
+        response.put("responseDate",now);
+        response.put("userLogin",userLogin);
+        if (paymentId != null) {
+          response.put("paymentId",paymentId);
+        }
+        Map serviceResults=null;
+        try {
+          serviceResults=dispatcher.runSync("createReturnItemResponse",response);
+          if (ServiceUtil.isError(serviceResults)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsCreatingReturnItemResponseEntity",locale),null,null,serviceResults);
+          }
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,"Problems creating new ReturnItemResponse entity",module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsCreatingReturnItemResponseEntity",locale));
+        }
+        String responseId=(String)serviceResults.get("returnItemResponseId");
+        Iterator itemsIter=itemList.iterator();
+        while (itemsIter.hasNext()) {
+          GenericValue item=(GenericValue)itemsIter.next();
+          item.set("returnItemResponseId",responseId);
+          item.set("statusId","RETURN_COMPLETED");
+          String returnStatusId=delegator.getNextSeqId("ReturnStatus");
+          GenericValue returnStatus=delegator.makeValue("ReturnStatus",UtilMisc.toMap("returnStatusId",returnStatusId));
+          returnStatus.set("statusId",item.get("statusId"));
+          returnStatus.set("returnId",item.get("returnId"));
+          returnStatus.set("returnItemSeqId",item.get("returnItemSeqId"));
+          returnStatus.set("statusDatetime",now);
+          try {
+            item.store();
+            delegator.create(returnStatus);
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError("Problem updating the ReturnItem entity",module);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemUpdatingReturnItemReturnItemResponseId",locale));
+          }
+        }
+        try {
+          serviceResults=dispatcher.runSync("createPaymentApplicationsFromReturnItemResponse",UtilMisc.toMap("returnItemResponseId",responseId,"userLogin",userLogin));
+          if (ServiceUtil.isError(serviceResults)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemUpdatingReturnItemReturnItemResponseId",locale),null,null,serviceResults);
+          }
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,"Problem creating PaymentApplication records for return invoice",module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemUpdatingReturnItemReturnItemResponseId",locale));
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

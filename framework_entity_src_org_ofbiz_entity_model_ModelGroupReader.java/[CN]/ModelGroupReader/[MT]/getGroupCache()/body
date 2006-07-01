@@ -1,0 +1,53 @@
+{
+  if (this.groupCache == null) {
+synchronized (ModelGroupReader.class) {
+      if (this.groupCache == null) {
+        this.groupCache=new HashMap();
+        this.groupNames=new TreeSet();
+        UtilTimer utilTimer=new UtilTimer();
+        int i=0;
+        Iterator entityGroupResourceHandlerIter=this.entityGroupResourceHandlers.iterator();
+        while (entityGroupResourceHandlerIter.hasNext()) {
+          ResourceHandler entityGroupResourceHandler=(ResourceHandler)entityGroupResourceHandlerIter.next();
+          Document document=null;
+          try {
+            document=entityGroupResourceHandler.getDocument();
+          }
+ catch (          GenericConfigException e) {
+            Debug.logError(e,"Error loading entity group model",module);
+          }
+          if (document == null) {
+            this.groupCache=null;
+            return null;
+          }
+          Element docElement=document.getDocumentElement();
+          if (docElement == null) {
+            continue;
+          }
+          docElement.normalize();
+          Node curChild=docElement.getFirstChild();
+          if (curChild != null) {
+            utilTimer.timerString("[ModelGroupReader.getGroupCache] Before start of entity loop");
+            do {
+              if (curChild.getNodeType() == Node.ELEMENT_NODE && "entity-group".equals(curChild.getNodeName())) {
+                Element curEntity=(Element)curChild;
+                String entityName=UtilXml.checkEmpty(curEntity.getAttribute("entity"));
+                String groupName=UtilXml.checkEmpty(curEntity.getAttribute("group"));
+                if (groupName == null || entityName == null)                 continue;
+                this.groupNames.add(groupName);
+                this.groupCache.put(entityName,groupName);
+                i++;
+              }
+            }
+ while ((curChild=curChild.getNextSibling()) != null);
+          }
+ else {
+            Debug.logWarning("[ModelGroupReader.getGroupCache] No child nodes found.",module);
+          }
+        }
+        utilTimer.timerString("[ModelGroupReader.getGroupCache] FINISHED - Total Entity-Groups: " + i + " FINISHED");
+      }
+    }
+  }
+  return this.groupCache;
+}

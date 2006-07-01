@@ -1,0 +1,171 @@
+{
+  HttpSession session=request.getSession();
+  Security security=(Security)request.getAttribute("security");
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  ServletContext servletContext=session.getServletContext();
+  String webSiteId=(String)servletContext.getAttribute("webSiteId");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map paramMap=UtilHttp.getParameterMap(request);
+  String targContentId=(String)paramMap.get("contentId");
+  String roles=null;
+  String authorId=null;
+  GenericValue authorContent=ContentManagementWorker.getAuthorContent(delegator,targContentId);
+  if (authorContent != null) {
+    authorId=authorContent.getString("contentId");
+  }
+ else {
+    request.setAttribute("_ERROR_MESSAGE_","authorContent is empty.");
+    return "error";
+  }
+  String userLoginId=userLogin.getString("userLoginId");
+  List roleTypeList=null;
+  if (authorId != null && userLoginId != null && authorId.equals(userLoginId)) {
+    roles="OWNER";
+    roleTypeList=StringUtil.split(roles,"|");
+  }
+  List targetOperationList=UtilMisc.toList("CONTENT_PUBLISH");
+  List contentPurposeList=null;
+  String permittedAction=(String)paramMap.get("permittedAction");
+  String permittedOperations=(String)paramMap.get("permittedOperations");
+  if (UtilValidate.isEmpty(targContentId)) {
+    request.setAttribute("_ERROR_MESSAGE_","targContentId is empty.");
+    return "error";
+  }
+  List origPublishedLinkList=null;
+  try {
+    GenericValue authorUserLogin=delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId",authorId));
+    origPublishedLinkList=ContentManagementWorker.getPublishedLinks(delegator,targContentId,webSiteId,userLogin,security,permittedAction,permittedOperations,roles);
+  }
+ catch (  GenericEntityException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+catch (  GeneralException e2) {
+    request.setAttribute("_ERROR_MESSAGE_",e2.getMessage());
+    return "error";
+  }
+  Set keySet=paramMap.keySet();
+  Iterator itKeySet=keySet.iterator();
+  Map siteIdLookup=new HashMap();
+  while (itKeySet.hasNext()) {
+    String param=(String)itKeySet.next();
+    int pos=param.indexOf("select_");
+    if (pos >= 0) {
+      String siteId=param.substring(7);
+      String subSiteVal=(String)paramMap.get(param);
+      siteIdLookup.put(siteId,subSiteVal);
+    }
+  }
+  Iterator it=origPublishedLinkList.iterator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  int counter=0;
+  String responseMessage=null;
+  String errorMessage=null;
+  String permissionMessage=null;
+  boolean statusIdUpdated=false;
+  Map results=null;
+  while (it.hasNext()) {
+    Object[] arr=(Object[])it.next();
+    String contentId=(String)arr[0];
+    String origSubContentId=null;
+    List origSubList=(List)arr[1];
+    Timestamp topFromDate=(Timestamp)arr[3];
+    Timestamp origFromDate=null;
+    Iterator itOrigSubPt=origSubList.iterator();
+    while (itOrigSubPt.hasNext()) {
+      Object[] pubArr=(Object[])itOrigSubPt.next();
+      Timestamp fromDate=(Timestamp)pubArr[2];
+      origSubContentId=null;
+      if (fromDate != null) {
+        origSubContentId=(String)pubArr[0];
+        origFromDate=fromDate;
+        break;
+      }
+    }
+    String currentSubContentId=(String)siteIdLookup.get(contentId);
+    try {
+      if (UtilValidate.isNotEmpty(currentSubContentId)) {
+        if (!currentSubContentId.equals(origSubContentId)) {
+          if (UtilValidate.isNotEmpty(origSubContentId) && origFromDate != null) {
+            List oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",origSubContentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
+            Iterator iterOldActive=oldActiveValues.iterator();
+            while (iterOldActive.hasNext()) {
+              GenericValue cAssoc=(GenericValue)iterOldActive.next();
+              cAssoc.set("thruDate",nowTimestamp);
+              cAssoc.store();
+            }
+          }
+          Map serviceIn=new HashMap();
+          serviceIn.put("userLogin",userLogin);
+          serviceIn.put("contentId",targContentId);
+          serviceIn.put("contentAssocTypeId","PUBLISH_LINK");
+          serviceIn.put("fromDate",nowTimestamp);
+          serviceIn.put("contentIdTo",currentSubContentId);
+          serviceIn.put("roleTypeList",roleTypeList);
+          serviceIn.put("targetOperationList",targetOperationList);
+          serviceIn.put("contentPurposeList",contentPurposeList);
+          results=dispatcher.runSync("createContentAssoc",serviceIn);
+          responseMessage=(String)results.get(ModelService.RESPONSE_MESSAGE);
+          if (UtilValidate.isNotEmpty(responseMessage)) {
+            errorMessage=(String)results.get(ModelService.ERROR_MESSAGE);
+            Debug.logError("in updatePublishLinks, serviceIn:" + serviceIn,module);
+            Debug.logError(errorMessage,module);
+            request.setAttribute("_ERROR_MESSAGE_",errorMessage);
+            return "error";
+          }
+          serviceIn=new HashMap();
+          serviceIn.put("userLogin",userLogin);
+          serviceIn.put("contentId",targContentId);
+          serviceIn.put("contentAssocTypeId","PUBLISH_LINK");
+          serviceIn.put("fromDate",nowTimestamp);
+          serviceIn.put("contentIdTo",contentId);
+          serviceIn.put("roleTypeList",roleTypeList);
+          serviceIn.put("targetOperationList",targetOperationList);
+          serviceIn.put("contentPurposeList",contentPurposeList);
+          results=dispatcher.runSync("createContentAssoc",serviceIn);
+          if (!statusIdUpdated) {
+            try {
+              GenericValue targContent=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",targContentId));
+              targContent.set("statusId","BLOG_PUBLISHED");
+              targContent.store();
+              statusIdUpdated=true;
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e.getMessage(),module);
+              request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+              return "error";
+            }
+          }
+        }
+      }
+ else       if (UtilValidate.isNotEmpty(origSubContentId)) {
+        List oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",origSubContentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
+        Iterator iterOldActive=oldActiveValues.iterator();
+        while (iterOldActive.hasNext()) {
+          GenericValue cAssoc=(GenericValue)iterOldActive.next();
+          cAssoc.set("thruDate",nowTimestamp);
+          cAssoc.store();
+        }
+        oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",contentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
+        iterOldActive=oldActiveValues.iterator();
+        while (iterOldActive.hasNext()) {
+          GenericValue cAssoc=(GenericValue)iterOldActive.next();
+          cAssoc.set("thruDate",nowTimestamp);
+          cAssoc.store();
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e.getMessage(),module);
+      request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+      return "error";
+    }
+catch (    GenericServiceException e2) {
+      Debug.logError(e2,module);
+      request.setAttribute("_ERROR_MESSAGE_",e2.getMessage());
+      return "error";
+    }
+  }
+  return "success";
+}

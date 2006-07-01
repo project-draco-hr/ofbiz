@@ -1,0 +1,248 @@
+{
+  String eventType=null;
+  String eventPath=null;
+  String eventMethod=null;
+  String cname=UtilHttp.getApplicationName(request);
+  String requestUri=RequestHandler.getRequestUri(request.getPathInfo());
+  String nextView=RequestHandler.getNextPageUri(request.getPathInfo());
+  if (request.getAttribute("targetRequestUri") == null) {
+    if (request.getSession().getAttribute("_PREVIOUS_REQUEST_") != null) {
+      request.setAttribute("targetRequestUri",request.getSession().getAttribute("_PREVIOUS_REQUEST_"));
+    }
+ else {
+      request.setAttribute("targetRequestUri","/" + requestUri);
+    }
+  }
+  if (chain != null) {
+    requestUri=RequestHandler.getRequestUri(chain);
+    if (request.getAttribute("_POST_CHAIN_VIEW_") != null) {
+      nextView=(String)request.getAttribute("_POST_CHAIN_VIEW_");
+    }
+ else {
+      nextView=RequestHandler.getNextPageUri(chain);
+    }
+    if (Debug.infoOn())     Debug.logInfo("[RequestHandler]: Chain in place: requestUri=" + requestUri + " nextView="+ nextView,module);
+  }
+ else {
+    if (!requestManager.allowDirectRequest(requestUri)) {
+      throw new RequestHandlerException("Unknown request [" + requestUri + "]; this request does not exist or cannot be called directly.");
+    }
+    if (!request.isSecure() && requestManager.requiresHttps(requestUri) && !request.getMethod().equalsIgnoreCase("POST")) {
+      StringBuffer urlBuf=new StringBuffer();
+      urlBuf.append(request.getPathInfo());
+      if (request.getQueryString() != null) {
+        urlBuf.append("?").append(request.getQueryString());
+      }
+      String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString());
+      if (newUrl.toUpperCase().startsWith("HTTPS")) {
+        callRedirect(newUrl.toString(),response,request);
+      }
+    }
+    HttpSession session=request.getSession();
+    if (session.getAttribute("visit") == null) {
+      Debug.logInfo("This is the first request in this visit.",module);
+      VisitHandler.setInitialVisit(request,response);
+      Collection events=requestManager.getFirstVisitEvents();
+      if (events != null) {
+        Iterator i=events.iterator();
+        while (i.hasNext()) {
+          Map eventMap=(Map)i.next();
+          String eType=(String)eventMap.get(ConfigXMLReader.EVENT_TYPE);
+          String ePath=(String)eventMap.get(ConfigXMLReader.EVENT_PATH);
+          String eMeth=(String)eventMap.get(ConfigXMLReader.EVENT_METHOD);
+          try {
+            String returnString=this.runEvent(request,response,eType,ePath,eMeth);
+            if (returnString != null && !returnString.equalsIgnoreCase("success")) {
+              throw new EventHandlerException("First-Visit event did not return 'success'.");
+            }
+ else             if (returnString == null) {
+              nextView="none:";
+            }
+          }
+ catch (          EventHandlerException e) {
+            Debug.logError(e,module);
+          }
+        }
+      }
+    }
+    Collection preProcEvents=requestManager.getPreProcessor();
+    if (preProcEvents != null) {
+      Iterator i=preProcEvents.iterator();
+      while (i.hasNext()) {
+        Map eventMap=(Map)i.next();
+        String eType=(String)eventMap.get(ConfigXMLReader.EVENT_TYPE);
+        String ePath=(String)eventMap.get(ConfigXMLReader.EVENT_PATH);
+        String eMeth=(String)eventMap.get(ConfigXMLReader.EVENT_METHOD);
+        try {
+          String returnString=this.runEvent(request,response,eType,ePath,eMeth);
+          if (returnString != null && !returnString.equalsIgnoreCase("success")) {
+            throw new EventHandlerException("Pre-Processor event did not return 'success'.");
+          }
+ else           if (returnString == null) {
+            nextView="none:";
+          }
+        }
+ catch (        EventHandlerException e) {
+          Debug.logError(e,module);
+        }
+      }
+    }
+  }
+  if ("none:".equals(nextView)) {
+    if (Debug.infoOn())     Debug.logInfo("[Pre-Processor Interrupted Request, not running: " + requestUri,module);
+    return;
+  }
+  if (Debug.infoOn())   Debug.logInfo("[Processing Request]: " + requestUri,module);
+  String eventReturnString=null;
+  if (requestManager.requiresAuth(requestUri)) {
+    Debug.logVerbose("[RequestHandler]: AuthRequired. Running security check.",module);
+    String checkLoginType=requestManager.getEventType("checkLogin");
+    String checkLoginPath=requestManager.getEventPath("checkLogin");
+    String checkLoginMethod=requestManager.getEventMethod("checkLogin");
+    String checkLoginReturnString=null;
+    try {
+      checkLoginReturnString=this.runEvent(request,response,checkLoginType,checkLoginPath,checkLoginMethod);
+    }
+ catch (    EventHandlerException e) {
+      throw new RequestHandlerException(e.getMessage(),e);
+    }
+    if (!"success".equalsIgnoreCase(checkLoginReturnString)) {
+      eventReturnString=checkLoginReturnString;
+      eventType=checkLoginType;
+      eventPath=checkLoginPath;
+      eventMethod=checkLoginMethod;
+      requestUri="checkLogin";
+    }
+  }
+  if (eventReturnString == null) {
+    eventType=requestManager.getEventType(requestUri);
+    eventPath=requestManager.getEventPath(requestUri);
+    eventMethod=requestManager.getEventMethod(requestUri);
+    if (eventType != null && eventPath != null && eventMethod != null) {
+      try {
+        long eventStartTime=System.currentTimeMillis();
+        eventReturnString=this.runEvent(request,response,eventType,eventPath,eventMethod);
+        ServerHitBin.countEvent(cname + "." + eventMethod,request,eventStartTime,System.currentTimeMillis() - eventStartTime,userLogin,delegator);
+        if (eventReturnString == null) {
+          nextView="none:";
+        }
+      }
+ catch (      EventHandlerException e) {
+        String tryErrorMsg=requestManager.getRequestAttribute(requestUri,"error");
+        if (tryErrorMsg != null) {
+          eventReturnString="error";
+          Locale locale=UtilHttp.getLocale(request);
+          String errMsg=UtilProperties.getMessage(RequestHandler.err_resource,"requestHandler.error_call_event",locale);
+          request.setAttribute("_ERROR_MESSAGE_",errMsg + ": " + e.toString());
+        }
+ else {
+          throw new RequestHandlerException("Error calling event and no error repsonse was specified",e);
+        }
+      }
+    }
+  }
+  if ("error".equals(eventReturnString)) {
+    if (Debug.errorOn()) {
+      String errorMessageHeader="Request " + requestUri + " caused an error with the following message: ";
+      if (request.getAttribute("_ERROR_MESSAGE_") != null) {
+        Debug.logError(errorMessageHeader + request.getAttribute("_ERROR_MESSAGE_"),module);
+      }
+      if (request.getAttribute("_ERROR_MESSAGE_LIST_") != null) {
+        Debug.logError(errorMessageHeader + request.getAttribute("_ERROR_MESSAGE_LIST_"),module);
+      }
+    }
+  }
+  String eventReturn=requestManager.getRequestAttribute(requestUri,eventReturnString);
+  if (Debug.verboseOn())   Debug.logVerbose("[Response Qualified]: " + eventReturn,module);
+  if (eventReturn != null && (!"success".equals(eventReturnString) || eventReturn.startsWith("none:")))   nextView=eventReturn;
+  if (Debug.verboseOn())   Debug.logVerbose("[Event Response Mapping]: " + nextView,module);
+  String previousRequest=(String)request.getSession().getAttribute("_PREVIOUS_REQUEST_");
+  String loginPass=(String)request.getAttribute("_LOGIN_PASSED_");
+  String preReqAttStr=(String)request.getSession().getAttribute("_REQ_ATTR_MAP_");
+  Map preRequestMap=null;
+  if (preReqAttStr != null) {
+    request.getSession().removeAttribute("_REQ_ATTR_MAP_");
+    byte[] reqAttrMapBytes=StringUtil.fromHexString(preReqAttStr);
+    preRequestMap=(java.util.Map)org.ofbiz.base.util.UtilObject.getObject(reqAttrMapBytes);
+    java.util.Iterator keys=preRequestMap.keySet().iterator();
+    while (keys.hasNext()) {
+      String key=(String)keys.next();
+      if ("_ERROR_MESSAGE_LIST_".equals(key) || "_ERROR_MESSAGE_MAP_".equals(key) || "_ERROR_MESSAGE_".equals(key)|| "_EVENT_MESSAGE_LIST_".equals(key)|| "_EVENT_MESSAGE_".equals(key)) {
+        Object value=preRequestMap.get(key);
+        request.setAttribute(key,value);
+      }
+    }
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[RequestHandler]: previousRequest - " + previousRequest + " ("+ loginPass+ ")",module);
+  if (previousRequest != null && loginPass != null && loginPass.equalsIgnoreCase("TRUE")) {
+    request.getSession().removeAttribute("_PREVIOUS_REQUEST_");
+    if (Debug.infoOn())     Debug.logInfo("[Doing Previous Request]: " + previousRequest,module);
+    doRequest(request,response,previousRequest,userLogin,delegator);
+    return;
+  }
+  String successView=requestManager.getViewName(requestUri);
+  if ("success".equals(eventReturnString) && successView.startsWith("request:")) {
+    if (nextView != null) {
+      request.setAttribute("_POST_CHAIN_VIEW_",nextView);
+    }
+    nextView=successView;
+  }
+  if (nextView == null)   nextView=successView;
+  if (Debug.verboseOn())   Debug.logVerbose("[Current View]: " + nextView,module);
+  if (nextView != null && nextView.startsWith("request:")) {
+    Debug.logInfo("[RequestHandler.doRequest]: Response is a chained request.",module);
+    nextView=nextView.substring(8);
+    doRequest(request,response,nextView,userLogin,delegator);
+    return;
+  }
+ else {
+    Collection postProcEvents=requestManager.getPostProcessor();
+    if (postProcEvents != null) {
+      Iterator i=postProcEvents.iterator();
+      while (i.hasNext()) {
+        Map eventMap=(Map)i.next();
+        String eType=(String)eventMap.get(ConfigXMLReader.EVENT_TYPE);
+        String ePath=(String)eventMap.get(ConfigXMLReader.EVENT_PATH);
+        String eMeth=(String)eventMap.get(ConfigXMLReader.EVENT_METHOD);
+        try {
+          String returnString=this.runEvent(request,response,eType,ePath,eMeth);
+          if (returnString != null && !returnString.equalsIgnoreCase("success"))           throw new EventHandlerException("Post-Processor event did not return 'success'.");
+ else           if (returnString == null)           nextView="none:";
+        }
+ catch (        EventHandlerException e) {
+          Debug.logError(e,module);
+        }
+      }
+    }
+    if (nextView != null && nextView.startsWith("url:")) {
+      Debug.logInfo("[RequestHandler.doRequest]: Response is a URL redirect.",module);
+      nextView=nextView.substring(4);
+      callRedirect(nextView,response,request);
+    }
+ else     if (nextView != null && nextView.startsWith("cross-redirect:")) {
+      Debug.logInfo("[RequestHandler.doRequest]: Response is a Cross-Application redirect.",module);
+      String url=nextView.startsWith("/") ? nextView : "/" + nextView;
+      callRedirect(url + this.makeQueryString(request),response,request);
+    }
+ else     if (nextView != null && nextView.startsWith("request-redirect:")) {
+      Debug.logInfo("[RequestHandler.doRequest]: Response is a Request redirect.",module);
+      nextView=nextView.substring(17);
+      callRedirect(makeLinkWithQueryString(request,response,"/" + nextView),response,request);
+    }
+ else     if (nextView != null && nextView.startsWith("view:")) {
+      Debug.logInfo("[RequestHandler.doRequest]: Response is a view.",module);
+      nextView=nextView.substring(5);
+      renderView(nextView,requestManager.allowExtView(requestUri),request,response);
+    }
+ else     if (nextView != null && nextView.startsWith("none:")) {
+      Debug.logInfo("[RequestHandler.doRequest]: Response is handled by the event.",module);
+    }
+ else     if (nextView != null) {
+      Debug.logInfo("[RequestHandler.doRequest]: Response is a page [" + nextView + "]",module);
+      renderView(nextView,requestManager.allowExtView(requestUri),request,response);
+    }
+ else {
+      throw new RequestHandlerException("Illegal response; handler could not process [" + eventReturnString + "].");
+    }
+  }
+}

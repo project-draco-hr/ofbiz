@@ -1,0 +1,105 @@
+{
+  LinkedList keysToRemove=new LinkedList();
+  if (this.nextRemoveTxTime != null && (this.nextRemoveTxTime.equals(currentRunEndTime) || this.nextRemoveTxTime.after(currentRunEndTime))) {
+    return keysToRemove;
+  }
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin(7200);
+  }
+ catch (  GenericTransactionException e) {
+    throw new SyncDataErrorException("Unable to begin JTA transaction",e);
+  }
+  try {
+    EntityCondition findValCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunStartTime),new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.LESS_THAN,currentRunEndTime)),EntityOperator.AND);
+    EntityListIterator removeEli=delegator.findListIteratorByCondition("EntitySyncRemove",findValCondition,null,UtilMisc.toList(ModelEntity.STAMP_TX_FIELD,ModelEntity.STAMP_FIELD));
+    GenericValue entitySyncRemove=null;
+    while ((entitySyncRemove=(GenericValue)removeEli.next()) != null) {
+      String primaryKeyRemoved=entitySyncRemove.getString("primaryKeyRemoved");
+      GenericEntity pkToRemove=null;
+      try {
+        pkToRemove=(GenericEntity)XmlSerializer.deserialize(primaryKeyRemoved,delegator);
+      }
+ catch (      IOException e) {
+        String errorMsg="Error deserializing GenericPK to remove in Entity Sync Data for entitySyncId [" + entitySyncId + "] and entitySyncRemoveId ["+ entitySyncRemove.getString("entitySyncRemoveId")+ "]: "+ e.toString();
+        Debug.logError(e,errorMsg,module);
+        throw new SyncDataErrorException(errorMsg,e);
+      }
+catch (      SAXException e) {
+        String errorMsg="Error deserializing GenericPK to remove in Entity Sync Data for entitySyncId [" + entitySyncId + "] and entitySyncRemoveId ["+ entitySyncRemove.getString("entitySyncRemoveId")+ "]: "+ e.toString();
+        Debug.logError(e,errorMsg,module);
+        throw new SyncDataErrorException(errorMsg,e);
+      }
+catch (      ParserConfigurationException e) {
+        String errorMsg="Error deserializing GenericPK to remove in Entity Sync Data for entitySyncId [" + entitySyncId + "] and entitySyncRemoveId ["+ entitySyncRemove.getString("entitySyncRemoveId")+ "]: "+ e.toString();
+        Debug.logError(e,errorMsg,module);
+        throw new SyncDataErrorException(errorMsg,e);
+      }
+catch (      SerializeException e) {
+        String errorMsg="Error deserializing GenericPK to remove in Entity Sync Data for entitySyncId [" + entitySyncId + "] and entitySyncRemoveId ["+ entitySyncRemove.getString("entitySyncRemoveId")+ "]: "+ e.toString();
+        Debug.logError(e,errorMsg,module);
+        throw new SyncDataErrorException(errorMsg,e);
+      }
+      pkToRemove.set(ModelEntity.STAMP_TX_FIELD,entitySyncRemove.get(ModelEntity.STAMP_TX_FIELD));
+      pkToRemove.set(ModelEntity.STAMP_FIELD,entitySyncRemove.get(ModelEntity.STAMP_FIELD));
+      pkToRemove.set(ModelEntity.CREATE_STAMP_TX_FIELD,entitySyncRemove.get(ModelEntity.CREATE_STAMP_TX_FIELD));
+      pkToRemove.set(ModelEntity.CREATE_STAMP_FIELD,entitySyncRemove.get(ModelEntity.CREATE_STAMP_FIELD));
+      if (this.entityNameToUseSet.contains(pkToRemove.getEntityName())) {
+        keysToRemove.add(pkToRemove);
+      }
+    }
+    removeEli.close();
+    if (keysToRemove.size() == 0) {
+      EntityCondition findNextCondition=new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunEndTime);
+      EntityListIterator eliNext=delegator.findListIteratorByCondition("EntitySyncRemove",findNextCondition,null,UtilMisc.toList(ModelEntity.STAMP_TX_FIELD));
+      GenericValue firstVal=(GenericValue)eliNext.next();
+      eliNext.close();
+      if (firstVal != null) {
+        Timestamp nextTxTime=firstVal.getTimestamp(ModelEntity.STAMP_TX_FIELD);
+        if (this.nextUpdateTxTime == null || nextTxTime.before(this.nextUpdateTxTime)) {
+          this.nextUpdateTxTime=nextTxTime;
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Entity Engine error in assembleKeysToRemove",e);
+    }
+ catch (    GenericTransactionException e2) {
+      Debug.logWarning(e2,"Unable to call rollback()",module);
+    }
+    throw new SyncDataErrorException("Error getting keys to remove from the datasource",e);
+  }
+catch (  Throwable t) {
+    try {
+      TransactionUtil.rollback(beganTransaction,"General error in assembleKeysToRemove",t);
+    }
+ catch (    GenericTransactionException e2) {
+      Debug.logWarning(e2,"Unable to call rollback()",module);
+    }
+    throw new SyncDataErrorException("Caught runtime error while getting keys to remove",t);
+  }
+  try {
+    TransactionUtil.commit(beganTransaction);
+  }
+ catch (  GenericTransactionException e) {
+    throw new SyncDataErrorException("Commit transaction failed",e);
+  }
+  boolean logValues=false;
+  if (logValues && keysToRemove.size() > 0) {
+    StringBuffer toRemoveInfo=new StringBuffer();
+    Iterator keysToRemoveIter=keysToRemove.iterator();
+    while (keysToRemoveIter.hasNext()) {
+      GenericEntity keyToRemove=(GenericEntity)keysToRemoveIter.next();
+      toRemoveInfo.append("\n-->[");
+      toRemoveInfo.append(keyToRemove.get(ModelEntity.STAMP_TX_FIELD));
+      toRemoveInfo.append(":");
+      toRemoveInfo.append(keyToRemove.get(ModelEntity.STAMP_FIELD));
+      toRemoveInfo.append("] ");
+      toRemoveInfo.append(keyToRemove);
+    }
+    Debug.logInfo(toRemoveInfo.toString(),module);
+  }
+  return keysToRemove;
+}

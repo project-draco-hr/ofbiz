@@ -1,0 +1,47 @@
+{
+  Map results=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue product=null;
+  String productId=(String)context.get("productId");
+  String partyId=(String)context.get("partyId");
+  String currencyUomId=(String)context.get("currencyUomId");
+  Double quantity=(Double)context.get("quantity");
+  try {
+    product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+    if (product == null) {
+      results=ServiceUtil.returnSuccess();
+      results.put("supplierProducts",null);
+      return results;
+    }
+    List supplierProducts=product.getRelatedCache("SupplierProduct");
+    if (supplierProducts.size() == 0 && product.getString("isVariant") != null && product.getString("isVariant").equals("Y")) {
+      String virtualProductId=ProductWorker.getVariantVirtualId(product);
+      GenericValue virtualProduct=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",virtualProductId));
+      if (virtualProduct != null) {
+        supplierProducts=virtualProduct.getRelatedCache("SupplierProduct");
+      }
+    }
+    if (partyId != null) {
+      supplierProducts=EntityUtil.filterByAnd(supplierProducts,UtilMisc.toMap("partyId",partyId));
+    }
+    if (currencyUomId != null) {
+      supplierProducts=EntityUtil.filterByAnd(supplierProducts,UtilMisc.toMap("currencyUomId",currencyUomId));
+    }
+    if (quantity != null) {
+      supplierProducts=EntityUtil.filterByCondition(supplierProducts,new EntityExpr("minimumOrderQuantity",EntityOperator.LESS_THAN_EQUAL_TO,quantity));
+    }
+    supplierProducts=EntityUtil.filterByDate(supplierProducts,UtilDateTime.nowTimestamp(),"availableFromDate","availableThruDate",true);
+    supplierProducts=EntityUtil.orderBy(supplierProducts,UtilMisc.toList("lastPrice ASC"));
+    results=ServiceUtil.returnSuccess();
+    results.put("supplierProducts",supplierProducts);
+  }
+ catch (  GenericEntityException ex) {
+    Debug.logError(ex,ex.getMessage(),module);
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+catch (  Exception ex) {
+    Debug.logError(ex,ex.getMessage(),module);
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  return results;
+}

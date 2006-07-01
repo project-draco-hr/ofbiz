@@ -1,0 +1,107 @@
+{
+  ArrayList valuesToCreate=new ArrayList();
+  if (this.nextCreateTxTime != null && (this.nextCreateTxTime.equals(currentRunEndTime) || this.nextCreateTxTime.after(currentRunEndTime))) {
+    return valuesToCreate;
+  }
+  int entitiesSkippedForKnownNext=0;
+  Iterator entityModelToUseCreateIter=entityModelToUseList.iterator();
+  while (entityModelToUseCreateIter.hasNext()) {
+    int insertBefore=0;
+    ModelEntity modelEntity=(ModelEntity)entityModelToUseCreateIter.next();
+    Timestamp knownNextCreateTime=(Timestamp)this.nextEntityCreateTxTime.get(modelEntity.getEntityName());
+    if (knownNextCreateTime != null && (knownNextCreateTime.equals(currentRunEndTime) || knownNextCreateTime.after(currentRunEndTime))) {
+      entitiesSkippedForKnownNext++;
+      continue;
+    }
+    boolean beganTransaction=false;
+    try {
+      beganTransaction=TransactionUtil.begin(7200);
+    }
+ catch (    GenericTransactionException e) {
+      throw new SyncDataErrorException("Unable to begin JTA transaction",e);
+    }
+    try {
+      EntityCondition findValCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunStartTime),new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.LESS_THAN,currentRunEndTime)),EntityOperator.AND);
+      EntityListIterator eli=delegator.findListIteratorByCondition(modelEntity.getEntityName(),findValCondition,null,UtilMisc.toList(ModelEntity.CREATE_STAMP_TX_FIELD,ModelEntity.CREATE_STAMP_FIELD));
+      GenericValue nextValue=null;
+      long valuesPerEntity=0;
+      while ((nextValue=(GenericValue)eli.next()) != null) {
+        while (insertBefore < valuesToCreate.size() && ((GenericValue)valuesToCreate.get(insertBefore)).getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD).before(nextValue.getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD))) {
+          insertBefore++;
+        }
+        while (insertBefore < valuesToCreate.size() && ((GenericValue)valuesToCreate.get(insertBefore)).getTimestamp(ModelEntity.CREATE_STAMP_FIELD).before(nextValue.getTimestamp(ModelEntity.CREATE_STAMP_FIELD))) {
+          insertBefore++;
+        }
+        valuesToCreate.add(insertBefore,nextValue);
+        valuesPerEntity++;
+      }
+      eli.close();
+      if (valuesPerEntity == 0) {
+        Timestamp startCheckStamp=new Timestamp(System.currentTimeMillis() - syncEndBufferMillis);
+        EntityCondition findNextCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.NOT_EQUAL,null),new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunEndTime)),EntityOperator.AND);
+        EntityListIterator eliNext=delegator.findListIteratorByCondition(modelEntity.getEntityName(),findNextCondition,null,UtilMisc.toList(ModelEntity.CREATE_STAMP_TX_FIELD));
+        GenericValue firstVal=(GenericValue)eliNext.next();
+        eliNext.close();
+        Timestamp nextTxTime;
+        if (firstVal != null) {
+          nextTxTime=firstVal.getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD);
+        }
+ else {
+          nextTxTime=startCheckStamp;
+        }
+        if (this.nextCreateTxTime == null || nextTxTime.before(this.nextCreateTxTime)) {
+          this.nextCreateTxTime=nextTxTime;
+          Debug.logInfo("EntitySync: Set nextCreateTxTime to [" + nextTxTime + "]",module);
+        }
+        Timestamp curEntityNextTxTime=(Timestamp)this.nextEntityCreateTxTime.get(modelEntity.getEntityName());
+        if (curEntityNextTxTime == null || nextTxTime.before(curEntityNextTxTime)) {
+          this.nextEntityCreateTxTime.put(modelEntity.getEntityName(),nextTxTime);
+          Debug.logInfo("EntitySync: Set nextEntityCreateTxTime to [" + nextTxTime + "] for the entity ["+ modelEntity.getEntityName()+ "]",module);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"Entity Engine error in assembleValuesToCreate",e);
+      }
+ catch (      GenericTransactionException e2) {
+        Debug.logWarning(e2,"Unable to call rollback()",module);
+      }
+      throw new SyncDataErrorException("Error getting values to create from the datasource",e);
+    }
+catch (    Throwable t) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"Throwable error in assembleValuesToCreate",t);
+      }
+ catch (      GenericTransactionException e2) {
+        Debug.logWarning(e2,"Unable to call rollback()",module);
+      }
+      throw new SyncDataErrorException("Caught runtime error while getting values to create",t);
+    }
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e) {
+      throw new SyncDataErrorException("Commit transaction failed",e);
+    }
+  }
+  if (entitiesSkippedForKnownNext > 0) {
+    if (Debug.infoOn())     Debug.logInfo("In assembleValuesToCreate skipped [" + entitiesSkippedForKnownNext + "/"+ entityModelToUseList+ "] entities for the time period ending at ["+ currentRunEndTime+ "] because of next known create times",module);
+  }
+  boolean logValues=false;
+  if (logValues && valuesToCreate.size() > 0) {
+    StringBuffer toCreateInfo=new StringBuffer();
+    Iterator valuesToCreateIter=valuesToCreate.iterator();
+    while (valuesToCreateIter.hasNext()) {
+      GenericValue valueToCreate=(GenericValue)valuesToCreateIter.next();
+      toCreateInfo.append("\n-->[");
+      toCreateInfo.append(valueToCreate.get(ModelEntity.CREATE_STAMP_TX_FIELD));
+      toCreateInfo.append(":");
+      toCreateInfo.append(valueToCreate.get(ModelEntity.CREATE_STAMP_FIELD));
+      toCreateInfo.append("] ");
+      toCreateInfo.append(valueToCreate.getPrimaryKey());
+    }
+    Debug.logInfo(toCreateInfo.toString(),module);
+  }
+  return valuesToCreate;
+}

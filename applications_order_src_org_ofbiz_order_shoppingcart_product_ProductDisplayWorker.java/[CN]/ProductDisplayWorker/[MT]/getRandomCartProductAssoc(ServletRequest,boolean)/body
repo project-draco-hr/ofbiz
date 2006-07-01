@@ -1,0 +1,78 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  ShoppingCart cart=(ShoppingCart)httpRequest.getSession().getAttribute("shoppingCart");
+  if (cart == null || cart.size() <= 0)   return null;
+  ArrayList cartAssocs=null;
+  try {
+    Map products=new HashMap();
+    Iterator cartiter=cart.iterator();
+    while (cartiter != null && cartiter.hasNext()) {
+      ShoppingCartItem item=(ShoppingCartItem)cartiter.next();
+      List complementProducts=delegator.findByAndCache("ProductAssoc",UtilMisc.toMap("productId",item.getProductId(),"productAssocTypeId","PRODUCT_COMPLEMENT"),null);
+      complementProducts=EntityUtil.filterByDate(complementProducts,true);
+      List productsCategories=delegator.findByAndCache("ProductCategoryMember",UtilMisc.toMap("productId",item.getProductId()),null);
+      productsCategories=EntityUtil.filterByDate(productsCategories,true);
+      if (productsCategories != null) {
+        Iterator productsCategoriesIter=productsCategories.iterator();
+        while (productsCategoriesIter.hasNext()) {
+          GenericValue productsCategoryMember=(GenericValue)productsCategoriesIter.next();
+          GenericValue productsCategory=productsCategoryMember.getRelatedOneCache("ProductCategory");
+          if ("CROSS_SELL_CATEGORY".equals(productsCategory.getString("productCategoryTypeId"))) {
+            List curPcms=productsCategory.getRelatedCache("ProductCategoryMember");
+            if (curPcms != null) {
+              Iterator curPcmsIter=curPcms.iterator();
+              while (curPcmsIter.hasNext()) {
+                GenericValue curPcm=(GenericValue)curPcmsIter.next();
+                if (!products.containsKey(curPcm.getString("productId"))) {
+                  GenericValue product=curPcm.getRelatedOneCache("Product");
+                  products.put(product.getString("productId"),product);
+                }
+              }
+            }
+          }
+        }
+      }
+      if (complementProducts != null && complementProducts.size() > 0) {
+        Iterator complIter=complementProducts.iterator();
+        while (complIter.hasNext()) {
+          GenericValue productAssoc=(GenericValue)complIter.next();
+          if (!products.containsKey(productAssoc.getString("productIdTo"))) {
+            GenericValue product=productAssoc.getRelatedOneCache("AssocProduct");
+            products.put(product.getString("productId"),product);
+          }
+        }
+      }
+    }
+    cartiter=cart.iterator();
+    while (cartiter != null && cartiter.hasNext()) {
+      ShoppingCartItem item=(ShoppingCartItem)cartiter.next();
+      products.remove(item.getProductId());
+    }
+    if (checkViewAllow) {
+      String currentCatalogId=CatalogWorker.getCurrentCatalogId(request);
+      String viewProductCategoryId=CatalogWorker.getCatalogViewAllowCategoryId(delegator,currentCatalogId);
+      if (viewProductCategoryId != null) {
+        List tempList=new ArrayList(products.values());
+        tempList=CategoryWorker.filterProductsInCategory(delegator,tempList,viewProductCategoryId,"productId");
+        cartAssocs=new ArrayList(tempList);
+      }
+    }
+    if (cartAssocs == null) {
+      cartAssocs=new ArrayList(products.values());
+    }
+    while (cartAssocs.size() > 3) {
+      int toRemove=(int)(Math.random() * (double)(cartAssocs.size()));
+      cartAssocs.remove(toRemove);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+  }
+  if (cartAssocs != null && cartAssocs.size() > 0) {
+    return cartAssocs;
+  }
+ else {
+    return null;
+  }
+}

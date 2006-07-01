@@ -1,0 +1,72 @@
+{
+  if (!mgrLoggedIn) {
+    pos.showDialog("dialog/error/mgrnotloggedin");
+    return;
+  }
+  XuiSession session=pos.getSession();
+  PosTransaction trans=PosTransaction.getCurrentTx(session);
+  if (!trans.isOpen()) {
+    pos.showDialog("dialog/error/terminalclosed");
+    return;
+  }
+  Output output=pos.getOutput();
+  Input input=pos.getInput();
+  boolean lookup=false;
+  if (input.isFunctionSet("VOID")) {
+    lookup=true;
+  }
+ else   if (UtilValidate.isNotEmpty(input.value())) {
+    lookup=true;
+  }
+  if (lookup) {
+    GenericValue state=trans.getTerminalState();
+    Timestamp openDate=state.getTimestamp("openedDate");
+    String orderId=input.value();
+    GenericValue orderHeader=null;
+    try {
+      orderHeader=session.getDelegator().findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (orderHeader == null) {
+      input.clear();
+      pos.showDialog("dialog/error/ordernotfound");
+      return;
+    }
+ else {
+      Timestamp orderDate=orderHeader.getTimestamp("orderDate");
+      if (orderDate.after(openDate)) {
+        LocalDispatcher dispatcher=session.getDispatcher();
+        Map returnResp=null;
+        try {
+          returnResp=dispatcher.runSync("quickReturnOrder",UtilMisc.toMap("orderId",orderId,"returnHeaderTypeId","CUSTOMER_RETURN","userLogin",session.getUserLogin()));
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          pos.showDialog("dialog/error/exception",e.getMessage());
+          pos.refresh();
+          return;
+        }
+        if (returnResp != null && ServiceUtil.isError(returnResp)) {
+          pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(returnResp));
+          pos.refresh();
+          return;
+        }
+        trans.setTxAsReturn((String)returnResp.get("returnId"));
+        input.clear();
+        pos.showDialog("dialog/error/salevoided");
+        pos.refresh();
+      }
+ else {
+        input.clear();
+        pos.showDialog("dialog/error/ordernotfound");
+        return;
+      }
+    }
+  }
+ else {
+    input.setFunction("VOID");
+    output.print(UtilProperties.getMessage("pos","VOID",Locale.getDefault()));
+  }
+}

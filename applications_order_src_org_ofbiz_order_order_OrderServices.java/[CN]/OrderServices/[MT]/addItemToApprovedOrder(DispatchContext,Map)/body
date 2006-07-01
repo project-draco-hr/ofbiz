@@ -1,0 +1,67 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  String orderId=(String)context.get("orderId");
+  String productId=(String)context.get("productId");
+  Double basePrice=(Double)context.get("basePrice");
+  Double quantity=(Double)context.get("quantity");
+  Double amount=(Double)context.get("amount");
+  Boolean overridePrice=(Boolean)context.get("overridePrice");
+  if (amount == null) {
+    amount=new Double(0.00);
+  }
+  int shipGroupIdx=-1;
+  try {
+    shipGroupIdx=Integer.parseInt(shipGroupSeqId);
+    shipGroupIdx--;
+  }
+ catch (  NumberFormatException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (shipGroupIdx < 0) {
+    return ServiceUtil.returnError("Invalid shipGroupSeqId [" + shipGroupSeqId + "]");
+  }
+  ShoppingCart cart=null;
+  try {
+    cart=loadCartForUpdate(dispatcher,delegator,userLogin,orderId);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (cart == null) {
+    return ServiceUtil.returnError("ERROR: Null shopping cart object returned!");
+  }
+  try {
+    ShoppingCartItem item=ShoppingCartItem.makeItem(null,productId,null,quantity.doubleValue(),null,null,null,null,null,null,null,null,null,null,null,null,dispatcher,cart,null,null);
+    if (basePrice != null && overridePrice != null) {
+      item.setBasePrice(basePrice.doubleValue());
+      item.setQuantity(quantity.doubleValue() + 1,dispatcher,cart,false);
+      item.setQuantity(quantity.doubleValue(),dispatcher,cart,false);
+      item.setBasePrice(basePrice.doubleValue());
+      item.setIsModifiedPrice(true);
+    }
+    cart.setItemShipGroupQty(item,item.getQuantity(),shipGroupIdx);
+  }
+ catch (  CartItemModifyException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  ItemNotFoundException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  try {
+    saveUpdatedCartToOrder(dispatcher,delegator,cart,locale,userLogin,orderId);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("shoppingCart",cart);
+  result.put("orderId",orderId);
+  return result;
+}

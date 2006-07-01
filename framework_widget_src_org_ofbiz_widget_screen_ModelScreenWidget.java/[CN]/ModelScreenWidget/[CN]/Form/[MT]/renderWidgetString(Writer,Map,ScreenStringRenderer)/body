@@ -1,0 +1,54 @@
+{
+  boolean protectScope=!shareScope(context);
+  if (protectScope) {
+    if (!(context instanceof MapStack)) {
+      context=MapStack.create(context);
+    }
+    ((MapStack)context).push();
+  }
+  String name=this.getName(context);
+  String location=this.getLocation(context);
+  ModelForm modelForm=null;
+  try {
+    modelForm=FormFactory.getFormFromLocation(this.getLocation(context),this.getName(context),this.modelScreen.getDelegator(context),this.modelScreen.getDispatcher(context));
+  }
+ catch (  IOException e) {
+    String errMsg="Error rendering included form named [" + name + "] at location ["+ location+ "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new RuntimeException(errMsg);
+  }
+catch (  SAXException e) {
+    String errMsg="Error rendering included form named [" + name + "] at location ["+ location+ "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new RuntimeException(errMsg);
+  }
+catch (  ParserConfigurationException e) {
+    String errMsg="Error rendering included form named [" + name + "] at location ["+ location+ "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new RuntimeException(errMsg);
+  }
+  FormStringRenderer formStringRenderer=(FormStringRenderer)context.get("formStringRenderer");
+  if (formStringRenderer == null) {
+    HttpServletRequest request=(HttpServletRequest)context.get("request");
+    HttpServletResponse response=(HttpServletResponse)context.get("response");
+    if (request != null && response != null) {
+      formStringRenderer=new HtmlFormRenderer(request,response);
+    }
+  }
+  if (formStringRenderer == null) {
+    throw new IllegalArgumentException("Could not find a formStringRenderer in the context, and could not find HTTP request/response objects need to create one.");
+  }
+  StringBuffer renderBuffer=new StringBuffer();
+  modelForm.renderFormString(renderBuffer,context,formStringRenderer);
+  try {
+    writer.write(renderBuffer.toString());
+  }
+ catch (  IOException e) {
+    String errMsg="Error rendering included form named [" + name + "] at location ["+ location+ "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    throw new RuntimeException(errMsg);
+  }
+  if (protectScope) {
+    ((MapStack)context).pop();
+  }
+}

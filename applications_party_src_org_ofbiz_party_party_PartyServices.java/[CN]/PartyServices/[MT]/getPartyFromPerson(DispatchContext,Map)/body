@@ -1,0 +1,42 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  Collection parties=new LinkedList();
+  String firstName=(String)context.get("firstName");
+  String lastName=(String)context.get("lastName");
+  Locale locale=(Locale)context.get("locale");
+  if (firstName == null) {
+    firstName="";
+  }
+  if (lastName == null) {
+    lastName="";
+  }
+  if (firstName.length() == 0 && lastName.length() == 0) {
+    String errMsg=UtilProperties.getMessage(resource,"partyservices.both_names_cannot_be_empty",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  try {
+    List exprs=new LinkedList();
+    exprs.add(new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue("firstName")),EntityOperator.LIKE,new EntityFunction.UPPER("%" + firstName.toUpperCase() + "%")));
+    exprs.add(new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue("lastName")),EntityOperator.LIKE,new EntityFunction.UPPER("%" + lastName.toUpperCase() + "%")));
+    Collection pc=delegator.findByAnd("Person",exprs,UtilMisc.toList("lastName","firstName","partyId"));
+    if (Debug.infoOn())     Debug.logInfo("PartyFromPerson number found: " + pc.size(),module);
+    if (pc != null) {
+      Iterator i=pc.iterator();
+      while (i.hasNext()) {
+        GenericValue person=(GenericValue)i.next();
+        GenericValue party=delegator.makeValue("Party",UtilMisc.toMap("partyId",person.get("partyId"),"partyTypeId","PERSON"));
+        parties.add(UtilMisc.toMap("person",person,"party",party));
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    String errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_get_party_entities_read",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (parties.size() > 0) {
+    result.put("parties",parties);
+  }
+  return result;
+}

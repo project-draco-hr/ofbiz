@@ -1,0 +1,31 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=(GenericValue)context.get("authTrans");
+  if (authTransaction == null) {
+    authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot capture");
+  }
+  Properties props=buildCsProperties(context);
+  if (props == null) {
+    return ServiceUtil.returnError("ERROR: Getting Cybersource property configuration");
+  }
+  Map request=buildCaptureRequest(context,authTransaction);
+  request.put("merchantID",props.get("merchantID"));
+  Map reply=null;
+  try {
+    reply=Client.runTransaction(request,props);
+  }
+ catch (  FaultException e) {
+    Debug.logError(e,"ERROR: Fault from CyberSource",module);
+    return ServiceUtil.returnError("Unable to communicate with CyberSource");
+  }
+catch (  ClientException e) {
+    Debug.logError(e,"ERROR: CyberSource Client exception : " + e.getMessage(),module);
+    return ServiceUtil.returnError("Unable to communicate with CyberSource");
+  }
+  Map result=ServiceUtil.returnSuccess();
+  processCaptureResult(reply,result);
+  return result;
+}

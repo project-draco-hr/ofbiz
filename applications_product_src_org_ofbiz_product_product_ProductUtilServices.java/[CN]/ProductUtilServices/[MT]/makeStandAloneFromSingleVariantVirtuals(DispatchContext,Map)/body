@@ -1,0 +1,80 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  Debug.logInfo("Starting makeStandAloneFromSingleVariantVirtuals",module);
+  DynamicViewEntity dve=new DynamicViewEntity();
+  dve.addMemberEntity("PVIRT","Product");
+  dve.addMemberEntity("PVA","ProductAssoc");
+  dve.addViewLink("PVIRT","PVA",Boolean.FALSE,UtilMisc.toList(new ModelKeyMap("productId","productId")));
+  dve.addAlias("PVIRT","productId",null,null,null,Boolean.TRUE,null);
+  dve.addAlias("PVIRT","salesDiscontinuationDate",null,null,null,null,null);
+  dve.addAlias("PVA","productAssocTypeId",null,null,null,null,null);
+  dve.addAlias("PVA","fromDate",null,null,null,null,null);
+  dve.addAlias("PVA","thruDate",null,null,null,null,null);
+  dve.addAlias("PVA","productIdToCount","productIdTo",null,null,null,"count-distinct");
+  try {
+    EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_VARIANT"),new EntityExpr(new EntityExpr("salesDiscontinuationDate",EntityOperator.EQUALS,null),EntityOperator.OR,new EntityExpr("salesDiscontinuationDate",EntityOperator.GREATER_THAN,nowTimestamp))),EntityOperator.AND);
+    EntityCondition havingCond=new EntityExpr("productIdToCount",EntityOperator.EQUALS,new Long(1));
+    EntityListIterator eliOne=delegator.findListIteratorByCondition(dve,condition,havingCond,UtilMisc.toList("productId","productIdToCount"),null,null);
+    List valueList=eliOne.getCompleteList();
+    eliOne.close();
+    Debug.logInfo("Found " + valueList.size() + " virtual products with one variant to turn into a stand alone product.",module);
+    int numWithOneOnly=0;
+    Iterator valueIter=valueList.iterator();
+    while (valueIter.hasNext()) {
+      GenericValue value=(GenericValue)valueIter.next();
+      String productId=value.getString("productId");
+      List paList=delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productId",productId,"productAssocTypeId","PRODUCT_VARIANT"));
+      if (paList.size() != 1) {
+        Debug.logInfo("Virtual product with ID " + productId + " should have 1 assoc, has "+ paList.size(),module);
+      }
+ else {
+        dispatcher.runSync("mergeVirtualWithSingleVariant",UtilMisc.toMap("productId",productId,"removeOld",Boolean.TRUE,"userLogin",userLogin));
+        numWithOneOnly++;
+        if (numWithOneOnly % 100 == 0) {
+          Debug.logInfo("Made " + numWithOneOnly + " virtual products with only one valid variant stand-alone products.",module);
+        }
+      }
+    }
+    EntityCondition conditionWithDates=new EntityConditionList(UtilMisc.toList(new EntityExpr("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_VARIANT"),new EntityExpr(new EntityExpr("salesDiscontinuationDate",EntityOperator.EQUALS,null),EntityOperator.OR,new EntityExpr("salesDiscontinuationDate",EntityOperator.GREATER_THAN,nowTimestamp)),new EntityExpr("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp),new EntityExpr(new EntityExpr("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,new EntityExpr("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp))),EntityOperator.AND);
+    EntityListIterator eliMulti=delegator.findListIteratorByCondition(dve,conditionWithDates,havingCond,UtilMisc.toList("productId","productIdToCount"),null,null);
+    List valueMultiList=eliMulti.getCompleteList();
+    eliMulti.close();
+    Debug.logInfo("Found " + valueMultiList.size() + " virtual products with one VALID variant to pull the variant from to make a stand alone product.",module);
+    int numWithOneValid=0;
+    Iterator valueMultiIter=valueMultiList.iterator();
+    while (valueMultiIter.hasNext()) {
+      GenericValue value=(GenericValue)valueMultiIter.next();
+      String productId=value.getString("productId");
+      List paList=EntityUtil.filterByDate(delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productId",productId,"productAssocTypeId","PRODUCT_VARIANT")),nowTimestamp);
+      if (paList.size() != 1) {
+        Debug.logInfo("Virtual product with ID " + productId + " should have 1 assoc, has "+ paList.size(),module);
+      }
+ else {
+        dispatcher.runSync("mergeVirtualWithSingleVariant",UtilMisc.toMap("productId",productId,"removeOld",Boolean.FALSE,"userLogin",userLogin));
+        numWithOneValid++;
+        if (numWithOneValid % 100 == 0) {
+          Debug.logInfo("Made " + numWithOneValid + " virtual products with one valid variant stand-alone products.",module);
+        }
+      }
+    }
+    Debug.logInfo("Found virtual products with one valid variant: " + numWithOneValid + ", with one variant only: "+ numWithOneOnly,module);
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productutilservices.entity_error_running_makeStandAloneFromSingleVariantVirtuals",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  GenericServiceException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productutilservices.entity_error_running_makeStandAloneFromSingleVariantVirtuals",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

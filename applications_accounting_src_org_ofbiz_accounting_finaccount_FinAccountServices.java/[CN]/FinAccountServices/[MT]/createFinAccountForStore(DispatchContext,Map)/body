@@ -1,0 +1,39 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String finAccountTypeId=(String)context.get("finAccountTypeId");
+  try {
+    GenericValue productStoreFinAccountSetting=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",finAccountTypeId));
+    if (productStoreFinAccountSetting == null) {
+      return ServiceUtil.returnError("No settings found for store [" + productStoreId + "] for fin account type ["+ finAccountTypeId+ "]");
+    }
+    Long accountCodeLength=productStoreFinAccountSetting.getLong("accountCodeLength");
+    Long accountValidDays=productStoreFinAccountSetting.getLong("accountValidDays");
+    ModelService createService=dctx.getModelService("createFinAccount");
+    Map inContext=createService.makeValid(context,"IN");
+    Timestamp now=UtilDateTime.nowTimestamp();
+    inContext.put("fromDate",now);
+    inContext.put("thruDate",UtilDateTime.getDayEnd(now,accountValidDays.intValue()));
+    String finAccountCode=FinAccountHelper.getNewFinAccountCode(accountCodeLength.intValue(),delegator);
+    inContext.put("finAccountCode",finAccountCode);
+    inContext.put("userLogin",userLogin);
+    Map createResult=dispatcher.runSync("createFinAccount",inContext);
+    if (ServiceUtil.isError(createResult)) {
+      return createResult;
+    }
+ else {
+      Map result=ServiceUtil.returnSuccess();
+      result.put("finAccountId",createResult.get("finAccountId"));
+      result.put("finAccountCode",finAccountCode);
+      return result;
+    }
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+catch (  GenericServiceException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+}

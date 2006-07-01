@@ -1,0 +1,29 @@
+{
+  HttpSession session=request.getSession();
+  ShoppingCart cart=ShoppingCartEvents.getCartObject(request);
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
+  Map callResult;
+  session.removeAttribute("_QUICK_REORDER_PRODUCTS_");
+  boolean areOrderItemsExploded=explodeOrderItems(delegator,cart);
+  List trackingCodeOrders=TrackingCodeEvents.makeTrackingCodeOrders(request);
+  String distributorId=(String)session.getAttribute("_DISTRIBUTOR_ID_");
+  String affiliateId=(String)session.getAttribute("_AFFILIATE_ID_");
+  String visitId=VisitHandler.getVisitId(session);
+  String webSiteId=CatalogWorker.getWebSiteId(request);
+  callResult=checkOutHelper.createOrder(userLogin,distributorId,affiliateId,trackingCodeOrders,areOrderItemsExploded,visitId,webSiteId);
+  if (callResult != null) {
+    ServiceUtil.getMessages(request,callResult,null);
+    if (ServiceUtil.isError(callResult)) {
+      return "error";
+    }
+    if (callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_SUCCESS)) {
+      String orderId=cart.getOrderId();
+      request.setAttribute("orderId",orderId);
+      request.setAttribute("orderAdditionalEmails",cart.getOrderAdditionalEmails());
+    }
+  }
+  return cart.getOrderType().toLowerCase();
+}

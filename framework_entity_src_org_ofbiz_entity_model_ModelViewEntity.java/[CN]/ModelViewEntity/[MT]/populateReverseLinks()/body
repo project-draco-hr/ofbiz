@@ -1,0 +1,71 @@
+{
+  Map containedModelFields=new HashMap();
+  Iterator it=getAliasesIterator();
+  while (it.hasNext()) {
+    ModelViewEntity.ModelAlias alias=(ModelViewEntity.ModelAlias)it.next();
+    ModelEntity member=getMemberModelEntity(alias.getEntityAlias());
+    ModelConversion conversion=getOrCreateModelConversion(alias.getEntityAlias());
+    conversion.addConversion(alias.getField(),alias.getName());
+    ModelField field=(ModelField)member.getField(alias.getField());
+    List aliases=(List)containedModelFields.get(alias.getField());
+    if (aliases == null) {
+      aliases=new ArrayList();
+      containedModelFields.put(alias.getField(),aliases);
+    }
+    aliases.add(alias.getName());
+  }
+  it=getViewLinksIterator();
+  while (it.hasNext()) {
+    ModelViewEntity.ModelViewLink link=(ModelViewEntity.ModelViewLink)it.next();
+    String leftAlias=link.getEntityAlias();
+    String rightAlias=link.getRelEntityAlias();
+    ModelConversion leftConversion=getOrCreateModelConversion(leftAlias);
+    ModelConversion rightConversion=getOrCreateModelConversion(rightAlias);
+    Iterator it2=link.getKeyMapsIterator();
+    Debug.logVerbose(leftAlias + "<->" + rightAlias,module);
+    while (it2.hasNext()) {
+      ModelKeyMap mkm=(ModelKeyMap)it2.next();
+      String leftFieldName=mkm.getFieldName();
+      String rightFieldName=mkm.getRelFieldName();
+      rightConversion.addAllAliasConversions((List)containedModelFields.get(leftFieldName),rightFieldName);
+      leftConversion.addAllAliasConversions((List)containedModelFields.get(rightFieldName),leftFieldName);
+    }
+  }
+  it=conversions.entrySet().iterator();
+  int[] currentIndex=new int[conversions.size()];
+  int[] maxIndex=new int[conversions.size()];
+  ModelConversion[][] allConversions=new ModelConversion[conversions.size()][];
+  int i=0;
+  while (it.hasNext()) {
+    Map.Entry entry=(Map.Entry)it.next();
+    Map aliasConversions=(Map)entry.getValue();
+    currentIndex[i]=0;
+    maxIndex[i]=aliasConversions.size();
+    allConversions[i]=new ModelConversion[aliasConversions.size()];
+    Iterator it2=aliasConversions.values().iterator();
+    for (int j=0; it2.hasNext() && j < aliasConversions.size(); j++) {
+      allConversions[i][j]=(ModelConversion)it2.next();
+    }
+    i++;
+  }
+  int ptr=0;
+  ModelConversion[] currentConversions=new ModelConversion[conversions.size()];
+  for (int j=0, k; j < currentIndex.length; j++) {
+    for (int l=0; l < maxIndex[j]; l++) {
+      while (true) {
+        for (i=0, k=0; i < currentIndex.length; i++) {
+          if (i == j && currentIndex[i] == l)           continue;
+          currentConversions[k++]=allConversions[i][currentIndex[i]];
+        }
+        Debug.logVerbose(j + "," + l+ ":"+ Arrays.asList(currentConversions),module);
+        while (ptr < currentIndex.length && ++currentIndex[ptr] == maxIndex[ptr]) {
+          currentIndex[ptr]=0;
+          ptr++;
+        }
+        if (ptr == currentIndex.length)         break;
+        ptr=0;
+      }
+    }
+  }
+  Debug.logVerbose(this + ":" + conversions,module);
+}

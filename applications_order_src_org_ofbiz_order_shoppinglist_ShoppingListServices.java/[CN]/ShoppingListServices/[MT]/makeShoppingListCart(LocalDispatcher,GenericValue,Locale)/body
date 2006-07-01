@@ -1,0 +1,74 @@
+{
+  GenericDelegator delegator=dispatcher.getDelegator();
+  ShoppingCart listCart=null;
+  if (shoppingList != null && shoppingList.get("productStoreId") != null) {
+    String productStoreId=shoppingList.getString("productStoreId");
+    String currencyUom=shoppingList.getString("currencyUom");
+    if (currencyUom == null) {
+      GenericValue productStore=ProductStoreWorker.getProductStore(productStoreId,delegator);
+      if (productStore == null) {
+        return null;
+      }
+      currencyUom=productStore.getString("defaultCurrencyUomId");
+    }
+    if (locale == null) {
+      locale=Locale.getDefault();
+    }
+    List items=null;
+    try {
+      items=shoppingList.getRelated("ShoppingListItem",UtilMisc.toList("shoppingListItemSeqId"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (UtilValidate.isNotEmpty(items)) {
+      listCart=new ShoppingCart(delegator,productStoreId,locale,currencyUom);
+      listCart.setOrderPartyId(shoppingList.getString("partyId"));
+      Iterator i=items.iterator();
+      while (i.hasNext()) {
+        GenericValue shoppingListItem=(GenericValue)i.next();
+        String productId=shoppingListItem.getString("productId");
+        Double quantity=shoppingListItem.getDouble("quantity");
+        Timestamp reservStart=shoppingListItem.getTimestamp("reservStart");
+        Double reservLength=null;
+        if (shoppingListItem.get("reservLength") != null) {
+          reservLength=shoppingListItem.getDouble("reservLength");
+        }
+        Double reservPersons=null;
+        ;
+        if (shoppingListItem.get("reservPersons") != null) {
+          reservPersons=shoppingListItem.getDouble("reservPersons");
+        }
+        if (UtilValidate.isNotEmpty(productId) && quantity != null) {
+          String listId=shoppingListItem.getString("shoppingListId");
+          String itemId=shoppingListItem.getString("shoppingListItemSeqId");
+          Map attributes=UtilMisc.toMap("shoppingListId",listId,"shoppingListItemSeqId",itemId);
+          try {
+            listCart.addOrIncreaseItem(productId,null,quantity.doubleValue(),reservStart,reservLength,reservPersons,null,null,null,attributes,null,null,null,null,dispatcher);
+          }
+ catch (          CartItemModifyException e) {
+            Debug.logError(e,"Unable to add product to List Cart - " + productId,module);
+          }
+catch (          ItemNotFoundException e) {
+            Debug.logError(e,"Product not found - " + productId,module);
+          }
+        }
+      }
+      if (listCart.size() > 0) {
+        if (shoppingList.get("paymentMethodId") != null) {
+          listCart.addPayment(shoppingList.getString("paymentMethodId"));
+        }
+        if (shoppingList.get("contactMechId") != null) {
+          listCart.setShippingContactMechId(0,shoppingList.getString("contactMechId"));
+        }
+        if (shoppingList.get("shipmentMethodTypeId") != null) {
+          listCart.setShipmentMethodTypeId(0,shoppingList.getString("shipmentMethodTypeId"));
+        }
+        if (shoppingList.get("carrierPartyId") != null) {
+          listCart.setCarrierPartyId(0,shoppingList.getString("carrierPartyId"));
+        }
+      }
+    }
+  }
+  return listCart;
+}

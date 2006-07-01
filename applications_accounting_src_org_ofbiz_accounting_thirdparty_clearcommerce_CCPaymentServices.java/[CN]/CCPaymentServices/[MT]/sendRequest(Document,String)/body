@@ -1,0 +1,55 @@
+{
+  if (UtilValidate.isEmpty(paymentConfig)) {
+    paymentConfig="payment.properties";
+  }
+  String serverURL=UtilProperties.getPropertyValue(paymentConfig,"payment.clearcommerce.serverURL");
+  if (UtilValidate.isEmpty(serverURL)) {
+    throw new ClearCommerceException("Missing server URL; check your ClearCommerce configuration");
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("ClearCommerce server URL: " + serverURL,module);
+  }
+  OutputStream os=new ByteArrayOutputStream();
+  OutputFormat format=new OutputFormat();
+  format.setOmitDocumentType(true);
+  format.setOmitXMLDeclaration(true);
+  format.setIndenting(false);
+  XMLSerializer serializer=new XMLSerializer(os,format);
+  try {
+    serializer.asDOMSerializer();
+    serializer.serialize(requestDocument.getDocumentElement());
+  }
+ catch (  IOException ioe) {
+    throw new ClearCommerceException("Error serializing requestDocument: " + ioe.getMessage());
+  }
+  String xmlString=os.toString();
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("ClearCommerce XML request string: " + xmlString,module);
+  }
+  HttpClient http=new HttpClient(serverURL);
+  http.setParameter("CLRCMRC_XML",xmlString);
+  String response=null;
+  try {
+    response=http.post();
+  }
+ catch (  HttpClientException hce) {
+    Debug.log(hce,module);
+    throw new ClearCommerceException("ClearCommerce connection problem",hce);
+  }
+  Document responseDocument=null;
+  try {
+    responseDocument=UtilXml.readXmlDocument(response,false);
+  }
+ catch (  SAXException se) {
+    throw new ClearCommerceException("Error reading response Document from a String: " + se.getMessage());
+  }
+catch (  ParserConfigurationException pce) {
+    throw new ClearCommerceException("Error reading response Document from a String: " + pce.getMessage());
+  }
+catch (  IOException ioe) {
+    throw new ClearCommerceException("Error reading response Document from a String: " + ioe.getMessage());
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Result severity from clearCommerce:" + getMessageListMaxSev(responseDocument),module);
+  if (Debug.verboseOn() && getMessageListMaxSev(responseDocument) > 4)   Debug.logVerbose("Returned messages:" + getMessageList(responseDocument),module);
+  return responseDocument;
+}

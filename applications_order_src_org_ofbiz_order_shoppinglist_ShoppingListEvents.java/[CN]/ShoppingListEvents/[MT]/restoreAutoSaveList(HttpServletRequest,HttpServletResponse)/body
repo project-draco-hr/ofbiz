@@ -1,0 +1,63 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (!ProductStoreWorker.autoSaveCart(productStore)) {
+    return "success";
+  }
+  HttpSession session=request.getSession();
+  ShoppingCart cart=ShoppingCartEvents.getCartObject(request);
+  if (cart.getWebSiteId() == null) {
+    cart.setWebSiteId(CatalogWorker.getWebSiteId(request));
+  }
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  if (userLogin == null) {
+    userLogin=(GenericValue)session.getAttribute("autoUserLogin");
+  }
+  if (userLogin == null) {
+    return "success";
+  }
+  String autoSaveListId=cart.getAutoSaveListId();
+  if (autoSaveListId == null) {
+    try {
+      autoSaveListId=getAutoSaveListId(delegator,dispatcher,null,userLogin,cart.getProductStoreId());
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+    }
+    cart.setAutoSaveListId(autoSaveListId);
+  }
+  java.sql.Timestamp lastLoad=cart.getLastListRestore();
+  boolean okayToLoad=autoSaveListId == null ? false : (lastLoad == null ? true : false);
+  if (!okayToLoad && lastLoad != null) {
+    GenericValue shoppingList=null;
+    try {
+      shoppingList=delegator.findByPrimaryKey("ShoppingList",UtilMisc.toMap("shoppingListId",autoSaveListId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (shoppingList != null) {
+      java.sql.Timestamp lastModified=shoppingList.getTimestamp("lastAdminModified");
+      if (lastModified != null) {
+        if (lastModified.after(lastLoad)) {
+          okayToLoad=true;
+        }
+        if (cart.size() == 0 && lastModified.after(cart.getCartCreatedTime())) {
+          okayToLoad=true;
+        }
+      }
+    }
+  }
+  if (okayToLoad) {
+    String prodCatalogId=CatalogWorker.getCurrentCatalogId(request);
+    try {
+      addListToCart(delegator,dispatcher,cart,prodCatalogId,autoSaveListId,false,false,false);
+      cart.setLastListRestore(UtilDateTime.nowTimestamp());
+    }
+ catch (    IllegalArgumentException e) {
+      Debug.logError(e,module);
+    }
+  }
+  return "success";
+}

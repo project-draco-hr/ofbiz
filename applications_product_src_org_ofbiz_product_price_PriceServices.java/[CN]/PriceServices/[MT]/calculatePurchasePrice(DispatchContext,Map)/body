@@ -1,0 +1,87 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map result=new HashMap();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  List orderItemPriceInfos=new LinkedList();
+  boolean validPriceFound=false;
+  double price=0.0;
+  GenericValue product=(GenericValue)context.get("product");
+  String productId=product.getString("productId");
+  String currencyUomId=(String)context.get("currencyUomId");
+  String partyId=(String)context.get("partyId");
+  Double quantity=(Double)context.get("quantity");
+  if (!validPriceFound) {
+    Map priceContext=UtilMisc.toMap("currencyUomId",currencyUomId,"partyId",partyId,"productId",productId,"quantity",quantity);
+    List productSuppliers=null;
+    try {
+      Map priceResult=dispatcher.runSync("getSuppliersForProduct",priceContext);
+      if (ServiceUtil.isError(priceResult)) {
+        String errMsg=ServiceUtil.getErrorMessage(priceResult);
+        Debug.logError(errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+      productSuppliers=(List)priceResult.get("supplierProducts");
+    }
+ catch (    GenericServiceException gse) {
+      Debug.logError(gse,module);
+      return ServiceUtil.returnError(gse.getMessage());
+    }
+    if (productSuppliers != null) {
+      for (int i=0; i < productSuppliers.size(); i++) {
+        GenericValue productSupplier=(GenericValue)productSuppliers.get(i);
+        if (!validPriceFound) {
+          price=((Double)productSupplier.get("lastPrice")).doubleValue();
+          validPriceFound=true;
+        }
+        StringBuffer priceInfoDescription=new StringBuffer();
+        priceInfoDescription.append("SupplierProduct ");
+        priceInfoDescription.append("[minimumOrderQuantity:");
+        priceInfoDescription.append("" + productSupplier.getDouble("minimumOrderQuantity").doubleValue());
+        priceInfoDescription.append(", lastPrice: " + productSupplier.getDouble("lastPrice").doubleValue());
+        priceInfoDescription.append("]");
+        GenericValue orderItemPriceInfo=delegator.makeValue("OrderItemPriceInfo",null);
+        String priceInfoDescriptionString=priceInfoDescription.toString();
+        if (priceInfoDescriptionString.length() > 250) {
+          priceInfoDescriptionString=priceInfoDescriptionString.substring(0,250);
+        }
+        orderItemPriceInfo.set("description",priceInfoDescriptionString);
+        orderItemPriceInfos.add(orderItemPriceInfo);
+      }
+    }
+  }
+  if (!validPriceFound) {
+    List prices=null;
+    try {
+      prices=delegator.findByAnd("ProductPrice",UtilMisc.toMap("productId",productId,"productPricePurposeId","PURCHASE"),UtilMisc.toList("-fromDate"));
+      if (prices == null || prices.size() == 0) {
+        GenericValue parentProduct=ProductWorker.getParentProduct(productId,delegator);
+        if (parentProduct != null) {
+          String parentProductId=parentProduct.getString("productId");
+          prices=delegator.findByAnd("ProductPrice",UtilMisc.toMap("productId",parentProductId,"productPricePurposeId","PURCHASE"),UtilMisc.toList("-fromDate"));
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    prices=EntityUtil.filterByDate(prices);
+    List pricesToUse=EntityUtil.filterByAnd(prices,UtilMisc.toMap("productPriceTypeId","AVERAGE_COST"));
+    if (pricesToUse == null || pricesToUse.size() == 0) {
+      pricesToUse=EntityUtil.filterByAnd(prices,UtilMisc.toMap("productPriceTypeId","DEFAULT_PRICE"));
+      if (pricesToUse == null || pricesToUse.size() == 0) {
+        pricesToUse=EntityUtil.filterByAnd(prices,UtilMisc.toMap("productPriceTypeId","LIST_PRICE"));
+      }
+    }
+    GenericValue thisPrice=EntityUtil.getFirst(pricesToUse);
+    if (thisPrice != null) {
+      price=thisPrice.getDouble("price").doubleValue();
+      validPriceFound=true;
+    }
+  }
+  result.put("price",new Double(price));
+  result.put("validPriceFound",new Boolean(validPriceFound));
+  result.put("orderItemPriceInfos",orderItemPriceInfos);
+  return result;
+}

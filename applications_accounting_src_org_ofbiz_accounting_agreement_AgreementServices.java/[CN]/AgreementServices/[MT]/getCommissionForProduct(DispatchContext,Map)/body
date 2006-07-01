@@ -1,0 +1,77 @@
+{
+  Map result=FastMap.newInstance();
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  List commissions=FastList.newInstance();
+  String partyId=ServiceUtil.getPartyIdCheckSecurity(userLogin,security,context,result,"ACCOUNTING","_COMM_VIEW");
+  if (result.size() > 0)   return result;
+  try {
+    BigDecimal amount=((BigDecimal)context.get("amount"));
+    BigDecimal quantity=(BigDecimal)context.get("quantity");
+    quantity=quantity == null ? new BigDecimal("1") : quantity;
+    boolean negative=amount.signum() < 0;
+    amount=amount.abs();
+    quantity=quantity.abs();
+    String productId=(String)context.get("productId");
+    String invoiceItemTypeId=(String)context.get("invoiceItemTypeId");
+    List agreementItems=delegator.findByAndCache("AgreementItemAndProductAppl",UtilMisc.toMap("productId",productId,"agreementItemTypeId","AGREEMENT_COMMISSION"));
+    if (agreementItems.size() == 0) {
+      List productAssocs=delegator.findByAndCache("ProductAssoc",UtilMisc.toMap("productIdTo",productId,"productAssocTypeId","PRODUCT_VARIANT"));
+      if (productAssocs.size() > 0) {
+        GenericEntity productAssoc=EntityUtil.getFirst(productAssocs);
+        agreementItems=delegator.findByAndCache("AgreementItemAndProductAppl",UtilMisc.toMap("productId",productAssoc.getString("productId"),"agreementItemTypeId","AGREEMENT_COMMISSION"));
+      }
+    }
+    Iterator it=agreementItems.iterator();
+    while (it.hasNext()) {
+      GenericValue agreementItem=(GenericValue)it.next();
+      List terms=delegator.findByAndCache("AgreementTerm",UtilMisc.toMap("agreementId",agreementItem.getString("agreementId"),"agreementItemSeqId",agreementItem.getString("agreementItemSeqId"),"invoiceItemTypeId",invoiceItemTypeId));
+      if (terms.size() > 0) {
+        BigDecimal commission=ZERO;
+        BigDecimal min=new BigDecimal("-1e12");
+        BigDecimal max=new BigDecimal("1e12");
+        long days=0;
+        Iterator itt=terms.iterator();
+        while (itt.hasNext()) {
+          GenericValue elem=(GenericValue)itt.next();
+          String termTypeId=elem.getString("termTypeId");
+          BigDecimal termValue=elem.getBigDecimal("termValue");
+          if (termValue != null) {
+            if (termTypeId.equals("FIN_COMM_FIXED")) {
+              commission=commission.add(termValue.multiply(quantity));
+            }
+ else             if (termTypeId.equals("FIN_COMM_VARIABLE")) {
+              commission=commission.add(termValue.multiply(amount).divide(new BigDecimal("100"),12,rounding));
+            }
+ else             if (termTypeId.equals("FIN_COMM_MIN")) {
+              min=termValue.multiply(quantity);
+            }
+ else             if (termTypeId.equals("FIN_COMM_MAX")) {
+              max=termValue.multiply(quantity);
+            }
+          }
+          Long termDays=elem.getLong("termDays");
+          if (termDays != null) {
+            days=Math.min(days,termDays.longValue());
+          }
+        }
+        if (commission.compareTo(min) < 0)         commission=min;
+        if (commission.compareTo(max) > 0)         commission=max;
+        commission=negative ? commission.negate() : commission;
+        commission=commission.setScale(decimals,rounding);
+        days=Math.max(0,days);
+        commissions.add(UtilMisc.toMap("partyIdFrom",agreementItem.getString("partyIdFrom"),"partyIdTo",agreementItem.getString("partyIdTo"),"commission",commission,"days",new Long(days),"currencyUomId",agreementItem.getString("currencyUomId"),"productId",productId));
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"AccountingDataSourceError",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return UtilMisc.toMap("commissions",commissions,ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+}

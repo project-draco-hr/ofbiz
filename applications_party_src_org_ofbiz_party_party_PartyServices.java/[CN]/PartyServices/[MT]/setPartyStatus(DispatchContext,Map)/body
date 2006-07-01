@@ -1,0 +1,37 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String partyId=(String)context.get("partyId");
+  String statusId=(String)context.get("statusId");
+  Timestamp statusDate=(Timestamp)context.get("statusDate");
+  if (statusDate == null)   statusDate=UtilDateTime.nowTimestamp();
+  if (!security.hasEntityPermission("PARTYMGR","_STS_UPDATE",userLogin)) {
+    String errorMsg=UtilProperties.getMessage(ServiceUtil.resource,"serviceUtil.no_permission_to_operation",locale) + ".";
+    Debug.logWarning(errorMsg,module);
+    return ServiceUtil.returnError(errorMsg);
+  }
+  try {
+    GenericValue party=delegator.findByPrimaryKey("Party",UtilMisc.toMap("partyId",partyId));
+    GenericValue statusValidChange=delegator.findByPrimaryKey("StatusValidChange",UtilMisc.toMap("statusId",party.getString("statusId"),"statusIdTo",statusId));
+    if (statusValidChange == null) {
+      String errorMsg="Cannot change party status from " + party.getString("statusId") + " to "+ statusId;
+      Debug.logWarning(errorMsg,module);
+      return ServiceUtil.returnError(errorMsg);
+    }
+    String oldStatusId=party.getString("statusId");
+    party.set("statusId",statusId);
+    party.store();
+    GenericValue partyStatus=delegator.makeValue("PartyStatus",UtilMisc.toMap("partyId",partyId,"statusId",statusId,"statusDate",statusDate));
+    partyStatus.create();
+    Map results=ServiceUtil.returnSuccess();
+    results.put("oldStatusId",oldStatusId);
+    return results;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"person.update.write_failure",new Object[]{e.getMessage()},locale));
+  }
+}

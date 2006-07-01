@@ -1,0 +1,27 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found; cannot re-auth.");
+  }
+  Document reauthRequestDoc=buildSecondaryTxRequest(context,authTransaction.getString("referenceNum"),"RePreAuth",(Double)context.get("reauthAmount"));
+  Document reauthResponseDoc=null;
+  try {
+    reauthResponseDoc=sendRequest(reauthRequestDoc,(String)context.get("paymentConfig"));
+  }
+ catch (  ClearCommerceException cce) {
+    return ServiceUtil.returnError(cce.getMessage());
+  }
+  if (getMessageListMaxSev(reauthResponseDoc) > 4) {
+    Map result=ServiceUtil.returnSuccess();
+    result.put("reauthResult",new Boolean(false));
+    result.put("reauthAmount",new Double(0.00));
+    result.put("reauthRefNum",getReferenceNum(reauthResponseDoc));
+    List messages=getMessageList(reauthResponseDoc);
+    if (UtilValidate.isNotEmpty(messages)) {
+      result.put("internalRespMsgs",messages);
+    }
+    return result;
+  }
+  return processReAuthResponse(reauthResponseDoc);
+}

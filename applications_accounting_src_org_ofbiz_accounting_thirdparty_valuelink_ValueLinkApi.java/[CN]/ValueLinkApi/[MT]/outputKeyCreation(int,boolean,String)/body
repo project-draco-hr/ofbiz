@@ -1,0 +1,104 @@
+{
+  StringBuffer buf=new StringBuffer();
+  loop++;
+  if (loop > 100) {
+    throw new IllegalStateException("Unable to create 128 byte keys in 100 tries");
+  }
+  DHPrivateKey privateKey=null;
+  DHPublicKey publicKey=null;
+  if (!kekOnly) {
+    KeyPair keyPair=null;
+    try {
+      keyPair=this.createKeys();
+    }
+ catch (    NoSuchAlgorithmException e) {
+      Debug.logError(e,module);
+    }
+catch (    InvalidAlgorithmParameterException e) {
+      Debug.logError(e,module);
+    }
+catch (    InvalidKeySpecException e) {
+      Debug.logError(e,module);
+    }
+    if (keyPair != null) {
+      publicKey=(DHPublicKey)keyPair.getPublic();
+      privateKey=(DHPrivateKey)keyPair.getPrivate();
+      if (publicKey == null || publicKey.getY().toByteArray().length != 128) {
+        return this.outputKeyCreation(loop,kekOnly,kekTest);
+      }
+    }
+ else {
+      Debug.log("Returned a null KeyPair",module);
+      return this.outputKeyCreation(loop,kekOnly,kekTest);
+    }
+  }
+ else {
+    try {
+      privateKey=(DHPrivateKey)this.getPrivateKey();
+    }
+ catch (    Exception e) {
+      Debug.logError(e,module);
+    }
+  }
+  byte[] kekBytes=null;
+  try {
+    kekBytes=this.generateKek(privateKey);
+  }
+ catch (  NoSuchAlgorithmException e) {
+    Debug.logError(e,module);
+  }
+catch (  InvalidKeySpecException e) {
+    Debug.logError(e,module);
+  }
+catch (  InvalidKeyException e) {
+    Debug.logError(e,module);
+  }
+  SecretKey loadedKek=this.getDesEdeKey(kekBytes);
+  byte[] loadKekBytes=loadedKek.getEncoded();
+  Cipher cipher=this.getCipher(this.getKekKey(),Cipher.ENCRYPT_MODE);
+  byte[] kekTestB={0,0,0,0,0,0,0,0};
+  byte[] kekTestC=new byte[0];
+  if (kekTest != null) {
+    kekTestB=StringUtil.fromHexString(kekTest);
+  }
+  try {
+    kekTestC=cipher.doFinal(kekTestB);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,module);
+  }
+  if (!kekOnly) {
+    BigInteger y=publicKey.getY();
+    byte[] yBytes=y.toByteArray();
+    String yHex=StringUtil.toHexString(yBytes);
+    buf.append("======== Begin Public Key (Y @ " + yBytes.length + " / "+ yHex.length()+ ") ========\n");
+    buf.append(yHex + "\n");
+    buf.append("======== End Public Key ========\n\n");
+    BigInteger x=privateKey.getX();
+    byte[] xBytes=x.toByteArray();
+    String xHex=StringUtil.toHexString(xBytes);
+    buf.append("======== Begin Private Key (X @ " + xBytes.length + " / "+ xHex.length()+ ") ========\n");
+    buf.append(xHex + "\n");
+    buf.append("======== End Private Key ========\n\n");
+    byte[] privateBytes=privateKey.getEncoded();
+    String privateHex=StringUtil.toHexString(privateBytes);
+    buf.append("======== Begin Private Key (Full @ " + privateBytes.length + " / "+ privateHex.length()+ ") ========\n");
+    buf.append(privateHex + "\n");
+    buf.append("======== End Private Key ========\n\n");
+  }
+  if (kekBytes != null) {
+    buf.append("======== Begin KEK (" + kekBytes.length + ") ========\n");
+    buf.append(StringUtil.toHexString(kekBytes) + "\n");
+    buf.append("======== End KEK ========\n\n");
+    buf.append("======== Begin KEK (DES) (" + loadKekBytes.length + ") ========\n");
+    buf.append(StringUtil.toHexString(loadKekBytes) + "\n");
+    buf.append("======== End KEK (DES) ========\n\n");
+    buf.append("======== Begin KEK Test (" + kekTestC.length + ") ========\n");
+    buf.append(StringUtil.toHexString(kekTestC) + "\n");
+    buf.append("======== End KEK Test ========\n\n");
+  }
+ else {
+    Debug.logError("KEK came back empty",module);
+  }
+  return buf;
+}

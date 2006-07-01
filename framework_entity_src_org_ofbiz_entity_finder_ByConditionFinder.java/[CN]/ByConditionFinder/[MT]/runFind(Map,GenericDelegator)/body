@@ -1,0 +1,93 @@
+{
+  String entityName=this.entityNameExdr.expandString(context);
+  String useCacheStr=this.useCacheStrExdr.expandString(context);
+  String filterByDateStr=this.filterByDateStrExdr.expandString(context);
+  String distinctStr=this.distinctStrExdr.expandString(context);
+  String delegatorName=this.delegatorNameExdr.expandString(context);
+  String resultSetTypeString=this.resultSetTypeExdr.expandString(context);
+  boolean useCache="true".equals(useCacheStr);
+  boolean filterByDate="true".equals(filterByDateStr);
+  boolean distinct="true".equals(distinctStr);
+  int resultSetType=ResultSet.TYPE_SCROLL_INSENSITIVE;
+  if ("forward".equals(resultSetTypeString))   resultSetType=ResultSet.TYPE_FORWARD_ONLY;
+  if (delegatorName != null && delegatorName.length() > 0) {
+    delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  }
+  EntityCondition whereEntityCondition=null;
+  if (this.whereCondition != null) {
+    whereEntityCondition=this.whereCondition.createCondition(context,entityName,delegator);
+  }
+  EntityCondition havingEntityCondition=null;
+  if (this.havingCondition != null) {
+    havingEntityCondition=this.havingCondition.createCondition(context,entityName,delegator);
+  }
+  if (useCache) {
+    if (outputHandler instanceof UseIterator) {
+      throw new IllegalArgumentException("In find entity by condition cannot have use-cache set to true and select use-iterator for the output type.");
+    }
+    if (distinct) {
+      throw new IllegalArgumentException("In find entity by condition cannot have use-cache set to true and set distinct to true.");
+    }
+    if (havingEntityCondition != null) {
+      throw new IllegalArgumentException("In find entity by condition cannot have use-cache set to true and specify a having-condition-list (can only use a where condition with condition-expr or condition-list).");
+    }
+  }
+  Set fieldsToSelect=EntityFinderUtil.makeFieldsToSelect(selectFieldExpanderList,context);
+  if (fieldsToSelect != null && useCache) {
+    throw new IllegalArgumentException("Error in entity query by condition definition, cannot specify select-field elements when use-cache is set to true");
+  }
+  List orderByFields=EntityFinderUtil.makeOrderByFieldList(this.orderByExpanderList,context);
+  try {
+    if (filterByDate) {
+      EntityCondition filterByDateCondition=EntityUtil.getFilterByDateExpr();
+      if (whereEntityCondition != null) {
+        whereEntityCondition=new EntityConditionList(UtilMisc.toList(whereEntityCondition,filterByDateCondition),EntityJoinOperator.AND);
+      }
+ else {
+        whereEntityCondition=filterByDateCondition;
+      }
+    }
+    if (useCache) {
+      List results=delegator.findByConditionCache(entityName,whereEntityCondition,fieldsToSelect,orderByFields);
+      this.outputHandler.handleOutput(results,context,listAcsr);
+    }
+ else {
+      boolean useTransaction=true;
+      if (this.outputHandler instanceof UseIterator && !TransactionUtil.isTransactionInPlace()) {
+        Exception newE=new Exception("Stack Trace");
+        Debug.logError(newE,"ERROR: Cannot do a by condition find that returns an EntityListIterator with no transaction in place. Wrap this call in a transaction.",module);
+        useTransaction=false;
+      }
+      EntityFindOptions options=new EntityFindOptions();
+      options.setDistinct(distinct);
+      options.setResultSetType(resultSetType);
+      boolean beganTransaction=false;
+      try {
+        if (useTransaction) {
+          beganTransaction=TransactionUtil.begin();
+        }
+        EntityListIterator eli=delegator.findListIteratorByCondition(entityName,whereEntityCondition,havingEntityCondition,fieldsToSelect,orderByFields,options);
+        this.outputHandler.handleOutput(eli,context,listAcsr);
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Failure in by condition find operation, rolling back transaction";
+        Debug.logError(e,errMsg,module);
+        try {
+          TransactionUtil.rollback(beganTransaction,errMsg,e);
+        }
+ catch (        GenericEntityException e2) {
+          Debug.logError(e2,"Could not rollback transaction: " + e2.toString(),module);
+        }
+        throw e;
+      }
+ finally {
+        TransactionUtil.commit(beganTransaction);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error doing find by condition: " + e.toString();
+    Debug.logError(e,module);
+    throw new GeneralException(errMsg,e);
+  }
+}

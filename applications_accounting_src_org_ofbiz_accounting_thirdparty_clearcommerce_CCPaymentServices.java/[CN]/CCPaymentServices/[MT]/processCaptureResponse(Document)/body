@@ -1,0 +1,28 @@
+{
+  Element engineDocElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"EngineDoc");
+  Element orderFormElement=UtilXml.firstChildElement(engineDocElement,"OrderFormDoc");
+  Element transactionElement=UtilXml.firstChildElement(orderFormElement,"Transaction");
+  Element procResponseElement=UtilXml.firstChildElement(transactionElement,"CardProcResp");
+  Map result=ServiceUtil.returnSuccess();
+  String errorCode=UtilXml.childElementValue(procResponseElement,"CcErrCode");
+  if ("1".equals(errorCode)) {
+    result.put("captureResult",Boolean.valueOf(true));
+    result.put("captureCode",UtilXml.childElementValue(transactionElement,"AuthCode"));
+    Element currentTotalsElement=UtilXml.firstChildElement(transactionElement,"CurrentTotals");
+    Element totalsElement=UtilXml.firstChildElement(currentTotalsElement,"Totals");
+    String captureAmountStr=UtilXml.childElementValue(totalsElement,"Total");
+    result.put("captureAmount",new Double(Double.parseDouble(captureAmountStr) / 100));
+  }
+ else {
+    result.put("captureResult",Boolean.valueOf(false));
+    result.put("captureAmount",Double.valueOf("0.00"));
+  }
+  result.put("captureRefNum",UtilXml.childElementValue(orderFormElement,"Id"));
+  result.put("captureFlag",UtilXml.childElementValue(procResponseElement,"Status"));
+  result.put("captureMessage",UtilXml.childElementValue(procResponseElement,"CcReturnMsg"));
+  List messages=getMessageList(responseDocument);
+  if (UtilValidate.isNotEmpty(messages)) {
+    result.put("internalRespMsgs",messages);
+  }
+  return result;
+}

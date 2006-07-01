@@ -1,0 +1,77 @@
+{
+  Map result=new HashMap();
+  Security security=dctx.getSecurity();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productId=(String)context.get("productId");
+  Double quantity=(Double)context.get("quantity");
+  Double amount=(Double)context.get("amount");
+  String fromDateStr=(String)context.get("fromDate");
+  Boolean excludeWIPs=(Boolean)context.get("excludeWIPs");
+  if (quantity == null) {
+    quantity=new Double(1);
+  }
+  if (amount == null) {
+    amount=new Double(0);
+  }
+  Date fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    try {
+      fromDate=Timestamp.valueOf(fromDateStr);
+    }
+ catch (    Exception e) {
+    }
+  }
+  if (fromDate == null) {
+    fromDate=new Date();
+  }
+  if (excludeWIPs == null) {
+    excludeWIPs=new Boolean(true);
+  }
+  BOMTree tree=null;
+  ArrayList components=new ArrayList();
+  try {
+    tree=new BOMTree(productId,"MANUF_COMPONENT",fromDate,BOMTree.EXPLOSION_SINGLE_LEVEL,delegator,dispatcher,userLogin);
+    tree.setRootQuantity(quantity.doubleValue());
+    tree.setRootAmount(amount.doubleValue());
+    tree.print(components,excludeWIPs.booleanValue());
+    if (components.size() > 0)     components.remove(0);
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError("Error creating bill of materials tree: " + gee.getMessage());
+  }
+  String workEffortId=null;
+  try {
+    Map routingInMap=UtilMisc.toMap("productId",productId,"ignoreDefaultRouting","Y","userLogin",userLogin);
+    Map routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+    GenericValue routing=(GenericValue)routingOutMap.get("routing");
+    if (routing == null) {
+      routingInMap=UtilMisc.toMap("productId",tree.getRoot().getProduct().getString("productId"),"userLogin",userLogin);
+      routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+      routing=(GenericValue)routingOutMap.get("routing");
+    }
+    if (routing != null) {
+      workEffortId=routing.getString("workEffortId");
+    }
+  }
+ catch (  GenericServiceException gse) {
+    Debug.logWarning(gse.getMessage(),module);
+  }
+  if (workEffortId != null) {
+    result.put("workEffortId",workEffortId);
+  }
+  result.put("components",components);
+  List componentsMap=new ArrayList();
+  Iterator componentsIt=components.iterator();
+  while (componentsIt.hasNext()) {
+    Map componentMap=new HashMap();
+    BOMNode node=(BOMNode)componentsIt.next();
+    componentMap.put("product",node.getProduct());
+    componentMap.put("quantity",new Double(node.getQuantity()));
+    componentsMap.add(componentMap);
+  }
+  result.put("componentsMap",componentsMap);
+  return result;
+}

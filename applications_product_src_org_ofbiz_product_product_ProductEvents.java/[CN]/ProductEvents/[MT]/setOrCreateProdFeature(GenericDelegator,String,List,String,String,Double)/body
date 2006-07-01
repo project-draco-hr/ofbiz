@@ -1,0 +1,44 @@
+{
+  GenericValue productFeatureType=delegator.findByPrimaryKey("ProductFeatureType",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId));
+  GenericValue uom=delegator.findByPrimaryKey("Uom",UtilMisc.toMap("uomId",uomId));
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  List typeUomProductFeatureAndApplList=EntityUtil.filterByAnd(currentProductFeatureAndAppls,UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId,"uomId",uomId));
+  Iterator typeUomProductFeatureAndApplIter=typeUomProductFeatureAndApplList.iterator();
+  boolean foundOneEqual=false;
+  while (typeUomProductFeatureAndApplIter.hasNext()) {
+    GenericValue typeUomProductFeatureAndAppl=(GenericValue)typeUomProductFeatureAndApplIter.next();
+    if ((numberSpecified != null) && (numberSpecified.equals(typeUomProductFeatureAndAppl.getDouble("numberSpecified")))) {
+      foundOneEqual=true;
+    }
+ else {
+      GenericValue productFeatureAppl=delegator.makeValidValue("ProductFeatureAppl",typeUomProductFeatureAndAppl);
+      productFeatureAppl.remove();
+    }
+  }
+  if (numberSpecified != null && !foundOneEqual) {
+    String productFeatureId=null;
+    List existingProductFeatureList=delegator.findByAnd("ProductFeature",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId,"numberSpecified",numberSpecified,"uomId",uomId));
+    if (existingProductFeatureList.size() > 0) {
+      GenericValue existingProductFeature=(GenericValue)existingProductFeatureList.get(0);
+      productFeatureId=existingProductFeature.getString("productFeatureId");
+    }
+ else {
+      productFeatureId=delegator.getNextSeqId("ProductFeature").toString();
+      GenericValue prodFeature=delegator.makeValue("ProductFeature",UtilMisc.toMap("productFeatureId",productFeatureId,"productFeatureTypeId",productFeatureTypeId));
+      if (uomId != null) {
+        prodFeature.set("uomId",uomId);
+      }
+      prodFeature.set("numberSpecified",numberSpecified);
+      prodFeature.set("description",numberSpecified.toString() + (uom == null ? "" : (" " + uom.getString("description"))));
+      if (delegator.findByPrimaryKey("ProductFeatureCategory",UtilMisc.toMap("productFeatureCategoryId",productFeatureTypeId)) == null) {
+        GenericValue productFeatureCategory=delegator.makeValue("ProductFeatureCategory",null);
+        productFeatureCategory.set("productFeatureCategoryId",productFeatureTypeId);
+        productFeatureCategory.set("description",productFeatureType.get("description"));
+        productFeatureCategory.create();
+      }
+      prodFeature.set("productFeatureCategoryId",productFeatureTypeId);
+      prodFeature.create();
+    }
+    delegator.create("ProductFeatureAppl",UtilMisc.toMap("productId",productId,"productFeatureId",productFeatureId,"productFeatureApplTypeId","STANDARD_FEATURE","fromDate",nowTimestamp));
+  }
+}

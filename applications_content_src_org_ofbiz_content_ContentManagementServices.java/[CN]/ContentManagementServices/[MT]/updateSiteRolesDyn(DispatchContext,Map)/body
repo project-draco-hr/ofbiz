@@ -1,0 +1,61 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  Map results=new HashMap();
+  Map serviceContext=new HashMap();
+  String siteContentId=(String)context.get("contentId");
+  String partyId=(String)context.get("partyId");
+  serviceContext.put("partyId",partyId);
+  serviceContext.put("contentId",siteContentId);
+  List siteRoles=null;
+  try {
+    siteRoles=delegator.findByAndCache("RoleType",UtilMisc.toMap("parentTypeId","BLOG"));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Iterator siteRoleIter=siteRoles.iterator();
+  while (siteRoleIter.hasNext()) {
+    GenericValue roleType=(GenericValue)siteRoleIter.next();
+    String siteRole=(String)roleType.get("roleTypeId");
+    String cappedSiteRole=ModelUtil.dbNameToVarName(siteRole);
+    String siteRoleVal=(String)context.get(cappedSiteRole);
+    Object fromDate=context.get(cappedSiteRole + "FromDate");
+    serviceContext.put("roleTypeId",siteRole);
+    if (siteRoleVal != null && siteRoleVal.equalsIgnoreCase("Y")) {
+      if (fromDate == null) {
+        try {
+          serviceContext.put("fromDate",UtilDateTime.nowTimestamp());
+          if (Debug.infoOn())           Debug.logInfo("updateSiteRoles, serviceContext(1):" + serviceContext,module);
+          addRoleToUser(delegator,dispatcher,serviceContext);
+          Map permResults=dispatcher.runSync("createContentRole",serviceContext);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,e.getMessage(),module);
+        }
+catch (        Exception e2) {
+          Debug.logError(e2,e2.getMessage(),module);
+        }
+      }
+    }
+ else {
+      if (fromDate != null) {
+        try {
+          Debug.logInfo("updateSiteRoles, serviceContext(2):" + serviceContext,module);
+          Map newContext=new HashMap();
+          newContext.put("contentId",serviceContext.get("contentId"));
+          newContext.put("partyId",serviceContext.get("partyId"));
+          newContext.put("roleTypeId",serviceContext.get("roleTypeId"));
+          Map permResults=dispatcher.runSync("deactivateAllContentRoles",newContext);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,e.getMessage(),module);
+        }
+catch (        Exception e2) {
+          Debug.logError(e2,e2.getMessage(),module);
+        }
+      }
+    }
+  }
+  return results;
+}

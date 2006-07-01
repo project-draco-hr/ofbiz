@@ -1,0 +1,390 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  if (decimals == -1 || rounding == -1) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingAritmeticPropertiesNotConfigured",locale));
+  }
+  String orderId=(String)context.get("orderId");
+  List billItems=(List)context.get("billItems");
+  boolean previousInvoiceFound=false;
+  if (billItems == null || billItems.size() == 0) {
+    Debug.logVerbose("No order items to invoice; not creating invoice; returning success",module);
+    return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"AccountingNoOrderItemsToInvoice",locale));
+  }
+  try {
+    List toStore=new LinkedList();
+    GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingNoOrderHeader",locale));
+    }
+    List billedItems=delegator.findByAnd("OrderItemBilling",UtilMisc.toMap("orderId",orderId));
+    if (billedItems != null && billedItems.size() > 0) {
+      boolean nonDigitalInvoice=false;
+      Iterator bii=billedItems.iterator();
+      while (bii.hasNext() && !nonDigitalInvoice) {
+        GenericValue orderItemBilling=(GenericValue)bii.next();
+        GenericValue invoiceItem=orderItemBilling.getRelatedOne("InvoiceItem");
+        if (invoiceItem != null) {
+          String invoiceItemType=invoiceItem.getString("invoiceItemTypeId");
+          if (invoiceItemType != null) {
+            if ("INV_FPROD_ITEM".equals(invoiceItemType) || "INV_PROD_FEATR_ITEM".equals(invoiceItemType)) {
+              nonDigitalInvoice=true;
+            }
+          }
+        }
+      }
+      if (nonDigitalInvoice) {
+        previousInvoiceFound=true;
+      }
+    }
+    String invoiceType=null;
+    String orderType=orderHeader.getString("orderTypeId");
+    if (orderType.equals("SALES_ORDER")) {
+      invoiceType="SALES_INVOICE";
+    }
+ else     if (orderType.equals("PURCHASE_ORDER")) {
+      invoiceType="PURCHASE_INVOICE";
+    }
+    OrderReadHelper orh=new OrderReadHelper(orderHeader);
+    GenericValue productStore=delegator.findByPrimaryKey("ProductStore",UtilMisc.toMap("productStoreId",orh.getProductStoreId()));
+    String prorateShipping=productStore.getString("prorateShipping");
+    if (prorateShipping == null) {
+      prorateShipping="Y";
+    }
+    String billToCustomerPartyId=orh.getBillToParty().getString("partyId");
+    String billFromVendorPartyId=orh.getBillFromParty().getString("partyId");
+    BigDecimal totalItemsInOrder=orh.getTotalOrderItemsQuantityBd();
+    BigDecimal shippableAmount=orh.getShippableTotalBd(null);
+    BigDecimal orderSubTotal=orh.getOrderItemsSubTotalBd();
+    BigDecimal invoiceShipProRateAmount=ZERO;
+    BigDecimal invoiceSubTotal=ZERO;
+    BigDecimal invoiceQuantity=ZERO;
+    GenericValue billingAccount=orderHeader.getRelatedOne("BillingAccount");
+    String billingAccountId=billingAccount != null ? billingAccount.getString("billingAccountId") : null;
+    Timestamp invoiceDate=UtilDateTime.nowTimestamp();
+    Long orderTermNetDays=orh.getOrderTermNetDays();
+    Timestamp dueDate=null;
+    if (orderTermNetDays != null) {
+      dueDate=UtilDateTime.getDayEnd(invoiceDate,orderTermNetDays.intValue());
+    }
+    Map createInvoiceContext=FastMap.newInstance();
+    createInvoiceContext.put("partyId",billToCustomerPartyId);
+    createInvoiceContext.put("partyIdFrom",billFromVendorPartyId);
+    createInvoiceContext.put("billingAccountId",billingAccountId);
+    createInvoiceContext.put("invoiceDate",invoiceDate);
+    createInvoiceContext.put("dueDate",dueDate);
+    createInvoiceContext.put("invoiceTypeId",invoiceType);
+    createInvoiceContext.put("statusId","INVOICE_IN_PROCESS");
+    createInvoiceContext.put("currencyUomId",orderHeader.getString("currencyUom"));
+    createInvoiceContext.put("userLogin",userLogin);
+    Map createInvoiceResult=dispatcher.runSync("createInvoice",createInvoiceContext);
+    if (ServiceUtil.isError(createInvoiceResult)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,createInvoiceResult);
+    }
+    String invoiceId=(String)createInvoiceResult.get("invoiceId");
+    List orderRoles=orderHeader.getRelated("OrderRole");
+    if (orderRoles != null) {
+      Iterator orderRolesIt=orderRoles.iterator();
+      Map createInvoiceRoleContext=FastMap.newInstance();
+      createInvoiceRoleContext.put("invoiceId",invoiceId);
+      createInvoiceRoleContext.put("userLogin",userLogin);
+      while (orderRolesIt.hasNext()) {
+        GenericValue orderRole=(GenericValue)orderRolesIt.next();
+        createInvoiceRoleContext.put("partyId",orderRole.getString("partyId"));
+        createInvoiceRoleContext.put("roleTypeId",orderRole.getString("roleTypeId"));
+        Map createInvoiceRoleResult=dispatcher.runSync("createInvoiceRole",createInvoiceRoleContext);
+        if (ServiceUtil.isError(createInvoiceRoleResult)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,createInvoiceRoleResult);
+        }
+      }
+    }
+    List orderTerms=orh.getOrderTerms();
+    toStore.addAll(createInvoiceTerms(delegator,invoiceId,orderTerms));
+    List billingAccountTerms=null;
+    if (billingAccount != null) {
+      billingAccountTerms=billingAccount.getRelated("BillingAccountTerm");
+      toStore.addAll(createInvoiceTerms(delegator,invoiceId,billingAccountTerms));
+      List billToRoles=billingAccount.getRelated("BillingAccountRole",UtilMisc.toMap("roleTypeId","BILL_TO_CUSTOMER"),null);
+      Iterator billToIter=billToRoles.iterator();
+      while (billToIter.hasNext()) {
+        GenericValue billToRole=(GenericValue)billToIter.next();
+        if (!(billToRole.getString("partyId").equals(billToCustomerPartyId))) {
+          GenericValue invoiceRole=delegator.makeValue("InvoiceRole",UtilMisc.toMap("invoiceId",invoiceId));
+          invoiceRole.set("partyId",billToRole.get("partyId"));
+          invoiceRole.set("roleTypeId","BILL_TO_CUSTOMER");
+          toStore.add(invoiceRole);
+        }
+      }
+      if (UtilValidate.isNotEmpty(billingAccount.getString("contactMechId"))) {
+        GenericValue billToContactMech=delegator.makeValue("InvoiceContactMech",UtilMisc.toMap("invoiceId",invoiceId));
+        billToContactMech.set("contactMechId",billingAccount.getString("contactMechId"));
+        billToContactMech.set("contactMechPurposeTypeId","BILLING_LOCATION");
+        toStore.add(billToContactMech);
+      }
+    }
+ else {
+      List billingLocations=orh.getBillingLocations();
+      if (billingLocations != null) {
+        Iterator bli=billingLocations.iterator();
+        while (bli.hasNext()) {
+          GenericValue ocm=(GenericValue)bli.next();
+          GenericValue billToContactMech=delegator.makeValue("InvoiceContactMech",UtilMisc.toMap("invoiceId",invoiceId));
+          billToContactMech.set("contactMechId",ocm.getString("contactMechId"));
+          billToContactMech.set("contactMechPurposeTypeId","BILLING_LOCATION");
+          toStore.add(billToContactMech);
+        }
+      }
+    }
+    GenericValue payToAddress=null;
+    if (invoiceType.equals("PURCHASE_INVOICE")) {
+      GenericValue billFromVendor=orh.getPartyFromRole("BILL_FROM_VENDOR");
+      if (billFromVendor != null) {
+        List billingContactMechs=billFromVendor.getRelatedOne("Party").getRelatedByAnd("PartyContactMechPurpose",UtilMisc.toMap("contactMechPurposeTypeId","BILLING_LOCATION"));
+        if ((billingContactMechs != null) && (billingContactMechs.size() > 0)) {
+          payToAddress=(GenericValue)billingContactMechs.get(0);
+        }
+      }
+    }
+ else {
+      payToAddress=PaymentWorker.getPaymentAddress(delegator,productStore.getString("payToPartyId"));
+    }
+    if (payToAddress != null) {
+      GenericValue payToCm=delegator.makeValue("InvoiceContactMech",UtilMisc.toMap("invoiceId",invoiceId));
+      payToCm.set("contactMechId",payToAddress.getString("contactMechId"));
+      payToCm.set("contactMechPurposeTypeId","PAYMENT_LOCATION");
+      toStore.add(payToCm);
+    }
+    int invoiceItemSeqNum=1;
+    String invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+    if (billItems != null) {
+      Iterator itemIter=billItems.iterator();
+      while (itemIter.hasNext()) {
+        GenericValue itemIssuance=null;
+        GenericValue orderItem=null;
+        GenericValue shipmentReceipt=null;
+        GenericValue currentValue=(GenericValue)itemIter.next();
+        if ("ItemIssuance".equals(currentValue.getEntityName())) {
+          itemIssuance=currentValue;
+        }
+ else         if ("OrderItem".equals(currentValue.getEntityName())) {
+          orderItem=currentValue;
+        }
+ else         if ("ShipmentReceipt".equals(currentValue.getEntityName())) {
+          shipmentReceipt=currentValue;
+        }
+ else {
+          Debug.logError("Unexpected entity " + currentValue + " of type "+ currentValue.getEntityName(),module);
+        }
+        if (orderItem == null && itemIssuance != null) {
+          orderItem=itemIssuance.getRelatedOne("OrderItem");
+        }
+ else         if ((orderItem == null) && (shipmentReceipt != null)) {
+          orderItem=shipmentReceipt.getRelatedOne("OrderItem");
+        }
+ else         if ((orderItem == null) && (itemIssuance == null) && (shipmentReceipt == null)) {
+          Debug.logError("Cannot create invoice when orderItem, itemIssuance, and shipmentReceipt are all null",module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingIllegalValuesPassedToCreateInvoiceService",locale));
+        }
+        GenericValue product=null;
+        if (orderItem.get("productId") != null) {
+          product=orderItem.getRelatedOne("Product");
+        }
+        BigDecimal orderedQuantity=orderItem.getBigDecimal("quantity");
+        BigDecimal billingQuantity=null;
+        if (itemIssuance != null) {
+          billingQuantity=itemIssuance.getBigDecimal("quantity");
+        }
+ else         if (shipmentReceipt != null) {
+          billingQuantity=shipmentReceipt.getBigDecimal("quantityAccepted");
+        }
+ else {
+          billingQuantity=orderedQuantity;
+        }
+        if (orderedQuantity == null)         orderedQuantity=ZERO;
+        if (billingQuantity == null)         billingQuantity=ZERO;
+        boolean shippingApplies=false;
+        if ((product != null) && (ProductWorker.shippingApplies(product)) && (invoiceType.equals("SALES_INVOICE"))) {
+          shippingApplies=true;
+        }
+        GenericValue invoiceItem=delegator.makeValue("InvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
+        invoiceItem.set("invoiceItemTypeId",getInvoiceItemType(delegator,(orderItem == null ? null : orderItem.getString("orderItemTypeId")),(product == null ? null : product.getString("productTypeId")),invoiceType,"INV_FPROD_ITEM"));
+        invoiceItem.set("description",orderItem.get("itemDescription"));
+        invoiceItem.set("quantity",new Double(billingQuantity.doubleValue()));
+        invoiceItem.set("amount",orderItem.get("unitPrice"));
+        invoiceItem.set("productId",orderItem.get("productId"));
+        invoiceItem.set("productFeatureId",orderItem.get("productFeatureId"));
+        invoiceItem.set("overrideGlAccountId",orderItem.get("overrideGlAccountId"));
+        String itemIssuanceId=null;
+        if (itemIssuance != null && itemIssuance.get("inventoryItemId") != null) {
+          itemIssuanceId=itemIssuance.getString("itemIssuanceId");
+          invoiceItem.set("inventoryItemId",itemIssuance.get("inventoryItemId"));
+        }
+        if ((product != null) && (invoiceType.equals("SALES_INVOICE"))) {
+          invoiceItem.set("taxableFlag",product.get("taxable"));
+        }
+        toStore.add(invoiceItem);
+        BigDecimal thisAmount=invoiceItem.getBigDecimal("amount").multiply(invoiceItem.getBigDecimal("quantity")).setScale(decimals,rounding);
+        if (shippingApplies) {
+          invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAmount).setScale(decimals,rounding);
+        }
+        invoiceSubTotal=invoiceSubTotal.add(thisAmount).setScale(decimals,rounding);
+        invoiceQuantity=invoiceQuantity.add(billingQuantity).setScale(decimals,rounding);
+        GenericValue orderItemBill=delegator.makeValue("OrderItemBilling",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
+        orderItemBill.set("orderId",orderItem.get("orderId"));
+        orderItemBill.set("orderItemSeqId",orderItem.get("orderItemSeqId"));
+        orderItemBill.set("itemIssuanceId",itemIssuanceId);
+        if ((shipmentReceipt != null) && (shipmentReceipt.getString("receiptId") != null)) {
+          orderItemBill.set("shipmentReceiptId",shipmentReceipt.getString("receiptId"));
+        }
+        orderItemBill.set("quantity",invoiceItem.get("quantity"));
+        orderItemBill.set("amount",invoiceItem.get("amount"));
+        toStore.add(orderItemBill);
+        String parentInvoiceItemSeqId=invoiceItemSeqId;
+        invoiceItemSeqNum++;
+        invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+        List itemAdjustments=OrderReadHelper.getOrderItemAdjustmentList(orderItem,orh.getAdjustments());
+        Iterator itemAdjIter=itemAdjustments.iterator();
+        while (itemAdjIter.hasNext()) {
+          GenericValue adj=(GenericValue)itemAdjIter.next();
+          if (adj.get("amount") != null) {
+            BigDecimal amount=adj.getBigDecimal("amount").divide(orderItem.getBigDecimal("quantity"),100,rounding);
+            amount=amount.multiply(invoiceItem.getBigDecimal("quantity"));
+            amount=amount.setScale(decimals,rounding);
+            GenericValue adjInvItem=delegator.makeValue("InvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
+            adjInvItem.set("invoiceItemTypeId",getInvoiceItemType(delegator,adj.getString("orderAdjustmentTypeId"),null,invoiceType,"INVOICE_ITM_ADJ"));
+            adjInvItem.set("productId",orderItem.get("productId"));
+            adjInvItem.set("productFeatureId",orderItem.get("productFeatureId"));
+            adjInvItem.set("parentInvoiceId",invoiceId);
+            adjInvItem.set("parentInvoiceItemSeqId",parentInvoiceItemSeqId);
+            if (!(adj.getString("orderAdjustmentTypeId").equals("SALES_TAX"))) {
+              adjInvItem.set("taxableFlag",product.get("taxable"));
+            }
+            adjInvItem.set("quantity",new Double(1));
+            adjInvItem.set("amount",new Double(amount.doubleValue()));
+            adjInvItem.set("description",adj.get("description"));
+            adjInvItem.set("taxAuthPartyId",adj.get("taxAuthPartyId"));
+            adjInvItem.set("overrideGlAccountId",adj.get("overrideGlAccountId"));
+            adjInvItem.set("taxAuthGeoId",adj.get("taxAuthGeoId"));
+            adjInvItem.set("taxAuthorityRateSeqId",adj.get("taxAuthorityRateSeqId"));
+            toStore.add(adjInvItem);
+            BigDecimal thisAdjAmount=adjInvItem.getBigDecimal("amount").multiply(adjInvItem.getBigDecimal("quantity")).setScale(decimals,rounding);
+            if (!"SALES_TAX".equals(adj.getString("orderAdjustmentTypeId")) && !"SHIPPING_ADJUSTMENT".equals(adj.getString("orderAdjustmentTypeId"))) {
+              invoiceSubTotal=invoiceSubTotal.add(thisAdjAmount).setScale(decimals,rounding);
+              if (shippingApplies) {
+                invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAdjAmount).setScale(decimals,rounding);
+              }
+            }
+            invoiceItemSeqNum++;
+            invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+          }
+        }
+      }
+    }
+    List shipAdjustments=new ArrayList();
+    List taxAdjustments=new ArrayList();
+    List headerAdjustments=orh.getOrderHeaderAdjustments();
+    Iterator headerAdjIter=headerAdjustments.iterator();
+    while (headerAdjIter.hasNext()) {
+      GenericValue adj=(GenericValue)headerAdjIter.next();
+      if ("SHIPPING_CHARGES".equals(adj.getString("orderAdjustmentTypeId"))) {
+        shipAdjustments.add(adj);
+      }
+ else       if ("SALES_TAX".equals(adj.getString("orderAdjustmentTypeId"))) {
+        taxAdjustments.add(adj);
+      }
+ else {
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,orderSubTotal,invoiceSubTotal,invoiceQuantity,decimals,rounding);
+        invoiceItemSeqNum++;
+        invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+      }
+    }
+    Iterator shipAdjIter=shipAdjustments.iterator();
+    while (shipAdjIter.hasNext()) {
+      GenericValue adj=(GenericValue)shipAdjIter.next();
+      if ("N".equalsIgnoreCase(prorateShipping)) {
+        if (previousInvoiceFound) {
+          Debug.logInfo("Previous invoice found for this order [" + orderId + "]; shipping already billed",module);
+          continue;
+        }
+ else {
+          BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,new BigDecimal("1"),new BigDecimal("1"),totalItemsInOrder,decimals,rounding);
+          invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
+          orderSubTotal=orderSubTotal.add(adj.getBigDecimal("amount")).setScale(decimals,rounding);
+          invoiceItemSeqNum++;
+          invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+        }
+      }
+ else {
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,shippableAmount,invoiceShipProRateAmount,invoiceQuantity,decimals,rounding);
+        invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
+        orderSubTotal=orderSubTotal.add(adj.getBigDecimal("amount")).setScale(decimals,rounding);
+        invoiceItemSeqNum++;
+        invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+      }
+    }
+    Iterator taxAdjIter=taxAdjustments.iterator();
+    while (taxAdjIter.hasNext()) {
+      GenericValue adj=(GenericValue)taxAdjIter.next();
+      BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,orderSubTotal,invoiceSubTotal,invoiceQuantity,taxDecimals,taxRounding);
+      invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
+    }
+    List orderPaymentPrefs=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId));
+    if (orderPaymentPrefs != null) {
+      List currentPayments=new ArrayList();
+      Iterator opi=orderPaymentPrefs.iterator();
+      while (opi.hasNext()) {
+        GenericValue paymentPref=(GenericValue)opi.next();
+        List payments=paymentPref.getRelated("Payment");
+        currentPayments.addAll(payments);
+      }
+      if (currentPayments.size() > 0) {
+        Iterator cpi=currentPayments.iterator();
+        while (cpi.hasNext()) {
+          GenericValue payment=(GenericValue)cpi.next();
+          List currentApplications=null;
+          currentApplications=payment.getRelated("PaymentApplication");
+          if (currentApplications == null || currentApplications.size() == 0) {
+            Map appl=new HashMap();
+            appl.put("paymentId",payment.get("paymentId"));
+            appl.put("invoiceId",invoiceId);
+            appl.put("billingAccountId",billingAccountId);
+            appl.put("amountApplied",payment.get("amount"));
+            appl.put("userLogin",userLogin);
+            Map createPayApplResult=dispatcher.runSync("createPaymentApplication",appl);
+            if (ServiceUtil.isError(createPayApplResult)) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,createPayApplResult);
+            }
+          }
+        }
+      }
+    }
+    delegator.storeAll(toStore);
+    String nextStatusId="INVOICE_READY";
+    if (invoiceType.equals("PURCHASE_INVOICE")) {
+      nextStatusId="INVOICE_IN_PROCESS";
+    }
+    Map setInvoiceStatusResult=dispatcher.runSync("setInvoiceStatus",UtilMisc.toMap("invoiceId",invoiceId,"statusId",nextStatusId,"userLogin",userLogin));
+    if (ServiceUtil.isError(setInvoiceStatusResult)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,setInvoiceStatusResult);
+    }
+    Map checkResp=dispatcher.runSync("checkInvoicePaymentApplications",UtilMisc.toMap("invoiceId",invoiceId,"userLogin",userLogin));
+    if (ServiceUtil.isError(checkResp)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrderCheckPaymentAppl",locale),null,null,checkResp);
+    }
+    Map resp=ServiceUtil.returnSuccess();
+    resp.put("invoiceId",invoiceId);
+    return resp;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg=UtilProperties.getMessage(resource,"AccountingEntityDataProblemCreatingInvoiceFromOrderItems",UtilMisc.toMap("reason",e.toString()),locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(resource,"AccountingServiceOtherProblemCreatingInvoiceFromOrderItems",UtilMisc.toMap("reason",e.toString()),locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+}

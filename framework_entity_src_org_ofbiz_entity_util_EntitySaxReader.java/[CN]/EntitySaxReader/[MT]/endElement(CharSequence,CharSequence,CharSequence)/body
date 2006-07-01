@@ -1,0 +1,116 @@
+{
+  if (Debug.verboseOn())   Debug.logVerbose("endElement: localName=" + localName + ", fullName="+ fullName+ ", numberRead="+ numberRead,module);
+  String fullNameString=fullName.toString();
+  if ("entity-engine-xml".equals(fullNameString)) {
+    return;
+  }
+  if ("entity-engine-transform-xml".equals(fullNameString)) {
+    URL templateUrl=UtilURL.fromResource(templatePath.toString());
+    if (templateUrl == null) {
+      throw new SAXException("Could not find transform template with resource path: " + templatePath);
+    }
+ else {
+      try {
+        Reader templateReader=new InputStreamReader(templateUrl.openStream());
+        StringWriter outWriter=new StringWriter();
+        Configuration config=new Configuration();
+        config.setObjectWrapper(BeansWrapper.getDefaultInstance());
+        config.setSetting("datetime_format","yyyy-MM-dd HH:mm:ss.SSS");
+        Template template=new Template("FMImportFilter",templateReader,config);
+        NodeModel nodeModel=NodeModel.wrap(this.rootNodeForTemplate);
+        Map context=FastMap.newInstance();
+        BeansWrapper wrapper=BeansWrapper.getDefaultInstance();
+        TemplateHashModel staticModels=wrapper.getStaticModels();
+        context.put("Static",staticModels);
+        context.put("doc",nodeModel);
+        template.process(context,outWriter);
+        String s=outWriter.toString();
+        if (Debug.verboseOn())         Debug.logVerbose("transformed xml: " + s,module);
+        EntitySaxReader reader=new EntitySaxReader(delegator);
+        reader.setUseTryInsertMethod(this.useTryInsertMethod);
+        try {
+          reader.setTransactionTimeout(this.transactionTimeout);
+        }
+ catch (        GenericTransactionException e1) {
+        }
+        numberRead+=reader.parse(s);
+      }
+ catch (      TemplateException e) {
+        throw new SAXException("Error storing value",e);
+      }
+catch (      IOException e) {
+        throw new SAXException("Error storing value",e);
+      }
+    }
+    return;
+  }
+  if (isParseForTemplate) {
+    this.currentNodeForTemplate=this.currentNodeForTemplate.getParentNode();
+    return;
+  }
+  if (currentValue != null) {
+    if (currentFieldName != null) {
+      if (currentFieldValue != null && currentFieldValue.length() > 0) {
+        if (currentValue.getModelEntity().isField(currentFieldName.toString())) {
+          ModelEntity modelEntity=currentValue.getModelEntity();
+          ModelField modelField=modelEntity.getField(currentFieldName.toString());
+          String type=modelField.getType();
+          if (type != null && type.equals("blob")) {
+            byte strData[]=new byte[currentFieldValue.length()];
+            strData=currentFieldValue.toString().getBytes();
+            byte binData[]=new byte[currentFieldValue.length()];
+            binData=Base64.base64Decode(strData);
+            currentValue.setBytes(currentFieldName.toString(),binData);
+          }
+ else {
+            currentValue.setString(currentFieldName.toString(),currentFieldValue.toString());
+          }
+        }
+ else {
+          Debug.logWarning("Ignoring invalid field name [" + currentFieldName + "] found for the entity: "+ currentValue.getEntityName()+ " with value="+ currentFieldValue,module);
+        }
+        currentFieldValue=null;
+      }
+      currentFieldName=null;
+    }
+ else {
+      if (!currentValue.containsPrimaryKey()) {
+        if (currentValue.getModelEntity().getPksSize() == 1) {
+          ModelField modelField=currentValue.getModelEntity().getOnlyPk();
+          String newSeq=delegator.getNextSeqId(currentValue.getEntityName());
+          currentValue.setString(modelField.getName(),newSeq);
+        }
+ else {
+          throw new SAXException("Cannot store value with incomplete primary key with more than 1 primary key field: " + currentValue);
+        }
+      }
+      try {
+        if (useTryInsertMethod) {
+          try {
+            currentValue.create();
+          }
+ catch (          GenericEntityException e1) {
+            currentValue.store();
+          }
+        }
+ else {
+          valuesToWrite.add(currentValue);
+          if (valuesToWrite.size() >= valuesPerWrite) {
+            writeValues(valuesToWrite);
+            valuesToWrite.clear();
+          }
+        }
+        numberRead++;
+        if ((numberRead % valuesPerMessage) == 0) {
+          Debug.logImportant("Another " + valuesPerMessage + " values imported: now up to "+ numberRead,module);
+        }
+        currentValue=null;
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error storing value";
+        Debug.logError(e,errMsg,module);
+        throw new SAXException(errMsg,e);
+      }
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  String entityName=UtilXml.checkEmpty(autoElement.getAttribute("entity-name"));
+  if (entityName == null || entityName.length() == 0) {
+    entityName=service.defaultEntityName;
+    if (entityName == null || entityName.length() == 0) {
+      Debug.logWarning("Auto-Attribute does not specify an entity-name; not default-entity on service definition",module);
+    }
+  }
+  String includeType=UtilXml.checkEmpty(autoElement.getAttribute("include"));
+  boolean includePk="pk".equals(includeType) || "all".equals(includeType);
+  boolean includeNonPk="nonpk".equals(includeType) || "all".equals(includeType);
+  GenericDelegator delegator=dctx.getDelegator();
+  if (delegator == null) {
+    Debug.logWarning("Cannot use auto-attribute fields with a null delegator",module);
+  }
+  if (delegator != null && entityName != null) {
+    Map modelParamMap=new LinkedMap();
+    try {
+      ModelEntity entity=delegator.getModelEntity(entityName);
+      if (entity == null) {
+        throw new GeneralException("Could not find entity with name [" + entityName + "]");
+      }
+      Iterator fieldsIter=entity.getFieldsIterator();
+      if (fieldsIter != null) {
+        while (fieldsIter.hasNext()) {
+          ModelField field=(ModelField)fieldsIter.next();
+          if ((!field.getIsAutoCreatedInternal()) && ((field.getIsPk() && includePk) || (!field.getIsPk() && includeNonPk))) {
+            ModelFieldType fieldType=delegator.getEntityFieldType(entity,field.getType());
+            if (fieldType == null) {
+              throw new GeneralException("Null field type from delegator for entity [" + entityName + "]");
+            }
+            ModelParam param=new ModelParam();
+            param.entityName=entityName;
+            param.fieldName=field.getName();
+            param.name=field.getName();
+            param.type=fieldType.getJavaType();
+            param.mode=UtilXml.checkEmpty(autoElement.getAttribute("mode"));
+            param.optional="true".equalsIgnoreCase(autoElement.getAttribute("optional"));
+            param.formDisplay=!"false".equalsIgnoreCase(autoElement.getAttribute("form-display"));
+            modelParamMap.put(field.getName(),param);
+          }
+        }
+        List excludes=UtilXml.childElementList(autoElement,"exclude");
+        if (excludes != null) {
+          Iterator excludesIter=excludes.iterator();
+          while (excludesIter.hasNext()) {
+            Element exclude=(Element)excludesIter.next();
+            modelParamMap.remove(UtilXml.checkEmpty(exclude.getAttribute("field-name")));
+          }
+        }
+        Set keySet=modelParamMap.keySet();
+        Iterator setIter=keySet.iterator();
+        while (setIter.hasNext()) {
+          ModelParam thisParam=(ModelParam)modelParamMap.get(setIter.next());
+          service.addParam(thisParam);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problem loading auto-attributes [" + entityName + "] for "+ service.name,module);
+    }
+catch (    GeneralException e) {
+      Debug.logError(e,"Cannot load auto-attributes : " + e.getMessage() + " for "+ service.name,module);
+    }
+  }
+}

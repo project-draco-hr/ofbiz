@@ -1,0 +1,32 @@
+{
+  Debug.logInfo("Running cleanSyncRemoveInfo",module);
+  GenericDelegator delegator=dctx.getDelegator();
+  try {
+    double keepRemoveInfoHours=24;
+    List entitySyncRemoveList=delegator.findAll("EntitySync");
+    Iterator entitySyncRemoveIter=entitySyncRemoveList.iterator();
+    while (entitySyncRemoveIter.hasNext()) {
+      GenericValue entitySyncRemove=(GenericValue)entitySyncRemoveIter.next();
+      Double curKrih=entitySyncRemove.getDouble("keepRemoveInfoHours");
+      if (curKrih != null) {
+        double curKrihVal=curKrih.doubleValue();
+        if (curKrihVal > keepRemoveInfoHours) {
+          keepRemoveInfoHours=curKrihVal;
+        }
+      }
+    }
+    int keepSeconds=(int)Math.floor(keepRemoveInfoHours * 60);
+    Calendar nowCal=Calendar.getInstance();
+    nowCal.setTimeInMillis(System.currentTimeMillis());
+    nowCal.add(Calendar.SECOND,-keepSeconds);
+    Timestamp keepAfterStamp=new Timestamp(nowCal.getTimeInMillis());
+    int numRemoved=delegator.removeByCondition("EntitySyncRemove",new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.LESS_THAN,keepAfterStamp));
+    Debug.logInfo("In cleanSyncRemoveInfo removed [" + numRemoved + "] values with TX timestamp before ["+ keepAfterStamp+ "]",module);
+    return ServiceUtil.returnSuccess();
+  }
+ catch (  GenericEntityException e) {
+    String errorMsg="Error cleaning out EntitySyncRemove info: " + e.toString();
+    Debug.logError(e,errorMsg,module);
+    return ServiceUtil.returnError(errorMsg);
+  }
+}

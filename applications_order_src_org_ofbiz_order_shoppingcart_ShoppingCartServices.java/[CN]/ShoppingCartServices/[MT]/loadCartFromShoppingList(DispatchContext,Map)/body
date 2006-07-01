@@ -1,0 +1,86 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String shoppingListId=(String)context.get("shoppingListId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue shoppingList=null;
+  try {
+    shoppingList=delegator.findByPrimaryKey("ShoppingList",UtilMisc.toMap("shoppingListId",shoppingListId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String productStoreId=shoppingList.getString("productStoreId");
+  String currency=shoppingList.getString("currencyUom");
+  ShoppingCart cart=new ShoppingCart(delegator,productStoreId,locale,currency);
+  try {
+    cart.setUserLogin(userLogin,dispatcher);
+  }
+ catch (  CartItemModifyException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  cart.setOrderPartyId(shoppingList.getString("partyId"));
+  List shoppingListItems=null;
+  try {
+    shoppingListItems=shoppingList.getRelated("ShoppingListItem");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  long nextItemSeq=0;
+  if (shoppingListItems != null) {
+    Iterator i=shoppingListItems.iterator();
+    while (i.hasNext()) {
+      GenericValue item=(GenericValue)i.next();
+      String orderItemSeqId=item.getString("shoppingListItemSeqId");
+      try {
+        long seq=Long.parseLong(orderItemSeqId);
+        if (seq > nextItemSeq) {
+          nextItemSeq=seq;
+        }
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      Double quantity=item.getDouble("quantity");
+      if (quantity == null) {
+        quantity=new Double(0);
+      }
+      int itemIndex=-1;
+      if (item.get("productId") != null) {
+        String productId=item.getString("productId");
+        try {
+          itemIndex=cart.addItemToEnd(productId,null,quantity.doubleValue(),null,null,null,null,null,dispatcher,Boolean.TRUE,Boolean.TRUE);
+        }
+ catch (        ItemNotFoundException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+catch (        CartItemModifyException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+      }
+      ShoppingCartItem cartItem=cart.findCartItem(itemIndex);
+      cartItem.setOrderItemSeqId(orderItemSeqId);
+      cartItem.setShoppingList(item.getString("shoppingListId"),item.getString("shoppingListItemSeqId"));
+    }
+  }
+  if (nextItemSeq > 0) {
+    try {
+      cart.setNextItemSeq(nextItemSeq);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("shoppingCart",cart);
+  return result;
+}

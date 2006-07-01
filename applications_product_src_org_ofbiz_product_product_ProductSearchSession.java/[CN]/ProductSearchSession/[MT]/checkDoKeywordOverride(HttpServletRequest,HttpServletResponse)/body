@@ -1,0 +1,71 @@
+{
+  HttpSession session=request.getSession();
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  Map requestParams=UtilHttp.getParameterMap(request);
+  ProductSearchSession.processSearchParameters(requestParams,request);
+  String productStoreId=ProductStoreWorker.getProductStoreId(request);
+  if (productStoreId != null) {
+    Set keywords=new HashSet();
+    List constraintList=ProductSearchOptions.getConstraintList(session);
+    if (constraintList != null) {
+      Iterator constraintIter=constraintList.iterator();
+      while (constraintIter.hasNext()) {
+        Object constraint=constraintIter.next();
+        if (constraint instanceof KeywordConstraint) {
+          KeywordConstraint keywordConstraint=(KeywordConstraint)constraint;
+          Set keywordSet=keywordConstraint.makeFullKeywordSet(delegator);
+          if (keywordSet != null)           keywords.addAll(keywordSet);
+        }
+      }
+    }
+    if (keywords.size() > 0) {
+      List productStoreKeywordOvrdList=null;
+      try {
+        productStoreKeywordOvrdList=delegator.findByAndCache("ProductStoreKeywordOvrd",UtilMisc.toMap("productStoreId",productStoreId),UtilMisc.toList("-fromDate"));
+        productStoreKeywordOvrdList=EntityUtil.filterByDate(productStoreKeywordOvrdList,true);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error reading ProductStoreKeywordOvrd list, not doing keyword override",module);
+      }
+      if (productStoreKeywordOvrdList != null && productStoreKeywordOvrdList.size() > 0) {
+        Iterator productStoreKeywordOvrdIter=productStoreKeywordOvrdList.iterator();
+        while (productStoreKeywordOvrdIter.hasNext()) {
+          GenericValue productStoreKeywordOvrd=(GenericValue)productStoreKeywordOvrdIter.next();
+          String ovrdKeyword=productStoreKeywordOvrd.getString("keyword");
+          if (keywords.contains(ovrdKeyword)) {
+            String targetTypeEnumId=productStoreKeywordOvrd.getString("targetTypeEnumId");
+            String target=productStoreKeywordOvrd.getString("target");
+            ServletContext ctx=(ServletContext)request.getAttribute("servletContext");
+            RequestHandler rh=(RequestHandler)ctx.getAttribute("_REQUEST_HANDLER_");
+            if ("KOTT_PRODCAT".equals(targetTypeEnumId)) {
+              String requestName="/category/~category_id=" + target;
+              target=rh.makeLink(request,response,requestName,false,false,false);
+            }
+ else             if ("KOTT_PRODUCT".equals(targetTypeEnumId)) {
+              String requestName="/product/~product_id=" + target;
+              target=rh.makeLink(request,response,requestName,false,false,false);
+            }
+ else             if ("KOTT_OFBURL".equals(targetTypeEnumId)) {
+              target=rh.makeLink(request,response,target,false,false,false);
+            }
+ else             if ("KOTT_AURL".equals(targetTypeEnumId)) {
+            }
+ else {
+              Debug.logError("The targetTypeEnumId [] is not recognized, not doing keyword override",module);
+              continue;
+            }
+            try {
+              response.sendRedirect(target);
+              return "none";
+            }
+ catch (            IOException e) {
+              Debug.logError(e,"Could not send redirect to: " + target,module);
+              continue;
+            }
+          }
+        }
+      }
+    }
+  }
+  return "success";
+}

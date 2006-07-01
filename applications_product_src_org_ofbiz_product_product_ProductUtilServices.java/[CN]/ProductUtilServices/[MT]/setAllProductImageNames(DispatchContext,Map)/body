@@ -1,0 +1,60 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String pattern=(String)context.get("pattern");
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  if (UtilValidate.isEmpty(pattern)) {
+    String imageFilenameFormat=UtilProperties.getPropertyValue("catalog","image.filename.format");
+    String imageUrlPrefix=UtilProperties.getPropertyValue("catalog","image.url.prefix");
+    pattern=imageUrlPrefix + "/" + imageFilenameFormat;
+  }
+  try {
+    EntityListIterator eli=delegator.findListIteratorByCondition("Product",null,null,null);
+    GenericValue product=null;
+    int numSoFar=0;
+    while ((product=(GenericValue)eli.next()) != null) {
+      String productId=(String)product.get("productId");
+      Map smallMap=UtilMisc.toMap("size","small","productId",productId);
+      Map mediumMap=UtilMisc.toMap("size","medium","productId",productId);
+      Map largeMap=UtilMisc.toMap("size","large","productId",productId);
+      Map detailMap=UtilMisc.toMap("size","detail","productId",productId);
+      if ("Y".equals(product.getString("isVirtual"))) {
+        List productAssocList=EntityUtil.filterByDate(delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productId",productId,"productAssocTypeId","PRODUCT_VARIANT")),nowTimestamp);
+        if (productAssocList.size() > 0) {
+          GenericValue productAssoc=EntityUtil.getFirst(productAssocList);
+          smallMap.put("productId",productAssoc.get("productIdTo"));
+          mediumMap.put("productId",productAssoc.get("productIdTo"));
+          product.set("smallImageUrl",FlexibleStringExpander.expandString(pattern,smallMap));
+          product.set("mediumImageUrl",FlexibleStringExpander.expandString(pattern,mediumMap));
+        }
+ else {
+          product.set("smallImageUrl",null);
+          product.set("mediumImageUrl",null);
+        }
+        product.set("largeImageUrl",null);
+        product.set("detailImageUrl",null);
+      }
+ else {
+        product.set("smallImageUrl",FlexibleStringExpander.expandString(pattern,smallMap));
+        product.set("mediumImageUrl",FlexibleStringExpander.expandString(pattern,mediumMap));
+        product.set("largeImageUrl",FlexibleStringExpander.expandString(pattern,largeMap));
+        product.set("detailImageUrl",FlexibleStringExpander.expandString(pattern,detailMap));
+      }
+      product.store();
+      numSoFar++;
+      if (numSoFar % 500 == 0) {
+        Debug.logInfo("Image URLs set for " + numSoFar + " products.",module);
+      }
+    }
+    eli.close();
+    Debug.logInfo("Completed - Image URLs set for " + numSoFar + " products.",module);
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productutilservices.entity_error_running_setAllProductImageNames",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

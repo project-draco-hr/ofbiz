@@ -1,0 +1,80 @@
+{
+  Map requiredInfo=FastMap.newInstance();
+  Map optionalInfo=FastMap.newInstance();
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn)   Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : Validating context - "+ test,module);
+  if (mode.equals(OUT_PARAM) && test != null && test.containsKey(RESPONSE_MESSAGE)) {
+    if (RESPOND_ERROR.equals(test.get(RESPONSE_MESSAGE)) || RESPOND_FAIL.equals(test.get(RESPONSE_MESSAGE))) {
+      if (verboseOn)       Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : response was an error, not validating.",module);
+      return;
+    }
+  }
+  Iterator contextParamIter=this.contextParamList.iterator();
+  while (contextParamIter.hasNext()) {
+    ModelParam modelParam=(ModelParam)contextParamIter.next();
+    if ("INOUT".equals(modelParam.mode) || mode.equals(modelParam.mode)) {
+      if (modelParam.optional) {
+        optionalInfo.put(modelParam.name,modelParam.type);
+      }
+ else {
+        requiredInfo.put(modelParam.name,modelParam.type);
+      }
+    }
+  }
+  Map requiredTest=FastMap.newInstance();
+  Map optionalTest=FastMap.newInstance();
+  if (test == null)   test=FastMap.newInstance();
+  requiredTest.putAll(test);
+  List requiredButNull=FastList.newInstance();
+  if (requiredTest != null) {
+    List keyList=FastList.newInstance();
+    keyList.addAll(requiredTest.keySet());
+    Iterator t=keyList.iterator();
+    while (t.hasNext()) {
+      Object key=t.next();
+      Object value=requiredTest.get(key);
+      if (!requiredInfo.containsKey(key)) {
+        requiredTest.remove(key);
+        optionalTest.put(key,value);
+      }
+ else       if (value == null) {
+        requiredButNull.add(key);
+      }
+    }
+  }
+  if (requiredButNull.size() > 0) {
+    List missingMsg=FastList.newInstance();
+    Iterator rbni=requiredButNull.iterator();
+    while (rbni.hasNext()) {
+      String missingKey=(String)rbni.next();
+      String message=this.getParam(missingKey).getPrimaryFailMessage(locale);
+      if (message == null) {
+        String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"ModelService.following_required_parameter_missing",locale);
+        message=errMsg + " [" + this.name+ "."+ missingKey+ "]";
+      }
+      missingMsg.add(message);
+    }
+    throw new ServiceValidationException(missingMsg,this,requiredButNull,null,mode);
+  }
+  if (verboseOn) {
+    String requiredNames="";
+    Iterator requiredIter=requiredInfo.keySet().iterator();
+    while (requiredIter.hasNext()) {
+      requiredNames=requiredNames + requiredIter.next();
+      if (requiredIter.hasNext()) {
+        requiredNames=requiredNames + ", ";
+      }
+    }
+    Debug.logVerbose("[ModelService.validate] : required fields - " + requiredNames,module);
+    Debug.logVerbose("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Required - "+ requiredTest.size()+ " / "+ requiredInfo.size(),module);
+    Debug.logVerbose("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Optional - "+ optionalTest.size()+ " / "+ optionalInfo.size(),module);
+  }
+  try {
+    validate(requiredInfo,requiredTest,true,this,mode,locale);
+    validate(optionalInfo,optionalTest,false,this,mode,locale);
+  }
+ catch (  ServiceValidationException e) {
+    Debug.logError("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Required test error: "+ e.toString(),module);
+    throw e;
+  }
+}

@@ -1,0 +1,39 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    ModelEntity modelEntity=getModelReader().getModelEntity(entityName);
+    GenericValue dummyValue=GenericValue.create(modelEntity);
+    Map ecaEventMap=this.getEcaEntityEventMap(modelEntity.getEntityName());
+    this.evalEcaRules(EntityEcaHandler.EV_VALIDATE,EntityEcaHandler.OP_FIND,dummyValue,ecaEventMap,(ecaEventMap == null),false);
+    if (whereEntityCondition != null) {
+      whereEntityCondition.checkCondition(modelEntity);
+      whereEntityCondition.encryptConditionFields(modelEntity,this);
+    }
+    if (havingEntityCondition != null) {
+      havingEntityCondition.checkCondition(modelEntity);
+      havingEntityCondition.encryptConditionFields(modelEntity,this);
+    }
+    this.evalEcaRules(EntityEcaHandler.EV_RUN,EntityEcaHandler.OP_FIND,dummyValue,ecaEventMap,(ecaEventMap == null),false);
+    GenericHelper helper=getEntityHelper(modelEntity.getEntityName());
+    long count=helper.findCountByCondition(modelEntity,whereEntityCondition,havingEntityCondition,findOptions);
+    this.evalEcaRules(EntityEcaHandler.EV_RETURN,EntityEcaHandler.OP_FIND,dummyValue,ecaEventMap,(ecaEventMap == null),false);
+    return count;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in findListIteratorByCondition operation for entity [DynamicView]: " + e.toString() + ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw e;
+  }
+ finally {
+    TransactionUtil.commit(beganTransaction);
+  }
+}

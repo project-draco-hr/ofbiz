@@ -1,0 +1,182 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List msgResult=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunId=(String)context.get("workEffortId");
+  Double quantity=(Double)context.get("quantity");
+  Boolean createSerializedInventory=(Boolean)context.get("createSerializedInventory");
+  String lotId=(String)context.get("lotId");
+  Boolean createLotIfNeeded=(Boolean)context.get("createLotIfNeeded");
+  Boolean autoCreateLot=(Boolean)context.get("autoCreateLot");
+  if (createSerializedInventory == null) {
+    createSerializedInventory=new Boolean(false);
+  }
+  if (createLotIfNeeded == null) {
+    createLotIfNeeded=new Boolean(true);
+  }
+  if (autoCreateLot == null) {
+    autoCreateLot=new Boolean(false);
+  }
+  List inventoryItemIds=new ArrayList();
+  ProductionRun productionRun=new ProductionRun(productionRunId,delegator,dispatcher);
+  GenericValue lastTask=productionRun.getLastProductionRunRoutingTask();
+  if (lastTask == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotExists",locale));
+  }
+  String productType=productionRun.getProductProduced().getString("productTypeId");
+  if ("WIP".equals("productTypeId")) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductIsWIP",locale));
+  }
+  Double quantityProduced=productionRun.getGenericValue().getDouble("quantityProduced");
+  if (quantityProduced == null) {
+    quantityProduced=new Double(0);
+  }
+  Double quantityDeclared=lastTask.getDouble("quantityProduced");
+  if (quantityDeclared == null) {
+    quantityDeclared=new Double(0);
+  }
+  double maxQuantity=quantityDeclared.doubleValue() - quantityProduced.doubleValue();
+  if (maxQuantity <= 0) {
+    return ServiceUtil.returnSuccess();
+  }
+  if (quantity == null) {
+    quantity=new Double(maxQuantity);
+  }
+  if (quantity.doubleValue() > maxQuantity) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunProductProducedNotStillAvailable",locale));
+  }
+  if (lotId == null && autoCreateLot.booleanValue()) {
+    lotId=delegator.getNextSeqId("Lot");
+    createLotIfNeeded=new Boolean(true);
+  }
+  if (lotId != null) {
+    try {
+      GenericValue lot=delegator.findByPrimaryKey("Lot",UtilMisc.toMap("lotId",lotId));
+      if (lot == null) {
+        if (createLotIfNeeded.booleanValue()) {
+          lot=delegator.makeValue("Lot",UtilMisc.toMap("lotId",lotId,"creationDate",UtilDateTime.nowDate()));
+          lot.create();
+        }
+ else {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingLotNotExists",locale));
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e.getMessage(),module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  GenericValue orderItem=null;
+  try {
+    List orderItems=productionRun.getGenericValue().getRelated("WorkOrderItemFulfillment");
+    orderItem=EntityUtil.getFirst(orderItems);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  BigDecimal unitCost=ZERO;
+  try {
+    Map outputMap=dispatcher.runSync("getProductionRunCost",UtilMisc.toMap("userLogin",userLogin,"workEffortId",productionRunId));
+    BigDecimal totalCost=(BigDecimal)outputMap.get("totalCost");
+    unitCost=totalCost.divide(new BigDecimal(quantity.intValue()),rounding);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (createSerializedInventory.booleanValue()) {
+    try {
+      int numOfItems=quantity.intValue();
+      for (int i=0; i < numOfItems; i++) {
+        Map serviceContext=UtilMisc.toMap("productId",productionRun.getProductProduced().getString("productId"),"inventoryItemTypeId","SERIALIZED_INV_ITEM","statusId","INV_AVAILABLE");
+        serviceContext.put("facilityId",productionRun.getGenericValue().getString("facilityId"));
+        serviceContext.put("datetimeReceived",UtilDateTime.nowDate());
+        serviceContext.put("comments","Created by production run " + productionRunId);
+        if (unitCost.compareTo(ZERO) != 0) {
+          serviceContext.put("unitCost",new Double(unitCost.doubleValue()));
+        }
+        serviceContext.put("lotId",lotId);
+        serviceContext.put("userLogin",userLogin);
+        Map resultService=dispatcher.runSync("createInventoryItem",serviceContext);
+        String inventoryItemId=(String)resultService.get("inventoryItemId");
+        inventoryItemIds.add(inventoryItemId);
+        GenericValue inventoryProduced=delegator.makeValue("WorkEffortInventoryProduced",UtilMisc.toMap("workEffortId",productionRunId,"inventoryItemId",inventoryItemId));
+        inventoryProduced.create();
+        serviceContext.clear();
+        serviceContext.put("inventoryItemId",inventoryItemId);
+        serviceContext.put("workEffortId",productionRunId);
+        serviceContext.put("availableToPromiseDiff",new Double(1));
+        serviceContext.put("quantityOnHandDiff",new Double(1));
+        serviceContext.put("userLogin",userLogin);
+        resultService=dispatcher.runSync("createInventoryItemDetail",serviceContext);
+        serviceContext=new HashMap();
+        serviceContext.put("inventoryItemId",inventoryItemId);
+        serviceContext.put("userLogin",userLogin);
+        resultService=resultService=dispatcher.runSync("balanceInventoryItems",serviceContext);
+      }
+    }
+ catch (    Exception exc) {
+      return ServiceUtil.returnError(exc.getMessage());
+    }
+  }
+ else {
+    try {
+      Map serviceContext=UtilMisc.toMap("productId",productionRun.getProductProduced().getString("productId"),"inventoryItemTypeId","NON_SERIAL_INV_ITEM");
+      serviceContext.put("facilityId",productionRun.getGenericValue().getString("facilityId"));
+      serviceContext.put("datetimeReceived",UtilDateTime.nowTimestamp());
+      serviceContext.put("comments","Created by production run " + productionRunId);
+      serviceContext.put("lotId",lotId);
+      if (unitCost.compareTo(ZERO) != 0) {
+        serviceContext.put("unitCost",new Double(unitCost.doubleValue()));
+      }
+      serviceContext.put("userLogin",userLogin);
+      Map resultService=dispatcher.runSync("createInventoryItem",serviceContext);
+      String inventoryItemId=(String)resultService.get("inventoryItemId");
+      inventoryItemIds.add(inventoryItemId);
+      GenericValue inventoryProduced=delegator.makeValue("WorkEffortInventoryProduced",UtilMisc.toMap("workEffortId",productionRunId,"inventoryItemId",inventoryItemId));
+      inventoryProduced.create();
+      serviceContext.clear();
+      serviceContext.put("inventoryItemId",inventoryItemId);
+      serviceContext.put("workEffortId",productionRunId);
+      serviceContext.put("availableToPromiseDiff",quantity);
+      serviceContext.put("quantityOnHandDiff",quantity);
+      serviceContext.put("userLogin",userLogin);
+      resultService=dispatcher.runSync("createInventoryItemDetail",serviceContext);
+      serviceContext=new HashMap();
+      serviceContext.put("inventoryItemId",inventoryItemId);
+      serviceContext.put("userLogin",userLogin);
+      if (orderItem != null) {
+        serviceContext.put("priorityOrderId",orderItem.getString("orderId"));
+        serviceContext.put("priorityOrderItemSeqId",orderItem.getString("orderItemSeqId"));
+      }
+      resultService=resultService=dispatcher.runSync("balanceInventoryItems",serviceContext);
+    }
+ catch (    Exception exc) {
+      return ServiceUtil.returnError(exc.getMessage());
+    }
+    double totalQuantity=quantityProduced.doubleValue() + quantity.doubleValue();
+    Map serviceContext=new HashMap();
+    serviceContext.clear();
+    serviceContext.put("workEffortId",productionRunId);
+    serviceContext.put("quantityProduced",new Double(totalQuantity));
+    serviceContext.put("actualCompletionDate",UtilDateTime.nowTimestamp());
+    serviceContext.put("userLogin",userLogin);
+    Map resultService=null;
+    try {
+      resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+    }
+  }
+  result.put("quantity",quantity);
+  result.put("inventoryItemIds",inventoryItemIds);
+  return result;
+}

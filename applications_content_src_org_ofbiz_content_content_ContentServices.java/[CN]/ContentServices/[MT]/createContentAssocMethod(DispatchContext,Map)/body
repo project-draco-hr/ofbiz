@@ -1,0 +1,101 @@
+{
+  List targetOperationList=ContentWorker.prepTargetOperationList(context,"_CREATE");
+  List contentPurposeList=ContentWorker.prepContentPurposeList(context);
+  context.put("targetOperationList",targetOperationList);
+  context.put("contentPurposeList",contentPurposeList);
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map result=new HashMap();
+  String contentIdFrom=(String)context.get("contentIdFrom");
+  String contentIdTo=(String)context.get("contentIdTo");
+  String contentId=(String)context.get("contentId");
+  int contentIdCount=0;
+  if (UtilValidate.isNotEmpty(contentIdFrom))   contentIdCount++;
+  if (UtilValidate.isNotEmpty(contentIdTo))   contentIdCount++;
+  if (UtilValidate.isNotEmpty(contentId))   contentIdCount++;
+  if (contentIdCount < 2) {
+    Debug.logError("Not 2 out of ContentId/To/From.","ContentServices");
+    return ServiceUtil.returnError("Not 2 out of ContentId/To/From");
+  }
+  if (UtilValidate.isNotEmpty(contentIdFrom)) {
+    if (UtilValidate.isEmpty(contentIdTo))     contentIdTo=contentId;
+  }
+  if (UtilValidate.isNotEmpty(contentIdTo)) {
+    if (UtilValidate.isEmpty(contentIdFrom))     contentIdFrom=contentId;
+  }
+  GenericValue contentAssoc=delegator.makeValue("ContentAssoc",new HashMap());
+  contentAssoc.put("contentId",contentIdFrom);
+  contentAssoc.put("contentIdTo",contentIdTo);
+  contentAssoc.put("contentAssocTypeId",context.get("contentAssocTypeId"));
+  contentAssoc.put("contentAssocPredicateId",context.get("contentAssocPredicateIdFrom"));
+  contentAssoc.put("dataSourceId",context.get("dataSourceId"));
+  Timestamp fromDate=(Timestamp)context.get("fromDate");
+  if (fromDate == null) {
+    contentAssoc.put("fromDate",UtilDateTime.nowTimestamp());
+  }
+ else {
+    contentAssoc.put("fromDate",fromDate);
+  }
+  Timestamp thruDate=(Timestamp)context.get("thruDate");
+  if (thruDate == null) {
+    contentAssoc.put("thruDate",null);
+  }
+ else {
+    contentAssoc.put("thruDate",thruDate);
+  }
+  contentAssoc.put("sequenceNum",context.get("sequenceNum"));
+  contentAssoc.put("mapKey",context.get("mapKey"));
+  String upperCoordinateStr=(String)context.get("upperCoordinate");
+  if (UtilValidate.isEmpty(upperCoordinateStr)) {
+    contentAssoc.put("upperCoordinate",null);
+  }
+ else {
+    contentAssoc.put("upperCoordinate",upperCoordinateStr);
+  }
+  String leftCoordinateStr=(String)context.get("leftCoordinate");
+  if (UtilValidate.isEmpty(leftCoordinateStr)) {
+    contentAssoc.put("leftCoordinate",null);
+  }
+ else {
+    contentAssoc.put("leftCoordinate",leftCoordinateStr);
+  }
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String userLoginId=(String)userLogin.get("userLoginId");
+  String createdByUserLogin=userLoginId;
+  String lastModifiedByUserLogin=userLoginId;
+  Timestamp createdDate=UtilDateTime.nowTimestamp();
+  Timestamp lastModifiedDate=UtilDateTime.nowTimestamp();
+  contentAssoc.put("createdByUserLogin",createdByUserLogin);
+  contentAssoc.put("lastModifiedByUserLogin",lastModifiedByUserLogin);
+  contentAssoc.put("createdDate",createdDate);
+  contentAssoc.put("lastModifiedDate",lastModifiedDate);
+  Map serviceInMap=new HashMap();
+  String permissionStatus=null;
+  serviceInMap.put("userLogin",context.get("userLogin"));
+  serviceInMap.put("targetOperationList",targetOperationList);
+  serviceInMap.put("contentPurposeList",contentPurposeList);
+  serviceInMap.put("entityOperation",context.get("entityOperation"));
+  serviceInMap.put("contentAssocPredicateId",context.get("contentAssocPredicateId"));
+  serviceInMap.put("contentIdTo",contentIdTo);
+  serviceInMap.put("contentIdFrom",contentIdFrom);
+  serviceInMap.put("statusId",context.get("statusId"));
+  serviceInMap.put("privilegeEnumId",context.get("privilegeEnumId"));
+  serviceInMap.put("roleTypeList",context.get("roleTypeList"));
+  serviceInMap.put("displayFailCond",context.get("displayFailCond"));
+  Map permResults=null;
+  permResults=dispatcher.runSync("checkAssocPermission",serviceInMap);
+  permissionStatus=(String)permResults.get("permissionStatus");
+  if (permissionStatus != null && permissionStatus.equals("granted")) {
+    contentAssoc.create();
+  }
+ else {
+    String errorMsg=(String)permResults.get(ModelService.ERROR_MESSAGE);
+    result.put(ModelService.ERROR_MESSAGE,errorMsg);
+    return ServiceUtil.returnFailure(errorMsg);
+  }
+  result.put("contentIdTo",contentIdTo);
+  result.put("contentIdFrom",contentIdFrom);
+  result.put("fromDate",contentAssoc.get("fromDate"));
+  result.put("contentAssocTypeId",contentAssoc.get("contentAssocTypeId"));
+  return result;
+}

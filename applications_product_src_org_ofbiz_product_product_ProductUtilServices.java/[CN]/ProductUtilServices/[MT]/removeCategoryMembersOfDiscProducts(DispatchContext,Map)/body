@@ -1,0 +1,36 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  try {
+    EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("salesDiscontinuationDate",EntityOperator.NOT_EQUAL,null),new EntityExpr("salesDiscontinuationDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp)),EntityOperator.AND);
+    EntityListIterator eli=delegator.findListIteratorByCondition("Product",condition,null,null);
+    GenericValue product=null;
+    int numSoFar=0;
+    while ((product=(GenericValue)eli.next()) != null) {
+      String productId=product.getString("productId");
+      List productCategoryMemberList=delegator.findByAnd("ProductCategoryMember",UtilMisc.toMap("productId",productId));
+      if (productCategoryMemberList.size() > 0) {
+        Iterator productCategoryMemberIter=productCategoryMemberList.iterator();
+        while (productCategoryMemberIter.hasNext()) {
+          GenericValue productCategoryMember=(GenericValue)productCategoryMemberIter.next();
+          productCategoryMember.remove();
+        }
+        numSoFar++;
+        if (numSoFar % 500 == 0) {
+          Debug.logInfo("Removed category members for " + numSoFar + " sales discontinued products.",module);
+        }
+      }
+    }
+    eli.close();
+    Debug.logInfo("Completed - Removed category members for " + numSoFar + " sales discontinued products.",module);
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productutilservices.entity_error_running_removeCategoryMembersOfDiscProducts",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,67 @@
+{
+  String fileName=(String)context.get("fileName");
+  EntitySyncContext esc=null;
+  long totalRowsExported=0;
+  try {
+    esc=new EntitySyncContext(dctx,context);
+    Debug.logInfo("Doing runManualEntitySync for entitySyncId=" + esc.entitySyncId + ", currentRunStartTime="+ esc.currentRunStartTime+ ", currentRunEndTime="+ esc.currentRunEndTime,module);
+    Document mainDoc=UtilXml.makeEmptyXmlDocument("xml-entity-synchronization");
+    Element docElement=mainDoc.getDocumentElement();
+    docElement.setAttribute("xml:lang","en-US");
+    esc.runOfflineStartRunning();
+    esc.setSplitStartTime();
+    while (esc.hasMoreTimeToSync()) {
+      esc.totalSplits++;
+      ArrayList valuesToCreate=esc.assembleValuesToCreate();
+      ArrayList valuesToStore=esc.assembleValuesToStore();
+      List keysToRemove=esc.assembleKeysToRemove();
+      long currentRows=esc.setTotalRowCounts(valuesToCreate,valuesToStore,keysToRemove);
+      totalRowsExported+=currentRows;
+      if (currentRows > 0) {
+        Element syncElement=UtilXml.addChildElement(docElement,"entity-sync",mainDoc);
+        syncElement.setAttribute("entitySyncId",esc.entitySyncId);
+        syncElement.setAttribute("lastSuccessfulSynchTime",esc.currentRunEndTime.toString());
+        try {
+          UtilXml.addChildElementValue(syncElement,"values-to-create",XmlSerializer.serialize(valuesToCreate),mainDoc);
+          UtilXml.addChildElementValue(syncElement,"values-to-store",XmlSerializer.serialize(valuesToStore),mainDoc);
+          UtilXml.addChildElementValue(syncElement,"keys-to-remove",XmlSerializer.serialize(keysToRemove),mainDoc);
+        }
+ catch (        SerializeException e) {
+          throw new EntitySyncContext.SyncOtherErrorException("List serialization problem",e);
+        }
+catch (        IOException e) {
+          throw new EntitySyncContext.SyncOtherErrorException("XML writing problem",e);
+        }
+      }
+      esc.runSaveOfflineSyncInfo(currentRows);
+      esc.advanceRunTimes();
+    }
+    if (totalRowsExported > 0) {
+      if (UtilValidate.isEmpty(fileName)) {
+        SimpleDateFormat sdf=new SimpleDateFormat("yyyyMMddHHmmss");
+        fileName="offline_entitySync-" + esc.entitySyncId + "-"+ sdf.format(new Date())+ ".xml";
+      }
+      try {
+        UtilXml.writeXmlDocument(fileName,mainDoc);
+      }
+ catch (      java.io.FileNotFoundException e) {
+        throw new EntitySyncContext.SyncOtherErrorException(e);
+      }
+catch (      java.io.IOException e) {
+        throw new EntitySyncContext.SyncOtherErrorException(e);
+      }
+    }
+ else {
+      Debug.logInfo("No rows to write; no data exported.",module);
+    }
+    esc.saveFinalSyncResults();
+  }
+ catch (  SyncAbortException e) {
+    return e.returnError(module);
+  }
+catch (  SyncErrorException e) {
+    e.saveSyncErrorInfo(esc);
+    return e.returnError(module);
+  }
+  return ServiceUtil.returnSuccess();
+}

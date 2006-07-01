@@ -1,0 +1,65 @@
+{
+  NumberFormat nf=NumberFormat.getNumberInstance(this.cart.getLocale());
+  String itemGroupNumber=(String)context.get("itemGroupNumber");
+  boolean useRowSubmit=(!context.containsKey("_useRowSubmit")) ? false : "Y".equalsIgnoreCase((String)context.get("_useRowSubmit"));
+  int rowCount=0;
+  try {
+    if (context.containsKey("_rowCount")) {
+      rowCount=Integer.parseInt((String)context.get("_rowCount"));
+    }
+  }
+ catch (  NumberFormatException e) {
+  }
+  for (int i=0; i < rowCount; i++) {
+    String productId=null;
+    String quantStr=null;
+    String requirementId=null;
+    String thisSuffix=UtilHttp.MULTI_ROW_DELIMITER + i;
+    boolean rowSelected=(!context.containsKey("_rowSubmit" + thisSuffix)) ? false : "Y".equalsIgnoreCase((String)context.get("_rowSubmit" + thisSuffix));
+    if (useRowSubmit && !rowSelected) {
+      continue;
+    }
+    if (context.containsKey("productId" + thisSuffix)) {
+      productId=(String)context.get("productId" + thisSuffix);
+      quantStr=(String)context.get("quantity" + thisSuffix);
+      requirementId=(String)context.get("requirementId" + thisSuffix);
+      if (quantStr != null && quantStr.length() > 0) {
+        double quantity=0;
+        try {
+          quantity=nf.parse(quantStr).doubleValue();
+        }
+ catch (        ParseException nfe) {
+          quantity=0;
+        }
+        if (quantity > 0.0) {
+          Iterator items=this.cart.iterator();
+          boolean requirementAlreadyInCart=false;
+          while (items.hasNext() && !requirementAlreadyInCart) {
+            ShoppingCartItem sci=(ShoppingCartItem)items.next();
+            if (sci.getRequirementId() != null && sci.getRequirementId().equals(requirementId)) {
+              requirementAlreadyInCart=true;
+              continue;
+            }
+          }
+          if (requirementAlreadyInCart) {
+            if (Debug.warningOn())             Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderTheRequirementIsAlreadyInTheCartNotAdding",UtilMisc.toMap("requirementId",requirementId),cart.getLocale()),module);
+            continue;
+          }
+          try {
+            if (Debug.verboseOn())             Debug.logVerbose("Bulk Adding to cart requirement [" + quantity + "] of ["+ productId+ "]",module);
+            int index=this.cart.addOrIncreaseItem(productId,null,quantity,null,null,null,null,null,null,null,catalogId,null,null,itemGroupNumber,dispatcher);
+            ShoppingCartItem sci=(ShoppingCartItem)this.cart.items().get(index);
+            sci.setRequirementId(requirementId);
+          }
+ catch (          CartItemModifyException e) {
+            return ServiceUtil.returnError(e.getMessage());
+          }
+catch (          ItemNotFoundException e) {
+            return ServiceUtil.returnError(e.getMessage());
+          }
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

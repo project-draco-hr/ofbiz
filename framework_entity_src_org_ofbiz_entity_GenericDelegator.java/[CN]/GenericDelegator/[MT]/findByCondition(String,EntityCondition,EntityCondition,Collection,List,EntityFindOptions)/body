@@ -1,0 +1,27 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    EntityListIterator eli=this.findListIteratorByCondition(entityName,whereEntityCondition,havingEntityCondition,fieldsToSelect,orderBy,findOptions);
+    eli.setDelegator(this);
+    List list=eli.getCompleteList();
+    eli.close();
+    return list;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in findByCondition operation for entity [" + entityName + "]: "+ e.toString()+ ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw e;
+  }
+ finally {
+    TransactionUtil.commit(beganTransaction);
+  }
+}

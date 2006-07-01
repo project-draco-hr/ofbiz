@@ -1,0 +1,55 @@
+{
+  Map result=null;
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  Map paramMap=UtilHttp.getParameterMap(request);
+  String dataResourceId=(String)paramMap.get("dataResourceId");
+  GenericValue dataResource=delegator.makeValue("DataResource",null);
+  dataResource.setPKFields(paramMap);
+  dataResource.setNonPKFields(paramMap);
+  Map serviceInMap=new HashMap(dataResource);
+  serviceInMap.put("userLogin",userLogin);
+  String mode=(String)paramMap.get("mode");
+  Locale locale=UtilHttp.getLocale(request);
+  if (mode != null && mode.equals("UPDATE")) {
+    try {
+      result=dispatcher.runSync("updateDataResource",serviceInMap);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(DataEvents.err_resource,"dataEvents.error_call_update_service",locale);
+      String errorMsg="Error calling the updateDataResource service." + e.toString();
+      Debug.logError(e,errorMsg,module);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg + e.toString());
+      return "error";
+    }
+  }
+ else {
+    mode="CREATE";
+    try {
+      result=dispatcher.runSync("createDataResource",serviceInMap);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(DataEvents.err_resource,"dataEvents.error_call_create_service",locale);
+      String errorMsg="Error calling the createDataResource service." + e.toString();
+      Debug.logError(e,errorMsg,module);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg + e.toString());
+      return "error";
+    }
+    dataResourceId=(String)result.get("dataResourceId");
+    dataResource.set("dataResourceId",dataResourceId);
+  }
+  GenericPK pk=dataResource.getPrimaryKey();
+  HttpSession session=request.getSession();
+  String returnStr="success";
+  if (mode.equals("CREATE")) {
+    request.setAttribute("dataResourceId",result.get("dataResourceId"));
+    String dataResourceTypeId=(String)serviceInMap.get("dataResourceTypeId");
+    if (dataResourceTypeId != null) {
+      if (dataResourceTypeId.equals("ELECTRONIC_TEXT") || dataResourceTypeId.equals("IMAGE_OBJECT")) {
+        returnStr=dataResourceTypeId;
+      }
+    }
+  }
+  return returnStr;
+}

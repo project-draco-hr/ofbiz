@@ -1,0 +1,171 @@
+{
+  List adjustments=new ArrayList();
+  if (item != null && item.get("taxable") != null && "N".equals(item.getString("taxable"))) {
+    return adjustments;
+  }
+  List zipLookup=delegator.findByAnd("ZipSalesTaxLookup",UtilMisc.toMap("zipCode",zipCode),UtilMisc.toList("-fromDate"));
+  if (zipLookup == null || zipLookup.size() == 0) {
+    throw new GeneralException("The zip code entered is not valid.");
+  }
+  List taxLookup=null;
+  if (zipLookup != null && zipLookup.size() > 1) {
+    List cityLookup=EntityUtil.filterByAnd(zipLookup,UtilMisc.toMap("city",city.toUpperCase()));
+    if (cityLookup != null && cityLookup.size() > 0) {
+      if (cityLookup.size() > 1) {
+        List countyLookup=EntityUtil.filterByAnd(taxLookup,UtilMisc.toMap("countyDefault","Y"));
+        if (countyLookup != null && countyLookup.size() > 0) {
+          taxLookup=countyLookup;
+        }
+ else {
+          taxLookup=cityLookup;
+        }
+      }
+ else {
+        taxLookup=cityLookup;
+      }
+    }
+ else {
+      List defaultLookup=EntityUtil.filterByAnd(zipLookup,UtilMisc.toMap("generalDefault","Y"));
+      if (defaultLookup != null && defaultLookup.size() > 0) {
+        taxLookup=defaultLookup;
+      }
+ else {
+        taxLookup=zipLookup;
+      }
+    }
+  }
+ else {
+    taxLookup=zipLookup;
+  }
+  GenericValue taxEntry=null;
+  if (taxLookup != null && taxLookup.size() > 0) {
+    taxEntry=(GenericValue)taxLookup.iterator().next();
+  }
+  if (taxEntry == null) {
+    Debug.logWarning("No tax entry found for : " + zipCode + " / "+ city+ " - "+ itemAmount,module);
+    return adjustments;
+  }
+  String fieldName="comboSalesTax";
+  if (isUseTax) {
+    fieldName="comboUseTax";
+  }
+  Double comboTaxRate=taxEntry.getDouble(fieldName);
+  if (comboTaxRate == null) {
+    Debug.logWarning("No Combo Tax Rate In Field " + fieldName + " @ "+ zipCode+ " / "+ city+ " - "+ itemAmount,module);
+    return adjustments;
+  }
+  String stateCode=taxEntry.getString("stateCode");
+  boolean taxShipping=true;
+  List ruleLookup=null;
+  try {
+    ruleLookup=delegator.findByAnd("ZipSalesRuleLookup",UtilMisc.toMap("stateCode",stateCode),UtilMisc.toList("-fromDate"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (ruleLookup != null && ruleLookup.size() > 1) {
+    ruleLookup=EntityUtil.filterByAnd(ruleLookup,UtilMisc.toMap("city",city.toUpperCase()));
+  }
+  if (ruleLookup != null && ruleLookup.size() > 1) {
+    ruleLookup=EntityUtil.filterByDate(ruleLookup);
+  }
+  if (ruleLookup != null) {
+    Iterator ruleIterator=ruleLookup.iterator();
+    while (ruleIterator.hasNext()) {
+      if (!taxShipping) {
+        break;
+      }
+      GenericValue rule=(GenericValue)ruleIterator.next();
+      String idCode=rule.getString("idCode");
+      String taxable=rule.getString("taxable");
+      String condition=rule.getString("shipCond");
+      if ("T".equals(taxable)) {
+        continue;
+      }
+ else {
+        boolean qualify=false;
+        if (condition != null && condition.length() > 0) {
+          char[] conditions=condition.toCharArray();
+          for (int i=0; i < conditions.length; i++) {
+switch (conditions[i]) {
+case 'A':
+              qualify=true;
+            break;
+case 'B':
+          qualify=false;
+        break;
+case 'C':
+      qualify=false;
+    break;
+case 'D':
+  qualify=false;
+break;
+case 'E':
+qualify=true;
+break;
+case 'F':
+qualify=true;
+break;
+case 'G':
+qualify=false;
+break;
+case 'H':
+qualify=false;
+break;
+case 'I':
+qualify=false;
+break;
+case 'J':
+qualify=false;
+break;
+case 'K':
+qualify=false;
+break;
+case 'L':
+qualify=true;
+break;
+case 'M':
+qualify=false;
+break;
+case 'N':
+qualify=true;
+break;
+case 'O':
+qualify=false;
+break;
+case 'P':
+qualify=false;
+break;
+default :
+break;
+}
+}
+}
+if (qualify) {
+if (isUseTax) {
+if (idCode.indexOf('U') > 0) {
+taxShipping=false;
+}
+}
+ else {
+if (idCode.indexOf('S') > 0) {
+taxShipping=false;
+}
+}
+}
+}
+}
+}
+double taxableAmount=itemAmount;
+if (taxShipping) {
+taxableAmount+=shippingAmount;
+}
+ else {
+Debug.log("Shipping is not taxable",module);
+}
+double taxRate=comboTaxRate.doubleValue();
+double taxCalc=taxableAmount * taxRate;
+Double taxAmount=new Double(formatCurrency(taxCalc));
+adjustments.add(delegator.makeValue("OrderAdjustment",UtilMisc.toMap("amount",taxAmount,"orderAdjustmentTypeId","SALES_TAX","comments",new Double(taxRate).toString(),"description","Sales Tax (" + stateCode + ")")));
+return adjustments;
+}

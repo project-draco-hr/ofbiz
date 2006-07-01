@@ -1,0 +1,79 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String orderAdjustmentId=(String)context.get("orderAdjustmentId");
+  String returnAdjustmentTypeId=(String)context.get("returnAdjustmentTypeId");
+  String returnId=(String)context.get("returnId");
+  String returnItemSeqId=(String)context.get("returnItemSeqId");
+  String description=(String)context.get("description");
+  GenericValue returnItemTypeMap=null;
+  GenericValue orderAdjustment=null;
+  GenericValue returnAdjustmentType=null;
+  GenericValue orderItem=null;
+  GenericValue returnItem=null;
+  GenericValue returnHeader=null;
+  Double amount;
+  if (orderAdjustmentId != null) {
+    try {
+      orderAdjustment=delegator.findByPrimaryKey("OrderAdjustment",UtilMisc.toMap("orderAdjustmentId",orderAdjustmentId));
+      returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+      String returnHeaderTypeId=((returnHeader != null) && (returnHeader.getString("returnHeaderTypeId") != null)) ? returnHeader.getString("returnHeaderTypeId") : "CUSTOMER_RETURN";
+      returnItemTypeMap=delegator.findByPrimaryKey("ReturnItemTypeMap",UtilMisc.toMap("returnHeaderTypeId",returnHeaderTypeId,"returnItemMapKey",orderAdjustment.get("orderAdjustmentTypeId")));
+      returnAdjustmentType=returnItemTypeMap.getRelatedOne("ReturnAdjustmentType");
+      if (returnAdjustmentType != null && UtilValidate.isEmpty(description)) {
+        description=returnAdjustmentType.getString("description");
+      }
+      if ((returnItemSeqId != null) && !("_NA_".equals(returnItemSeqId))) {
+        returnItem=delegator.findByPrimaryKey("ReturnItem",UtilMisc.toMap("returnId",returnId,"returnItemSeqId",returnItemSeqId));
+        Debug.log("returnId:" + returnId + ",returnItemSeqId:"+ returnItemSeqId);
+        orderItem=returnItem.getRelatedOne("OrderItem");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      throw new GeneralRuntimeException(e.getMessage());
+    }
+    context.putAll(orderAdjustment.getAllFields());
+  }
+  if (returnAdjustmentTypeId == null) {
+    String mappingTypeId=returnItemTypeMap != null ? returnItemTypeMap.get("returnItemTypeId").toString() : null;
+    returnAdjustmentTypeId=mappingTypeId != null ? mappingTypeId : "RET_MAN_ADJ";
+  }
+  if (returnItem != null) {
+    if (needRecalculate(returnAdjustmentTypeId)) {
+      Debug.logInfo("returnPrice:" + returnItem.getDouble("returnPrice") + ",returnQuantity:"+ returnItem.getDouble("returnQuantity")+ ",sourcePercentage:"+ orderAdjustment.getDouble("sourcePercentage"),module);
+      if (orderAdjustment == null) {
+        Debug.logError("orderAdjustment [" + orderAdjustmentId + "] not found",module);
+        return ServiceUtil.returnError("orderAdjustment [" + orderAdjustmentId + "] not found");
+      }
+      BigDecimal returnTotal=returnItem.getBigDecimal("returnPrice").multiply(returnItem.getBigDecimal("returnQuantity"));
+      BigDecimal orderTotal=orderItem.getBigDecimal("quantity").multiply(orderItem.getBigDecimal("unitPrice"));
+      amount=getAdjustmentAmount("RET_SALES_TAX_ADJ".equals(returnAdjustmentType),returnTotal,orderTotal,orderAdjustment.getBigDecimal("amount"));
+    }
+ else {
+      amount=(Double)context.get("amount");
+    }
+  }
+ else {
+    amount=(Double)context.get("amount");
+  }
+  String seqId=delegator.getNextSeqId("ReturnAdjustment");
+  GenericValue newReturnAdjustment=delegator.makeValue("ReturnAdjustment",UtilMisc.toMap("returnAdjustmentId",seqId));
+  try {
+    newReturnAdjustment.setNonPKFields(context);
+    if (orderAdjustment != null && orderAdjustment.get("taxAuthorityRateSeqId") != null) {
+      newReturnAdjustment.set("taxAuthorityRateSeqId",orderAdjustment.getString("taxAuthorityRateSeqId"));
+    }
+    newReturnAdjustment.set("amount",amount);
+    newReturnAdjustment.set("returnAdjustmentTypeId",returnAdjustmentTypeId);
+    newReturnAdjustment.set("description",description);
+    newReturnAdjustment.set("returnItemSeqId",UtilValidate.isEmpty(returnItemSeqId) ? "_NA_" : returnItemSeqId);
+    delegator.create(newReturnAdjustment);
+    Map result=ServiceUtil.returnSuccess("Create ReturnAdjustment with Id:" + seqId + " successfully.");
+    result.put("returnAdjustmentId",seqId);
+    return result;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Failed to store returnAdjustment",module);
+    return ServiceUtil.returnError("Failed to store returnAdjustment");
+  }
+}

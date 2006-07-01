@@ -1,0 +1,37 @@
+{
+  Map result=ServiceUtil.returnSuccess();
+  GenericDelegator delegator=ctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String productId=(String)context.get("productId");
+  Timestamp startDate=(Timestamp)context.get("startDate");
+  if (startDate == null) {
+    startDate=UtilDateTime.nowTimestamp();
+  }
+  double totQty=0.0;
+  try {
+    List findOutgoingProductionRunsConds=new LinkedList();
+    findOutgoingProductionRunsConds.add(new EntityExpr("productId",EntityOperator.EQUALS,productId));
+    findOutgoingProductionRunsConds.add(new EntityExpr("statusId",EntityOperator.EQUALS,"WEGS_CREATED"));
+    findOutgoingProductionRunsConds.add(new EntityExpr("estimatedStartDate",EntityOperator.LESS_THAN_EQUAL_TO,startDate));
+    List findOutgoingProductionRunsStatusConds=new LinkedList();
+    findOutgoingProductionRunsStatusConds.add(new EntityExpr("currentStatusId",EntityOperator.EQUALS,"PRUN_CREATED"));
+    findOutgoingProductionRunsStatusConds.add(new EntityExpr("currentStatusId",EntityOperator.EQUALS,"PRUN_DOC_PRINTED"));
+    findOutgoingProductionRunsStatusConds.add(new EntityExpr("currentStatusId",EntityOperator.EQUALS,"PRUN_RUNNING"));
+    findOutgoingProductionRunsConds.add(new EntityConditionList(findOutgoingProductionRunsStatusConds,EntityOperator.OR));
+    List outgoingProductionRuns=delegator.findByCondition("WorkEffortAndGoods",new EntityConditionList(findOutgoingProductionRunsConds,EntityOperator.AND),null,UtilMisc.toList("-estimatedStartDate"));
+    if (outgoingProductionRuns != null) {
+      for (int i=0; i < outgoingProductionRuns.size(); i++) {
+        GenericValue outgoingProductionRun=(GenericValue)outgoingProductionRuns.get(i);
+        Double dblQty=outgoingProductionRun.getDouble("estimatedQuantity");
+        double qty=(dblQty != null ? dblQty.doubleValue() : 0.0);
+        totQty+=qty;
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem calling the getProductionRunTotResQty service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionResQtyCalc",locale));
+  }
+  result.put("reservedQuantity",new Double(totQty));
+  return result;
+}

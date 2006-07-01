@@ -1,0 +1,68 @@
+{
+  context.put("null",GenericEntity.NULL_FIELD);
+  boolean beganTransaction=false;
+  Map parameters=(Map)context.get("parameters");
+  int transactionTimeout=-1;
+  if (parameters != null) {
+    String transactionTimeoutPar=(String)parameters.get("TRANSACTION_TIMEOUT");
+    if (transactionTimeoutPar != null) {
+      try {
+        transactionTimeout=Integer.parseInt(transactionTimeoutPar);
+      }
+ catch (      NumberFormatException nfe) {
+        String msg="TRANSACTION_TIMEOUT parameter for screen [" + this.sourceLocation + "#"+ this.name+ "] is invalid and it will be ignored: "+ nfe.toString();
+        Debug.logWarning(msg,module);
+      }
+    }
+  }
+  if (transactionTimeout < 0 && !transactionTimeoutExdr.isEmpty()) {
+    String transactionTimeoutStr=transactionTimeoutExdr.expandString(context);
+    if (UtilValidate.isNotEmpty(transactionTimeoutStr)) {
+      try {
+        transactionTimeout=Integer.parseInt(transactionTimeoutStr);
+      }
+ catch (      NumberFormatException e) {
+        Debug.logWarning(e,"Could not parse transaction-timeout value, original=[" + transactionTimeoutExdr + "], expanded=["+ transactionTimeoutStr+ "]",module);
+      }
+    }
+  }
+  try {
+    if (transactionTimeout < 0) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    if (transactionTimeout > 0) {
+      beganTransaction=TransactionUtil.begin(transactionTimeout);
+    }
+    this.section.renderWidgetString(writer,context,screenStringRenderer);
+  }
+ catch (  RuntimeException e) {
+    String errMsg="Error rendering screen [" + this.sourceLocation + "#"+ this.name+ "]: "+ e.toString();
+    Debug.logError(errMsg + ". Rolling back transaction.",module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw new GeneralException(errMsg,e);
+  }
+catch (  Exception e) {
+    String errMsg="Error rendering screen [" + this.sourceLocation + "#"+ this.name+ "]: "+ e.toString();
+    Debug.logError(errMsg + ". Rolling back transaction.",module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw new GeneralException(errMsg,e);
+  }
+ finally {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"Could not commit transaction: " + e2.toString(),module);
+    }
+  }
+}

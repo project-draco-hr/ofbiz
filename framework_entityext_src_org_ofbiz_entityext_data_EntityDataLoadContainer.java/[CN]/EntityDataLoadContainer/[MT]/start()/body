@@ -1,0 +1,119 @@
+{
+  ContainerConfig.Container cfg=ContainerConfig.getContainer("dataload-container",configFile);
+  ContainerConfig.Container.Property delegatorNameProp=cfg.getProperty("delegator-name");
+  ContainerConfig.Container.Property entityGroupNameProp=cfg.getProperty("entity-group-name");
+  String delegatorName=null;
+  String entityGroupName=null;
+  if (delegatorNameProp == null || delegatorNameProp.value == null || delegatorNameProp.value.length() == 0) {
+    throw new ContainerException("Invalid delegator-name defined in container configuration");
+  }
+ else {
+    delegatorName=delegatorNameProp.value;
+  }
+  if (entityGroupNameProp == null || entityGroupNameProp.value == null || entityGroupNameProp.value.length() == 0) {
+    throw new ContainerException("Invalid entity-group-name defined in container configuration");
+  }
+ else {
+    entityGroupName=entityGroupNameProp.value;
+  }
+  List readerNames=null;
+  if (this.readers != null && !"none".equalsIgnoreCase(this.readers)) {
+    if (this.readers.indexOf(",") == -1) {
+      readerNames=new LinkedList();
+      readerNames.add(this.readers);
+    }
+ else {
+      readerNames=StringUtil.split(this.readers,",");
+    }
+  }
+  String delegatorNameToUse=overrideDelegator != null ? overrideDelegator : delegatorName;
+  String groupNameToUse=overrideGroup != null ? overrideGroup : entityGroupName;
+  GenericDelegator delegator=GenericDelegator.getGenericDelegator(delegatorNameToUse);
+  if (delegator == null) {
+    throw new ContainerException("Invalid delegator name!");
+  }
+  String helperName=delegator.getGroupHelperName(groupNameToUse);
+  if (helperName == null) {
+    throw new ContainerException("Unable to locate the datasource helper for the group [" + groupNameToUse + "]");
+  }
+  List urlList=null;
+  if (readerNames != null) {
+    urlList=EntityDataLoader.getUrlList(helperName,readerNames);
+  }
+ else   if (!"none".equalsIgnoreCase(this.readers)) {
+    urlList=EntityDataLoader.getUrlList(helperName);
+  }
+  if (urlList == null) {
+    urlList=new ArrayList();
+  }
+  if (this.file != null) {
+    URL fileUrl=UtilURL.fromResource(this.file);
+    if (fileUrl != null) {
+      urlList.add(fileUrl);
+    }
+  }
+  if (this.directory != null) {
+    File dir=new File(this.directory);
+    if (dir.exists() && dir.isDirectory() && dir.canRead()) {
+      File[] fileArray=dir.listFiles();
+      if (fileArray != null && fileArray.length > 0) {
+        for (int i=0; i < fileArray.length; i++) {
+          if (fileArray[i].getName().toLowerCase().endsWith(".xml")) {
+            try {
+              urlList.add(fileArray[i].toURL());
+            }
+ catch (            MalformedURLException e) {
+              Debug.logError(e,"Unable to load file (" + fileArray[i].getName() + "); not a valid URL.",module);
+            }
+          }
+        }
+      }
+    }
+  }
+  NumberFormat changedFormat=NumberFormat.getIntegerInstance();
+  changedFormat.setMinimumIntegerDigits(5);
+  changedFormat.setGroupingUsed(false);
+  List errorMessages=new LinkedList();
+  List infoMessages=new LinkedList();
+  int totalRowsChanged=0;
+  if (urlList != null && urlList.size() > 0) {
+    Debug.logImportant("=-=-=-=-=-=-= Doing a data load with the following files:",module);
+    Iterator urlIter=urlList.iterator();
+    while (urlIter.hasNext()) {
+      URL dataUrl=(URL)urlIter.next();
+      Debug.logImportant(dataUrl.toExternalForm(),module);
+    }
+    Debug.logImportant("=-=-=-=-=-=-= Starting the data load...",module);
+    urlIter=urlList.iterator();
+    while (urlIter.hasNext()) {
+      URL dataUrl=(URL)urlIter.next();
+      try {
+        int rowsChanged=EntityDataLoader.loadData(dataUrl,helperName,delegator,errorMessages,txTimeout,useDummyFks,maintainTxs,tryInserts);
+        totalRowsChanged+=rowsChanged;
+        infoMessages.add(changedFormat.format(rowsChanged) + " of " + changedFormat.format(totalRowsChanged)+ " from "+ dataUrl.toExternalForm());
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error loading data file: " + dataUrl.toExternalForm(),module);
+      }
+    }
+  }
+ else {
+    Debug.logImportant("=-=-=-=-=-=-= No data load files found.",module);
+  }
+  if (infoMessages.size() > 0) {
+    Debug.logImportant("=-=-=-=-=-=-= Here is a summary of the data load:",module);
+    Iterator infoIter=infoMessages.iterator();
+    while (infoIter.hasNext()) {
+      Debug.logImportant((String)infoIter.next(),module);
+    }
+  }
+  if (errorMessages.size() > 0) {
+    Debug.logImportant("The following errors occured in the data load:",module);
+    Iterator errIter=errorMessages.iterator();
+    while (errIter.hasNext()) {
+      Debug.logImportant((String)errIter.next(),module);
+    }
+  }
+  Debug.logImportant("=-=-=-=-=-=-= Finished the data load with " + totalRowsChanged + " rows changed.",module);
+  return true;
+}

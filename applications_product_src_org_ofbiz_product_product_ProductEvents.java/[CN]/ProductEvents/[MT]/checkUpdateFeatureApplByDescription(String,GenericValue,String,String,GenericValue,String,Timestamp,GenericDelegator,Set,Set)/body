@@ -1,0 +1,65 @@
+{
+  if (productFeatureType == null) {
+    return;
+  }
+  GenericValue productFeatureAndAppl=null;
+  Set descriptionsForThisType=new HashSet();
+  List productFeatureAndApplList=EntityUtil.filterByDate(delegator.findByAnd("ProductFeatureAndAppl",UtilMisc.toMap("productId",productId,"productFeatureApplTypeId",productFeatureApplTypeId,"productFeatureTypeId",productFeatureTypeId)),true);
+  if (productFeatureAndApplList.size() > 0) {
+    Iterator productFeatureAndApplIter=productFeatureAndApplList.iterator();
+    while (productFeatureAndApplIter.hasNext()) {
+      productFeatureAndAppl=(GenericValue)productFeatureAndApplIter.next();
+      GenericValue productFeatureAppl=delegator.makeValidValue("ProductFeatureAppl",productFeatureAndAppl);
+      if (productFeatureAppl != null && (description == null || !description.equals(productFeatureAndAppl.getString("description")))) {
+        if (descriptionsToRemove == null || (descriptionsToRemove != null && descriptionsToRemove.contains(productFeatureAndAppl.get("description")))) {
+          if ("Y".equals(product.getString("isVirtual"))) {
+            boolean foundFeatureOnVariant=false;
+            List variantAssocs=product.getRelatedByAnd("MainProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"));
+            List variants=EntityUtil.getRelated("AssocProduct",variantAssocs);
+            Iterator variantIter=variants.iterator();
+            while (!foundFeatureOnVariant && variantIter.hasNext()) {
+              GenericValue variant=(GenericValue)variantIter.next();
+              List variantProductFeatureAndAppls=variant.getRelated("ProductFeatureAndAppl",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId,"productFeatureApplTypeId","STANDARD_FEATURE","description",description),null);
+              if (variantProductFeatureAndAppls.size() > 0) {
+                foundFeatureOnVariant=true;
+              }
+            }
+            if (foundFeatureOnVariant) {
+              continue;
+            }
+          }
+          if (descriptionsRemoved != null) {
+            descriptionsRemoved.add(productFeatureAndAppl.get("description"));
+          }
+          productFeatureAppl.remove();
+          continue;
+        }
+      }
+      descriptionsForThisType.add(productFeatureAndAppl.get("description"));
+    }
+  }
+  if (description != null && (productFeatureAndAppl == null || (productFeatureAndAppl != null && !descriptionsForThisType.contains(description)))) {
+    String productFeatureId=null;
+    List existingProductFeatureList=delegator.findByAnd("ProductFeature",UtilMisc.toMap("productFeatureTypeId",productFeatureTypeId,"description",description));
+    if (existingProductFeatureList.size() > 0) {
+      GenericValue existingProductFeature=(GenericValue)existingProductFeatureList.get(0);
+      productFeatureId=existingProductFeature.getString("productFeatureId");
+    }
+ else {
+      productFeatureId=delegator.getNextSeqId("ProductFeature").toString();
+      GenericValue newProductFeature=delegator.makeValue("ProductFeature",UtilMisc.toMap("productFeatureId",productFeatureId,"productFeatureTypeId",productFeatureTypeId,"description",description));
+      if (delegator.findByPrimaryKey("ProductFeatureCategory",UtilMisc.toMap("productFeatureCategoryId",productFeatureTypeId)) == null) {
+        GenericValue productFeatureCategory=delegator.makeValue("ProductFeatureCategory",null);
+        productFeatureCategory.set("productFeatureCategoryId",productFeatureTypeId);
+        productFeatureCategory.set("description",productFeatureType.get("description"));
+        productFeatureCategory.create();
+      }
+      newProductFeature.set("productFeatureCategoryId",productFeatureTypeId);
+      newProductFeature.create();
+    }
+    List specificProductFeatureApplList=EntityUtil.filterByDate(delegator.findByAnd("ProductFeatureAppl",UtilMisc.toMap("productId",productId,"productFeatureApplTypeId",productFeatureApplTypeId,"productFeatureId",productFeatureId)),true);
+    if (specificProductFeatureApplList.size() == 0) {
+      delegator.create("ProductFeatureAppl",UtilMisc.toMap("productId",productId,"productFeatureId",productFeatureId,"productFeatureApplTypeId",productFeatureApplTypeId,"fromDate",nowTimestamp));
+    }
+  }
+}

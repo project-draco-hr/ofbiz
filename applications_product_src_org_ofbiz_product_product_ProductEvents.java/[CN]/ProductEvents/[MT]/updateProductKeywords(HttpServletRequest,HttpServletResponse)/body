@@ -1,0 +1,65 @@
+{
+  String errMsg="";
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  Security security=(Security)request.getAttribute("security");
+  String updateMode=request.getParameter("UPDATE_MODE");
+  if (updateMode == null || updateMode.length() <= 0) {
+    errMsg=UtilProperties.getMessage(resource,"productevents.updatemode_not_specified",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    Debug.logWarning("[ProductEvents.updateProductKeywords] Update Mode was not specified, but is required",module);
+    return "error";
+  }
+  if (!security.hasEntityPermission("CATALOG","_" + updateMode,request.getSession())) {
+    errMsg=UtilProperties.getMessage(resource,"productevents.not_sufficient_permissions",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String productId=request.getParameter("PRODUCT_ID");
+  if (!UtilValidate.isNotEmpty(productId)) {
+    errMsg=UtilProperties.getMessage(resource,"productevents.no_product_ID_specified_keywords",UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  GenericValue product=null;
+  try {
+    product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    product=null;
+  }
+  if (product == null) {
+    Map messageMap=UtilMisc.toMap("productId",productId);
+    errMsg=UtilProperties.getMessage(resource,"productevents.product_with_productId_not_found_keywords",messageMap,UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  if (updateMode.equals("CREATE")) {
+    try {
+      KeywordSearch.induceKeywords(product,true);
+    }
+ catch (    GenericEntityException e) {
+      errMsg=UtilProperties.getMessage(resource,"productevents.could_not_create_keywords_write",UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+  }
+ else   if (updateMode.equals("DELETE")) {
+    try {
+      product.removeRelated("ProductKeyword");
+    }
+ catch (    GenericEntityException e) {
+      errMsg=UtilProperties.getMessage(resource,"productevents.could_not_remove_keywords_write",UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      Debug.logWarning("[ProductEvents.updateProductKeywords] Could not remove product-keywords (write error); message: " + e.getMessage(),module);
+      return "error";
+    }
+  }
+ else {
+    Map messageMap=UtilMisc.toMap("updateMode",updateMode);
+    errMsg=UtilProperties.getMessage(resource,"productevents.specified_update_mode_not_supported",messageMap,UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}

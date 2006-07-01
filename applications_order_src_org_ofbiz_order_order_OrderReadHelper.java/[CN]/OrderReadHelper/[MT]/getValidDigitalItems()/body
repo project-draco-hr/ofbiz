@@ -1,0 +1,65 @@
+{
+  List digitalItems=new ArrayList();
+  List exprs=UtilMisc.toList(new EntityExpr("statusId",EntityOperator.EQUALS,"ITEM_APPROVED"),new EntityExpr("statusId",EntityOperator.EQUALS,"ITEM_COMPLETED"));
+  List items=EntityUtil.filterByOr(getOrderItems(),exprs);
+  Iterator i=items.iterator();
+  while (i.hasNext()) {
+    GenericValue item=(GenericValue)i.next();
+    if (item.get("productId") != null) {
+      GenericValue product=null;
+      try {
+        product=item.getRelatedOne("Product");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Unable to get Product from OrderItem",module);
+      }
+      if (product != null) {
+        GenericValue productType=null;
+        try {
+          productType=product.getRelatedOne("ProductType");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"ERROR: Unable to get ProductType from Product",module);
+        }
+        if (productType != null) {
+          String isDigital=productType.getString("isDigital");
+          if (isDigital != null && "Y".equalsIgnoreCase(isDigital)) {
+            List orderItemBillings=null;
+            try {
+              orderItemBillings=item.getRelated("OrderItemBilling");
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,"Unable to get OrderItemBilling from OrderItem");
+            }
+            if (orderItemBillings != null && orderItemBillings.size() > 0) {
+              List productContents=null;
+              try {
+                productContents=product.getRelated("ProductContent");
+              }
+ catch (              GenericEntityException e) {
+                Debug.logError("Unable to get ProductContent from Product",module);
+              }
+              List cExprs=UtilMisc.toList(new EntityExpr("productContentTypeId",EntityOperator.EQUALS,"DIGITAL_DOWNLOAD"),new EntityExpr("productContentTypeId",EntityOperator.EQUALS,"FULFILLMENT_EMAIL"),new EntityExpr("productContentTypeId",EntityOperator.EQUALS,"FULFILLMENT_EXTERNAL"));
+              productContents=EntityUtil.filterByDate(productContents);
+              productContents=EntityUtil.filterByOr(productContents,cExprs);
+              if (productContents != null && productContents.size() > 0) {
+                Iterator pci=productContents.iterator();
+                while (pci.hasNext()) {
+                  GenericValue productContent=(GenericValue)pci.next();
+                  Timestamp fromDate=productContent.getTimestamp("purchaseFromDate");
+                  Timestamp thruDate=productContent.getTimestamp("purchaseThruDate");
+                  if (fromDate == null || item.getTimestamp("orderDate").after(fromDate)) {
+                    if (thruDate == null || item.getTimestamp("orderDate").before(thruDate)) {
+                      digitalItems.add(item);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return digitalItems;
+}

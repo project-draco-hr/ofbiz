@@ -1,0 +1,55 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List msgResult=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String requirementId=(String)context.get("requirementId");
+  Double quantity=(Double)context.get("quantity");
+  GenericValue requirement=null;
+  try {
+    requirement=delegator.findByPrimaryKey("Requirement",UtilMisc.toMap("requirementId",requirementId));
+  }
+ catch (  GenericEntityException gee) {
+  }
+  if (requirement == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingRequirementNotExists",locale));
+  }
+  if (!"MRP_PRO_PROD_ORDER".equals(requirement.getString("requirementTypeId")) && !"WORK_REQUIREMENT".equals(requirement.getString("requirementTypeId"))) {
+    return ServiceUtil.returnSuccess();
+  }
+  if (quantity == null) {
+    quantity=requirement.getDouble("quantity");
+  }
+  Map serviceContext=new HashMap();
+  serviceContext.clear();
+  serviceContext.put("productId",requirement.getString("productId"));
+  serviceContext.put("pRQuantity",quantity);
+  serviceContext.put("startDate",requirement.getTimestamp("requirementStartDate"));
+  serviceContext.put("facilityId",requirement.getString("facilityId"));
+  String workEffortName=null;
+  if (requirement.getString("description") != null) {
+    workEffortName=requirement.getString("description");
+    if (workEffortName.length() > 50) {
+      workEffortName=workEffortName.substring(0,50);
+    }
+  }
+ else {
+    workEffortName="Created from requirement " + requirement.getString("requirementId");
+  }
+  serviceContext.put("workEffortName",workEffortName);
+  serviceContext.put("userLogin",userLogin);
+  Map resultService=null;
+  try {
+    resultService=dispatcher.runSync("createProductionRun",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotCreated",locale));
+  }
+  String productionRunId=(String)resultService.get("productionRunId");
+  result.put("productionRunId",productionRunId);
+  result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunCreated",UtilMisc.toMap("productionRunId",productionRunId),locale));
+  return result;
+}

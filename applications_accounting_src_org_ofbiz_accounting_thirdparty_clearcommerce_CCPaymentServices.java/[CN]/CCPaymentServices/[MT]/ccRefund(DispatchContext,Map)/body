@@ -1,0 +1,27 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found; cannot refund");
+  }
+  Document refundRequestDoc=buildSecondaryTxRequest(context,authTransaction.getString("referenceNum"),"Credit",(Double)context.get("refundAmount"));
+  Document refundResponseDoc=null;
+  try {
+    refundResponseDoc=sendRequest(refundRequestDoc,(String)context.get("paymentConfig"));
+  }
+ catch (  ClearCommerceException cce) {
+    return ServiceUtil.returnError(cce.getMessage());
+  }
+  if (getMessageListMaxSev(refundResponseDoc) > 4) {
+    Map result=ServiceUtil.returnSuccess();
+    result.put("refundResult",new Boolean(false));
+    result.put("refundAmount",new Double(0.00));
+    result.put("refundRefNum",getReferenceNum(refundResponseDoc));
+    List messages=getMessageList(refundResponseDoc);
+    if (UtilValidate.isNotEmpty(messages)) {
+      result.put("internalRespMsgs",messages);
+    }
+    return result;
+  }
+  return processRefundResponse(refundResponseDoc);
+}

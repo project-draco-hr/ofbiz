@@ -1,0 +1,62 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String invoiceId=(String)context.get("invoiceId");
+  GenericValue invoice=null;
+  try {
+    invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Trouble looking up Invoice #" + invoiceId,module);
+    return ServiceUtil.returnError("Trouble looking up Invoice #" + invoiceId);
+  }
+  if (invoice == null) {
+    Debug.logError("Could not locate invoice #" + invoiceId,module);
+    return ServiceUtil.returnError("Could not locate invoice #" + invoiceId);
+  }
+  List orderItemBillings=null;
+  try {
+    orderItemBillings=invoice.getRelated("OrderItemBilling");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Trouble getting OrderItemBilling(s) from Invoice #" + invoiceId,module);
+    return ServiceUtil.returnError("Trouble getting OrderItemBilling(s) from Invoice #" + invoiceId);
+  }
+  String billingAccountId=invoice.getString("billingAccountId");
+  String testOrderId=null;
+  boolean allSameOrder=true;
+  if (orderItemBillings != null) {
+    Iterator oii=orderItemBillings.iterator();
+    while (oii.hasNext()) {
+      GenericValue oib=(GenericValue)oii.next();
+      String orderId=oib.getString("orderId");
+      if (testOrderId == null) {
+        testOrderId=orderId;
+      }
+ else {
+        if (!orderId.equals(testOrderId)) {
+          allSameOrder=false;
+          break;
+        }
+      }
+    }
+  }
+  if (testOrderId == null || !allSameOrder) {
+    Debug.logWarning("Attempt to settle Invoice #" + invoiceId + " which contained none/multiple orders",module);
+    return ServiceUtil.returnSuccess();
+  }
+  double invoiceTotal=InvoiceWorker.getInvoiceTotal(invoice);
+  if (Debug.infoOn())   Debug.logInfo("(Capture) Invoice [#" + invoiceId + "] total: "+ invoiceTotal,module);
+  Map serviceContext=UtilMisc.toMap("userLogin",userLogin,"orderId",testOrderId,"invoiceId",invoiceId,"captureAmount",new Double(invoiceTotal));
+  if (UtilValidate.isNotEmpty(billingAccountId)) {
+    serviceContext.put("billingAccountId",billingAccountId);
+  }
+  try {
+    return dispatcher.runSync("captureOrderPayments",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Trouble running captureOrderPayments service",module);
+    return ServiceUtil.returnError("Trouble running captureOrderPayments service");
+  }
+}

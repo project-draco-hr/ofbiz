@@ -1,0 +1,89 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String productId=(String)context.get("productId");
+  Boolean removeOldBool=(Boolean)context.get("removeOld");
+  boolean removeOld=removeOldBool.booleanValue();
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  Boolean testBool=(Boolean)context.get("test");
+  boolean test=false;
+  if (testBool != null) {
+    test=testBool.booleanValue();
+  }
+  try {
+    GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+    Debug.logInfo("Processing virtual product with one variant with ID: " + productId + " and name: "+ product.getString("internalName"),module);
+    List paList=EntityUtil.filterByDate(delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productId",productId,"productAssocTypeId","PRODUCT_VARIANT")),nowTimestamp);
+    if (paList.size() > 1) {
+      Map messageMap=UtilMisc.toMap("productId",productId);
+      errMsg=UtilProperties.getMessage(resource,"productutilservices.found_more_than_one_valid_variant_for_virtual_ID",messageMap,locale);
+      Debug.logInfo(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+    if (paList.size() == 0) {
+      Map messageMap=UtilMisc.toMap("productId",productId);
+      errMsg=UtilProperties.getMessage(resource,"productutilservices.did_not_find_any_valid_variants_for_virtual_ID",messageMap,locale);
+      Debug.logInfo(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+    GenericValue productAssoc=EntityUtil.getFirst(paList);
+    if (removeOld) {
+      if (test) {
+        Debug.logInfo("Test mode, would remove: " + productAssoc,module);
+      }
+ else {
+        productAssoc.remove();
+      }
+    }
+ else {
+      productAssoc.set("thruDate",nowTimestamp);
+      if (test) {
+        Debug.logInfo("Test mode, would store: " + productAssoc,module);
+      }
+ else {
+        productAssoc.store();
+      }
+    }
+    String variantProductId=productAssoc.getString("productIdTo");
+    GenericValue variantProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",variantProductId));
+    Debug.logInfo("--variant has ID: " + variantProductId + " and name: "+ variantProduct.getString("internalName"),module);
+    GenericValue newVariantProduct=delegator.makeValue("Product",product);
+    newVariantProduct.setAllFields(variantProduct,false,"",null);
+    newVariantProduct.set("isVariant","N");
+    if (test) {
+      Debug.logInfo("Test mode, would store: " + newVariantProduct,module);
+    }
+ else {
+      newVariantProduct.store();
+    }
+    duplicateRelated(product,"","ProductCategoryMember","productId",variantProductId,nowTimestamp,true,delegator,test);
+    duplicateRelated(product,"","ProductFeatureAppl","productId",variantProductId,nowTimestamp,removeOld,delegator,test);
+    duplicateRelated(product,"","ProductContent","productId",variantProductId,nowTimestamp,removeOld,delegator,test);
+    duplicateRelated(product,"","ProductPrice","productId",variantProductId,nowTimestamp,removeOld,delegator,test);
+    duplicateRelated(product,"","GoodIdentification","productId",variantProductId,nowTimestamp,removeOld,delegator,test);
+    duplicateRelated(product,"","ProductAttribute","productId",variantProductId,nowTimestamp,removeOld,delegator,test);
+    duplicateRelated(product,"Main","ProductAssoc","productId",variantProductId,nowTimestamp,removeOld,delegator,test);
+    duplicateRelated(product,"Assoc","ProductAssoc","productIdTo",variantProductId,nowTimestamp,removeOld,delegator,test);
+    if (removeOld) {
+      if (test) {
+        Debug.logInfo("Test mode, would remove related ProductKeyword with dummy key: " + product.getRelatedDummyPK("ProductKeyword"),module);
+        Debug.logInfo("Test mode, would remove: " + product,module);
+      }
+ else {
+        product.removeRelated("ProductKeyword");
+        product.remove();
+      }
+    }
+    if (test) {
+      return ServiceUtil.returnError("Test mode - returning error to get a rollback");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resource,"productutilservices.entity_error_running_makeStandAloneFromSingleVariantVirtuals",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

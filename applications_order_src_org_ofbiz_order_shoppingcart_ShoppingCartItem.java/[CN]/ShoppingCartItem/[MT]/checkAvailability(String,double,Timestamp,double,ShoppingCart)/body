@@ -1,0 +1,69 @@
+{
+  GenericDelegator delegator=cart.getDelegator();
+  List selFixedAssetProduct=null;
+  GenericValue fixedAssetProduct=null;
+  try {
+    List allFixedAssetProduct=delegator.findByAnd("FixedAssetProduct",UtilMisc.toMap("productId",productId,"fixedAssetProductTypeId","FAPT_USE"));
+    selFixedAssetProduct=EntityUtil.filterByDate(allFixedAssetProduct,UtilDateTime.nowTimestamp(),"fromDate","thruDate",true);
+  }
+ catch (  GenericEntityException e) {
+    return "Could not find a related Fixed Asset for the product: " + productId;
+  }
+  if (selFixedAssetProduct != null && selFixedAssetProduct.size() > 0) {
+    Iterator firstOne=selFixedAssetProduct.iterator();
+    fixedAssetProduct=(GenericValue)firstOne.next();
+  }
+ else {
+    return "Could not find a related Fixed Asset for the product: " + productId;
+  }
+  GenericValue fixedAsset=null;
+  try {
+    fixedAsset=fixedAssetProduct.getRelatedOne("FixedAsset");
+  }
+ catch (  GenericEntityException e) {
+    return "fixed_Asset_not_found. Fixed AssetId: " + fixedAssetProduct.getString("fixedAssetId");
+  }
+  if (fixedAsset == null) {
+    return "fixed_Asset_not_found. Fixed AssetId: " + fixedAssetProduct.getString("fixedAssetId");
+  }
+  try {
+    fixedAsset.getRelatedOne("TechDataCalendar");
+  }
+ catch (  GenericEntityException e) {
+    if (fixedAsset.getDouble("productionCapacity").doubleValue() >= quantity) {
+      return "OK";
+    }
+ else {
+      return "Quantity requested: " + quantity + " Quantity available: "+ fixedAsset.getString("productionCapacity");
+    }
+  }
+  long dayCount=0;
+  String resultMessage="";
+  while (dayCount < (long)reservLength) {
+    GenericValue techDataCalendarExcDay=null;
+    Timestamp exceptionDateStartTime=new Timestamp((long)(reservStart.getTime() + (dayCount++ * 86400000)));
+    try {
+      techDataCalendarExcDay=delegator.findByPrimaryKey("TechDataCalendarExcDay",UtilMisc.toMap("calendarId",fixedAsset.get("calendarId"),"exceptionDateStartTime",exceptionDateStartTime));
+    }
+ catch (    GenericEntityException e) {
+      if (fixedAsset.get("productionCapacity") != null) {
+        if (fixedAsset.getDouble("productionCapacity").doubleValue() < quantity)         resultMessage=resultMessage.concat(exceptionDateStartTime.toString().substring(0,10) + ", ");
+      }
+    }
+    if (techDataCalendarExcDay != null) {
+      double exceptionCapacity=0.00;
+      if (techDataCalendarExcDay.get("exceptionCapacity") != null)       exceptionCapacity=techDataCalendarExcDay.getDouble("exceptionCapacity").doubleValue();
+      if (exceptionCapacity == 0.00 && fixedAsset.get("productionCapacity") != null)       exceptionCapacity=fixedAsset.getDouble("productionCapacity").doubleValue();
+      if (exceptionCapacity != 0.00) {
+        double usedCapacity=0.00;
+        if (techDataCalendarExcDay.get("usedCapacity") != null)         usedCapacity=techDataCalendarExcDay.getDouble("usedCapacity").doubleValue();
+        if (exceptionCapacity < (quantity + usedCapacity)) {
+          resultMessage=resultMessage.concat(exceptionDateStartTime.toString().substring(0,10) + ", ");
+          Debug.logInfo("No rental fixed Asset available: " + exceptionCapacity + " already used: "+ usedCapacity+ " Requested now: "+ quantity,module);
+        }
+      }
+    }
+  }
+  if (resultMessage.compareTo("") == 0)   return "OK";
+ else   return "I am sorry, not available at these dates: " + resultMessage + "item not added to the shopping cart.....";
+}

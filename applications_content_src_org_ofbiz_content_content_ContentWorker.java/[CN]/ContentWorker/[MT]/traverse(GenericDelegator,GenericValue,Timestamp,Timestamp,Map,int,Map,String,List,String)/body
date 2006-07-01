@@ -1,0 +1,91 @@
+{
+  String contentTypeId=null;
+  String contentId=null;
+  try {
+    if (contentAssocTypeId == null) {
+      contentAssocTypeId="";
+    }
+    contentId=(String)content.get("contentId");
+    contentTypeId=(String)content.get("contentTypeId");
+    List topicList=content.getRelatedByAnd("ToContentAssoc",UtilMisc.toMap("contentAssocTypeId","TOPIC"));
+    List topics=new ArrayList();
+    for (int i=0; i < topicList.size(); i++) {
+      GenericValue assoc=(GenericValue)topicList.get(i);
+      topics.add(assoc.get("contentId"));
+    }
+    List keywordList=content.getRelatedByAnd("ToContentAssoc",UtilMisc.toMap("contentAssocTypeId","KEYWORD"));
+    List keywords=new ArrayList();
+    for (int i=0; i < keywordList.size(); i++) {
+      GenericValue assoc=(GenericValue)keywordList.get(i);
+      keywords.add(assoc.get("contentId"));
+    }
+    List purposeValueList=content.getRelatedCache("ContentPurpose");
+    List purposes=new ArrayList();
+    for (int i=0; i < purposeValueList.size(); i++) {
+      GenericValue purposeValue=(GenericValue)purposeValueList.get(i);
+      purposes.add(purposeValue.get("contentPurposeTypeId"));
+    }
+    List contentTypeAncestry=new ArrayList();
+    getContentTypeAncestry(delegator,contentTypeId,contentTypeAncestry);
+    Map context=new HashMap();
+    context.put("content",content);
+    context.put("contentAssocTypeId",contentAssocTypeId);
+    context.put("purposes",purposes);
+    context.put("topics",topics);
+    context.put("keywords",keywords);
+    context.put("typeAncestry",contentTypeAncestry);
+    boolean isPick=checkWhen(context,(String)whenMap.get("pickWhen"));
+    boolean isReturnBefore=checkReturnWhen(context,(String)whenMap.get("returnBeforePickWhen"));
+    Map thisNode=null;
+    if (isPick || !isReturnBefore) {
+      thisNode=new HashMap();
+      thisNode.put("contentId",contentId);
+      thisNode.put("contentTypeId",contentTypeId);
+      thisNode.put("contentAssocTypeId",contentAssocTypeId);
+      List kids=(List)masterNode.get("kids");
+      if (kids == null) {
+        kids=new ArrayList();
+        masterNode.put("kids",kids);
+      }
+      kids.add(thisNode);
+    }
+    if (isPick) {
+      pickList.add(content);
+      thisNode.put("value",content);
+    }
+    boolean isReturnAfter=checkReturnWhen(context,(String)whenMap.get("returnAfterPickWhen"));
+    if (!isReturnAfter) {
+      List relatedAssocs=getContentAssocsWithId(delegator,contentId,fromDate,thruDate,direction,new ArrayList());
+      Iterator it=relatedAssocs.iterator();
+      Map assocContext=new HashMap();
+      assocContext.put("related",relatedAssocs);
+      while (it.hasNext()) {
+        GenericValue assocValue=(GenericValue)it.next();
+        contentAssocTypeId=(String)assocValue.get("contentAssocTypeId");
+        assocContext.put("contentAssocTypeId",contentAssocTypeId);
+        assocContext.put("parentContent",content);
+        String assocRelation=null;
+        String relatedDirection=null;
+        if (direction != null && direction.equalsIgnoreCase("From")) {
+          assocContext.put("contentIdFrom",assocValue.get("contentId"));
+          assocRelation="ToContent";
+          relatedDirection="From";
+        }
+ else {
+          assocContext.put("contentIdTo",assocValue.get("contentId"));
+          assocRelation="FromContent";
+          relatedDirection="To";
+        }
+        boolean isFollow=checkWhen(assocContext,(String)whenMap.get("followWhen"));
+        if (isFollow) {
+          GenericValue thisContent=assocValue.getRelatedOne(assocRelation);
+          traverse(delegator,thisContent,fromDate,thruDate,whenMap,depthIdx + 1,thisNode,contentAssocTypeId,pickList,relatedDirection);
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Entity Error:" + e.getMessage(),null);
+  }
+  return;
+}

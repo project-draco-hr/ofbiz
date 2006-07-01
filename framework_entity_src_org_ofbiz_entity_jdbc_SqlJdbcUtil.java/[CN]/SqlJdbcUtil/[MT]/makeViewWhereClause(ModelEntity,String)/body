@@ -1,0 +1,47 @@
+{
+  if (modelEntity instanceof ModelViewEntity) {
+    StringBuffer whereString=new StringBuffer();
+    ModelViewEntity modelViewEntity=(ModelViewEntity)modelEntity;
+    if ("ansi".equals(joinStyle) || "ansi-no-parenthesis".equals(joinStyle)) {
+    }
+ else     if ("theta-oracle".equals(joinStyle) || "theta-mssql".equals(joinStyle)) {
+      boolean isOracleStyle="theta-oracle".equals(joinStyle);
+      boolean isMssqlStyle="theta-mssql".equals(joinStyle);
+      for (int i=0; i < modelViewEntity.getViewLinksSize(); i++) {
+        ModelViewEntity.ModelViewLink viewLink=modelViewEntity.getViewLink(i);
+        ModelEntity linkEntity=modelViewEntity.getMemberModelEntity(viewLink.getEntityAlias());
+        ModelEntity relLinkEntity=modelViewEntity.getMemberModelEntity(viewLink.getRelEntityAlias());
+        if (linkEntity == null) {
+          throw new GenericEntityException("Link entity not found with alias: " + viewLink.getEntityAlias() + " for entity: "+ modelViewEntity.getEntityName());
+        }
+        if (relLinkEntity == null) {
+          throw new GenericEntityException("Rel-Link entity not found with alias: " + viewLink.getRelEntityAlias() + " for entity: "+ modelViewEntity.getEntityName());
+        }
+        for (int j=0; j < viewLink.getKeyMapsSize(); j++) {
+          ModelKeyMap keyMap=viewLink.getKeyMap(j);
+          ModelField linkField=linkEntity.getField(keyMap.getFieldName());
+          ModelField relLinkField=relLinkEntity.getField(keyMap.getRelFieldName());
+          if (whereString.length() > 0) {
+            whereString.append(" AND ");
+          }
+          whereString.append(viewLink.getEntityAlias());
+          whereString.append(".");
+          whereString.append(filterColName(linkField.getColName()));
+          if (isMssqlStyle && viewLink.isRelOptional())           whereString.append("*");
+          whereString.append("=");
+          if (isOracleStyle && viewLink.isRelOptional())           whereString.append(" (+) ");
+          whereString.append(viewLink.getRelEntityAlias());
+          whereString.append(".");
+          whereString.append(filterColName(relLinkField.getColName()));
+        }
+      }
+    }
+ else {
+      throw new GenericModelException("The join-style " + joinStyle + " is not supported");
+    }
+    if (whereString.length() > 0) {
+      return "(" + whereString.toString() + ")";
+    }
+  }
+  return "";
+}

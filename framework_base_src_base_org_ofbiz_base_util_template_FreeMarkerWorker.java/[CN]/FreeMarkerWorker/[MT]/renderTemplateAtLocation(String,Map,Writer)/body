@@ -1,0 +1,40 @@
+{
+  Template template=(Template)cachedTemplates.get(location);
+  if (template == null) {
+synchronized (FreeMarkerWorker.class) {
+      template=(Template)cachedTemplates.get(location);
+      if (template == null) {
+        URL locationUrl=FlexibleLocation.resolveLocation(location);
+        if (locationUrl == null) {
+          throw new IllegalArgumentException("FreeMarker file not found at location: " + location);
+        }
+        Reader locationReader=new InputStreamReader(locationUrl.openStream());
+        String locationProtocol=locationUrl.getProtocol();
+        String filename=null;
+        Configuration config=null;
+        if ("file".equals(locationProtocol)) {
+          String locationFile=locationUrl.getFile();
+          int lastSlash=locationFile.lastIndexOf("/");
+          String locationDir=locationFile.substring(0,lastSlash);
+          filename=locationFile.substring(lastSlash + 1);
+          if (Debug.verboseOn())           Debug.logVerbose("FreeMarker render: filename=" + filename + ", locationDir="+ locationDir,module);
+          config=makeSingleUseOfbizFtlConfig(locationDir);
+        }
+ else {
+          filename=locationUrl.toExternalForm();
+          config=makeDefaultOfbizConfig();
+        }
+        template=new Template(filename,locationReader,config);
+        cachedTemplates.put(location,template);
+        Locale locale=(Locale)context.get("locale");
+        if (locale == null)         locale=Locale.getDefault();
+        template.setSetting("locale",locale.toString());
+      }
+    }
+  }
+  if (context == null) {
+    context=FastMap.newInstance();
+  }
+  addAllOfbizTransforms(context);
+  template.process(context,outWriter);
+}

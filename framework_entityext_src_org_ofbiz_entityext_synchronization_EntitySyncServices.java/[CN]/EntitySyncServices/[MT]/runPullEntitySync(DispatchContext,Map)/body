@@ -1,0 +1,82 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String entitySyncId=(String)context.get("entitySyncId");
+  String remotePullAndReportEntitySyncDataName=(String)context.get("remotePullAndReportEntitySyncDataName");
+  Debug.logInfo("Running runPullEntitySync for entitySyncId=" + context.get("entitySyncId"),module);
+  boolean gotMoreData=true;
+  Timestamp startDate=null;
+  Long toCreateInserted=null;
+  Long toCreateUpdated=null;
+  Long toCreateNotUpdated=null;
+  Long toStoreInserted=null;
+  Long toStoreUpdated=null;
+  Long toStoreNotUpdated=null;
+  Long toRemoveDeleted=null;
+  Long toRemoveAlreadyDeleted=null;
+  while (gotMoreData) {
+    gotMoreData=false;
+    Map remoteCallContext=new HashMap();
+    remoteCallContext.put("entitySyncId",entitySyncId);
+    remoteCallContext.put("delegatorName",context.get("remoteDelegatorName"));
+    remoteCallContext.put("userLogin",context.get("userLogin"));
+    remoteCallContext.put("startDate",startDate);
+    remoteCallContext.put("toCreateInserted",toCreateInserted);
+    remoteCallContext.put("toCreateUpdated",toCreateUpdated);
+    remoteCallContext.put("toCreateNotUpdated",toCreateNotUpdated);
+    remoteCallContext.put("toStoreInserted",toStoreInserted);
+    remoteCallContext.put("toStoreUpdated",toStoreUpdated);
+    remoteCallContext.put("toStoreNotUpdated",toStoreNotUpdated);
+    remoteCallContext.put("toRemoveDeleted",toRemoveDeleted);
+    remoteCallContext.put("toRemoveAlreadyDeleted",toRemoveAlreadyDeleted);
+    try {
+      Map result=dispatcher.runSync(remotePullAndReportEntitySyncDataName,remoteCallContext);
+      if (ServiceUtil.isError(result)) {
+        String errMsg="Error calling remote pull and report EntitySync service with name: " + remotePullAndReportEntitySyncDataName;
+        return ServiceUtil.returnError(errMsg,null,null,result);
+      }
+      startDate=(Timestamp)result.get("startDate");
+      try {
+        if (startDate != null && (!UtilValidate.isEmpty((Collection)result.get("valuesToCreate")) || !UtilValidate.isEmpty((Collection)result.get("valuesToStore")) || !UtilValidate.isEmpty((Collection)result.get("keysToRemove")))) {
+          gotMoreData=true;
+          List valuesToCreate=(List)result.get("valuesToCreate");
+          if (valuesToCreate == null)           valuesToCreate=Collections.EMPTY_LIST;
+          List valuesToStore=(List)result.get("valuesToStore");
+          if (valuesToStore == null)           valuesToStore=Collections.EMPTY_LIST;
+          List keysToRemove=(List)result.get("keysToRemove");
+          if (keysToRemove == null)           keysToRemove=Collections.EMPTY_LIST;
+          Map callLocalStoreContext=UtilMisc.toMap("entitySyncId",entitySyncId,"delegatorName",context.get("localDelegatorName"),"valuesToCreate",valuesToCreate,"valuesToStore",valuesToStore,"keysToRemove",keysToRemove);
+          callLocalStoreContext.put("userLogin",context.get("userLogin"));
+          Map storeResult=dispatcher.runSync("storeEntitySyncData",callLocalStoreContext);
+          if (ServiceUtil.isError(storeResult)) {
+            String errMsg="Error calling service to store data locally";
+            return ServiceUtil.returnError(errMsg,null,null,storeResult);
+          }
+          toCreateInserted=(Long)storeResult.get("toCreateInserted");
+          toCreateUpdated=(Long)storeResult.get("toCreateUpdated");
+          toCreateNotUpdated=(Long)storeResult.get("toCreateNotUpdated");
+          toStoreInserted=(Long)storeResult.get("toStoreInserted");
+          toStoreUpdated=(Long)storeResult.get("toStoreUpdated");
+          toStoreNotUpdated=(Long)storeResult.get("toStoreNotUpdated");
+          toRemoveDeleted=(Long)storeResult.get("toRemoveDeleted");
+          toRemoveAlreadyDeleted=(Long)storeResult.get("toRemoveAlreadyDeleted");
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error calling service to store data locally: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Exception calling remote pull and report EntitySync service with name: " + remotePullAndReportEntitySyncDataName + "; "+ e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    Throwable t) {
+      String errMsg="Error calling remote pull and report EntitySync service with name: " + remotePullAndReportEntitySyncDataName + "; "+ t.toString();
+      Debug.logError(t,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

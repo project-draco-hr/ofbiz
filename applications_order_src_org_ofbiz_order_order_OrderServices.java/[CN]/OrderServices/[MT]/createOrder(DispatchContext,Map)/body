@@ -1,0 +1,683 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Security security=ctx.getSecurity();
+  List toBeStored=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  Map successResult=ServiceUtil.returnSuccess();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderTypeId=(String)context.get("orderTypeId");
+  String partyId=(String)context.get("partyId");
+  String billFromVendorPartyId=(String)context.get("billFromVendorPartyId");
+  Map resultSecurity=new HashMap();
+  boolean hasPermission=false;
+  if (orderTypeId.equals("SALES_ORDER")) {
+    if (security.hasEntityPermission("ORDERMGR","_SALES_CREATE",userLogin)) {
+      hasPermission=true;
+    }
+ else {
+      List repsCustomers=new LinkedList();
+      try {
+        repsCustomers=EntityUtil.filterByDate(userLogin.getRelatedOne("Party").getRelatedByAnd("FromPartyRelationship",UtilMisc.toMap("roleTypeIdFrom","AGENT","roleTypeIdTo","CUSTOMER","partyIdTo",partyId)));
+      }
+ catch (      GenericEntityException ex) {
+        Debug.logError("Could not determine if " + partyId + " is a customer of user "+ userLogin.getString("userLoginId")+ " due to "+ ex.getMessage(),module);
+      }
+      if ((repsCustomers != null) && (repsCustomers.size() > 0) && (security.hasEntityPermission("SALESREP","_ORDER_CREATE",userLogin))) {
+        hasPermission=true;
+      }
+    }
+  }
+ else   if ((orderTypeId.equals("PURCHASE_ORDER") && (security.hasEntityPermission("ORDERMGR","_PURCHASE_CREATE",userLogin)))) {
+    hasPermission=true;
+  }
+  if (!hasPermission) {
+    partyId=ServiceUtil.getPartyIdCheckSecurity(userLogin,security,context,resultSecurity,"ORDERMGR","_CREATE");
+    if (resultSecurity.size() > 0) {
+      return resultSecurity;
+    }
+  }
+  String productStoreId=(String)context.get("productStoreId");
+  GenericValue productStore=null;
+  if ((orderTypeId.equals("SALES_ORDER")) && (UtilValidate.isNotEmpty(productStoreId))) {
+    try {
+      productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotFindProductStoreWithID",UtilMisc.toMap("productStoreId",productStoreId),locale) + e.toString());
+    }
+  }
+  boolean isImmediatelyFulfilled=false;
+  if (productStore != null) {
+    isImmediatelyFulfilled="Y".equals(productStore.getString("isImmediatelyFulfilled"));
+  }
+  successResult.put("orderTypeId",orderTypeId);
+  GenericValue orderType=null;
+  try {
+    orderType=delegator.findByPrimaryKeyCache("OrderType",UtilMisc.toMap("orderTypeId",orderTypeId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorOrderTypeLookupFailed",locale) + e.toString());
+  }
+  if (orderType == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorInvalidOrderTypeWithID",UtilMisc.toMap("orderTypeId",orderTypeId),locale));
+  }
+  List orderItems=(List)context.get("orderItems");
+  if (orderItems.size() < 1) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"items.none",locale));
+  }
+  List orderAdjustments=(List)context.get("orderAdjustments");
+  List orderItemShipGroupInfo=(List)context.get("orderItemShipGroupInfo");
+  List orderItemPriceInfo=(List)context.get("orderItemPriceInfos");
+  List errorMessages=FastList.newInstance();
+  Map normalizedItemQuantities=FastMap.newInstance();
+  Map normalizedItemNames=FastMap.newInstance();
+  Map itemValuesBySeqId=FastMap.newInstance();
+  Iterator itemIter=orderItems.iterator();
+  java.sql.Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  while (itemIter.hasNext()) {
+    GenericValue orderItem=(GenericValue)itemIter.next();
+    itemValuesBySeqId.put(orderItem.getString("orderItemSeqId"),orderItem);
+    String currentProductId=(String)orderItem.get("productId");
+    if (currentProductId != null) {
+      if (normalizedItemQuantities.get(currentProductId) == null) {
+        normalizedItemQuantities.put(currentProductId,new Double(orderItem.getDouble("quantity").doubleValue()));
+        normalizedItemNames.put(currentProductId,new String(orderItem.getString("itemDescription")));
+      }
+ else {
+        Double currentQuantity=(Double)normalizedItemQuantities.get(currentProductId);
+        normalizedItemQuantities.put(currentProductId,new Double(currentQuantity.doubleValue() + orderItem.getDouble("quantity").doubleValue()));
+      }
+      try {
+        dispatcher.runSync("countProductQuantityOrdered",UtilMisc.toMap("productId",currentProductId,"quantity",orderItem.getDouble("quantity"),"userLogin",userLogin));
+      }
+ catch (      GenericServiceException e1) {
+        Debug.logError(e1,"Error calling countProductQuantityOrdered service",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCallingCountProductQuantityOrderedService",locale) + e1.toString());
+      }
+    }
+  }
+  if (!"PURCHASE_ORDER".equals(orderTypeId) && productStoreId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorTheProductStoreIdCanOnlyBeNullForPurchaseOrders",locale));
+  }
+  Iterator normalizedIter=normalizedItemQuantities.keySet().iterator();
+  while (normalizedIter.hasNext()) {
+    String currentProductId=(String)normalizedIter.next();
+    Double currentQuantity=(Double)normalizedItemQuantities.get(currentProductId);
+    String itemName=(String)normalizedItemNames.get(currentProductId);
+    GenericValue product=null;
+    try {
+      product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",currentProductId));
+    }
+ catch (    GenericEntityException e) {
+      String errMsg=UtilProperties.getMessage(resource,"product.not_found",new Object[]{currentProductId},locale);
+      Debug.logError(e,errMsg,module);
+      errorMessages.add(errMsg);
+      continue;
+    }
+    if (product == null) {
+      String errMsg=UtilProperties.getMessage(resource,"product.not_found",new Object[]{currentProductId},locale);
+      Debug.logError(errMsg,module);
+      errorMessages.add(errMsg);
+      continue;
+    }
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      if (product.get("introductionDate") != null && nowTimestamp.before(product.getTimestamp("introductionDate"))) {
+        String excMsg=UtilProperties.getMessage(resource,"product.not_yet_for_sale",new Object[]{getProductName(product,itemName),product.getString("productId")},locale);
+        Debug.logWarning(excMsg,module);
+        errorMessages.add(excMsg);
+        continue;
+      }
+    }
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      if (product.get("salesDiscontinuationDate") != null && nowTimestamp.after(product.getTimestamp("salesDiscontinuationDate"))) {
+        String excMsg=UtilProperties.getMessage(resource,"product.no_longer_for_sale",new Object[]{getProductName(product,itemName),product.getString("productId")},locale);
+        Debug.logWarning(excMsg,module);
+        errorMessages.add(excMsg);
+        continue;
+      }
+    }
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      try {
+        Map invReqResult=dispatcher.runSync("isStoreInventoryAvailableOrNotRequired",UtilMisc.toMap("productStoreId",productStoreId,"productId",product.get("productId"),"product",product,"quantity",currentQuantity));
+        if (ServiceUtil.isError(invReqResult)) {
+          errorMessages.add(invReqResult.get(ModelService.ERROR_MESSAGE));
+          errorMessages.addAll((List)invReqResult.get(ModelService.ERROR_MESSAGE_LIST));
+        }
+ else         if (!"Y".equals((String)invReqResult.get("availableOrNotRequired"))) {
+          String invErrMsg=UtilProperties.getMessage(resource,"product.out_of_stock",new Object[]{getProductName(product,itemName),currentProductId},locale);
+          Debug.logWarning(invErrMsg,module);
+          errorMessages.add(invErrMsg);
+          continue;
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Fatal error calling inventory checking services: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        errorMessages.add(errMsg);
+      }
+    }
+  }
+  List workEfforts=(List)context.get("workEfforts");
+  Iterator orderItemIter=orderItems.iterator();
+  while (orderItemIter.hasNext()) {
+    GenericValue orderItem=(GenericValue)orderItemIter.next();
+    if ("RENTAL_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId"))) {
+      if (workEfforts == null || workEfforts.size() == 0) {
+        String errMsg="Work Efforts missing for ordertype RENTAL_ORDER_ITEM " + "Product: " + orderItem.getString("productId");
+        Debug.logError(errMsg,module);
+        errorMessages.add(errMsg);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderRentalOrderItems",locale));
+      }
+      Iterator we=workEfforts.iterator();
+      while (we.hasNext()) {
+        GenericValue workEffort=(GenericValue)we.next();
+        if (workEffort.getString("workEffortId").equals(orderItem.getString("orderItemSeqId"))) {
+          List selFixedAssetProduct=null;
+          try {
+            List allFixedAssetProduct=delegator.findByAnd("FixedAssetProduct",UtilMisc.toMap("productId",orderItem.getString("productId"),"fixedAssetProductTypeId","FAPT_USE"));
+            selFixedAssetProduct=EntityUtil.filterByDate(allFixedAssetProduct,nowTimestamp,"fromDate","thruDate",true);
+          }
+ catch (          GenericEntityException e) {
+            String excMsg="Could not find related Fixed Asset for the product: " + orderItem.getString("productId");
+            Debug.logError(excMsg,module);
+            errorMessages.add(excMsg);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCouldNotFindRelatedFixedAssetForTheProduct",UtilMisc.toMap("productId",orderItem.getString("productId")),locale));
+          }
+          if (selFixedAssetProduct != null && selFixedAssetProduct.size() > 0) {
+            Iterator firstOne=selFixedAssetProduct.iterator();
+            if (firstOne.hasNext()) {
+              GenericValue fixedAssetProduct=delegator.makeValue("FixedAssetProduct",null);
+              fixedAssetProduct=(GenericValue)firstOne.next();
+              workEffort.set("fixedAssetId",fixedAssetProduct.get("fixedAssetId"));
+              workEffort.set("quantityToProduce",orderItem.get("quantity"));
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (errorMessages.size() > 0) {
+    return ServiceUtil.returnError(errorMessages);
+  }
+  String initialStatus="ORDER_CREATED";
+  successResult.put("statusId",initialStatus);
+  String orderId=null;
+  String orgPartyId=null;
+  if (productStore != null) {
+    orgPartyId=productStore.getString("payToPartyId");
+  }
+ else   if (billFromVendorPartyId != null) {
+    orgPartyId=billFromVendorPartyId;
+  }
+  if (UtilValidate.isNotEmpty(orgPartyId)) {
+    Map getNextOrderIdContext=UtilMisc.toMap("partyId",orgPartyId,"userLogin",userLogin);
+    if ((orderTypeId.equals("SALES_ORDER")) || (productStoreId != null)) {
+      getNextOrderIdContext.put("productStoreId",productStoreId);
+    }
+    try {
+      Map getNextOrderIdResult=dispatcher.runSync("getNextOrderId",getNextOrderIdContext);
+      if (ServiceUtil.isError(getNextOrderIdResult)) {
+        return ServiceUtil.returnError("Error getting next orderId while creating order",null,null,getNextOrderIdResult);
+      }
+      orderId=(String)getNextOrderIdResult.get("orderId");
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error creating order while getting orderId: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  if (UtilValidate.isEmpty(orderId)) {
+    orderId=delegator.getNextSeqId("OrderHeader");
+  }
+  String billingAccountId=(String)context.get("billingAccountId");
+  Timestamp orderDate=(Timestamp)context.get("orderDate");
+  if (orderDate == null) {
+    orderDate=nowTimestamp;
+  }
+  Map orderHeaderMap=UtilMisc.toMap("orderId",orderId,"orderTypeId",orderTypeId,"orderDate",orderDate,"entryDate",nowTimestamp,"statusId",initialStatus,"billingAccountId",billingAccountId);
+  orderHeaderMap.put("orderName",context.get("orderName"));
+  if (isImmediatelyFulfilled) {
+    orderHeaderMap.put("needsInventoryIssuance","Y");
+  }
+  GenericValue orderHeader=delegator.makeValue("OrderHeader",orderHeaderMap);
+  String salesChannelEnumId=(String)context.get("salesChannelEnumId");
+  if ((salesChannelEnumId == null) || salesChannelEnumId.equals("UNKNWN_SALES_CHANNEL")) {
+    if (orderTypeId.equals("SALES_ORDER") && (productStore != null)) {
+      salesChannelEnumId=productStore.getString("defaultSalesChannelEnumId");
+    }
+    if (salesChannelEnumId == null) {
+      salesChannelEnumId="UNKNWN_SALES_CHANNEL";
+    }
+  }
+  orderHeader.set("salesChannelEnumId",salesChannelEnumId);
+  if (context.get("currencyUom") != null) {
+    orderHeader.set("currencyUom",context.get("currencyUom"));
+  }
+  if (context.get("firstAttemptOrderId") != null) {
+    orderHeader.set("firstAttemptOrderId",context.get("firstAttemptOrderId"));
+  }
+  if (context.get("grandTotal") != null) {
+    orderHeader.set("grandTotal",context.get("grandTotal"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("visitId"))) {
+    orderHeader.set("visitId",context.get("visitId"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("internalCode"))) {
+    orderHeader.set("internalCode",context.get("internalCode"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("externalId"))) {
+    orderHeader.set("externalId",context.get("externalId"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("originFacilityId"))) {
+    orderHeader.set("originFacilityId",context.get("originFacilityId"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("productStoreId"))) {
+    orderHeader.set("productStoreId",context.get("productStoreId"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("transactionId"))) {
+    orderHeader.set("transactionId",context.get("transactionId"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("terminalId"))) {
+    orderHeader.set("terminalId",context.get("terminalId"));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("webSiteId"))) {
+    orderHeader.set("webSiteId",context.get("webSiteId"));
+  }
+  if (userLogin != null && userLogin.get("userLoginId") != null) {
+    orderHeader.set("createdBy",userLogin.getString("userLoginId"));
+  }
+  try {
+    delegator.create(orderHeader);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot create OrderHeader entity; problems with insert",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderOrderCreationFailedPleaseNotifyCustomerService",locale));
+  }
+  String orderStatusSeqId=delegator.getNextSeqId("OrderStatus");
+  GenericValue orderStatus=delegator.makeValue("OrderStatus",UtilMisc.toMap("orderStatusId",orderStatusSeqId));
+  orderStatus.set("orderId",orderId);
+  orderStatus.set("statusId",orderHeader.getString("statusId"));
+  orderStatus.set("statusDatetime",nowTimestamp);
+  orderStatus.set("statusUserLogin",userLogin.getString("userLoginId"));
+  toBeStored.add(orderStatus);
+  List orderItemGroups=(List)context.get("orderItemGroups");
+  if (orderItemGroups != null && orderItemGroups.size() > 0) {
+    Iterator orderItemGroupIter=orderItemGroups.iterator();
+    while (orderItemGroupIter.hasNext()) {
+      GenericValue orderItemGroup=(GenericValue)orderItemGroupIter.next();
+      orderItemGroup.set("orderId",orderId);
+      toBeStored.add(orderItemGroup);
+    }
+  }
+  Iterator oi=orderItems.iterator();
+  while (oi.hasNext()) {
+    GenericValue orderItem=(GenericValue)oi.next();
+    orderItem.set("orderId",orderId);
+    toBeStored.add(orderItem);
+    String itemStatusId=delegator.getNextSeqId("OrderStatus");
+    GenericValue itemStatus=delegator.makeValue("OrderStatus",UtilMisc.toMap("orderStatusId",itemStatusId));
+    itemStatus.put("statusId",orderItem.get("statusId"));
+    itemStatus.put("orderId",orderId);
+    itemStatus.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
+    itemStatus.put("statusDatetime",nowTimestamp);
+    itemStatus.set("statusUserLogin",userLogin.getString("userLoginId"));
+    toBeStored.add(itemStatus);
+  }
+  List orderAttributes=(List)context.get("orderAttributes");
+  if (orderAttributes != null && orderAttributes.size() > 0) {
+    Iterator oattr=orderAttributes.iterator();
+    while (oattr.hasNext()) {
+      GenericValue oatt=(GenericValue)oattr.next();
+      oatt.set("orderId",orderId);
+      toBeStored.add(oatt);
+    }
+  }
+  List orderItemAttributes=(List)context.get("orderItemAttributes");
+  if (orderItemAttributes != null && orderItemAttributes.size() > 0) {
+    Iterator oiattr=orderItemAttributes.iterator();
+    while (oiattr.hasNext()) {
+      GenericValue oiatt=(GenericValue)oiattr.next();
+      oiatt.set("orderId",orderId);
+      toBeStored.add(oiatt);
+    }
+  }
+  List orderInternalNotes=(List)context.get("orderInternalNotes");
+  if (orderInternalNotes != null && orderInternalNotes.size() > 0) {
+    Iterator orderInternalNotesIt=orderInternalNotes.iterator();
+    while (orderInternalNotesIt.hasNext()) {
+      String orderInternalNote=(String)orderInternalNotesIt.next();
+      try {
+        Map noteOutputMap=dispatcher.runSync("createOrderNote",UtilMisc.toMap("orderId",orderId,"internalNote","Y","note",orderInternalNote,"userLogin",userLogin));
+        if (ServiceUtil.isError(noteOutputMap)) {
+          return ServiceUtil.returnError("Error creating internal notes while creating order",null,null,noteOutputMap);
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error creating internal notes while creating order: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+  }
+  List orderNotes=(List)context.get("orderNotes");
+  if (orderNotes != null && orderNotes.size() > 0) {
+    Iterator orderNotesIt=orderNotes.iterator();
+    while (orderNotesIt.hasNext()) {
+      String orderNote=(String)orderNotesIt.next();
+      try {
+        Map noteOutputMap=dispatcher.runSync("createOrderNote",UtilMisc.toMap("orderId",orderId,"internalNote","N","note",orderNote,"userLogin",userLogin));
+        if (ServiceUtil.isError(noteOutputMap)) {
+          return ServiceUtil.returnError("Error creating notes while creating order",null,null,noteOutputMap);
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error creating notes while creating order: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+  }
+  if (workEfforts != null && workEfforts.size() > 0) {
+    Iterator we=workEfforts.iterator();
+    while (we.hasNext()) {
+      GenericValue workEffort=(GenericValue)we.next();
+      GenericValue workOrderItemFulfillment=delegator.makeValue("WorkOrderItemFulfillment",null);
+      GenericValue fixedAsset=null;
+      Debug.logInfo("find the fixedAsset",module);
+      try {
+        fixedAsset=delegator.findByPrimaryKey("FixedAsset",UtilMisc.toMap("fixedAssetId",workEffort.get("fixedAssetId")));
+      }
+ catch (      GenericEntityException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderFixedAssetNotFoundFixedAssetId ",UtilMisc.toMap("fixedAssetId",workEffort.get("fixedAssetId")),locale));
+      }
+      if (fixedAsset == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderFixedAssetNotFoundFixedAssetId ",UtilMisc.toMap("fixedAssetId",workEffort.get("fixedAssetId")),locale));
+      }
+      Debug.logInfo("find the techdatacalendar",module);
+      GenericValue techDataCalendar=null;
+      try {
+        techDataCalendar=fixedAsset.getRelatedOne("TechDataCalendar");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logInfo("TechData calendar does not exist yet so create for fixedAsset: " + fixedAsset.get("fixedAssetId"),module);
+      }
+      if (techDataCalendar == null) {
+        techDataCalendar=delegator.makeValue("TechDataCalendar",null);
+        Debug.logInfo("create techdata calendar because it does not exist",module);
+        String calendarId=delegator.getNextSeqId("techDataCalendar").toString();
+        techDataCalendar.set("calendarId",calendarId);
+        toBeStored.add(techDataCalendar);
+        Debug.logInfo("update fixed Asset",module);
+        fixedAsset.set("calendarId",calendarId);
+        toBeStored.add(fixedAsset);
+      }
+      workOrderItemFulfillment.set("orderItemSeqId",workEffort.get("workEffortId").toString());
+      String workEffortId=delegator.getNextSeqId("WorkEffort").toString();
+      workEffort.set("workEffortId",workEffortId);
+      workEffort.set("workEffortTypeId","ASSET_USAGE");
+      toBeStored.add(workEffort);
+      workOrderItemFulfillment.set("workEffortId",workEffortId);
+      workOrderItemFulfillment.set("orderId",orderId);
+      toBeStored.add(workOrderItemFulfillment);
+      Timestamp estimatedStartDate=workEffort.getTimestamp("estimatedStartDate");
+      Timestamp estimatedCompletionDate=workEffort.getTimestamp("estimatedCompletionDate");
+      long dayCount=(estimatedCompletionDate.getTime() - estimatedStartDate.getTime()) / 86400000;
+      while (--dayCount >= 0) {
+        GenericValue techDataCalendarExcDay=null;
+        Timestamp exceptionDateStartTime=new Timestamp((long)(estimatedStartDate.getTime() + (dayCount * 86400000)));
+        try {
+          techDataCalendarExcDay=delegator.findByPrimaryKey("TechDataCalendarExcDay",UtilMisc.toMap("calendarId",fixedAsset.get("calendarId"),"exceptionDateStartTime",exceptionDateStartTime));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logInfo(" techData excday record not found so creating........",module);
+        }
+        if (techDataCalendarExcDay == null) {
+          techDataCalendarExcDay=delegator.makeValue("TechDataCalendarExcDay",null);
+          techDataCalendarExcDay.set("calendarId",fixedAsset.get("calendarId"));
+          techDataCalendarExcDay.set("exceptionDateStartTime",exceptionDateStartTime);
+          techDataCalendarExcDay.set("usedCapacity",new Double(00.00));
+          techDataCalendarExcDay.set("exceptionCapacity",fixedAsset.getDouble("productionCapacity"));
+        }
+        Double newUsedCapacity=new Double(techDataCalendarExcDay.getDouble("usedCapacity").doubleValue() + workEffort.getDouble("quantityToProduce").doubleValue());
+        if (fixedAsset.get("productionCapacity") != null) {
+          if (newUsedCapacity.compareTo(techDataCalendarExcDay.getDouble("exceptionCapacity")) > 0) {
+            String errMsg="ERROR: fixed_Asset_sold_out AssetId: " + workEffort.get("fixedAssetId") + " on date: "+ techDataCalendarExcDay.getString("exceptionDateStartTime");
+            Debug.logError(errMsg,module);
+            errorMessages.add(errMsg);
+            continue;
+          }
+        }
+        techDataCalendarExcDay.set("usedCapacity",newUsedCapacity);
+        toBeStored.add(techDataCalendarExcDay);
+      }
+    }
+  }
+  if (errorMessages.size() > 0) {
+    return ServiceUtil.returnError(errorMessages);
+  }
+  if (orderAdjustments != null && orderAdjustments.size() > 0) {
+    Iterator iter=orderAdjustments.iterator();
+    while (iter.hasNext()) {
+      GenericValue orderAdjustment=(GenericValue)iter.next();
+      try {
+        orderAdjustment.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+      }
+ catch (      IllegalArgumentException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotGetNextSequenceIdForOrderAdjustmentCannotCreateOrder",locale));
+      }
+      orderAdjustment.set("orderId",orderId);
+      orderAdjustment.set("createdDate",UtilDateTime.nowTimestamp());
+      orderAdjustment.set("createdByUserLogin",userLogin.getString("userLoginId"));
+      if (orderAdjustment.get("orderItemSeqId") == null || orderAdjustment.getString("orderItemSeqId").length() == 0) {
+        orderAdjustment.set("orderItemSeqId",DataModelConstants.SEQ_ID_NA);
+      }
+      if (orderAdjustment.get("shipGroupSeqId") == null || orderAdjustment.getString("shipGroupSeqId").length() == 0) {
+        orderAdjustment.set("shipGroupSeqId",DataModelConstants.SEQ_ID_NA);
+      }
+      toBeStored.add(orderAdjustment);
+    }
+  }
+  List orderContactMechs=(List)context.get("orderContactMechs");
+  if (orderContactMechs != null && orderContactMechs.size() > 0) {
+    Iterator ocmi=orderContactMechs.iterator();
+    while (ocmi.hasNext()) {
+      GenericValue ocm=(GenericValue)ocmi.next();
+      ocm.set("orderId",orderId);
+      toBeStored.add(ocm);
+    }
+  }
+  List orderItemContactMechs=(List)context.get("orderItemContactMechs");
+  if (orderItemContactMechs != null && orderItemContactMechs.size() > 0) {
+    Iterator oicmi=orderItemContactMechs.iterator();
+    while (oicmi.hasNext()) {
+      GenericValue oicm=(GenericValue)oicmi.next();
+      oicm.set("orderId",orderId);
+      toBeStored.add(oicm);
+    }
+  }
+  if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
+    Iterator osiInfos=orderItemShipGroupInfo.iterator();
+    while (osiInfos.hasNext()) {
+      GenericValue valueObj=(GenericValue)osiInfos.next();
+      valueObj.set("orderId",orderId);
+      if ("OrderItemShipGroup".equals(valueObj.getEntityName())) {
+        if (valueObj.get("carrierRoleTypeId") == null) {
+          valueObj.set("carrierRoleTypeId","CARRIER");
+        }
+      }
+ else       if ("OrderAdjustment".equals(valueObj.getEntityName())) {
+        if (valueObj.get("orderItemSeqId") == null || valueObj.getString("orderItemSeqId").length() == 0) {
+          valueObj.set("orderItemSeqId",DataModelConstants.SEQ_ID_NA);
+        }
+        valueObj.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+        valueObj.set("createdDate",UtilDateTime.nowTimestamp());
+        valueObj.set("createdByUserLogin",userLogin.getString("userLoginId"));
+      }
+      toBeStored.add(valueObj);
+    }
+  }
+  Map additionalPartyRole=(Map)context.get("orderAdditionalPartyRoleMap");
+  if (additionalPartyRole != null) {
+    Iterator aprIt=additionalPartyRole.entrySet().iterator();
+    while (aprIt.hasNext()) {
+      Map.Entry entry=(Map.Entry)aprIt.next();
+      String additionalRoleTypeId=(String)entry.getKey();
+      List parties=(List)entry.getValue();
+      if (parties != null) {
+        Iterator apIt=parties.iterator();
+        while (apIt.hasNext()) {
+          String additionalPartyId=(String)apIt.next();
+          toBeStored.add(delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",additionalPartyId,"roleTypeId",additionalRoleTypeId)));
+          toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",additionalPartyId,"roleTypeId",additionalRoleTypeId)));
+        }
+      }
+    }
+  }
+  List surveyResponses=(List)context.get("orderItemSurveyResponses");
+  if (surveyResponses != null && surveyResponses.size() > 0) {
+    Iterator oisr=surveyResponses.iterator();
+    while (oisr.hasNext()) {
+      GenericValue surveyResponse=(GenericValue)oisr.next();
+      surveyResponse.set("orderId",orderId);
+      toBeStored.add(surveyResponse);
+    }
+  }
+  if (orderItemPriceInfo != null && orderItemPriceInfo.size() > 0) {
+    Iterator oipii=orderItemPriceInfo.iterator();
+    while (oipii.hasNext()) {
+      GenericValue oipi=(GenericValue)oipii.next();
+      try {
+        oipi.set("orderItemPriceInfoId",delegator.getNextSeqId("OrderItemPriceInfo"));
+      }
+ catch (      IllegalArgumentException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotGetNextSequenceIdForOrderItemPriceInfoCannotCreateOrder",locale));
+      }
+      oipi.set("orderId",orderId);
+      toBeStored.add(oipi);
+    }
+  }
+  List orderItemAssociations=(List)context.get("orderItemAssociations");
+  if (orderItemAssociations != null && orderItemAssociations.size() > 0) {
+    Iterator oia=orderItemAssociations.iterator();
+    while (oia.hasNext()) {
+      GenericValue orderItemAssociation=(GenericValue)oia.next();
+      orderItemAssociation.set("purchaseOrderId",orderId);
+      toBeStored.add(orderItemAssociation);
+    }
+  }
+  List orderProductPromoUses=(List)context.get("orderProductPromoUses");
+  if (orderProductPromoUses != null && orderProductPromoUses.size() > 0) {
+    Iterator orderProductPromoUseIter=orderProductPromoUses.iterator();
+    while (orderProductPromoUseIter.hasNext()) {
+      GenericValue productPromoUse=(GenericValue)orderProductPromoUseIter.next();
+      productPromoUse.set("orderId",orderId);
+      toBeStored.add(productPromoUse);
+    }
+  }
+  Map attributeRoleMap=salesAttributeRoleMap;
+  if ("PURCHASE_ORDER".equals(orderTypeId)) {
+    attributeRoleMap=purchaseAttributeRoleMap;
+  }
+  Iterator attributeRoleEntryIter=attributeRoleMap.entrySet().iterator();
+  while (attributeRoleEntryIter.hasNext()) {
+    Map.Entry attributeRoleEntry=(Map.Entry)attributeRoleEntryIter.next();
+    if (UtilValidate.isNotEmpty((String)context.get(attributeRoleEntry.getKey()))) {
+      toBeStored.add(delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",context.get(attributeRoleEntry.getKey()),"roleTypeId",attributeRoleEntry.getValue())));
+      toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",context.get(attributeRoleEntry.getKey()),"roleTypeId",attributeRoleEntry.getValue())));
+    }
+  }
+  String affiliateId=(String)context.get("affiliateId");
+  if (UtilValidate.isNotEmpty(affiliateId)) {
+    toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",affiliateId,"roleTypeId","AFFILIATE")));
+  }
+  String distributorId=(String)context.get("distributorId");
+  if (UtilValidate.isNotEmpty(distributorId)) {
+    toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",distributorId,"roleTypeId","DISTRIBUTOR")));
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("productStoreId"))) {
+    try {
+      List productStoreRoles=delegator.findByAnd("ProductStoreRole",UtilMisc.toMap("roleTypeId","VENDOR","productStoreId",context.get("productStoreId")),UtilMisc.toList("-fromDate"));
+      productStoreRoles=EntityUtil.filterByDate(productStoreRoles,true);
+      GenericValue productStoreRole=EntityUtil.getFirst(productStoreRoles);
+      if (productStoreRole != null) {
+        toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",productStoreRole.get("partyId"),"roleTypeId","VENDOR")));
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error looking up Vendor for the current Product Store",module);
+    }
+  }
+  if (UtilValidate.isNotEmpty((String)context.get("webSiteId"))) {
+    try {
+      List webSiteRoles=delegator.findByAnd("WebSiteRole",UtilMisc.toMap("roleTypeId","VENDOR","webSiteId",context.get("webSiteId")),UtilMisc.toList("-fromDate"));
+      webSiteRoles=EntityUtil.filterByDate(webSiteRoles,true);
+      GenericValue webSiteRole=EntityUtil.getFirst(webSiteRoles);
+      if (webSiteRole != null) {
+        toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",webSiteRole.get("partyId"),"roleTypeId","VENDOR")));
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error looking up Vendor for the current Web Site",module);
+    }
+  }
+  List orderPaymentInfos=(List)context.get("orderPaymentInfo");
+  if (orderPaymentInfos != null && orderPaymentInfos.size() > 0) {
+    Iterator oppIter=orderPaymentInfos.iterator();
+    while (oppIter.hasNext()) {
+      GenericValue valueObj=(GenericValue)oppIter.next();
+      valueObj.set("orderId",orderId);
+      if ("OrderPaymentPreference".equals(valueObj.getEntityName())) {
+        if (valueObj.get("orderPaymentPreferenceId") == null) {
+          valueObj.set("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference").toString());
+          valueObj.set("createdDate",UtilDateTime.nowTimestamp());
+          valueObj.set("createdByUserLogin",userLogin.getString("userLoginId"));
+        }
+        if (valueObj.get("statusId") == null) {
+          valueObj.set("statusId","PAYMENT_NOT_RECEIVED");
+        }
+      }
+      toBeStored.add(valueObj);
+    }
+  }
+  List trackingCodeOrders=(List)context.get("trackingCodeOrders");
+  if (trackingCodeOrders != null && trackingCodeOrders.size() > 0) {
+    Iterator tkcdordIter=trackingCodeOrders.iterator();
+    while (tkcdordIter.hasNext()) {
+      GenericValue trackingCodeOrder=(GenericValue)tkcdordIter.next();
+      trackingCodeOrder.set("orderId",orderId);
+      toBeStored.add(trackingCodeOrder);
+    }
+  }
+  List orderTerms=(List)context.get("orderTerms");
+  if (orderTerms != null && orderTerms.size() > 0) {
+    Iterator orderTermIter=orderTerms.iterator();
+    while (orderTermIter.hasNext()) {
+      GenericValue orderTerm=(GenericValue)orderTermIter.next();
+      orderTerm.set("orderId",orderId);
+      orderTerm.set("orderItemSeqId","_NA_");
+      toBeStored.add(orderTerm);
+    }
+  }
+  try {
+    delegator.storeAll(toBeStored);
+    List resErrorMessages=new LinkedList();
+    try {
+      reserveInventory(delegator,dispatcher,userLogin,locale,orderItemShipGroupInfo,itemValuesBySeqId,orderTypeId,productStoreId,resErrorMessages);
+    }
+ catch (    GeneralException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (resErrorMessages.size() > 0) {
+      return ServiceUtil.returnError(resErrorMessages);
+    }
+    successResult.put("orderId",orderId);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem with order storage or reservations",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotCreateOrderWriteError",locale) + e.getMessage() + ").");
+  }
+  return successResult;
+}

@@ -1,0 +1,35 @@
+{
+  ApplicationMap tad=tool.getApplicationMap();
+  String tacn=(tad != null) ? tad.getToolAgentClassName() : defaultToolAgentClassName;
+  String uname=(tad != null) ? tad.getUsername() : "";
+  String pwd=(tad != null) ? tad.getPassword() : "";
+  String appN=(tad != null) ? tad.getApplicationName() : "";
+  Integer appM=(tad != null) ? tad.getApplicationMode() : null;
+  ToolAgent ta=SharkEngineManager.getInstance().getToolAgentFactory().createToolAgent(transaction,tacn);
+  SessionHandle shandle=null;
+  try {
+    shandle=ta.connect(transaction,uname,pwd,cus.getProperty("enginename","imaobihostrezube"),"");
+  }
+ catch (  ConnectFailed cf) {
+    cus.error("Activity[" + tool.getActivityId() + "] - connection to Tool agent "+ tacn+ " failed !");
+    throw cf;
+  }
+  String assId=SharkUtilities.createAssignmentKey(tool.getActivityId(),resource);
+  ta.invokeApplication(transaction,shandle.getHandle(),appN,tool.getProcessId(),assId,tool.getParameters(),appM);
+  long appStatus=ta.requestAppStatus(transaction,shandle.getHandle(),tool.getProcessId(),assId,tool.getParameters());
+  if (appStatus == APP_STATUS_INVALID) {
+    ta.disconnect(transaction,shandle);
+    throw new Exception();
+  }
+  ta.disconnect(transaction,shandle);
+  AppParameter[] returnValues=tool.getParameters();
+  Map newData=new HashMap();
+  for (int i=0; i < returnValues.length; i++) {
+    if (returnValues[i].the_mode.equals(AppParameter.MODE_OUT) || returnValues[i].the_mode.equals(AppParameter.MODE_INOUT)) {
+      String name=returnValues[i].the_actual_name;
+      Object value=returnValues[i].the_value;
+      newData.put(name,value);
+    }
+  }
+  return newData;
+}

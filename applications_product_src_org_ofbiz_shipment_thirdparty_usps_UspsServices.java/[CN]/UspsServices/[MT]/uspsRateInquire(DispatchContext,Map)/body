@@ -1,0 +1,115 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Double shippableWeight=(Double)context.get("shippableWeight");
+  if (shippableWeight.doubleValue() == 0) {
+  }
+  String originationZip=null;
+  GenericValue productStore=ProductStoreWorker.getProductStore(((String)context.get("productStoreId")),delegator);
+  if (productStore != null && productStore.get("inventoryFacilityId") != null) {
+    try {
+      List shipLocs=delegator.findByAnd("FacilityContactMechPurpose",UtilMisc.toMap("facilityId",productStore.getString("inventoryFacilityId"),"contactMechPurposeTypeId","SHIP_ORIG_LOCATION"),UtilMisc.toList("-fromDate"));
+      if (UtilValidate.isNotEmpty(shipLocs)) {
+        shipLocs=EntityUtil.filterByDate(shipLocs);
+        GenericValue purp=EntityUtil.getFirst(shipLocs);
+        if (purp != null) {
+          GenericValue shipFromAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",purp.getString("contactMechId")));
+          if (shipFromAddress != null) {
+            originationZip=shipFromAddress.getString("postalCode");
+          }
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (UtilValidate.isEmpty(originationZip)) {
+    return ServiceUtil.returnError("Unable to determine the origination ZIP");
+  }
+  String destinationZip=null;
+  String shippingContactMechId=(String)context.get("shippingContactMechId");
+  if (UtilValidate.isNotEmpty(shippingContactMechId)) {
+    try {
+      GenericValue shipToAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
+      if (shipToAddress != null) {
+        destinationZip=shipToAddress.getString("postalCode");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (UtilValidate.isEmpty(destinationZip)) {
+    return ServiceUtil.returnError("Unable to determine the destination ZIP");
+  }
+  String serviceCode=null;
+  try {
+    GenericValue carrierShipmentMethod=delegator.findByPrimaryKey("CarrierShipmentMethod",UtilMisc.toMap("shipmentMethodTypeId",(String)context.get("shipmentMethodTypeId"),"partyId",(String)context.get("carrierPartyId"),"roleTypeId",(String)context.get("carrierRoleTypeId")));
+    if (carrierShipmentMethod != null) {
+      serviceCode=carrierShipmentMethod.getString("carrierServiceCode");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (UtilValidate.isEmpty(serviceCode)) {
+    return ServiceUtil.returnError("Unable to determine the service code");
+  }
+  Document requestDocument=createUspsRequestDocument("RateRequest");
+  double maxWeight=70;
+  String maxWeightStr=UtilProperties.getPropertyValue((String)context.get("serviceConfigProps"),"shipment.usps.max.estimate.weight","70");
+  try {
+    maxWeight=Double.parseDouble(maxWeightStr);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logWarning("Error parsing max estimate weight string [" + maxWeightStr + "], using default instead",module);
+    maxWeight=70;
+  }
+  List shippableItemInfo=(List)context.get("shippableItemInfo");
+  List packages=getPackageSplit(shippableItemInfo,maxWeight);
+  for (ListIterator li=packages.listIterator(); li.hasNext(); ) {
+    Map packageMap=(Map)li.next();
+    double packageWeight=calcPackageWeight(packageMap,shippableItemInfo,0);
+    if (packageWeight == 0) {
+      continue;
+    }
+    Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
+    packageElement.setAttribute("ID",String.valueOf(li.nextIndex() - 1));
+    UtilXml.addChildElementValue(packageElement,"Service",serviceCode,requestDocument);
+    UtilXml.addChildElementValue(packageElement,"ZipOrigination",originationZip,requestDocument);
+    UtilXml.addChildElementValue(packageElement,"ZipDestination",destinationZip,requestDocument);
+    double weightPounds=Math.floor(packageWeight);
+    UtilXml.addChildElementValue(packageElement,"Pounds",String.valueOf(weightPounds),requestDocument);
+    double weightOunces=Math.ceil(packageWeight % weightPounds * 16);
+    UtilXml.addChildElementValue(packageElement,"Ounces",String.valueOf(weightOunces),requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Container","None",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Size","Regular",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
+  }
+  Document responseDocument=null;
+  try {
+    responseDocument=sendUspsRequest("Rate",requestDocument);
+  }
+ catch (  UspsRequestException e) {
+    Debug.log(e,module);
+    return ServiceUtil.returnError("Error sending request for USPS Domestic Rate Calculation service: " + e.getMessage());
+  }
+  List rates=UtilXml.childElementList(responseDocument.getDocumentElement(),"Package");
+  if (UtilValidate.isEmpty(rates)) {
+    return ServiceUtil.returnError("No rate available at this time");
+  }
+  double estimateAmount=0.00;
+  for (Iterator i=rates.iterator(); i.hasNext(); ) {
+    Element packageElement=(Element)i.next();
+    try {
+      double packageAmount=Double.parseDouble(UtilXml.childElementValue(packageElement,"Postage"));
+      estimateAmount+=packageAmount;
+    }
+ catch (    NumberFormatException e) {
+      Debug.log(e,module);
+    }
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("shippingEstimateAmount",new Double(estimateAmount));
+  return result;
+}

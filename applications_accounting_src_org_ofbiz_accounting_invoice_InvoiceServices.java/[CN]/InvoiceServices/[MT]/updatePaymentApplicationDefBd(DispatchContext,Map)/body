@@ -1,0 +1,531 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  if (decimals == -1 || rounding == -1) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingAritmeticPropertiesNotConfigured",locale));
+  }
+  if (!context.containsKey("useHighestAmount")) {
+    context.put("useHighestAmount","Y");
+  }
+  String defaultInvoiceProcessing=UtilProperties.getPropertyValue("AccountingConfig","invoiceProcessing").toString();
+  boolean debug=true;
+  String changeProcessing=(String)context.get("invoiceProcessing");
+  String invoiceId=(String)context.get("invoiceId");
+  String invoiceItemSeqId=(String)context.get("invoiceItemSeqId");
+  String paymentId=(String)context.get("paymentId");
+  String toPaymentId=(String)context.get("toPaymentId");
+  String paymentApplicationId=(String)context.get("paymentApplicationId");
+  BigDecimal amountApplied=(BigDecimal)context.get("amountApplied");
+  String billingAccountId=(String)context.get("billingAccountId");
+  String taxAuthGeoId=(String)context.get("taxAuthGeoId");
+  String useHighestAmount=(String)context.get("useHighestAmount");
+  List errorMessageList=new LinkedList();
+  if (debug)   Debug.logInfo("updatePaymentApplicationDefBd input parameters..." + " defaultInvoiceProcessing: " + defaultInvoiceProcessing + " changeDefaultInvoiceProcessing: "+ changeProcessing+ " useHighestAmount: "+ useHighestAmount+ " paymentApplicationId: "+ paymentApplicationId+ " PaymentId: "+ paymentId+ " InvoiceId: "+ invoiceId+ " InvoiceItemSeqId: "+ invoiceItemSeqId+ " BillingAccountId: "+ billingAccountId+ " toPaymentId: "+ toPaymentId+ " amountApplied: "+ amountApplied+ " TaxAuthGeoId: "+ taxAuthGeoId,module);
+  if (changeProcessing == null)   changeProcessing=new String("N");
+  boolean invoiceProcessing=true;
+  if (defaultInvoiceProcessing.equals("YY"))   invoiceProcessing=true;
+ else   if (defaultInvoiceProcessing.equals("NN"))   invoiceProcessing=false;
+ else   if (defaultInvoiceProcessing.equals("Y")) {
+    if (changeProcessing.equals("Y"))     invoiceProcessing=false;
+ else     invoiceProcessing=true;
+  }
+ else   if (defaultInvoiceProcessing.equals("N")) {
+    if (changeProcessing.equals("Y"))     invoiceProcessing=true;
+ else     invoiceProcessing=false;
+  }
+  if (paymentApplicationId == null) {
+    int count=0;
+    if (invoiceId != null)     count++;
+    if (toPaymentId != null)     count++;
+    if (billingAccountId != null)     count++;
+    if (taxAuthGeoId != null)     count++;
+    if (count != 1) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingSpecifyInvoiceToPaymentBillingAccountTaxGeoId",locale));
+    }
+  }
+  if (amountApplied == null)   amountApplied=new BigDecimal("0");
+  if (invoiceId == null)   invoiceItemSeqId=null;
+  BigDecimal paymentApplyAvailable=new BigDecimal("0");
+  BigDecimal amountAppliedMax=new BigDecimal("0");
+  GenericValue payment=null;
+  if (paymentId == null || paymentId.equals("")) {
+    errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentIdBlankNotSupplied",locale));
+  }
+ else {
+    try {
+      payment=delegator.findByPrimaryKey("Payment",UtilMisc.toMap("paymentId",paymentId));
+    }
+ catch (    GenericEntityException e) {
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (payment == null) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentRecordNotFound",UtilMisc.toMap("paymentId",paymentId),locale));
+    }
+    paymentApplyAvailable=payment.getBigDecimal("amount").subtract(PaymentWorker.getPaymentAppliedBd(payment)).setScale(decimals,rounding);
+    if (payment.getString("statusId").equals("PMNT_CANCELLED")) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentCancelled",UtilMisc.toMap("paymentId",paymentId),locale));
+    }
+    if (payment.getString("statusId").equals("PMNT_CONFIRMED")) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentConfirmed",UtilMisc.toMap("paymentId",paymentId),locale));
+    }
+    if (amountApplied.signum() == 0) {
+      amountAppliedMax=paymentApplyAvailable;
+    }
+    if (paymentApplicationId == null) {
+      if (paymentApplyAvailable.signum() == 0) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentAlreadyApplied",UtilMisc.toMap("paymentId",paymentId),locale));
+      }
+ else {
+        if (amountApplied.compareTo(paymentApplyAvailable) > 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentLessRequested",UtilMisc.toMap("paymentId",paymentId,"paymentApplyAvailable",paymentApplyAvailable,"amountApplied",amountApplied,"isoCode",payment.getString("currencyUomId")),locale));
+        }
+      }
+    }
+    if (debug)     Debug.logInfo("Payment info retrieved and checked...",module);
+  }
+  BigDecimal toPaymentApplyAvailable=new BigDecimal("0");
+  GenericValue toPayment=null;
+  if (toPaymentId != null && !toPaymentId.equals("")) {
+    try {
+      toPayment=delegator.findByPrimaryKey("Payment",UtilMisc.toMap("paymentId",toPaymentId));
+    }
+ catch (    GenericEntityException e) {
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (toPayment == null) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentRecordNotFound",UtilMisc.toMap("paymentId",toPaymentId),locale));
+    }
+    toPaymentApplyAvailable=toPayment.getBigDecimal("amount").subtract(PaymentWorker.getPaymentAppliedBd(toPayment)).setScale(decimals,rounding);
+    if (toPayment.getString("statusId").equals("PMNT_CANCELLED")) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentCancelled",UtilMisc.toMap("paymentId",paymentId),locale));
+    }
+    if (toPayment.getString("statusId").equals("PMNT_CONFIRMED")) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentConfirmed",UtilMisc.toMap("paymentId",paymentId),locale));
+    }
+    if (amountAppliedMax.compareTo(toPaymentApplyAvailable) > 0) {
+      amountAppliedMax=toPaymentApplyAvailable;
+    }
+    if (paymentApplicationId == null) {
+      if (toPaymentApplyAvailable.signum() == 0) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentAlreadyApplied",UtilMisc.toMap("paymentId",toPaymentId),locale));
+      }
+ else {
+        if (amountApplied.compareTo(toPaymentApplyAvailable) > 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentLessRequested",UtilMisc.toMap("paymentId",toPaymentId,"paymentApplyAvailable",toPaymentApplyAvailable,"amountApplied",amountApplied,"isoCode",payment.getString("currencyUomId")),locale));
+        }
+      }
+    }
+    if (!payment.getString("partyIdFrom").equals(toPayment.getString("partyIdTo")) && !payment.getString("partyIdFrom").equals(toPayment.getString("partyIdTo"))) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingFromPartySameToParty",locale));
+    }
+    if (debug)     Debug.logInfo("toPayment info retrieved and checked...",module);
+  }
+  GenericValue billingAccount=null;
+  BigDecimal billingAccountApplyAvailable=new BigDecimal("0");
+  if (billingAccountId != null && !billingAccountId.equals("")) {
+    try {
+      billingAccount=delegator.findByPrimaryKey("BillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId));
+    }
+ catch (    GenericEntityException e) {
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (billingAccount == null) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountNotFound",UtilMisc.toMap("bilingAccountId",billingAccountId),locale));
+    }
+    try {
+      billingAccountApplyAvailable=billingAccount.getBigDecimal("accountLimit").add(BillingAccountWorker.getBillingAccountBalance(billingAccount)).setScale(decimals,rounding);
+    }
+ catch (    GenericEntityException e) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountBalanceNotFound",UtilMisc.toMap("bilingAccountId",billingAccountId),locale));
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (paymentApplicationId == null) {
+      if (billingAccountApplyAvailable.signum() <= 0) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountBalanceProblem",UtilMisc.toMap("bilingAccountId",billingAccountId,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
+      }
+ else {
+        if (amountApplied.compareTo(billingAccountApplyAvailable) == 1) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountLessRequested",UtilMisc.toMap("billingAccountId",billingAccountId,"billingAccountApplyAvailable",billingAccountApplyAvailable,"amountApplied",amountApplied,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
+        }
+      }
+    }
+    if (billingAccount.get("accountCurrencyUomId") != null && payment.get("currencyUomId") != null && !billingAccount.getString("accountCurrencyUomId").equals(payment.getString("currencyUomId"))) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountCurrencyProblem",UtilMisc.toMap("billingAccountId",billingAccountId,"accountCurrencyUomId",billingAccount.getString("accountCurrencyUomId"),"paymentId",paymentId,"paymentCurrencyUomId",payment.getString("currencyUomId")),locale));
+    }
+    if (debug)     Debug.logInfo("Billing Account info retrieved and checked...",module);
+  }
+  BigDecimal invoiceApplyAvailable=new BigDecimal("0");
+  BigDecimal invoiceItemApplyAvailable=new BigDecimal("0");
+  GenericValue invoice=null;
+  GenericValue invoiceItem=null;
+  if (invoiceId != null) {
+    try {
+      invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+    }
+ catch (    GenericEntityException e) {
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (invoice == null) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceNotFound",UtilMisc.toMap("invoiceId",invoiceId),locale));
+    }
+ else {
+      if (invoice.getString("statusId").equals("INVOICE_CANCELLED")) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceCancelledCannotApplyTo",UtilMisc.toMap("invoiceId",invoiceId),locale));
+      }
+      BigDecimal invoiceTotal=InvoiceWorker.getInvoiceTotalBd(invoice);
+      invoiceApplyAvailable=InvoiceWorker.getInvoiceNotApplied(invoice);
+      if (invoiceApplyAvailable.compareTo(amountAppliedMax) < 0) {
+        amountAppliedMax=invoiceApplyAvailable;
+      }
+      if (invoiceTotal.signum() == 0) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceTotalZero",UtilMisc.toMap("invoiceId",invoiceId),locale));
+      }
+ else       if (paymentApplicationId == null) {
+        if (invoiceApplyAvailable.signum() == 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceCompletelyApplied",UtilMisc.toMap("invoiceId",invoiceId),locale));
+        }
+ else         if (amountApplied.compareTo(invoiceApplyAvailable) > 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceLessRequested",UtilMisc.toMap("invoiceId",invoiceId,"invoiceApplyAvailable",invoiceApplyAvailable,"amountApplied",amountApplied,"isoCode",invoice.getString("currencyUomId")),locale));
+        }
+      }
+      if (!payment.getString("partyIdFrom").equals(invoice.getString("partyId")) && !payment.getString("partyIdTo").equals(invoice.getString("partyIdFrom"))) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingFromPartySameToParty",locale));
+      }
+      if (debug)       Debug.logInfo("Invoice info retrieved and checked ...",module);
+    }
+    if (invoiceItemSeqId != null) {
+      try {
+        invoiceItem=delegator.findByPrimaryKey("InvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+      if (invoiceItem == null) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceItemNotFound",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId),locale));
+      }
+ else {
+        if (invoiceItem.get("uomId") != null && payment.get("currencyUomId") != null && !invoiceItem.getString("uomId").equals(payment.getString("currencyUomId"))) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceItemPaymentCurrencyProblem",UtilMisc.toMap("paymentCurrencyId",payment.getString("currencyUomId"),"itemCurrency",invoiceItem.getString("uomId")),locale));
+        }
+ else         if (invoice.get("currencyUomId") != null && payment.get("currencyUomId") != null && !invoice.getString("currencyUomId").equals(payment.getString("currencyUomId"))) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoicePaymentCurrencyProblem",UtilMisc.toMap("paymentCurrencyId",payment.getString("currencyUomId"),"itemCurrency",invoice.getString("currencyUomId")),locale));
+        }
+        BigDecimal quantity=null;
+        if (invoiceItem.get("quantity") == null) {
+          quantity=new BigDecimal("1");
+        }
+ else {
+          quantity=invoiceItem.getBigDecimal("quantity").setScale(decimals,rounding);
+        }
+        invoiceItemApplyAvailable=invoiceItem.getBigDecimal("amount").multiply(quantity).subtract(InvoiceWorker.getInvoiceItemAppliedBd(invoiceItem));
+        if (paymentApplicationId == null && amountApplied.compareTo(invoiceItemApplyAvailable) > 0) {
+          errorMessageList.add("Invoice(" + invoiceId + ") item("+ invoiceItemSeqId+ ") has  "+ invoiceItemApplyAvailable+ " to apply but "+ amountApplied+ " is requested\n");
+          String uomId=null;
+          if (invoiceItem.getString("uomId") != null) {
+            uomId=invoiceItem.getString("uomId");
+          }
+ else {
+            uomId=invoice.getString("currencyUomId");
+          }
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceItemLessRequested",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId,"invoiceItemApplyAvailable",invoiceItemApplyAvailable,"amountApplied",amountApplied,"isoCode",uomId),locale));
+        }
+      }
+      if (debug)       Debug.logInfo("InvoiceItem info retrieved and checked against the Invoice (currency and amounts) ...",module);
+    }
+  }
+  BigDecimal newInvoiceApplyAvailable=invoiceApplyAvailable;
+  BigDecimal newInvoiceItemApplyAvailable=invoiceItemApplyAvailable;
+  BigDecimal newToPaymentApplyAvailable=toPaymentApplyAvailable;
+  BigDecimal newBillingAccountApplyAvailable=billingAccountApplyAvailable;
+  BigDecimal newPaymentApplyAvailable=paymentApplyAvailable;
+  GenericValue paymentApplication=null;
+  if (paymentApplicationId == null) {
+    paymentApplication=delegator.makeValue("PaymentApplication",null);
+  }
+ else {
+    try {
+      paymentApplication=delegator.findByPrimaryKey("PaymentApplication",UtilMisc.toMap("paymentApplicationId",paymentApplicationId));
+    }
+ catch (    GenericEntityException e) {
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (paymentApplication == null) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentApplicationNotFound",UtilMisc.toMap("paymentApplicationId",paymentApplicationId),locale));
+      paymentApplicationId=null;
+    }
+ else {
+      if (paymentApplication.get("invoiceId") == null && invoiceId != null) {
+        billingAccountId=null;
+        taxAuthGeoId=null;
+        toPaymentId=null;
+      }
+ else       if (paymentApplication.get("toPaymentId") == null && toPaymentId != null) {
+        invoiceId=null;
+        invoiceItemSeqId=null;
+        taxAuthGeoId=null;
+        billingAccountId=null;
+      }
+ else       if (paymentApplication.get("billingAccountId") == null && billingAccountId != null) {
+        invoiceId=null;
+        invoiceItemSeqId=null;
+        toPaymentId=null;
+        taxAuthGeoId=null;
+      }
+ else       if (paymentApplication.get("taxAuthGeoId") == null && taxAuthGeoId != null) {
+        invoiceId=null;
+        invoiceItemSeqId=null;
+        toPaymentId=null;
+        billingAccountId=null;
+      }
+      newPaymentApplyAvailable=paymentApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied")).subtract(amountApplied).setScale(decimals,rounding);
+      if (newPaymentApplyAvailable.compareTo(ZERO) < 0) {
+        errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentNotEnough",UtilMisc.toMap("paymentId",paymentId,"paymentApplyAvailable",paymentApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied")),"amountApplied",amountApplied),locale));
+      }
+      if (invoiceId != null) {
+        if (invoiceId.equals(paymentApplication.getString("invoiceId"))) {
+          if (invoiceItemSeqId == null && paymentApplication.get("invoiceItemSeqId") == null) {
+            newInvoiceApplyAvailable=invoiceApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied")).subtract(amountApplied).setScale(decimals,rounding);
+            if (invoiceApplyAvailable.compareTo(ZERO) < 0) {
+              errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceNotEnough",UtilMisc.toMap("tooMuch",newInvoiceApplyAvailable.negate(),"invoiceId",invoiceId),locale));
+            }
+          }
+ else           if (invoiceItemSeqId == null && paymentApplication.get("invoiceItemSeqId") != null) {
+            newInvoiceApplyAvailable=invoiceApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied")).subtract(amountApplied).setScale(decimals,rounding);
+            if (invoiceApplyAvailable.compareTo(ZERO) < 0) {
+              errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceNotEnough",UtilMisc.toMap("tooMuch",newInvoiceApplyAvailable.negate(),"invoiceId",invoiceId),locale));
+            }
+          }
+ else           if (invoiceItemSeqId != null && paymentApplication.get("invoiceItemSeqId") == null) {
+            newInvoiceItemApplyAvailable=invoiceItemApplyAvailable.subtract(amountApplied).setScale(decimals,rounding);
+            if (newInvoiceItemApplyAvailable.compareTo(ZERO) < 0) {
+              errorMessageList.add(UtilProperties.getMessage(resource,"AccountingItemInvoiceNotEnough",UtilMisc.toMap("tooMuch",newInvoiceItemApplyAvailable.negate(),"invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId),locale));
+            }
+          }
+ else           if (invoiceItemSeqId.equals(paymentApplication.getString("invoiceItemSeqId"))) {
+            newInvoiceItemApplyAvailable=invoiceItemApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied")).subtract(amountApplied).setScale(decimals,rounding);
+            if (newInvoiceItemApplyAvailable.compareTo(ZERO) < 0) {
+              errorMessageList.add(UtilProperties.getMessage(resource,"AccountingItemInvoiceNotEnough",UtilMisc.toMap("tooMuch",newInvoiceItemApplyAvailable.negate(),"invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId),locale));
+            }
+          }
+ else {
+            newInvoiceItemApplyAvailable=invoiceItemApplyAvailable.add(amountApplied).setScale(decimals,rounding);
+            if (newInvoiceItemApplyAvailable.compareTo(ZERO) < 0) {
+              errorMessageList.add(UtilProperties.getMessage(resource,"AccountingItemInvoiceNotEnough",UtilMisc.toMap("tooMuch",newInvoiceItemApplyAvailable.negate(),"invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId),locale));
+            }
+          }
+          if (amountApplied.signum() == 0) {
+            if (newInvoiceItemApplyAvailable.compareTo(newPaymentApplyAvailable) < 0) {
+              amountApplied=newInvoiceItemApplyAvailable;
+            }
+ else {
+              amountApplied=newPaymentApplyAvailable;
+            }
+          }
+          newInvoiceApplyAvailable=invoiceApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied").subtract(amountApplied)).setScale(decimals,rounding);
+          if (newInvoiceApplyAvailable.compareTo(ZERO) < 0) {
+            errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceNotEnough",UtilMisc.toMap("tooMuch",invoiceApplyAvailable.add(paymentApplication.getBigDecimal("amountApplied")).subtract(amountApplied),"invoiceId",invoiceId),locale));
+          }
+        }
+      }
+      if (toPaymentId != null && toPaymentId.equals(paymentApplication.getString("toPaymentId"))) {
+        newToPaymentApplyAvailable=toPaymentApplyAvailable.subtract(paymentApplication.getBigDecimal("amountApplied")).add(amountApplied).setScale(decimals,rounding);
+        if (newToPaymentApplyAvailable.compareTo(ZERO) < 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentNotEnough",UtilMisc.toMap("paymentId",toPaymentId,"paymentApplyAvailable",newToPaymentApplyAvailable,"amountApplied",amountApplied),locale));
+        }
+      }
+ else       if (toPaymentId != null) {
+        newToPaymentApplyAvailable=toPaymentApplyAvailable.add(amountApplied).setScale(decimals,rounding);
+        if (newToPaymentApplyAvailable.compareTo(ZERO) < 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentNotEnough",UtilMisc.toMap("paymentId",toPaymentId,"paymentApplyAvailable",newToPaymentApplyAvailable,"amountApplied",amountApplied),locale));
+        }
+      }
+      if (billingAccountId != null && billingAccountId.equals(paymentApplication.getString("billingAccountId"))) {
+        newBillingAccountApplyAvailable=billingAccountApplyAvailable.subtract(paymentApplication.getBigDecimal("amountApplied")).add(amountApplied).setScale(decimals,rounding);
+        if (newBillingAccountApplyAvailable.compareTo(ZERO) < 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountNotEnough",UtilMisc.toMap("billingAccountId",billingAccountId,"newBillingAccountApplyAvailable",newBillingAccountApplyAvailable,"amountApplied",amountApplied,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
+        }
+      }
+ else       if (billingAccountId != null) {
+        newBillingAccountApplyAvailable=billingAccountApplyAvailable.add(amountApplied).setScale(decimals,rounding);
+        if (newBillingAccountApplyAvailable.compareTo(ZERO) < 0) {
+          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountNotEnough",UtilMisc.toMap("billingAccountId",billingAccountId,"newBillingAccountApplyAvailable",newBillingAccountApplyAvailable,"amountApplied",amountApplied,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
+        }
+      }
+    }
+    if (debug)     Debug.logInfo("paymentApplication record info retrieved and checked...",module);
+  }
+  String toMessage=null;
+  if (debug) {
+    String extra=new String("");
+    if (invoiceItemSeqId != null) {
+      extra=new String(" Invoice item(" + invoiceItemSeqId + ") amount not yet applied: "+ newInvoiceItemApplyAvailable);
+    }
+    Debug.logInfo("checking finished, start processing with the following data... ",module);
+    if (invoiceId != null) {
+      Debug.logInfo(" Invoice(" + invoiceId + ") amount not yet applied: "+ newInvoiceApplyAvailable+ extra+ " Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
+      toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToInvoice",UtilMisc.toMap("invoiceId",invoiceId),locale));
+      if (extra.length() > 0)       toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToInvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId),locale));
+    }
+    if (toPaymentId != null) {
+      Debug.logInfo(" toPayment(" + toPaymentId + ") amount not yet applied: "+ newToPaymentApplyAvailable+ " Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
+      toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToPayment",UtilMisc.toMap("paymentId",toPaymentId),locale));
+    }
+    if (billingAccountId != null) {
+      Debug.logInfo(" billingAccount(" + billingAccountId + ") amount not yet applied: "+ newBillingAccountApplyAvailable+ " Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
+      toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),locale));
+    }
+    if (taxAuthGeoId != null) {
+      Debug.logInfo(" taxAuthGeoId(" + taxAuthGeoId + ")  Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
+      toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToTax",UtilMisc.toMap("taxAuthGeoId",taxAuthGeoId),locale));
+    }
+  }
+  if (amountApplied.signum() == 0 && useHighestAmount.equals("Y")) {
+    amountApplied=newPaymentApplyAvailable;
+    if (invoiceId != null && newInvoiceApplyAvailable.compareTo(amountApplied) < 0) {
+      amountApplied=newInvoiceApplyAvailable;
+      toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToInvoice",UtilMisc.toMap("invoiceId",invoiceId),locale));
+    }
+    if (toPaymentId != null && newToPaymentApplyAvailable.compareTo(amountApplied) == 1) {
+      amountApplied=newToPaymentApplyAvailable;
+      toMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationToPayment",UtilMisc.toMap("paymentId",toPaymentId),locale));
+    }
+  }
+  if (amountApplied.signum() == 0) {
+    errorMessageList.add(UtilProperties.getMessage(resource,"AccountingNoAmount",locale));
+  }
+ else {
+    successMessage=new String(UtilProperties.getMessage(resource,"AccountingApplicationSuccess",UtilMisc.toMap("amountApplied",amountApplied,"paymentId",paymentId,"isoCode",payment.getString("currencyUomId"),"toMessage",toMessage),locale));
+  }
+  if (errorMessageList.size() > 0) {
+    return ServiceUtil.returnError(errorMessageList);
+  }
+  if (paymentApplicationId != null) {
+    if (debug)     Debug.logInfo("Process an existing paymentApplication record: " + paymentApplicationId,module);
+    paymentApplication.set("invoiceId",invoiceId);
+    paymentApplication.set("invoiceItemSeqId",invoiceItemSeqId);
+    paymentApplication.set("paymentId",paymentId);
+    paymentApplication.set("toPaymentId",toPaymentId);
+    paymentApplication.set("amountApplied",new Double(amountApplied.doubleValue()));
+    paymentApplication.set("billingAccountId",billingAccountId);
+    paymentApplication.set("taxAuthGeoId",taxAuthGeoId);
+    return storePaymentApplication(delegator,paymentApplication,locale);
+  }
+  if (invoiceId != null && paymentId != null && (invoiceItemSeqId == null)) {
+    if (invoiceProcessing) {
+      if (debug)       Debug.logInfo("Try to allocate the payment to the invoice as a whole",module);
+      paymentApplication.set("paymentId",paymentId);
+      paymentApplication.set("toPaymentId",null);
+      paymentApplication.set("invoiceId",invoiceId);
+      paymentApplication.set("invoiceItemSeqId",null);
+      paymentApplication.set("toPaymentId",null);
+      paymentApplication.set("amountApplied",new Double(amountApplied.doubleValue()));
+      paymentApplication.set("billingAccountId",null);
+      paymentApplication.set("taxAuthGeoId",null);
+      if (debug)       Debug.logInfo("creating new paymentapplication",module);
+      return storePaymentApplication(delegator,paymentApplication,locale);
+    }
+ else {
+      if (debug)       Debug.logInfo("Try to allocate the payment to the itemnumbers of the invoice",module);
+      List invoiceItems=null;
+      try {
+        invoiceItems=delegator.findByAnd("InvoiceItem",UtilMisc.toMap("invoiceId",invoiceId));
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+      if (invoiceItems == null || invoiceItems.size() == 0) {
+        errorMessageList.add("No invoice items found for invoice " + invoiceId + " to match payment against...\n");
+        return ServiceUtil.returnError(errorMessageList);
+      }
+ else {
+        Iterator i=invoiceItems.iterator();
+        if (amountApplied.signum() != 0 && amountApplied.compareTo(paymentApplyAvailable) < 0) {
+          paymentApplyAvailable=amountApplied;
+        }
+        while (i.hasNext() && paymentApplyAvailable.compareTo(ZERO) > 0) {
+          invoiceItem=(GenericValue)i.next();
+          if (debug)           Debug.logInfo("Start processing item: " + invoiceItem.getString("invoiceItemSeqId"),module);
+          BigDecimal itemQuantity=new BigDecimal("1");
+          if (invoiceItem.get("quantity") != null && invoiceItem.getBigDecimal("quantity").signum() != 0) {
+            itemQuantity=new BigDecimal(invoiceItem.getString("quantity")).setScale(decimals,rounding);
+          }
+          BigDecimal itemAmount=invoiceItem.getBigDecimal("amount").setScale(decimals,rounding);
+          BigDecimal itemTotal=itemAmount.multiply(itemQuantity).setScale(decimals,rounding);
+          List paymentApplications=null;
+          try {
+            paymentApplications=invoiceItem.getRelated("PaymentApplication");
+          }
+ catch (          GenericEntityException e) {
+            ServiceUtil.returnError(e.getMessage());
+          }
+          BigDecimal tobeApplied=new BigDecimal("0");
+          BigDecimal alreadyApplied=new BigDecimal("0");
+          if (paymentApplications != null && paymentApplications.size() > 0) {
+            Iterator p=paymentApplications.iterator();
+            while (p.hasNext()) {
+              paymentApplication=(GenericValue)p.next();
+              alreadyApplied=alreadyApplied.add(paymentApplication.getBigDecimal("amountApplied").setScale(decimals,rounding));
+            }
+            tobeApplied=itemTotal.subtract(alreadyApplied).setScale(decimals,rounding);
+          }
+ else {
+            tobeApplied=itemTotal;
+          }
+          if (debug)           Debug.logInfo("tobeApplied:(" + tobeApplied + ") = "+ "itemTotal("+ itemTotal+ ") - alreadyApplied("+ alreadyApplied+ ") but not more then (nonapplied) paymentAmount("+ paymentApplyAvailable+ ")",module);
+          if (tobeApplied.signum() == 0) {
+            continue;
+          }
+          if (paymentApplyAvailable.compareTo(tobeApplied) > 0) {
+            paymentApplyAvailable=paymentApplyAvailable.subtract(tobeApplied);
+          }
+ else {
+            tobeApplied=paymentApplyAvailable;
+            paymentApplyAvailable=new BigDecimal("0");
+          }
+          if (invoiceItem.get("uomId") != null && payment.get("currencyUomId") != null && !invoiceItem.getString("uomId").equals(payment.getString("currencyUomId"))) {
+            errorMessageList.add("Payment currency (" + payment.getString("currencyUomId") + ") and invoice Item("+ invoiceItem.getString("invoiceItemSeqId")+ ") currency("+ invoiceItem.getString("uomId")+ ") not the same\n");
+          }
+ else           if (invoice.get("currencyUomId") != null && payment.get("currencyUomId") != null && !invoice.getString("currencyUomId").equals(payment.getString("currencyUomId"))) {
+            errorMessageList.add("Payment currency (" + payment.getString("currencyUomId") + ") and invoice currency("+ invoice.getString("currencyUomId")+ ") not the same\n");
+          }
+ else {
+            paymentApplication.set("paymentApplicationId",null);
+            paymentApplication.set("invoiceId",invoiceId);
+            paymentApplication.set("invoiceItemSeqId",invoiceItem.getString("invoiceItemSeqId"));
+            paymentApplication.set("paymentId",paymentId);
+            paymentApplication.set("toPaymentId",toPaymentId);
+            paymentApplication.set("amountApplied",new Double(tobeApplied.doubleValue()));
+            paymentApplication.set("billingAccountId",billingAccountId);
+            paymentApplication.set("taxAuthGeoId",taxAuthGeoId);
+            storePaymentApplication(delegator,paymentApplication,locale);
+          }
+        }
+        if (errorMessageList.size() > 0) {
+          return ServiceUtil.returnError(errorMessageList);
+        }
+ else {
+          if (successMessage != null) {
+            return ServiceUtil.returnSuccess(successMessage);
+          }
+ else {
+            return ServiceUtil.returnSuccess();
+          }
+        }
+      }
+    }
+  }
+  if (paymentApplicationId == null && amountApplied != null) {
+    paymentApplication.set("paymentApplicationId",paymentApplicationId);
+    paymentApplication.set("invoiceId",invoiceId);
+    paymentApplication.set("invoiceItemSeqId",invoiceItemSeqId);
+    paymentApplication.set("paymentId",paymentId);
+    paymentApplication.set("toPaymentId",toPaymentId);
+    paymentApplication.set("amountApplied",new Double(amountApplied.doubleValue()));
+    paymentApplication.set("billingAccountId",billingAccountId);
+    paymentApplication.set("taxAuthGeoId",taxAuthGeoId);
+    return storePaymentApplication(delegator,paymentApplication,locale);
+  }
+  errorMessageList.add("??unsuitable parameters passed...?? This message.... should never be shown\n");
+  errorMessageList.add("--Input parameters...InvoiceId:" + invoiceId + " invoiceItemSeqId:"+ invoiceItemSeqId+ " PaymentId:"+ paymentId+ " toPaymentId:"+ toPaymentId+ "\n  paymentApplicationId:"+ paymentApplicationId+ " amountApplied:"+ amountApplied);
+  return ServiceUtil.returnError(errorMessageList);
+}

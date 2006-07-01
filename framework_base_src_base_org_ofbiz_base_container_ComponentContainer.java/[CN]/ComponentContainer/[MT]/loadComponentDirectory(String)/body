@@ -1,0 +1,60 @@
+{
+  Debug.logInfo("Auto-Loading component directory : [" + directoryName + "]",module);
+  File parentPath=new File(directoryName);
+  if (!parentPath.exists() || !parentPath.isDirectory()) {
+    Debug.logError("Auto-Load Component directory not found : " + directoryName,module);
+  }
+ else {
+    File componentLoadConfig=new File(parentPath,"component-load.xml");
+    if (componentLoadConfig != null && componentLoadConfig.exists()) {
+      URL configUrl=null;
+      try {
+        configUrl=componentLoadConfig.toURL();
+        List componentsToLoad=ComponentLoaderConfig.getComponentsFromConfig(configUrl);
+        if (componentsToLoad != null) {
+          Iterator i=componentsToLoad.iterator();
+          while (i.hasNext()) {
+            ComponentLoaderConfig.ComponentDef def=(ComponentLoaderConfig.ComponentDef)i.next();
+            this.loadComponentFromConfig(def);
+          }
+        }
+      }
+ catch (      MalformedURLException e) {
+        Debug.logError(e,"Unable to locate URL for component loading file: " + componentLoadConfig.getAbsolutePath(),module);
+      }
+catch (      ComponentException e) {
+        Debug.logError(e,"Unable to load components from URL: " + configUrl.toExternalForm(),module);
+      }
+    }
+ else {
+      String subs[]=parentPath.list();
+      for (int i=0; i < subs.length; i++) {
+        try {
+          File componentPath=new File(parentPath.getCanonicalPath() + "/" + subs[i]);
+          if (componentPath.isDirectory() && !subs[i].equals("CVS")) {
+            String componentLocation=componentPath.getCanonicalPath();
+            File configFile=new File(componentLocation + "/ofbiz-component.xml");
+            if (configFile.exists()) {
+              ComponentConfig config=null;
+              try {
+                config=ComponentConfig.getComponentConfig(null,componentLocation);
+              }
+ catch (              ComponentException e) {
+                Debug.logError(e,"Cannot load component : " + componentPath.getName() + " @ "+ componentLocation+ " : "+ e.getMessage(),module);
+              }
+              if (config == null) {
+                Debug.logError("Cannot load component : " + componentPath.getName() + " @ "+ componentLocation,module);
+              }
+ else {
+                loadComponent(config);
+              }
+            }
+          }
+        }
+ catch (        IOException ioe) {
+          Debug.logError(ioe,module);
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,117 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  String shipmentId=(String)context.get("shipmentId");
+  String shipmentRouteSegmentId=(String)context.get("shipmentRouteSegmentId");
+  boolean shipmentUpsSaveCertificationInfo="true".equals(UtilProperties.getPropertyValue("shipment","shipment.ups.save.certification.info"));
+  String shipmentUpsSaveCertificationPath=UtilProperties.getPropertyValue("shipment","shipment.ups.save.certification.path");
+  File shipmentUpsSaveCertificationFile=null;
+  if (shipmentUpsSaveCertificationInfo) {
+    shipmentUpsSaveCertificationFile=new File(shipmentUpsSaveCertificationPath);
+    if (!shipmentUpsSaveCertificationFile.exists()) {
+      shipmentUpsSaveCertificationFile.mkdirs();
+    }
+  }
+  String voidShipmentResponseString=null;
+  try {
+    GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+    GenericValue shipmentRouteSegment=delegator.findByPrimaryKey("ShipmentRouteSegment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId));
+    if (!"UPS".equals(shipmentRouteSegment.getString("carrierPartyId"))) {
+      return ServiceUtil.returnError("ERROR: The Carrier for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is not UPS.");
+    }
+    if (!"SHRSCS_CONFIRMED".equals(shipmentRouteSegment.getString("carrierServiceStatusId")) && !"SHRSCS_ACCEPTED".equals(shipmentRouteSegment.getString("carrierServiceStatusId"))) {
+      return ServiceUtil.returnError("ERROR: The Carrier Service Status for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is ["+ shipmentRouteSegment.getString("carrierServiceStatusId")+ "], but must be [SHRSCS_CONFIRMED] or [SHRSCS_ACCEPTED] to perform the UPS Void Shipment operation.");
+    }
+    if (UtilValidate.isEmpty(shipmentRouteSegment.getString("trackingIdNumber"))) {
+      return ServiceUtil.returnError("ERROR: The trackingIdNumber was not set for this Route Segment, meaning that a UPS shipment confirm has not been done.");
+    }
+    Document voidShipmentRequestDoc=UtilXml.makeEmptyXmlDocument("VoidShipmentRequest");
+    Element voidShipmentRequestElement=voidShipmentRequestDoc.getDocumentElement();
+    voidShipmentRequestElement.setAttribute("xml:lang","en-US");
+    Element requestElement=UtilXml.addChildElement(voidShipmentRequestElement,"Request",voidShipmentRequestDoc);
+    Element transactionReferenceElement=UtilXml.addChildElement(requestElement,"TransactionReference",voidShipmentRequestDoc);
+    UtilXml.addChildElementValue(transactionReferenceElement,"CustomerContext","Void / 1",voidShipmentRequestDoc);
+    UtilXml.addChildElementValue(transactionReferenceElement,"XpciVersion","1.0001",voidShipmentRequestDoc);
+    UtilXml.addChildElementValue(requestElement,"RequestAction","Void",voidShipmentRequestDoc);
+    UtilXml.addChildElementValue(requestElement,"RequestOption","1",voidShipmentRequestDoc);
+    UtilXml.addChildElementValue(voidShipmentRequestElement,"ShipmentIdentificationNumber",shipmentRouteSegment.getString("trackingIdNumber"),voidShipmentRequestDoc);
+    String voidShipmentRequestString=null;
+    try {
+      voidShipmentRequestString=UtilXml.writeXmlDocument(voidShipmentRequestDoc);
+    }
+ catch (    IOException e) {
+      String ioeErrMsg="Error writing the VoidShipmentRequest XML Document to a String: " + e.toString();
+      Debug.logError(e,ioeErrMsg,module);
+      return ServiceUtil.returnError(ioeErrMsg);
+    }
+    Document accessRequestDocument=createAccessRequestDocument();
+    String accessRequestString=null;
+    try {
+      accessRequestString=UtilXml.writeXmlDocument(accessRequestDocument);
+    }
+ catch (    IOException e) {
+      String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
+      Debug.logError(e,ioeErrMsg,module);
+      return ServiceUtil.returnError(ioeErrMsg);
+    }
+    StringBuffer xmlString=new StringBuffer();
+    xmlString.append(accessRequestString);
+    xmlString.append(voidShipmentRequestString);
+    if (shipmentUpsSaveCertificationInfo) {
+      String outFileName=shipmentUpsSaveCertificationPath + "/UpsVoidShipmentRequest" + shipmentId+ "_"+ shipmentRouteSegment.getString("shipmentRouteSegmentId")+ ".xml";
+      try {
+        FileOutputStream fileOut=new FileOutputStream(outFileName);
+        fileOut.write(xmlString.toString().getBytes());
+        fileOut.flush();
+        fileOut.close();
+      }
+ catch (      IOException e) {
+        Debug.log(e,"Could not save UPS XML file: [[[" + xmlString.toString() + "]]] to file: "+ outFileName,module);
+      }
+    }
+    try {
+      voidShipmentResponseString=sendUpsRequest("Void",xmlString.toString());
+    }
+ catch (    UpsConnectException e) {
+      String uceErrMsg="Error sending UPS request for UPS Service Void: " + e.toString();
+      Debug.logError(e,uceErrMsg,module);
+      return ServiceUtil.returnError(uceErrMsg);
+    }
+    if (shipmentUpsSaveCertificationInfo) {
+      String outFileName=shipmentUpsSaveCertificationPath + "/UpsVoidShipmentResponse" + shipmentId+ "_"+ shipmentRouteSegment.getString("shipmentRouteSegmentId")+ ".xml";
+      try {
+        FileOutputStream fileOut=new FileOutputStream(outFileName);
+        fileOut.write(voidShipmentResponseString.getBytes());
+        fileOut.flush();
+        fileOut.close();
+      }
+ catch (      IOException e) {
+        Debug.log(e,"Could not save UPS XML file: [[[" + xmlString.toString() + "]]] to file: "+ outFileName,module);
+      }
+    }
+    Document voidShipmentResponseDocument=null;
+    try {
+      voidShipmentResponseDocument=UtilXml.readXmlDocument(voidShipmentResponseString,false);
+    }
+ catch (    SAXException e2) {
+      String excErrMsg="Error parsing the VoidShipmentResponse: " + e2.toString();
+      Debug.logError(e2,excErrMsg,module);
+      return ServiceUtil.returnError(excErrMsg);
+    }
+catch (    ParserConfigurationException e2) {
+      String excErrMsg="Error parsing the VoidShipmentResponse: " + e2.toString();
+      Debug.logError(e2,excErrMsg,module);
+      return ServiceUtil.returnError(excErrMsg);
+    }
+catch (    IOException e2) {
+      String excErrMsg="Error parsing the VoidShipmentResponse: " + e2.toString();
+      Debug.logError(e2,excErrMsg,module);
+      return ServiceUtil.returnError(excErrMsg);
+    }
+    return handleUpsVoidShipmentResponse(voidShipmentResponseDocument,shipmentRouteSegment);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Error reading or writing Shipment data for UPS Void Shipment: " + e.toString());
+  }
+}

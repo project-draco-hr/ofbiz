@@ -1,0 +1,43 @@
+{
+  Map context=null;
+  String serviceName=null;
+  String xmlContext=null;
+  try {
+    serviceName=message.getString("serviceName");
+    xmlContext=message.getString("serviceContext");
+    if (serviceName == null || xmlContext == null) {
+      Debug.logError("Message received is not an OFB service message. Ignored!",module);
+      return null;
+    }
+    Object o=XmlSerializer.deserialize(xmlContext,dispatcher.getDelegator());
+    if (Debug.verboseOn())     Debug.logVerbose("De-Serialized Context --> " + o,module);
+    if (ObjectType.instanceOf(o,"java.util.Map"))     context=(Map)o;
+  }
+ catch (  JMSException je) {
+    Debug.logError(je,"Problems reading message.",module);
+  }
+catch (  Exception e) {
+    Debug.logError(e,"Problems deserializing the service context.",module);
+  }
+  try {
+    ModelService model=dispatcher.getDispatchContext().getModelService(serviceName);
+    if (!model.export) {
+      Debug.logWarning("Attempt to invoke a non-exported service: " + serviceName,module);
+      return null;
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Unable to get ModelService for service : " + serviceName,module);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Running service: " + serviceName,module);
+  Map result=null;
+  if (context != null) {
+    try {
+      result=dispatcher.runSync(serviceName,context);
+    }
+ catch (    GenericServiceException gse) {
+      Debug.logError(gse,"Problems with service invocation.",module);
+    }
+  }
+  return result;
+}

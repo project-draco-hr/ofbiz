@@ -1,0 +1,52 @@
+{
+  List messages=(List)errorListAcsr.get(methodContext);
+  if (messages == null) {
+    messages=new LinkedList();
+    errorListAcsr.put(methodContext,messages);
+  }
+  Interpreter bsh=new Interpreter();
+  bsh.setClassLoader(methodContext.getLoader());
+  try {
+    Iterator envEntries=methodContext.getEnvEntryIterator();
+    while (envEntries.hasNext()) {
+      Map.Entry entry=(Map.Entry)envEntries.next();
+      bsh.set((String)entry.getKey(),entry.getValue());
+    }
+    if (resource != null && resource.length() > 0) {
+      String resource=methodContext.expandString(this.resource);
+      InputStream is=methodContext.getLoader().getResourceAsStream(resource);
+      if (is == null) {
+        messages.add("Could not find bsh resource: " + resource);
+      }
+ else {
+        try {
+          BufferedReader reader=new BufferedReader(new InputStreamReader(is));
+          StringBuffer outSb=new StringBuffer();
+          String tempStr=null;
+          while ((tempStr=reader.readLine()) != null) {
+            outSb.append(tempStr);
+            outSb.append('\n');
+          }
+          Object resourceResult=bsh.eval(outSb.toString());
+          if ((resourceResult != null) && (resourceResult instanceof Map)) {
+            methodContext.putAllEnv((Map)resourceResult);
+          }
+        }
+ catch (        IOException e) {
+          messages.add("IO error loading bsh resource: " + e.getMessage());
+        }
+      }
+    }
+    if (Debug.verboseOn())     Debug.logVerbose("Running inline BSH script: " + inline,module);
+    Object inlineResult=bsh.eval(inline);
+    if (Debug.verboseOn())     Debug.logVerbose("Result of inline BSH script: " + inlineResult,module);
+    if ((inlineResult != null) && (inlineResult instanceof Map)) {
+      methodContext.putAllEnv((Map)inlineResult);
+    }
+  }
+ catch (  EvalError e) {
+    Debug.logError(e,"BeanShell execution caused an error",module);
+    messages.add("BeanShell execution caused an error: " + e.getMessage());
+  }
+  return true;
+}

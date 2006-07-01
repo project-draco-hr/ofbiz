@@ -1,0 +1,113 @@
+{
+  PosTransaction trans=PosTransaction.getCurrentTx(pos.getSession());
+  if (!trans.isOpen()) {
+    pos.showDialog("dialog/error/terminalclosed");
+    return;
+  }
+  if (state == null) {
+    state=trans.getTerminalState();
+  }
+  double checkTotal=0.00;
+  double cashTotal=0.00;
+  double gcTotal=0.00;
+  double ccTotal=0.00;
+  double othTotal=0.00;
+  double total=0.00;
+  GenericDelegator delegator=pos.getSession().getDelegator();
+  List exprs=UtilMisc.toList(new EntityExpr("originFacilityId",EntityOperator.EQUALS,trans.getFacilityId()),new EntityExpr("terminalId",EntityOperator.EQUALS,trans.getTerminalId()));
+  EntityListIterator eli=null;
+  try {
+    eli=delegator.findListIteratorByCondition("OrderHeaderAndPaymentPref",new EntityConditionList(exprs,EntityOperator.AND),null,null);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  Timestamp dayStart=state.getTimestamp("openedDate");
+  Timestamp dayEnd=state.getTimestamp("closedDate");
+  if (dayEnd == null) {
+    dayEnd=UtilDateTime.nowTimestamp();
+  }
+  if (eli != null) {
+    GenericValue ohpp;
+    while (((ohpp=(GenericValue)eli.next()) != null)) {
+      Timestamp orderDate=ohpp.getTimestamp("orderDate");
+      if (orderDate.after(dayStart) && orderDate.before(dayEnd)) {
+        String pmt=ohpp.getString("paymentMethodTypeId");
+        Double amt=ohpp.getDouble("maxAmount");
+        if ("CASH".equals(pmt)) {
+          cashTotal+=amt.doubleValue();
+        }
+ else         if ("CHECK".equals(pmt)) {
+          checkTotal+=amt.doubleValue();
+        }
+ else         if ("GIFT_CARD".equals(pmt)) {
+          gcTotal+=amt.doubleValue();
+        }
+ else         if ("CREDIT_CARD".equals(pmt)) {
+          ccTotal+=amt.doubleValue();
+        }
+ else {
+          othTotal+=amt.doubleValue();
+        }
+        total+=amt.doubleValue();
+      }
+    }
+    try {
+      eli.close();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Trouble closing ELI",module);
+    }
+  }
+  Map reportMap=new HashMap();
+  String reportTemplate="totals.txt";
+  reportMap.put("term",UtilFormatOut.padString(UtilProperties.getMessage("pos","term",Locale.getDefault()),20,false,' '));
+  reportMap.put("draw",UtilFormatOut.padString(UtilProperties.getMessage("pos","draw",Locale.getDefault()),20,false,' '));
+  reportMap.put("clerk",UtilFormatOut.padString(UtilProperties.getMessage("pos","clerk",Locale.getDefault()),20,false,' '));
+  reportMap.put("total_report",UtilFormatOut.padString(UtilProperties.getMessage("pos","total_report",Locale.getDefault()),20,false,' '));
+  reportMap.put("cashTitle",UtilFormatOut.padString(UtilProperties.getMessage("pos","CASH",Locale.getDefault()),20,false,' '));
+  reportMap.put("checkTitle",UtilFormatOut.padString(UtilProperties.getMessage("pos","CHECK",Locale.getDefault()),20,false,' '));
+  reportMap.put("giftCardTitle",UtilFormatOut.padString(UtilProperties.getMessage("pos","GIFT_CARD",Locale.getDefault()),20,false,' '));
+  reportMap.put("creditCardTitle",UtilFormatOut.padString(UtilProperties.getMessage("pos","CREDIT_CARD",Locale.getDefault()),20,false,' '));
+  reportMap.put("otherTitle",UtilFormatOut.padString(UtilProperties.getMessage("pos","OTHER",Locale.getDefault()),20,false,' '));
+  reportMap.put("grossSalesTitle",UtilFormatOut.padString(UtilProperties.getMessage("pos","GROSS_SALES",Locale.getDefault()),20,false,' '));
+  reportMap.put("+/-",UtilFormatOut.padString("+/-",20,false,' '));
+  reportMap.put("spacer",UtilFormatOut.padString("",20,false,' '));
+  reportMap.put("cashTotal",UtilFormatOut.padString(UtilFormatOut.formatPrice(cashTotal),8,false,' '));
+  reportMap.put("checkTotal",UtilFormatOut.padString(UtilFormatOut.formatPrice(checkTotal),8,false,' '));
+  reportMap.put("ccTotal",UtilFormatOut.padString(UtilFormatOut.formatPrice(ccTotal),8,false,' '));
+  reportMap.put("gcTotal",UtilFormatOut.padString(UtilFormatOut.formatPrice(gcTotal),8,false,' '));
+  reportMap.put("otherTotal",UtilFormatOut.padString(UtilFormatOut.formatPrice(othTotal),8,false,' '));
+  reportMap.put("grossTotal",UtilFormatOut.padString(UtilFormatOut.formatPrice(total),8,false,' '));
+  if (runBalance) {
+    double cashEnd=state.getDouble("actualEndingCash").doubleValue();
+    double checkEnd=state.getDouble("actualEndingCheck").doubleValue();
+    double ccEnd=state.getDouble("actualEndingCc").doubleValue();
+    double gcEnd=state.getDouble("actualEndingGc").doubleValue();
+    double othEnd=state.getDouble("actualEndingOther").doubleValue();
+    double grossEnd=cashEnd + checkEnd + ccEnd+ gcEnd+ othEnd;
+    reportMap.put("cashEnd",UtilFormatOut.padString(UtilFormatOut.formatPrice(cashEnd),8,false,' '));
+    reportMap.put("checkEnd",UtilFormatOut.padString(UtilFormatOut.formatPrice(checkEnd),8,false,' '));
+    reportMap.put("ccEnd",UtilFormatOut.padString(UtilFormatOut.formatPrice(ccEnd),8,false,' '));
+    reportMap.put("gcEnd",UtilFormatOut.padString(UtilFormatOut.formatPrice(gcEnd),8,false,' '));
+    reportMap.put("otherEnd",UtilFormatOut.padString(UtilFormatOut.formatPrice(othEnd),8,false,' '));
+    reportMap.put("grossEnd",UtilFormatOut.padString(UtilFormatOut.formatPrice(grossEnd),8,false,' '));
+    double cashDiff=cashEnd - cashTotal;
+    double checkDiff=checkEnd - checkTotal;
+    double ccDiff=ccEnd - ccTotal;
+    double gcDiff=gcEnd - gcTotal;
+    double othDiff=othEnd - othTotal;
+    double grossDiff=cashDiff + checkDiff + ccDiff+ gcDiff+ othDiff;
+    reportMap.put("cashDiff",UtilFormatOut.padString(UtilFormatOut.formatPrice(cashDiff),8,false,' '));
+    reportMap.put("checkDiff",UtilFormatOut.padString(UtilFormatOut.formatPrice(checkDiff),8,false,' '));
+    reportMap.put("ccDiff",UtilFormatOut.padString(UtilFormatOut.formatPrice(ccDiff),8,false,' '));
+    reportMap.put("gcDiff",UtilFormatOut.padString(UtilFormatOut.formatPrice(gcDiff),8,false,' '));
+    reportMap.put("otherDiff",UtilFormatOut.padString(UtilFormatOut.formatPrice(othDiff),8,false,' '));
+    reportMap.put("grossDiff",UtilFormatOut.padString(UtilFormatOut.formatPrice(grossDiff),8,false,' '));
+    reportTemplate="balance.txt";
+  }
+  Receipt receipt=DeviceLoader.receipt;
+  if (receipt.isEnabled()) {
+    receipt.printReport(trans,reportTemplate,reportMap);
+  }
+}

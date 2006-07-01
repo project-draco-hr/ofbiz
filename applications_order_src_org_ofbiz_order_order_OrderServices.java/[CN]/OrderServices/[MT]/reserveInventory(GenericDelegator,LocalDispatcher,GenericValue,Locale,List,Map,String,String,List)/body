@@ -1,0 +1,68 @@
+{
+  boolean isImmediatelyFulfilled=false;
+  GenericValue productStore=null;
+  if (UtilValidate.isNotEmpty(productStoreId)) {
+    try {
+      productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
+    }
+ catch (    GenericEntityException e) {
+      throw new GeneralException(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotFindProductStoreWithID",UtilMisc.toMap("productStoreId",productStoreId),locale) + e.toString());
+    }
+  }
+  if (productStore != null) {
+    isImmediatelyFulfilled="Y".equals(productStore.getString("isImmediatelyFulfilled"));
+  }
+  boolean reserveInventory=("SALES_ORDER".equals(orderTypeId));
+  if (reserveInventory && isImmediatelyFulfilled) {
+    reserveInventory=false;
+  }
+  if (reserveInventory) {
+    if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
+      Iterator osiInfos=orderItemShipGroupInfo.iterator();
+      while (osiInfos.hasNext()) {
+        GenericValue orderItemShipGroupAssoc=(GenericValue)osiInfos.next();
+        if ("OrderItemShipGroupAssoc".equals(orderItemShipGroupAssoc.getEntityName())) {
+          GenericValue orderItem=(GenericValue)itemValuesBySeqId.get(orderItemShipGroupAssoc.get("orderItemSeqId"));
+          String itemStatus=orderItem.getString("statusId");
+          if ("ITEM_REJECTED".equals(itemStatus) || "ITEM_CANCELLED".equals(itemStatus) || "ITEM_COMPLETED".equals(itemStatus)) {
+            Debug.logInfo("Order item [" + orderItem.getString("orderId") + " / "+ orderItem.getString("orderItemSeqId")+ "] is not in a proper status for reservation",module);
+            continue;
+          }
+          if (UtilValidate.isNotEmpty(orderItem.getString("productId")) && !"RENTAL_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId"))) {
+            try {
+              Map reserveInput=new HashMap();
+              reserveInput.put("productStoreId",productStoreId);
+              reserveInput.put("productId",orderItem.getString("productId"));
+              reserveInput.put("orderId",orderItem.getString("orderId"));
+              reserveInput.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+              reserveInput.put("shipGroupSeqId",orderItemShipGroupAssoc.getString("shipGroupSeqId"));
+              reserveInput.put("quantity",orderItemShipGroupAssoc.getDouble("quantity"));
+              reserveInput.put("userLogin",userLogin);
+              Map reserveResult=dispatcher.runSync("reserveStoreInventory",reserveInput);
+              if (ServiceUtil.isError(reserveResult)) {
+                GenericValue product=null;
+                try {
+                  product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",orderItem.getString("productId")));
+                }
+ catch (                GenericEntityException e) {
+                  Debug.logError(e,"Error when looking up product in createOrder service, product failed inventory reservation",module);
+                }
+                String invErrMsg="The product ";
+                if (product != null) {
+                  invErrMsg+=getProductName(product,orderItem);
+                }
+                invErrMsg+=" with ID " + orderItem.getString("productId") + " is no longer in stock. Please try reducing the quantity or removing the product from this order.";
+                resErrorMessages.add(invErrMsg);
+              }
+            }
+ catch (            GenericServiceException e) {
+              String errMsg="Fatal error calling reserveStoreInventory service: " + e.toString();
+              Debug.logError(e,errMsg,module);
+              resErrorMessages.add(errMsg);
+            }
+          }
+        }
+      }
+    }
+  }
+}

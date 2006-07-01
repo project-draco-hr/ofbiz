@@ -1,0 +1,140 @@
+{
+  ModelFormField modelFormField=dateTimeField.getModelFormField();
+  String paramName=modelFormField.getParameterName(context);
+  String defaultDateTimeString=dateTimeField.getDefaultDateTimeString(context);
+  boolean shortDateInput=("date".equals(dateTimeField.getType()) || "time-dropdown".equals(dateTimeField.getInputMethod()) ? true : false);
+  buffer.append("<input type=\"text\"");
+  String className=modelFormField.getWidgetStyle();
+  if (UtilValidate.isNotEmpty(className)) {
+    buffer.append(" class=\"");
+    buffer.append(className);
+    buffer.append('"');
+  }
+  if (modelFormField.shouldBeRed(context)) {
+    buffer.append(" style=\"color: red;\"");
+  }
+  buffer.append(" name=\"");
+  if ("time-dropdown".equals(dateTimeField.getInputMethod())) {
+    buffer.append(UtilHttp.makeCompositeParam(paramName,"date"));
+  }
+ else {
+    buffer.append(paramName);
+  }
+  buffer.append('"');
+  String value=modelFormField.getEntry(context,dateTimeField.getDefaultValue(context));
+  if (UtilValidate.isNotEmpty(value)) {
+    buffer.append(" value=\"");
+    if ("date".equals(dateTimeField.getType()) && value.length() >= 10) {
+      value=value.substring(0,10);
+    }
+ else     if ("time".equals(dateTimeField.getType()) && value.length() >= 16) {
+      value=value.substring(0,16);
+    }
+    buffer.append(value);
+    buffer.append('"');
+  }
+  int size=25;
+  int maxlength=30;
+  if (shortDateInput) {
+    size=10;
+    maxlength=10;
+  }
+ else   if ("time".equals(dateTimeField.getType())) {
+    size=16;
+    maxlength=16;
+  }
+  buffer.append(" size=\"");
+  buffer.append(size);
+  buffer.append('"');
+  buffer.append(" maxlength=\"");
+  buffer.append(maxlength);
+  buffer.append('"');
+  String idName=modelFormField.getIdName();
+  if (UtilValidate.isNotEmpty(idName)) {
+    buffer.append(" id=\"");
+    buffer.append(idName);
+    buffer.append('"');
+  }
+  buffer.append("/>");
+  if (!"time".equals(dateTimeField.getType())) {
+    if (shortDateInput) {
+      buffer.append("<a href=\"javascript:call_cal_notime(document.");
+    }
+ else {
+      buffer.append("<a href=\"javascript:call_cal(document.");
+    }
+    buffer.append(modelFormField.getModelForm().getCurrentFormName(context));
+    buffer.append('.');
+    if ("time-dropdown".equals(dateTimeField.getInputMethod()))     buffer.append(UtilHttp.makeCompositeParam(paramName,"date"));
+ else {
+      buffer.append(paramName);
+    }
+    buffer.append(",'");
+    buffer.append(UtilHttp.encodeBlanks(modelFormField.getEntry(context,defaultDateTimeString)));
+    buffer.append("');\">");
+    buffer.append("<img src=\"");
+    this.appendContentUrl(buffer,"/content/images/cal.gif");
+    buffer.append("\" width=\"16\" height=\"16\" border=\"0\" alt=\"Calendar\"/></a>");
+  }
+  if ("time-dropdown".equals(dateTimeField.getInputMethod())) {
+    String classString=(className != null ? " class=\"" + className + "\" " : "");
+    boolean isTwelveHour="12".equals(dateTimeField.getClock());
+    Calendar cal=null;
+    try {
+      Timestamp defaultTimestamp=Timestamp.valueOf(modelFormField.getEntry(context,defaultDateTimeString));
+      cal=Calendar.getInstance();
+      cal.setTime(defaultTimestamp);
+    }
+ catch (    IllegalArgumentException e) {
+      Debug.logWarning("Form widget field [" + paramName + "] with input-method=\"time-dropdown\" was not able to understand the default time ["+ defaultDateTimeString+ "]. The parsing error was: "+ e.getMessage(),module);
+    }
+    buffer.append("&nbsp;<select name=\"").append(UtilHttp.makeCompositeParam(paramName,"hour")).append("\"");
+    buffer.append(classString).append(">");
+    if (isTwelveHour) {
+      for (int i=1; i <= 12; i++) {
+        buffer.append("<option value=\"").append(i).append("\"");
+        if (cal != null) {
+          int hour=cal.get(Calendar.HOUR_OF_DAY);
+          if (hour == 0)           hour=12;
+          if (hour > 12)           hour-=12;
+          if (i == hour)           buffer.append(" selected");
+        }
+        buffer.append(">").append(i).append("</option>");
+      }
+    }
+ else {
+      for (int i=0; i < 24; i++) {
+        buffer.append("<option value=\"").append(i).append("\"");
+        if (cal != null && i == cal.get(Calendar.HOUR_OF_DAY)) {
+          buffer.append(" selected");
+        }
+        buffer.append(">").append(i).append("</option>");
+      }
+    }
+    buffer.append("</select>:<select name=\"");
+    buffer.append(UtilHttp.makeCompositeParam(paramName,"minutes")).append("\"");
+    buffer.append(classString).append(">");
+    for (int i=0; i < 60; i++) {
+      buffer.append("<option value=\"").append(i).append("\"");
+      if (cal != null && i == cal.get(Calendar.MINUTE)) {
+        buffer.append(" selected");
+      }
+      buffer.append(">").append(i).append("</option>");
+    }
+    buffer.append("</select>");
+    if (isTwelveHour) {
+      String amSelected=((cal != null && cal.get(Calendar.AM_PM) == Calendar.AM) ? "selected" : "");
+      String pmSelected=((cal != null && cal.get(Calendar.AM_PM) == Calendar.PM) ? "selected" : "");
+      buffer.append("<select name=\"").append(UtilHttp.makeCompositeParam(paramName,"ampm")).append("\"");
+      buffer.append(classString).append(">");
+      buffer.append("<option value=\"").append("AM").append("\" ").append(amSelected).append(">AM</option>");
+      buffer.append("<option value=\"").append("PM").append("\" ").append(pmSelected).append(">PM</option>");
+      buffer.append("</select>");
+    }
+    buffer.append("<input type=\"hidden\" name=\"");
+    buffer.append(UtilHttp.makeCompositeParam(paramName,"compositeType"));
+    buffer.append("\" value=\"Timestamp\">");
+  }
+  this.appendTooltip(buffer,context,modelFormField);
+  this.appendWhitespace(buffer);
+}

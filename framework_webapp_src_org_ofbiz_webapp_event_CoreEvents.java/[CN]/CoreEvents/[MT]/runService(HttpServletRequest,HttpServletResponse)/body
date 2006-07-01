@@ -1,0 +1,44 @@
+{
+  String serviceName=request.getParameter("serviceName");
+  String mode=request.getParameter("mode");
+  Locale locale=UtilHttp.getLocale(request);
+  if (UtilValidate.isEmpty(serviceName)) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.must_specify_service_name",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg);
+    return "error";
+  }
+  if (UtilValidate.isEmpty(mode)) {
+    mode="sync";
+  }
+  Security security=(Security)request.getAttribute("security");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  ModelService modelService=null;
+  try {
+    modelService=dispatcher.getDispatchContext().getModelService(serviceName);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error looking up ModelService for serviceName [" + serviceName + "]",module);
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.error_modelservice_for_srv_name",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + "["+ serviceName+ "]: "+ e.toString());
+    return "error";
+  }
+  if (modelService == null) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_name_not_find",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + "["+ serviceName+ "]");
+    return "error";
+  }
+  if (!modelService.export && !security.hasPermission("SERVICE_INVOKE_ANY",request.getSession())) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.not_authorized_to_call",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + ".");
+    return "error";
+  }
+  Debug.logInfo("Running service named [" + serviceName + "] from event with mode ["+ mode+ "]",module);
+  try {
+    return seh.invoke(mode,serviceName,request,response);
+  }
+ catch (  EventHandlerException e) {
+    String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.service_eventhandler_exception",locale);
+    request.setAttribute("_ERROR_MESSAGE_","<li>" + errMsg + ": "+ e.getMessage());
+    return "error";
+  }
+}

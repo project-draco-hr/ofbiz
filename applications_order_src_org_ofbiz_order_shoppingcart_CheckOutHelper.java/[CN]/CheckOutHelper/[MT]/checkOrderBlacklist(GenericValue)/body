@@ -1,0 +1,55 @@
+{
+  if (cart == null) {
+    return ServiceUtil.returnSuccess("success");
+  }
+  GenericValue shippingAddressObj=this.cart.getShippingAddress();
+  if (shippingAddressObj == null) {
+    return ServiceUtil.returnSuccess("success");
+  }
+  String shippingAddress=UtilFormatOut.checkNull(shippingAddressObj.getString("address1")).toUpperCase();
+  List exprs=UtilMisc.toList(new EntityExpr(new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue("blacklistString")),EntityOperator.EQUALS,new EntityFunction.UPPER(shippingAddress)),EntityOperator.AND,new EntityExpr("orderBlacklistTypeId",EntityOperator.EQUALS,"BLACKLIST_ADDRESS")));
+  String errMsg=null;
+  List paymentMethods=this.cart.getPaymentMethods();
+  Iterator i=paymentMethods.iterator();
+  while (i.hasNext()) {
+    GenericValue paymentMethod=(GenericValue)i.next();
+    if (paymentMethod.getString("paymentMethodTypeId").equals("CREDIT_CARD")) {
+      GenericValue creditCard=null;
+      GenericValue billingAddress=null;
+      try {
+        creditCard=paymentMethod.getRelatedOne("CreditCard");
+        if (creditCard != null)         billingAddress=creditCard.getRelatedOne("PostalAddress");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Problems getting credit card from payment method",module);
+        errMsg=UtilProperties.getMessage(resource,"checkhelper.problems_reading_database",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        return ServiceUtil.returnError(errMsg);
+      }
+      if (creditCard != null) {
+        String creditCardNumber=UtilFormatOut.checkNull(creditCard.getString("cardNumber"));
+        exprs.add(new EntityExpr(new EntityExpr("blacklistString",EntityOperator.EQUALS,creditCardNumber),EntityOperator.AND,new EntityExpr("orderBlacklistTypeId",EntityOperator.EQUALS,"BLACKLIST_CREDITCARD")));
+      }
+      if (billingAddress != null) {
+        String address=UtilFormatOut.checkNull(billingAddress.getString("address1").toUpperCase());
+        exprs.add(new EntityExpr(new EntityExpr(new EntityFunction.UPPER(new EntityFieldValue("blacklistString")),EntityOperator.EQUALS,new EntityFunction.UPPER(address)),EntityOperator.AND,new EntityExpr("orderBlacklistTypeId",EntityOperator.EQUALS,"BLACKLIST_ADDRESS")));
+      }
+    }
+  }
+  List blacklistFound=null;
+  if (exprs.size() > 0) {
+    try {
+      blacklistFound=this.delegator.findByOr("OrderBlacklist",exprs);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problems with OrderBlacklist lookup.",module);
+      errMsg=UtilProperties.getMessage(resource,"checkhelper.problems_reading_database",(cart != null ? cart.getLocale() : Locale.getDefault()));
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  if (blacklistFound != null && blacklistFound.size() > 0) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderFailed",(cart != null ? cart.getLocale() : Locale.getDefault())));
+  }
+ else {
+    return ServiceUtil.returnSuccess("success");
+  }
+}

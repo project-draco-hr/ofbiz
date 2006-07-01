@@ -1,0 +1,28 @@
+{
+  Document requestDocument=createUspsRequestDocument("TrackRequest");
+  Element trackingElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"TrackID",requestDocument);
+  trackingElement.setAttribute("ID",(String)context.get("trackingId"));
+  Document responseDocument=null;
+  try {
+    responseDocument=sendUspsRequest("TrackV2",requestDocument);
+  }
+ catch (  UspsRequestException e) {
+    Debug.log(e,module);
+    return ServiceUtil.returnError("Error sending request for USPS Tracking service: " + e.getMessage());
+  }
+  Element trackInfoElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"TrackInfo");
+  if (trackInfoElement == null) {
+    return ServiceUtil.returnError("Incomplete response from USPS Tracking service: no TrackInfo element found");
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("trackingSummary",UtilXml.childElementValue(trackInfoElement,"TrackSummary"));
+  List detailElementList=UtilXml.childElementList(trackInfoElement,"TrackDetail");
+  if (UtilValidate.isNotEmpty(detailElementList)) {
+    List trackingDetailList=new ArrayList();
+    for (Iterator iter=detailElementList.iterator(); iter.hasNext(); ) {
+      trackingDetailList.add(UtilXml.elementValue((Element)iter.next()));
+    }
+    result.put("trackingDetailList",trackingDetailList);
+  }
+  return result;
+}

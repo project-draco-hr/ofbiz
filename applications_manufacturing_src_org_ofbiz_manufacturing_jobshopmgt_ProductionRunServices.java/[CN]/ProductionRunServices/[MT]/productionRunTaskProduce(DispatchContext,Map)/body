@@ -1,0 +1,75 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List msgResult=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunTaskId=(String)context.get("workEffortId");
+  String productId=(String)context.get("productId");
+  Double quantity=(Double)context.get("quantity");
+  Boolean createSerializedInventory=(Boolean)context.get("createSerializedInventory");
+  if (createSerializedInventory == null) {
+    createSerializedInventory=new Boolean(false);
+  }
+  ProductionRun productionRun=new ProductionRun(productionRunTaskId,delegator,dispatcher);
+  if (createSerializedInventory.booleanValue()) {
+    try {
+      int numOfItems=quantity.intValue();
+      for (int i=0; i < numOfItems; i++) {
+        Map serviceContext=UtilMisc.toMap("productId",productId,"inventoryItemTypeId","SERIALIZED_INV_ITEM","statusId","INV_AVAILABLE");
+        serviceContext.put("facilityId",productionRun.getGenericValue().getString("facilityId"));
+        serviceContext.put("datetimeReceived",UtilDateTime.nowDate());
+        serviceContext.put("comments","Created by production run task " + productionRunTaskId);
+        serviceContext.put("userLogin",userLogin);
+        Map resultService=dispatcher.runSync("createInventoryItem",serviceContext);
+        String inventoryItemId=(String)resultService.get("inventoryItemId");
+        GenericValue inventoryProduced=delegator.makeValue("WorkEffortInventoryProduced",UtilMisc.toMap("workEffortId",productionRunTaskId,"inventoryItemId",inventoryItemId));
+        inventoryProduced.create();
+        serviceContext.clear();
+        serviceContext.put("inventoryItemId",inventoryItemId);
+        serviceContext.put("workEffortId",productionRunTaskId);
+        serviceContext.put("availableToPromiseDiff",new Double(1));
+        serviceContext.put("quantityOnHandDiff",new Double(1));
+        serviceContext.put("userLogin",userLogin);
+        resultService=dispatcher.runSync("createInventoryItemDetail",serviceContext);
+        serviceContext=new HashMap();
+        serviceContext.put("inventoryItemId",inventoryItemId);
+        serviceContext.put("userLogin",userLogin);
+        resultService=dispatcher.runSync("balanceInventoryItems",serviceContext);
+      }
+    }
+ catch (    Exception exc) {
+      return ServiceUtil.returnError(exc.getMessage());
+    }
+  }
+ else {
+    try {
+      Map serviceContext=UtilMisc.toMap("productId",productId,"inventoryItemTypeId","NON_SERIAL_INV_ITEM");
+      serviceContext.put("facilityId",productionRun.getGenericValue().getString("facilityId"));
+      serviceContext.put("datetimeReceived",UtilDateTime.nowTimestamp());
+      serviceContext.put("comments","Created by production run task " + productionRunTaskId);
+      serviceContext.put("userLogin",userLogin);
+      Map resultService=dispatcher.runSync("createInventoryItem",serviceContext);
+      String inventoryItemId=(String)resultService.get("inventoryItemId");
+      GenericValue inventoryProduced=delegator.makeValue("WorkEffortInventoryProduced",UtilMisc.toMap("workEffortId",productionRunTaskId,"inventoryItemId",inventoryItemId));
+      inventoryProduced.create();
+      serviceContext.clear();
+      serviceContext.put("inventoryItemId",inventoryItemId);
+      serviceContext.put("workEffortId",productionRunTaskId);
+      serviceContext.put("availableToPromiseDiff",quantity);
+      serviceContext.put("quantityOnHandDiff",quantity);
+      serviceContext.put("userLogin",userLogin);
+      resultService=dispatcher.runSync("createInventoryItemDetail",serviceContext);
+      serviceContext=new HashMap();
+      serviceContext.put("inventoryItemId",inventoryItemId);
+      serviceContext.put("userLogin",userLogin);
+      resultService=dispatcher.runSync("balanceInventoryItems",serviceContext);
+    }
+ catch (    Exception exc) {
+      return ServiceUtil.returnError(exc.getMessage());
+    }
+  }
+  return result;
+}

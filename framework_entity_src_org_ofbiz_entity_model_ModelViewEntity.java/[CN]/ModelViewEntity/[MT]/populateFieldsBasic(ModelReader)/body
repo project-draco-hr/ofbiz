@@ -1,0 +1,86 @@
+{
+  if (this.memberModelEntities == null) {
+    this.memberModelEntities=new HashMap();
+  }
+  Iterator meIter=memberModelMemberEntities.entrySet().iterator();
+  while (meIter.hasNext()) {
+    Map.Entry entry=(Map.Entry)meIter.next();
+    ModelMemberEntity modelMemberEntity=(ModelMemberEntity)entry.getValue();
+    String aliasedEntityName=modelMemberEntity.getEntityName();
+    ModelEntity aliasedEntity=modelReader.getModelEntityNoCheck(aliasedEntityName);
+    if (aliasedEntity == null) {
+      continue;
+    }
+    memberModelEntities.put(entry.getKey(),aliasedEntity);
+    Iterator aliasedFieldIterator=aliasedEntity.getFieldsIterator();
+    while (aliasedFieldIterator.hasNext()) {
+      ModelField aliasedModelField=(ModelField)aliasedFieldIterator.next();
+      ModelField newModelField=new ModelField();
+      for (int i=0; i < aliasedModelField.getValidatorsSize(); i++) {
+        newModelField.addValidator(aliasedModelField.getValidator(i));
+      }
+      newModelField.setColName(modelMemberEntity.getEntityAlias() + "." + aliasedModelField.getColName());
+      newModelField.setName(modelMemberEntity.getEntityAlias() + "." + aliasedModelField.getName());
+      newModelField.setType(aliasedModelField.getType());
+      newModelField.setIsPk(false);
+      aliasedModelEntity.addField(newModelField);
+    }
+  }
+  expandAllAliasAlls(modelReader);
+  for (int i=0; i < aliases.size(); i++) {
+    ModelAlias alias=(ModelAlias)aliases.get(i);
+    ModelField field=new ModelField();
+    field.setModelEntity(this);
+    field.name=alias.name;
+    if (alias.groupBy) {
+      this.groupBys.add(field);
+    }
+    if (UtilValidate.isNotEmpty(alias.function) && alias.groupBy) {
+      Debug.logWarning("The view-entity alias with name=" + alias.name + " has a function value and is specified as a group-by field; this may be an error, but is not necessarily.",module);
+    }
+    if (alias.isComplexAlias()) {
+      StringBuffer colNameBuffer=new StringBuffer();
+      StringBuffer fieldTypeBuffer=new StringBuffer();
+      alias.makeAliasColName(colNameBuffer,fieldTypeBuffer,this,modelReader);
+      field.colName=colNameBuffer.toString();
+      field.type=fieldTypeBuffer.toString();
+      field.isPk=false;
+    }
+ else {
+      ModelEntity aliasedEntity=getAliasedEntity(alias.entityAlias,modelReader);
+      ModelField aliasedField=getAliasedField(aliasedEntity,alias.field,modelReader);
+      if (aliasedField == null) {
+        Debug.logError("[ModelViewEntity.populateFields (" + this.getEntityName() + ")] ERROR: could not find ModelField for field name \""+ alias.field+ "\" on entity with name: "+ aliasedEntity.getEntityName(),module);
+        continue;
+      }
+      if (alias.isPk != null) {
+        field.isPk=alias.isPk.booleanValue();
+      }
+ else {
+        field.isPk=aliasedField.isPk;
+      }
+      field.type=aliasedField.type;
+      field.validators=aliasedField.validators;
+      field.colName=alias.entityAlias + "." + SqlJdbcUtil.filterColName(aliasedField.colName);
+    }
+    this.fields.add(field);
+    if (field.isPk) {
+      this.pks.add(field);
+    }
+ else {
+      this.nopks.add(field);
+    }
+    if ("count".equals(alias.function) || "count-distinct".equals(alias.function)) {
+      field.type="numeric";
+    }
+    if (UtilValidate.isNotEmpty(alias.function)) {
+      String prefix=(String)functionPrefixMap.get(alias.function);
+      if (prefix == null) {
+        Debug.logWarning("Specified alias function [" + alias.function + "] not valid; must be: min, max, sum, avg, count or count-distinct; using a column name with no function function",module);
+      }
+ else {
+        field.colName=prefix + field.colName + ")";
+      }
+    }
+  }
+}

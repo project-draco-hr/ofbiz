@@ -1,0 +1,63 @@
+{
+  XuiSession session=pos.getSession();
+  Output output=pos.getOutput();
+  Input input=pos.getInput();
+  String loginFunc=mgr ? "MGRLOGIN" : "LOGIN";
+  String[] func=input.getLastFunction();
+  String text=input.value();
+  if (func != null && func[0].equals(loginFunc)) {
+    if (UtilValidate.isEmpty(func[1]) && UtilValidate.isEmpty(text)) {
+      output.print(UtilProperties.getMessage("pos","ULOGIN",Locale.getDefault()));
+      input.setFunction(loginFunc);
+    }
+ else     if (UtilValidate.isEmpty(func[1])) {
+      output.print(UtilProperties.getMessage("pos","UPASSW",Locale.getDefault()));
+      input.setFunction(loginFunc);
+    }
+ else {
+      String username=func[1];
+      String password=text;
+      if (!mgr) {
+        boolean passed=false;
+        try {
+          session.login(username,password);
+          passed=true;
+        }
+ catch (        XuiSession.UserLoginFailure e) {
+          output.print(e.getMessage());
+          input.clear();
+        }
+        if (passed) {
+          input.clear();
+          pos.setLock(false);
+          pos.refresh();
+          return;
+        }
+      }
+ else {
+        GenericValue mgrUl=null;
+        try {
+          mgrUl=session.checkLogin(username,password);
+        }
+ catch (        XuiSession.UserLoginFailure e) {
+          output.print(e.getMessage());
+          input.clear();
+        }
+        if (mgrUl != null) {
+          boolean isMgr=session.hasRole(mgrUl,"MANAGER");
+          if (!isMgr) {
+            output.print(UtilProperties.getMessage("pos","UserNotmanager",Locale.getDefault()));
+            input.clear();
+          }
+ else {
+            ManagerEvents.mgrLoggedIn=true;
+            pos.showPage("mgrpanel");
+          }
+        }
+      }
+    }
+  }
+ else {
+    Debug.log("Login function called but not prepared as a function!",module);
+  }
+}

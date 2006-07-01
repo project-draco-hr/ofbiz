@@ -1,0 +1,72 @@
+{
+  Map result=null;
+  Timestamp endDate=(Timestamp)requiredByDate.clone();
+  Timestamp startDate=endDate;
+  if (isbuild) {
+    List listRoutingTaskAssoc=null;
+    if (routing == null) {
+      try {
+        Map routingInMap=UtilMisc.toMap("productId",product.getString("productId"),"ignoreDefaultRouting","Y","userLogin",userLogin);
+        Map routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+        routing=(GenericValue)routingOutMap.get("routing");
+        if (routing == null) {
+          BOMTree tree=null;
+          ArrayList components=new ArrayList();
+          try {
+            tree=new BOMTree(product.getString("productId"),"MANUF_COMPONENT",requiredByDate,BOMTree.EXPLOSION_SINGLE_LEVEL,delegator,dispatcher,userLogin);
+            tree.setRootQuantity(quantity);
+            tree.print(components,true);
+            if (components.size() > 0)             components.remove(0);
+          }
+ catch (          Exception exc) {
+            Debug.logWarning(exc.getMessage(),module);
+            tree=null;
+          }
+          if (tree != null && tree.getRoot() != null && tree.getRoot().getProduct() != null) {
+            routingInMap=UtilMisc.toMap("productId",tree.getRoot().getProduct().getString("productId"),"userLogin",userLogin);
+            routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+            routing=(GenericValue)routingOutMap.get("routing");
+          }
+        }
+        listRoutingTaskAssoc=(List)routingOutMap.get("tasks");
+      }
+ catch (      GenericServiceException gse) {
+        Debug.logWarning(gse.getMessage(),module);
+      }
+    }
+    if (routing != null && listRoutingTaskAssoc != null) {
+      result=new HashMap();
+      for (int i=1; i <= listRoutingTaskAssoc.size(); i++) {
+        GenericValue routingTaskAssoc=(GenericValue)listRoutingTaskAssoc.get(listRoutingTaskAssoc.size() - i);
+        if (EntityUtil.isValueActive(routingTaskAssoc,endDate)) {
+          GenericValue routingTask=null;
+          try {
+            routingTask=routingTaskAssoc.getRelatedOneCache("ToWorkEffort");
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e.getMessage(),module);
+          }
+          long totalTime=ProductionRun.getEstimatedTaskTime(routingTask,quantity,dispatcher);
+          startDate=TechDataServices.addBackward(TechDataServices.getTechDataCalendar(routingTask),endDate,totalTime);
+          result.put(routingTask.getString("workEffortId"),startDate);
+          endDate=startDate;
+        }
+      }
+    }
+ else {
+      Debug.logError("Build product without routing for product = " + product.getString("productId"),module);
+    }
+  }
+ else {
+    long duringTime=daysToShip * 8 * 60* 60* 1000;
+    try {
+      GenericValue techDataCalendar=product.getDelegator().findByPrimaryKeyCache("TechDataCalendar",UtilMisc.toMap("calendarId","SUPPLIER"));
+      startDate=TechDataServices.addBackward(techDataCalendar,endDate,duringTime);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error : reading SUPPLIER TechDataCalendar" + "--" + e.getMessage(),module);
+    }
+  }
+  requirementStartDate=startDate;
+  return result;
+}

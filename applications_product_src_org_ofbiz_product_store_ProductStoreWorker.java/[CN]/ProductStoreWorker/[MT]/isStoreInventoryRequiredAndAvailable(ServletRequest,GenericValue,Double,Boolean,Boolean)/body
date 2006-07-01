@@ -1,0 +1,45 @@
+{
+  GenericValue productStore=getProductStore(request);
+  if (productStore == null) {
+    Debug.logWarning("No ProductStore found, return false for inventory check",module);
+    return false;
+  }
+  if (product == null) {
+    Debug.logWarning("No Product passed, return false for inventory check",module);
+    return false;
+  }
+  if (quantity == null)   quantity=new Double(1);
+  String productStoreId=productStore.getString("productStoreId");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  try {
+    Boolean requiredOkay=null;
+    if (wantRequired != null) {
+      Map invReqResult=dispatcher.runSync("isStoreInventoryRequired",UtilMisc.toMap("productStoreId",productStoreId,"productId",product.get("productId"),"product",product,"productStore",productStore));
+      if (ServiceUtil.isError(invReqResult)) {
+        Debug.logError("Error calling isStoreInventoryRequired service, result is: " + invReqResult,module);
+        return false;
+      }
+      requiredOkay=new Boolean(wantRequired.booleanValue() == "Y".equals((String)invReqResult.get("requireInventory")));
+    }
+    Boolean availableOkay=null;
+    if (wantAvailable != null) {
+      Map invAvailResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.toMap("productStoreId",productStoreId,"productId",product.get("productId"),"product",product,"productStore",productStore,"quantity",quantity));
+      if (ServiceUtil.isError(invAvailResult)) {
+        Debug.logError("Error calling isStoreInventoryAvailable service, result is: " + invAvailResult,module);
+        return false;
+      }
+      availableOkay=new Boolean(wantAvailable.booleanValue() == "Y".equals((String)invAvailResult.get("available")));
+    }
+    if ((requiredOkay == null || requiredOkay.booleanValue()) && (availableOkay == null || availableOkay.booleanValue())) {
+      return true;
+    }
+ else {
+      return false;
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Fatal error calling inventory checking services: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return false;
+  }
+}

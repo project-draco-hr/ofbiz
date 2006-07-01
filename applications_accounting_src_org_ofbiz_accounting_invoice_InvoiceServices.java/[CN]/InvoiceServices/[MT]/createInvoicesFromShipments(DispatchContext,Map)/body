@@ -1,0 +1,154 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  List shipmentIds=(List)context.get("shipmentIds");
+  Locale locale=(Locale)context.get("locale");
+  boolean salesShipmentFound=false;
+  boolean purchaseShipmentFound=false;
+  List invoicesCreated=new ArrayList();
+  for (int i=0; i < shipmentIds.size(); i++) {
+    String tmpShipmentId=(String)shipmentIds.get(i);
+    try {
+      GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",tmpShipmentId));
+      if ((shipment.getString("shipmentTypeId") != null) && (shipment.getString("shipmentTypeId").equals("PURCHASE_SHIPMENT"))) {
+        purchaseShipmentFound=true;
+      }
+ else {
+        salesShipmentFound=true;
+      }
+      if (purchaseShipmentFound && salesShipmentFound) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingShipmentsOfDifferentTypes",UtilMisc.toMap("tmpShipmentId",tmpShipmentId,"shipmentTypeId",shipment.getString("shipmentTypeId")),locale));
+      }
+    }
+ catch (    GenericEntityException e) {
+      String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleGettingShipmentEntity",UtilMisc.toMap("tmpShipmentId",tmpShipmentId),locale);
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  EntityCondition shipmentIdsCond=new EntityExpr("shipmentId",EntityOperator.IN,shipmentIds);
+  List items=null;
+  try {
+    if (purchaseShipmentFound) {
+      items=delegator.findByCondition("ShipmentReceipt",shipmentIdsCond,null,UtilMisc.toList("shipmentId"));
+    }
+ else {
+      items=delegator.findByCondition("ItemIssuance",shipmentIdsCond,null,UtilMisc.toList("shipmentId"));
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg=UtilProperties.getMessage(resource,"AccountingProblemGettingItemsFromShipments",locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (items == null) {
+    Debug.logInfo("No items issued for shipments",module);
+    return ServiceUtil.returnSuccess();
+  }
+  Map shippedOrderItems=new HashMap();
+  Iterator itemsIter=items.iterator();
+  while (itemsIter.hasNext()) {
+    GenericValue item=(GenericValue)itemsIter.next();
+    String orderId=item.getString("orderId");
+    String orderItemSeqId=item.getString("orderItemSeqId");
+    List itemsByOrder=(List)shippedOrderItems.get(orderId);
+    if (itemsByOrder == null) {
+      itemsByOrder=new ArrayList();
+    }
+    Map billFields=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId);
+    if (item.getEntityName().equals("ItemIssuance")) {
+      billFields.put("itemIssuanceId",item.get("itemIssuanceId"));
+    }
+ else     if (item.getEntityName().equals("ShipmentReceipt")) {
+      billFields.put("shipmentReceiptId",item.getString("receiptId"));
+    }
+    List itemBillings=null;
+    try {
+      itemBillings=delegator.findByAnd("OrderItemBilling",billFields);
+    }
+ catch (    GenericEntityException e) {
+      String errMsg=UtilProperties.getMessage(resource,"AccountingProblemLookingUpOrderItemBilling",UtilMisc.toMap("billFields",billFields),locale);
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+    if (itemBillings == null || itemBillings.size() == 0) {
+      itemsByOrder.add(item);
+    }
+    shippedOrderItems.put(orderId,itemsByOrder);
+  }
+  Set orders=shippedOrderItems.keySet();
+  Iterator ordersIter=orders.iterator();
+  while (ordersIter.hasNext()) {
+    String orderId=(String)ordersIter.next();
+    List billItems=(List)shippedOrderItems.get(orderId);
+    List toBillItems=new ArrayList();
+    Map itemQtyAvail=new HashMap();
+    Iterator billIt=billItems.iterator();
+    while (billIt.hasNext()) {
+      GenericValue issue=(GenericValue)billIt.next();
+      BigDecimal issueQty=ZERO;
+      if (issue.getEntityName().equals("ShipmentReceipt")) {
+        issueQty=issue.getBigDecimal("quantityAccepted");
+      }
+ else {
+        issueQty=issue.getBigDecimal("quantity");
+      }
+      BigDecimal billAvail=(BigDecimal)itemQtyAvail.get(issue.getString("orderItemSeqId"));
+      if (billAvail == null) {
+        Map lookup=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",issue.get("orderItemSeqId"));
+        GenericValue orderItem=null;
+        List billed=null;
+        try {
+          orderItem=issue.getRelatedOne("OrderItem");
+          billed=delegator.findByAnd("OrderItemBilling",lookup);
+        }
+ catch (        GenericEntityException e) {
+          String errMsg=UtilProperties.getMessage(resource,"AccountingProblemGettingOrderItemOrderItemBilling",UtilMisc.toMap("lookup",lookup),locale);
+          Debug.logError(e,errMsg,module);
+          return ServiceUtil.returnError(errMsg);
+        }
+        BigDecimal orderedQty=orderItem.getBigDecimal("quantity");
+        if (billed != null && billed.size() > 0) {
+          BigDecimal billedQuantity=ZERO;
+          Iterator bi=billed.iterator();
+          while (bi.hasNext()) {
+            GenericValue oib=(GenericValue)bi.next();
+            BigDecimal qty=oib.getBigDecimal("quantity");
+            if (qty != null) {
+              billedQuantity=billedQuantity.add(qty).setScale(decimals,rounding);
+            }
+          }
+          BigDecimal leftToBill=orderedQty.subtract(billedQuantity).setScale(decimals,rounding);
+          billAvail=leftToBill;
+        }
+ else {
+          billAvail=orderedQty;
+        }
+      }
+      if (billAvail != null && billAvail.signum() == 1) {
+        if (issueQty != null && issueQty.doubleValue() > billAvail.doubleValue()) {
+          issue.set("quantity",new Double(billAvail.doubleValue()));
+          billAvail=ZERO;
+        }
+ else {
+          billAvail=billAvail.subtract(issueQty).setScale(decimals,rounding);
+        }
+        toBillItems.add(issue);
+      }
+      itemQtyAvail.put(issue.getString("orderItemSeqId"),billAvail);
+    }
+    Map serviceContext=UtilMisc.toMap("orderId",orderId,"billItems",toBillItems,"userLogin",context.get("userLogin"));
+    try {
+      Map result=dispatcher.runSync("createInvoiceForOrder",serviceContext);
+      invoicesCreated.add(result.get("invoiceId"));
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateInvoiceForOrderService",locale);
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  Map response=ServiceUtil.returnSuccess();
+  response.put("invoicesCreated",invoicesCreated);
+  return response;
+}

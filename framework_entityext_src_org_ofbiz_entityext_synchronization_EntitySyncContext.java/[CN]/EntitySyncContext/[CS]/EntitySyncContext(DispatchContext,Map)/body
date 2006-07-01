@@ -1,0 +1,53 @@
+{
+  this.context=context;
+  this.dispatcher=dctx.getDispatcher();
+  this.delegator=dctx.getDelegator();
+  String delegatorName=(String)context.get("delegatorName");
+  if (UtilValidate.isNotEmpty(delegatorName)) {
+    this.delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  }
+  this.userLogin=(GenericValue)context.get("userLogin");
+  this.entitySyncId=(String)context.get("entitySyncId");
+  Debug.logInfo("Creating EntitySyncContext with entitySyncId=" + entitySyncId,module);
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin(7200);
+  }
+ catch (  GenericTransactionException e) {
+    throw new SyncDataErrorException("Unable to begin JTA transaction",e);
+  }
+  try {
+    this.entitySync=delegator.findByPrimaryKey("EntitySync",UtilMisc.toMap("entitySyncId",this.entitySyncId));
+    if (this.entitySync == null) {
+      throw new SyncAbortException("Not running EntitySync [" + entitySyncId + "], no record found with that ID.");
+    }
+    targetServiceName=entitySync.getString("targetServiceName");
+    targetDelegatorName=entitySync.getString("targetDelegatorName");
+    syncEndStamp=new Timestamp(System.currentTimeMillis() - syncEndBufferMillis);
+    this.offlineSyncSplitMillis=getOfflineSyncSplitMillis(entitySync);
+    this.syncSplitMillis=getSyncSplitMillis(entitySync);
+    this.syncEndBufferMillis=getSyncEndBufferMillis(entitySync);
+    this.maxRunningNoUpdateMillis=getMaxRunningNoUpdateMillis(entitySync);
+    this.lastSuccessfulSynchTime=entitySync.getTimestamp("lastSuccessfulSynchTime");
+    this.entityModelToUseList=this.makeEntityModelToUseList();
+    this.entityNameToUseSet=this.makeEntityNameToUseSet();
+    this.currentRunStartTime=getCurrentRunStartTime(lastSuccessfulSynchTime,entityModelToUseList,delegator);
+    this.setCurrentRunEndTime();
+    this.startDate=(Timestamp)context.get("startDate");
+  }
+ catch (  GenericEntityException e) {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Entity Engine error while getting Entity Sync init information",e);
+    }
+ catch (    GenericTransactionException e2) {
+      Debug.logWarning(e2,"Unable to call rollback()",module);
+    }
+    throw new SyncDataErrorException("Error initializing EntitySync Context",e);
+  }
+  try {
+    TransactionUtil.commit(beganTransaction);
+  }
+ catch (  GenericTransactionException e) {
+    throw new SyncDataErrorException("Unable to commit transaction",e);
+  }
+}

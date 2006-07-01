@@ -1,0 +1,108 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String inventoryItemId=(String)context.get("inventoryItemId");
+  Double xferQty=(Double)context.get("xferQty");
+  GenericValue inventoryItem=null;
+  GenericValue newItem=null;
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  try {
+    inventoryItem=delegator.findByPrimaryKey("InventoryItem",UtilMisc.toMap("inventoryItemId",inventoryItemId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Inventory item lookup problem [" + e.getMessage() + "]");
+  }
+  if (inventoryItem == null) {
+    return ServiceUtil.returnError("Cannot locate inventory item.");
+  }
+  try {
+    Map results=ServiceUtil.returnSuccess();
+    String inventoryType=inventoryItem.getString("inventoryItemTypeId");
+    if (inventoryType.equals("NON_SERIAL_INV_ITEM")) {
+      Double atp=inventoryItem.getDouble("availableToPromiseTotal");
+      Double qoh=inventoryItem.getDouble("quantityOnHandTotal");
+      if (atp == null) {
+        return ServiceUtil.returnError("The request transfer amount is not available, there is no available to promise on the Inventory Item with ID " + inventoryItem.getString("inventoryItemId"));
+      }
+      if (qoh == null) {
+        qoh=atp;
+      }
+      if (xferQty.doubleValue() > atp.doubleValue()) {
+        return ServiceUtil.returnError("The request transfer amount is not available, the available to promise [" + atp + "] is not sufficient for the desired transfer quantity ["+ xferQty+ "] on the Inventory Item with ID "+ inventoryItem.getString("inventoryItemId"));
+      }
+      if (xferQty.doubleValue() < atp.doubleValue() || atp.doubleValue() < qoh.doubleValue()) {
+        Double negXferQty=new Double(-xferQty.doubleValue());
+        newItem=GenericValue.create(inventoryItem);
+        newItem.set("availableToPromiseTotal",new Double(0));
+        newItem.set("quantityOnHandTotal",new Double(0));
+        String newSeqId=null;
+        try {
+          newSeqId=delegator.getNextSeqId("InventoryItem");
+        }
+ catch (        IllegalArgumentException e) {
+          return ServiceUtil.returnError("ERROR: Could not get next sequence id for InventoryItem, cannot create item.");
+        }
+        newItem.set("inventoryItemId",newSeqId);
+        newItem.create();
+        results.put("inventoryItemId",newItem.get("inventoryItemId"));
+        Map createNewDetailMap=UtilMisc.toMap("availableToPromiseDiff",xferQty,"quantityOnHandDiff",xferQty,"inventoryItemId",newItem.get("inventoryItemId"),"userLogin",userLogin);
+        Map createUpdateDetailMap=UtilMisc.toMap("availableToPromiseDiff",negXferQty,"quantityOnHandDiff",negXferQty,"inventoryItemId",inventoryItem.get("inventoryItemId"),"userLogin",userLogin);
+        try {
+          Map resultNew=dctx.getDispatcher().runSync("createInventoryItemDetail",createNewDetailMap);
+          if (ServiceUtil.isError(resultNew)) {
+            return ServiceUtil.returnError("Inventory Item Detail create problem in prepare inventory transfer",null,null,resultNew);
+          }
+          Map resultUpdate=dctx.getDispatcher().runSync("createInventoryItemDetail",createUpdateDetailMap);
+          if (ServiceUtil.isError(resultNew)) {
+            return ServiceUtil.returnError("Inventory Item Detail create problem in prepare inventory transfer",null,null,resultUpdate);
+          }
+        }
+ catch (        GenericServiceException e1) {
+          return ServiceUtil.returnError("Inventory Item Detail create problem in prepare inventory transfer: [" + e1.getMessage() + "]");
+        }
+      }
+ else {
+        results.put("inventoryItemId",inventoryItem.get("inventoryItemId"));
+      }
+    }
+ else     if (inventoryType.equals("SERIALIZED_INV_ITEM")) {
+      if (!"INV_AVAILABLE".equals(inventoryItem.getString("statusId"))) {
+        return ServiceUtil.returnError("Serialized inventory is not available for transfer.");
+      }
+    }
+    if (inventoryType.equals("NON_SERIAL_INV_ITEM")) {
+      GenericValue inventoryItemToClear=newItem == null ? inventoryItem : newItem;
+      inventoryItemToClear.refresh();
+      double atp=inventoryItemToClear.get("availableToPromiseTotal") == null ? 0 : inventoryItemToClear.getDouble("availableToPromiseTotal").doubleValue();
+      if (atp != 0) {
+        Map createDetailMap=UtilMisc.toMap("availableToPromiseDiff",new Double(-atp),"inventoryItemId",inventoryItemToClear.get("inventoryItemId"),"userLogin",userLogin);
+        try {
+          Map result=dctx.getDispatcher().runSync("createInventoryItemDetail",createDetailMap);
+          if (ServiceUtil.isError(result)) {
+            return ServiceUtil.returnError("Inventory Item Detail create problem in complete inventory transfer",null,null,result);
+          }
+        }
+ catch (        GenericServiceException e1) {
+          return ServiceUtil.returnError("Inventory Item Detail create problem in complete inventory transfer: [" + e1.getMessage() + "]");
+        }
+      }
+    }
+ else     if (inventoryType.equals("SERIALIZED_INV_ITEM")) {
+      if (newItem != null) {
+        newItem.refresh();
+        newItem.set("statusId","INV_BEING_TRANSFERED");
+        newItem.store();
+        results.put("inventoryItemId",newItem.get("inventoryItemId"));
+      }
+ else {
+        inventoryItem.refresh();
+        inventoryItem.set("statusId","INV_BEING_TRANSFERED");
+        inventoryItem.store();
+        results.put("inventoryItemId",inventoryItem.get("inventoryItemId"));
+      }
+    }
+    return results;
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Inventory store/create problem [" + e.getMessage() + "]");
+  }
+}

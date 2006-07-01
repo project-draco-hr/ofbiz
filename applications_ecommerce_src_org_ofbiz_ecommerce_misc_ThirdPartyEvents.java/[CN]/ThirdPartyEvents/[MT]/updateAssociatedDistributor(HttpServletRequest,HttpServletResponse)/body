@@ -1,0 +1,60 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  GenericValue party=null;
+  java.net.URL ecommercePropertiesUrl=null;
+  try {
+    ecommercePropertiesUrl=((ServletContext)request.getAttribute("servletContext")).getResource("/WEB-INF/ecommerce.properties");
+  }
+ catch (  java.net.MalformedURLException e) {
+    Debug.logWarning(e,module);
+  }
+  String store=UtilProperties.getPropertyValue(ecommercePropertiesUrl,"distributor.store.customer");
+  if (store == null || store.toUpperCase().startsWith("N")) {
+    return "success";
+  }
+  String storeOnClick=UtilProperties.getPropertyValue(ecommercePropertiesUrl,"distributor.store.onclick");
+  if (storeOnClick == null || storeOnClick.toUpperCase().startsWith("N")) {
+    return "success";
+  }
+  try {
+    party=userLogin == null ? null : userLogin.getRelatedOne("Party");
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logWarning(gee,module);
+  }
+  if (party != null) {
+    String currentDistributorId=getId(party,"DISTRIBUTOR");
+    if (UtilValidate.isEmpty(currentDistributorId)) {
+      String distributorId=(String)request.getSession().getAttribute(DISTRIBUTOR_ID);
+      if (UtilValidate.isNotEmpty(distributorId)) {
+        List toBeStored=new LinkedList();
+        GenericValue partyRelationship=delegator.makeValue("PartyRelationship",UtilMisc.toMap("partyIdFrom",party.getString("partyId"),"partyIdTo",distributorId,"roleTypeIdFrom","CUSTOMER","roleTypeIdTo","DISTRIBUTOR"));
+        partyRelationship.set("fromDate",UtilDateTime.nowTimestamp());
+        partyRelationship.set("partyRelationshipTypeId","DISTRIBUTION_CHANNEL");
+        toBeStored.add(partyRelationship);
+        toBeStored.add(delegator.makeValue("Party",UtilMisc.toMap("partyId",distributorId)));
+        toBeStored.add(delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",distributorId,"roleTypeId","DISTRIBUTOR")));
+        try {
+          delegator.storeAll(toBeStored);
+          if (Debug.infoOn())           Debug.logInfo("Distributor for user " + party.getString("partyId") + " set to "+ distributorId,module);
+        }
+ catch (        GenericEntityException gee) {
+          Debug.logWarning(gee,module);
+        }
+      }
+ else {
+        Debug.logInfo("No distributor in session or already associated with user " + userLogin.getString("partyId"),module);
+        return "success";
+      }
+    }
+ else {
+      request.getSession().setAttribute(DISTRIBUTOR_ID,currentDistributorId);
+    }
+    return "success";
+  }
+ else {
+    Debug.logWarning("Cannot associate distributor since not logged in yet",module);
+    return "success";
+  }
+}

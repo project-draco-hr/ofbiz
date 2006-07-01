@@ -1,0 +1,78 @@
+{
+  HttpSession session=request.getSession();
+  Security security=(Security)request.getAttribute("security");
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  ServletContext servletContext=session.getServletContext();
+  String webSiteId=(String)servletContext.getAttribute("webSiteId");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map paramMap=UtilHttp.getParameterMap(request);
+  String parentPlaceholderId=(String)paramMap.get("ph");
+  if (UtilValidate.isEmpty(parentPlaceholderId)) {
+    request.setAttribute("_ERROR_MESSAGE_","ParentPlaceholder is empty.");
+    return "error";
+  }
+  List allPublishPointList=null;
+  List permittedPublishPointList=null;
+  List valueList=null;
+  try {
+    allPublishPointList=ContentManagementWorker.getAllPublishPoints(delegator,webSiteId);
+    permittedPublishPointList=ContentManagementWorker.getPermittedPublishPoints(delegator,allPublishPointList,userLogin,security,"_ADMIN",null,null);
+    valueList=ContentManagementWorker.getStaticValues(delegator,parentPlaceholderId,permittedPublishPointList);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e.getMessage(),module);
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+  Iterator it=valueList.iterator();
+  int counter=0;
+  while (it.hasNext()) {
+    Map map=(Map)it.next();
+    String contentId=(String)map.get("contentId");
+    Iterator itPubPt=permittedPublishPointList.iterator();
+    while (itPubPt.hasNext()) {
+      String[] pubArr=(String[])itPubPt.next();
+      String pubContentId=(String)pubArr[0];
+      String pubValue=(String)map.get(pubContentId);
+      String paramName=Integer.toString(counter) + "_" + pubContentId;
+      String paramValue=(String)paramMap.get(paramName);
+      Map serviceIn=new HashMap();
+      serviceIn.put("userLogin",userLogin);
+      serviceIn.put("contentIdTo",contentId);
+      serviceIn.put("contentId",pubContentId);
+      serviceIn.put("contentAssocTypeId","SUBSITE");
+      try {
+        if (UtilValidate.isNotEmpty(paramValue)) {
+          if (!paramValue.equals(pubValue)) {
+            if (paramValue.equalsIgnoreCase("Y")) {
+              serviceIn.put("fromDate",UtilDateTime.nowTimestamp());
+              Map results=dispatcher.runSync("createContentAssoc",serviceIn);
+            }
+ else             if (paramValue.equalsIgnoreCase("N") && pubValue.equalsIgnoreCase("Y")) {
+              serviceIn.put("thruDate",UtilDateTime.nowTimestamp());
+              Timestamp fromDate=(Timestamp)map.get(pubContentId + "FromDate");
+              serviceIn.put("fromDate",fromDate);
+              Map results=dispatcher.runSync("updateContentAssoc",serviceIn);
+            }
+          }
+        }
+ else         if (UtilValidate.isNotEmpty(pubValue)) {
+          if (pubValue.equalsIgnoreCase("Y")) {
+            serviceIn.put("thruDate",UtilDateTime.nowTimestamp());
+            Timestamp fromDate=(Timestamp)map.get(pubContentId + "FromDate");
+            serviceIn.put("fromDate",fromDate);
+            Map results=dispatcher.runSync("updateContentAssoc",serviceIn);
+          }
+        }
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e.getMessage(),module);
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+        return "error";
+      }
+    }
+    counter++;
+  }
+  return "success";
+}

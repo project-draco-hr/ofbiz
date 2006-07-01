@@ -1,0 +1,75 @@
+{
+  if (props == null || value == null)   return value;
+  if (beenThere == null) {
+    beenThere=new ArrayList();
+  }
+ else {
+  }
+  int start=value.indexOf("${");
+  while (start > -1) {
+    int end=value.indexOf("}",(start + 2));
+    if (end > start + 2) {
+      String keyToExpand=value.substring((start + 2),end);
+      int nestedStart=keyToExpand.indexOf("${");
+      while (nestedStart > -1) {
+        end=value.indexOf("}",(end + 1));
+        if (end > -1) {
+          keyToExpand=value.substring((start + 2),end);
+          nestedStart=keyToExpand.indexOf("${",(nestedStart + 2));
+        }
+ else {
+          Debug.log("[FlexibleProperties.interpolate] Malformed value: [" + value + "] "+ "contained unbalanced start \"${\" and end \"}\" characters",module);
+          return value;
+        }
+      }
+      if (keyToExpand.indexOf("${") > -1) {
+        ArrayList tempBeenThere=new ArrayList(beenThere);
+        beenThere.add(keyToExpand);
+        keyToExpand=interpolate(keyToExpand,props,truncateIfMissing,beenThere);
+        beenThere=tempBeenThere;
+      }
+      if (beenThere.contains(keyToExpand)) {
+        beenThere.add(keyToExpand);
+        Debug.log("[FlexibleProperties.interpolate] Recursion loop detected:  Property:[" + beenThere.get(0) + "] "+ "included property: ["+ keyToExpand+ "]",module);
+        Debug.log("[FlexibleProperties.interpolate] Recursion loop path:" + beenThere,module);
+        return value;
+      }
+ else {
+        String expandValue=null;
+        if (keyToExpand.startsWith("env.")) {
+          String envValue=System.getProperty(keyToExpand.substring(4));
+          if (envValue == null) {
+            Debug.log("[FlexibleProperties.interpolate] ERROR: Could not find environment variable named: " + keyToExpand.substring(4),module);
+          }
+ else {
+            expandValue=envValue;
+          }
+        }
+ else {
+          expandValue=props.getProperty(keyToExpand);
+        }
+        if (expandValue != null) {
+          if (expandValue.indexOf("${") > -1) {
+            ArrayList tempBeenThere=new ArrayList(beenThere);
+            beenThere.add(keyToExpand);
+            expandValue=interpolate(expandValue,props,truncateIfMissing,beenThere);
+            beenThere=tempBeenThere;
+          }
+          value=value.substring(0,start) + expandValue + value.substring(end + 1);
+          end=start + expandValue.length();
+        }
+ else {
+          if (truncateIfMissing == true) {
+            value=value.substring(0,start) + value.substring(end + 1);
+          }
+        }
+      }
+    }
+ else {
+      Debug.log("[FlexibleProperties.interpolate] Value [" + value + "] starts but does end variable",module);
+      return value;
+    }
+    start=value.indexOf("${",end);
+  }
+  return value;
+}

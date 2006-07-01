@@ -1,0 +1,81 @@
+{
+  GenericValue keyValue=null;
+  try {
+    keyValue=delegator.findByPrimaryKey("EntityKeyStore",UtilMisc.toMap("keyName",keyName));
+  }
+ catch (  GenericEntityException e) {
+    throw new EntityCryptoException(e);
+  }
+  if (keyValue == null || keyValue.get("keyText") == null) {
+    SecretKey key=null;
+    try {
+      key=DesCrypt.generateKey();
+    }
+ catch (    NoSuchAlgorithmException e) {
+      throw new EntityCryptoException(e);
+    }
+    GenericValue newValue=delegator.makeValue("EntityKeyStore",null);
+    newValue.set("keyText",StringUtil.toHexString(key.getEncoded()));
+    newValue.set("keyName",keyName);
+    Transaction parentTransaction=null;
+    boolean beganTrans=false;
+    try {
+      beganTrans=TransactionUtil.begin();
+    }
+ catch (    GenericTransactionException e) {
+      throw new EntityCryptoException(e);
+    }
+    if (!beganTrans) {
+      try {
+        parentTransaction=TransactionUtil.suspend();
+      }
+ catch (      GenericTransactionException e) {
+        throw new EntityCryptoException(e);
+      }
+      try {
+        beganTrans=TransactionUtil.begin();
+      }
+ catch (      GenericTransactionException e) {
+        throw new EntityCryptoException(e);
+      }
+    }
+    try {
+      delegator.create(newValue);
+    }
+ catch (    GenericEntityException e) {
+      try {
+        TransactionUtil.rollback(beganTrans,"Error creating encrypted value",e);
+      }
+ catch (      GenericTransactionException e1) {
+        Debug.logError(e1,"Could not rollback transaction",module);
+      }
+      throw new EntityCryptoException(e);
+    }
+ finally {
+      try {
+        TransactionUtil.commit(beganTrans);
+      }
+ catch (      GenericTransactionException e) {
+        throw new EntityCryptoException(e);
+      }
+      if (parentTransaction != null) {
+        try {
+          TransactionUtil.resume(parentTransaction);
+        }
+ catch (        GenericTransactionException e) {
+          throw new EntityCryptoException(e);
+        }
+      }
+    }
+    return key;
+  }
+ else {
+    byte[] keyBytes=StringUtil.fromHexString(keyValue.getString("keyText"));
+    try {
+      return DesCrypt.getDesKey(keyBytes);
+    }
+ catch (    GeneralException e) {
+      throw new EntityCryptoException(e);
+    }
+  }
+}

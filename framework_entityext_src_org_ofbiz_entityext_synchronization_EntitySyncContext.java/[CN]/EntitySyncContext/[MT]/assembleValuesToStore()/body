@@ -1,0 +1,108 @@
+{
+  ArrayList valuesToStore=new ArrayList();
+  if (this.nextUpdateTxTime != null && (this.nextUpdateTxTime.equals(currentRunEndTime) || this.nextUpdateTxTime.after(currentRunEndTime))) {
+    return valuesToStore;
+  }
+  int entitiesSkippedForKnownNext=0;
+  Iterator entityModelToUseUpdateIter=entityModelToUseList.iterator();
+  while (entityModelToUseUpdateIter.hasNext()) {
+    int insertBefore=0;
+    ModelEntity modelEntity=(ModelEntity)entityModelToUseUpdateIter.next();
+    Timestamp knownNextUpdateTime=(Timestamp)this.nextEntityUpdateTxTime.get(modelEntity.getEntityName());
+    if (knownNextUpdateTime != null && (knownNextUpdateTime.equals(currentRunEndTime) || knownNextUpdateTime.after(currentRunEndTime))) {
+      entitiesSkippedForKnownNext++;
+      continue;
+    }
+    boolean beganTransaction=false;
+    try {
+      beganTransaction=TransactionUtil.begin(7200);
+    }
+ catch (    GenericTransactionException e) {
+      throw new SyncDataErrorException("Unable to begin JTA transaction",e);
+    }
+    try {
+      EntityCondition createdBeforeStartCond=new EntityExpr(new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.EQUALS,null),EntityOperator.OR,new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.LESS_THAN,currentRunStartTime));
+      EntityCondition findValCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunStartTime),new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.LESS_THAN,currentRunEndTime),createdBeforeStartCond),EntityOperator.AND);
+      EntityListIterator eli=delegator.findListIteratorByCondition(modelEntity.getEntityName(),findValCondition,null,UtilMisc.toList(ModelEntity.STAMP_TX_FIELD,ModelEntity.STAMP_FIELD));
+      GenericValue nextValue=null;
+      long valuesPerEntity=0;
+      while ((nextValue=(GenericValue)eli.next()) != null) {
+        while (insertBefore < valuesToStore.size() && ((GenericValue)valuesToStore.get(insertBefore)).getTimestamp(ModelEntity.STAMP_TX_FIELD).before(nextValue.getTimestamp(ModelEntity.STAMP_TX_FIELD))) {
+          insertBefore++;
+        }
+        while (insertBefore < valuesToStore.size() && ((GenericValue)valuesToStore.get(insertBefore)).getTimestamp(ModelEntity.STAMP_FIELD).before(nextValue.getTimestamp(ModelEntity.STAMP_FIELD))) {
+          insertBefore++;
+        }
+        valuesToStore.add(insertBefore,nextValue);
+        valuesPerEntity++;
+      }
+      eli.close();
+      if (valuesPerEntity == 0) {
+        Timestamp startCheckStamp=new Timestamp(System.currentTimeMillis() - syncEndBufferMillis);
+        EntityCondition findNextCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.NOT_EQUAL,null),new EntityExpr(ModelEntity.STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunEndTime),new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.NOT_EQUAL,null),new EntityExpr(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.LESS_THAN,currentRunEndTime)),EntityOperator.AND);
+        EntityListIterator eliNext=delegator.findListIteratorByCondition(modelEntity.getEntityName(),findNextCondition,null,UtilMisc.toList(ModelEntity.STAMP_TX_FIELD));
+        GenericValue firstVal=(GenericValue)eliNext.next();
+        eliNext.close();
+        Timestamp nextTxTime;
+        if (firstVal != null) {
+          nextTxTime=firstVal.getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD);
+        }
+ else {
+          nextTxTime=startCheckStamp;
+        }
+        if (this.nextUpdateTxTime == null || nextTxTime.before(this.nextUpdateTxTime)) {
+          this.nextUpdateTxTime=nextTxTime;
+          Debug.logInfo("EntitySync: Set nextUpdateTxTime to [" + nextTxTime + "]",module);
+        }
+        Timestamp curEntityNextTxTime=(Timestamp)this.nextEntityUpdateTxTime.get(modelEntity.getEntityName());
+        if (curEntityNextTxTime == null || nextTxTime.before(curEntityNextTxTime)) {
+          this.nextEntityUpdateTxTime.put(modelEntity.getEntityName(),nextTxTime);
+          Debug.logInfo("EntitySync: Set nextEntityUpdateTxTime to [" + nextTxTime + "] for the entity ["+ modelEntity.getEntityName()+ "]",module);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"Entity Engine error in assembleValuesToStore",e);
+      }
+ catch (      GenericTransactionException e2) {
+        Debug.logWarning(e2,"Unable to call rollback()",module);
+      }
+      throw new SyncDataErrorException("Error getting values to store from the datasource",e);
+    }
+catch (    Throwable t) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"General error in assembleValuesToStore",t);
+      }
+ catch (      GenericTransactionException e2) {
+        Debug.logWarning(e2,"Unable to call rollback()",module);
+      }
+      throw new SyncDataErrorException("Caught runtime error while getting values to store",t);
+    }
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e) {
+      throw new SyncDataErrorException("Commit transaction failed",e);
+    }
+  }
+  if (entitiesSkippedForKnownNext > 0) {
+    if (Debug.infoOn())     Debug.logInfo("In assembleValuesToStore skipped [" + entitiesSkippedForKnownNext + "/"+ entityModelToUseList+ "] entities for the time period ending at ["+ currentRunEndTime+ "] because of next known update times",module);
+  }
+  boolean logValues=false;
+  if (logValues && valuesToStore.size() > 0) {
+    StringBuffer toStoreInfo=new StringBuffer();
+    Iterator valuesToStoreIter=valuesToStore.iterator();
+    while (valuesToStoreIter.hasNext()) {
+      GenericValue valueToStore=(GenericValue)valuesToStoreIter.next();
+      toStoreInfo.append("\n-->[");
+      toStoreInfo.append(valueToStore.get(ModelEntity.STAMP_TX_FIELD));
+      toStoreInfo.append(":");
+      toStoreInfo.append(valueToStore.get(ModelEntity.STAMP_FIELD));
+      toStoreInfo.append("] ");
+      toStoreInfo.append(valueToStore.getPrimaryKey());
+    }
+    Debug.logInfo(toStoreInfo.toString(),module);
+  }
+  return valuesToStore;
+}

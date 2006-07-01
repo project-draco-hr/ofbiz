@@ -1,0 +1,87 @@
+{
+  String entityName=this.entityNameExdr.expandString(context);
+  String useCacheStr=this.useCacheStrExdr.expandString(context);
+  String filterByDateStr=this.filterByDateStrExdr.expandString(context);
+  String distinctStr=this.distinctStrExdr.expandString(context);
+  String delegatorName=this.delegatorNameExdr.expandString(context);
+  ModelEntity modelEntity=delegator.getModelEntity(entityName);
+  String resultSetTypeString=this.resultSetTypeExdr.expandString(context);
+  if (modelEntity == null) {
+    throw new IllegalArgumentException("In find entity by and could not find definition for entity with name [" + entityName + "].");
+  }
+  boolean useCache="true".equals(useCacheStr);
+  boolean filterByDate="true".equals(filterByDateStr);
+  boolean distinct="true".equals(distinctStr);
+  int resultSetType=ResultSet.TYPE_SCROLL_INSENSITIVE;
+  if ("forward".equals(resultSetTypeString))   resultSetType=ResultSet.TYPE_FORWARD_ONLY;
+  if (delegatorName != null && delegatorName.length() > 0) {
+    delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  }
+  if (useCache) {
+    if (outputHandler instanceof UseIterator) {
+      throw new IllegalArgumentException("In find entity by and cannot have use-cache set to true and select use-iterator for the output type.");
+    }
+    if (distinct) {
+      throw new IllegalArgumentException("In find entity by and cannot have use-cache set to true and set distinct to true.");
+    }
+  }
+  Map entityContext=new HashMap();
+  EntityFinderUtil.expandFieldMapToContext(this.fieldMap,context,entityContext);
+  modelEntity.convertFieldMapInPlace(entityContext,delegator);
+  Set fieldsToSelect=EntityFinderUtil.makeFieldsToSelect(selectFieldExpanderList,context);
+  List orderByFields=EntityFinderUtil.makeOrderByFieldList(this.orderByExpanderList,context);
+  try {
+    EntityCondition whereEntityCondition=new EntityFieldMap(entityContext,EntityOperator.AND);
+    if (filterByDate) {
+      EntityCondition filterByDateCondition=EntityUtil.getFilterByDateExpr();
+      if (whereEntityCondition != null) {
+        whereEntityCondition=new EntityConditionList(UtilMisc.toList(whereEntityCondition,filterByDateCondition),EntityJoinOperator.AND);
+      }
+ else {
+        whereEntityCondition=filterByDateCondition;
+      }
+    }
+    if (useCache) {
+      List results=delegator.findByConditionCache(entityName,whereEntityCondition,fieldsToSelect,orderByFields);
+      this.outputHandler.handleOutput(results,context,listAcsr);
+    }
+ else {
+      boolean useTransaction=true;
+      if (this.outputHandler instanceof UseIterator && !TransactionUtil.isTransactionInPlace()) {
+        Exception newE=new Exception("Stack Trace");
+        Debug.logError(newE,"ERROR: Cannot do a by and find that returns an EntityListIterator with no transaction in place. Wrap this call in a transaction.",module);
+        useTransaction=false;
+      }
+      EntityFindOptions options=new EntityFindOptions();
+      options.setDistinct(distinct);
+      options.setResultSetType(resultSetType);
+      boolean beganTransaction=false;
+      try {
+        if (useTransaction) {
+          beganTransaction=TransactionUtil.begin();
+        }
+        EntityListIterator eli=delegator.findListIteratorByCondition(entityName,whereEntityCondition,null,fieldsToSelect,orderByFields,options);
+        this.outputHandler.handleOutput(eli,context,listAcsr);
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Failure in by and find operation, rolling back transaction";
+        Debug.logError(e,errMsg,module);
+        try {
+          TransactionUtil.rollback(beganTransaction,errMsg,e);
+        }
+ catch (        GenericEntityException e2) {
+          Debug.logError(e2,"Could not rollback transaction: " + e2.toString(),module);
+        }
+        throw e;
+      }
+ finally {
+        TransactionUtil.commit(beganTransaction);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error doing find by and: " + e.toString();
+    Debug.logError(e,module);
+    throw new GeneralException(errMsg,e);
+  }
+}

@@ -1,0 +1,31 @@
+{
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=dispatcher.getDelegator().findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (orderHeader != null) {
+    OrderReadHelper orh=new OrderReadHelper(orderHeader);
+    GenericValue btparty=orh.getBillToParty();
+    String partyId="_NA_";
+    if (btparty != null) {
+      partyId=btparty.getString("partyId");
+    }
+    List opps=orh.getPaymentPreferences();
+    Iterator oppi=opps.iterator();
+    while (oppi.hasNext()) {
+      GenericValue opp=(GenericValue)oppi.next();
+      if ("PAYMENT_RECEIVED".equals(opp.getString("statusId"))) {
+        List payments=orh.getOrderPayments(opp);
+        if (payments == null || payments.size() == 0) {
+          Map results=dispatcher.runSync("createPaymentFromPreference",UtilMisc.toMap("userLogin",userLogin,"orderPaymentPreferenceId",opp.getString("orderPaymentPreferenceId"),"paymentRefNum",UtilDateTime.nowTimestamp().toString(),"paymentFromId",partyId));
+          if (results.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
+            Debug.logError((String)results.get(ModelService.ERROR_MESSAGE),module);
+          }
+        }
+      }
+    }
+  }
+}

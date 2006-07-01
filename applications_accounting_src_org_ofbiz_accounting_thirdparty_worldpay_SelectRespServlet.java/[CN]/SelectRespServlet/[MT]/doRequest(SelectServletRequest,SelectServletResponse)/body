@@ -1,0 +1,123 @@
+{
+  Debug.logInfo("Response received from worldpay..",module);
+  String localLocaleStr=request.getParameter("M_localLocale");
+  String webSiteId=request.getParameter("M_webSiteId");
+  String delegatorName=request.getParameter("M_delegatorName");
+  String dispatchName=request.getParameter("M_dispatchName");
+  String userLoginId=request.getParameter("M_userLoginId");
+  String confirmTemplate=request.getParameter("M_confirmTemplate");
+  ServletContext context=(ServletContext)request.getAttribute("servletContext");
+  if (this.jp == null) {
+    this.jp=(JPublishWrapper)context.getAttribute("jpublishWrapper");
+    if (this.jp == null) {
+      this.jp=new JPublishWrapper(context);
+    }
+  }
+  GenericDelegator delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  ServiceDispatcher serviceDisp=ServiceDispatcher.getInstance(dispatchName,delegator);
+  DispatchContext dctx=serviceDisp.getLocalContext(dispatchName);
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=null;
+  try {
+    userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get admin UserLogin entity",module);
+    callError(request);
+  }
+  List localeSplit=StringUtil.split(localLocaleStr,"_");
+  Locale localLocale=new Locale((String)localeSplit.get(0),(String)localeSplit.get(1));
+  String configString=null;
+  try {
+    GenericValue webSitePayment=delegator.findByPrimaryKey("WebSitePaymentSetting",UtilMisc.toMap("webSiteId",webSiteId,"paymentMethodTypeId","EXT_WORLDPAY"));
+    if (webSitePayment != null)     configString=webSitePayment.getString("paymentConfiguration");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"Cannot find webSitePayment Settings",module);
+  }
+  if (configString == null)   configString="payment.properties";
+  Debug.logInfo("Got the payment configuration",module);
+  String orderId=request.getParameter(SelectDefs.SEL_cartId);
+  String authAmount=request.getParameter(SelectDefs.SEL_authAmount);
+  String transStatus=request.getParameter(SelectDefs.SEL_transStatus);
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get the order header for the returned orderId",module);
+    callError(request);
+  }
+  Double wpTotal=new Double(authAmount);
+  Double orderTotal=orderHeader != null ? orderHeader.getDouble("grandTotal") : null;
+  if (orderTotal != null && wpTotal != null) {
+    if (orderTotal.doubleValue() != wpTotal.doubleValue()) {
+      Debug.logError("AuthAmount (" + wpTotal + ") does not match OrderTotal ("+ orderTotal+ ")",module);
+      callError(request);
+    }
+  }
+  HttpSession session=request.getSession(true);
+  session.setAttribute("userLogin",userLogin);
+  request.setAttribute("delegator",delegator);
+  request.setAttribute("dispatcher",dispatcher);
+  request.setAttribute("orderId",orderId);
+  request.setAttribute("notifyEmail",request.getParameter("M_notifyEmail"));
+  request.setAttribute("confirmEmail",request.getParameter("M_confirmEmail"));
+  request.setAttribute("_CONTROL_PATH_",request.getParameter("M_controlPath"));
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+  }
+ catch (  GenericTransactionException gte) {
+    Debug.logError(gte,"Unable to begin transaction",module);
+  }
+  boolean okay=false;
+  if (transStatus.equalsIgnoreCase("Y")) {
+    Debug.logInfo("Order #" + orderId + " approved",module);
+    okay=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
+  }
+ else {
+    Debug.logInfo("Order #" + orderId + " cancelled",module);
+    okay=OrderChangeHelper.cancelOrder(dispatcher,userLogin,orderId);
+  }
+  if (okay) {
+    okay=setPaymentPreferences(delegator,userLogin,orderId,request);
+  }
+  if (okay) {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException gte) {
+      Debug.logError(gte,"Unable to commit transaction",module);
+    }
+  }
+ else {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Failure in Worldpay callback/response processing.",null);
+    }
+ catch (    GenericTransactionException gte) {
+      Debug.logError(gte,"Unable to rollback transaction",module);
+    }
+  }
+  OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
+  Map emailContext=UtilMisc.toMap("orderId",orderId);
+  try {
+    Map emailResult=dispatcher.runSync("sendOrderConfirmation",emailContext);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problems sending email confirmation",module);
+  }
+  response.setContentType("text/html");
+  ServletOutputStream out=response.getOutputStream();
+  String content="Error getting confirm content";
+  if (confirmTemplate != null) {
+    try {
+      content=jp.render(confirmTemplate,request,response);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,"Trouble rendering confirm page",module);
+    }
+  }
+  out.println(content);
+  out.flush();
+}

@@ -1,0 +1,123 @@
+{
+  String charset=getServletContext().getInitParameter("charset");
+  if (charset == null || charset.length() == 0)   charset=request.getCharacterEncoding();
+  if (charset == null || charset.length() == 0)   charset="UTF-8";
+  Debug.logInfo("The character encoding of the request is: [" + request.getCharacterEncoding() + "]. The character encoding we will use for the request and response is: ["+ charset+ "]",module);
+  if (!"none".equals(charset)) {
+    request.setCharacterEncoding(charset);
+  }
+  String contentType="text/html";
+  if (charset.length() > 0 && !"none".equals(charset)) {
+    response.setContentType(contentType + "; charset=" + charset);
+    response.setCharacterEncoding(charset);
+  }
+ else {
+    response.setContentType(contentType);
+  }
+  long requestStartTime=System.currentTimeMillis();
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  String webappName=UtilHttp.getApplicationName(request);
+  String rname="";
+  if (request.getPathInfo() != null) {
+    rname=request.getPathInfo().substring(1);
+  }
+  if (rname.indexOf('/') > 0) {
+    rname=rname.substring(0,rname.indexOf('/'));
+  }
+  UtilTimer timer=null;
+  if (Debug.timingOn()) {
+    timer=new UtilTimer();
+    timer.setLog(true);
+    timer.timerString("[" + rname + "] Servlet Starting, doing setup",module);
+  }
+  request.setAttribute("_CONTROL_PATH_",request.getContextPath() + request.getServletPath());
+  if (Debug.verboseOn())   Debug.logVerbose("Control Path: " + request.getAttribute("_CONTROL_PATH_"),module);
+  GenericDelegator delegator=null;
+  String delegatorName=(String)session.getAttribute("delegatorName");
+  if (UtilValidate.isNotEmpty(delegatorName)) {
+    delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  }
+  if (delegator == null) {
+    delegator=(GenericDelegator)getServletContext().getAttribute("delegator");
+  }
+  if (delegator == null) {
+    Debug.logError("[ControlServlet] ERROR: delegator not found in ServletContext",module);
+  }
+ else {
+    request.setAttribute("delegator",delegator);
+    session.setAttribute("delegatorName",delegator.getDelegatorName());
+  }
+  LocalDispatcher dispatcher=(LocalDispatcher)session.getAttribute("dispatcher");
+  if (dispatcher == null) {
+    dispatcher=(LocalDispatcher)getServletContext().getAttribute("dispatcher");
+  }
+  if (dispatcher == null) {
+    Debug.logError("[ControlServlet] ERROR: dispatcher not found in ServletContext",module);
+  }
+  request.setAttribute("dispatcher",dispatcher);
+  Security security=(Security)session.getAttribute("security");
+  if (security == null) {
+    security=(Security)getServletContext().getAttribute("security");
+  }
+  if (security == null) {
+    Debug.logError("[ControlServlet] ERROR: security not found in ServletContext",module);
+  }
+  request.setAttribute("security",security);
+  if (Debug.verboseOn()) {
+    logRequestInfo(request);
+  }
+  if (Debug.timingOn())   timer.timerString("[" + rname + "] Setup done, doing Event(s) and View(s)",module);
+  request.setAttribute(ContextFilter.FORWARDED_FROM_SERVLET,new Boolean(true));
+  String errorPage=null;
+  try {
+    getRequestHandler().doRequest(request,response,null,userLogin,delegator);
+  }
+ catch (  RequestHandlerException e) {
+    Throwable throwable=e.getNested() != null ? e.getNested() : e;
+    Debug.logError(throwable,"Error in request handler: ",module);
+    request.setAttribute("_ERROR_MESSAGE_",throwable.toString());
+    errorPage=getRequestHandler().getDefaultErrorPage(request);
+  }
+catch (  Exception e) {
+    Debug.logError(e,"Error in request handler: ",module);
+    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    errorPage=getRequestHandler().getDefaultErrorPage(request);
+  }
+  if (errorPage != null) {
+    Debug.logError("An error occurred, going to the errorPage: " + errorPage,module);
+    RequestDispatcher rd=request.getRequestDispatcher(errorPage);
+    if (request.getAttribute("_ERROR_OCCURRED_") == null && rd != null) {
+      request.setAttribute("_ERROR_OCCURRED_",new Boolean(true));
+      Debug.logError("Including errorPage: " + errorPage,module);
+      rd.include(request,response);
+    }
+ else {
+      if (rd == null) {
+        Debug.logError("Could not get RequestDispatcher for errorPage: " + errorPage,module);
+      }
+      String errorMessage="<html><body>ERROR in error page, (infinite loop or error page not found with name [" + errorPage + "]), but here is the text just in case it helps you: "+ request.getAttribute("ERROR_MESSAGE_")+ "</body></html>";
+      if (UtilJ2eeCompat.useOutputStreamNotWriter(getServletContext())) {
+        response.getOutputStream().print(errorMessage);
+      }
+ else {
+        response.getWriter().print(errorMessage);
+      }
+    }
+  }
+  try {
+    if (TransactionUtil.isTransactionInPlace()) {
+      Debug.logWarning("*** NOTICE: ControlServlet finished w/ a transaction in place! Rolling back.",module);
+      TransactionUtil.rollback();
+    }
+    if (TransactionUtil.suspendedTransactionsHeld()) {
+      int suspended=TransactionUtil.cleanSuspendedTransactions();
+      Debug.logWarning("Resumed/Rolled Back [" + suspended + "] transactions.",module);
+    }
+  }
+ catch (  GenericTransactionException e) {
+    Debug.logWarning(e,module);
+  }
+  ServerHitBin.countRequest(webappName + "." + rname,request,requestStartTime,System.currentTimeMillis() - requestStartTime,userLogin,delegator);
+  if (Debug.timingOn())   timer.timerString("[" + rname + "] Done rendering page, Servlet Finished",module);
+}

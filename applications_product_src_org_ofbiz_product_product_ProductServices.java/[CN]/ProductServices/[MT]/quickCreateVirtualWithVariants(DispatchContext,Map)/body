@@ -1,0 +1,98 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String variantProductIdsBag=(String)context.get("variantProductIdsBag");
+  String productFeatureIdOne=(String)context.get("productFeatureIdOne");
+  String productFeatureIdTwo=(String)context.get("productFeatureIdTwo");
+  String productFeatureIdThree=(String)context.get("productFeatureIdThree");
+  Map successResult=ServiceUtil.returnSuccess();
+  try {
+    String productId=(String)context.get("productId");
+    if (UtilValidate.isEmpty(productId)) {
+      productId="VP" + delegator.getNextSeqId("VirtualProduct");
+      GenericValue product=delegator.makeValue("Product",null);
+      product.set("productId",productId);
+      product.set("isVirtual","Y");
+      product.set("isVariant","N");
+      product.set("productTypeId","FINISHED_GOOD");
+      product.set("introductionDate",nowTimestamp);
+      product.set("returnable","Y");
+      product.set("taxable","Y");
+      product.set("chargeShipping","Y");
+      product.set("autoCreateKeywords","Y");
+      product.set("includeInPromotions","Y");
+      product.create();
+    }
+    successResult.put("productId",productId);
+    Set prelimVariantProductIds=new HashSet();
+    List splitIds=Arrays.asList(variantProductIdsBag.split("[,\\p{Space}]"));
+    Debug.logInfo("Variants: bag=" + variantProductIdsBag,module);
+    Debug.logInfo("Variants: split=" + splitIds,module);
+    prelimVariantProductIds.addAll(splitIds);
+    Map variantProductsById=new HashMap();
+    Iterator variantProductIdIter=prelimVariantProductIds.iterator();
+    while (variantProductIdIter.hasNext()) {
+      String variantProductId=(String)variantProductIdIter.next();
+      if (UtilValidate.isEmpty(variantProductId)) {
+        continue;
+      }
+      GenericValue variantProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",variantProductId));
+      if (variantProduct != null) {
+        variantProductsById.put(variantProductId,variantProduct);
+      }
+ else {
+        List goodIdentificationList=delegator.findByAnd("GoodIdentification",UtilMisc.toMap("idValue",variantProductId));
+        if (goodIdentificationList == null || goodIdentificationList.size() == 0) {
+          return ServiceUtil.returnError("Error creating a virtual with variants: the ID [" + variantProductId + "] is not a valid Product.productId or a GoodIdentification.idValue");
+        }
+        if (goodIdentificationList.size() > 1) {
+          Debug.logWarning("Warning creating a virtual with variants: the ID [" + variantProductId + "] was not a productId and resulted in ["+ goodIdentificationList.size()+ "] GoodIdentification records: "+ goodIdentificationList,module);
+        }
+        Iterator goodIdentificationIter=goodIdentificationList.iterator();
+        while (goodIdentificationIter.hasNext()) {
+          GenericValue goodIdentification=(GenericValue)goodIdentificationIter.next();
+          GenericValue giProduct=goodIdentification.getRelatedOne("Product");
+          if (giProduct != null) {
+            variantProductsById.put(giProduct.get("productId"),giProduct);
+          }
+        }
+      }
+    }
+    Set featureProductIds=new HashSet();
+    featureProductIds.add(productId);
+    featureProductIds.addAll(variantProductsById.keySet());
+    Set productFeatureIds=new HashSet();
+    productFeatureIds.add(productFeatureIdOne);
+    productFeatureIds.add(productFeatureIdTwo);
+    productFeatureIds.add(productFeatureIdThree);
+    Iterator featureProductIdIter=featureProductIds.iterator();
+    while (featureProductIdIter.hasNext()) {
+      Iterator productFeatureIdIter=productFeatureIds.iterator();
+      String featureProductId=(String)featureProductIdIter.next();
+      while (productFeatureIdIter.hasNext()) {
+        String productFeatureId=(String)productFeatureIdIter.next();
+        if (UtilValidate.isNotEmpty(productFeatureId)) {
+          GenericValue productFeatureAppl=delegator.makeValue("ProductFeatureAppl",UtilMisc.toMap("productId",featureProductId,"productFeatureId",productFeatureId,"productFeatureApplTypeId","STANDARD_FEATURE","fromDate",nowTimestamp));
+          productFeatureAppl.create();
+        }
+      }
+    }
+    Iterator variantProductIter=variantProductsById.values().iterator();
+    while (variantProductIter.hasNext()) {
+      GenericValue variantProduct=(GenericValue)variantProductIter.next();
+      variantProduct.set("isVirtual","N");
+      variantProduct.set("isVariant","Y");
+      variantProduct.set("introductionDate",nowTimestamp);
+      variantProduct.store();
+      GenericValue productAssoc=delegator.makeValue("ProductAssoc",UtilMisc.toMap("productId",productId,"productIdTo",variantProduct.get("productId"),"productAssocTypeId","PRODUCT_VARIANT","fromDate",nowTimestamp));
+      productAssoc.create();
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error creating new virtual product from variant products: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return successResult;
+}

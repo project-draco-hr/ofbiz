@@ -1,0 +1,190 @@
+{
+  if (entityCache == null) {
+synchronized (ModelReader.class) {
+      if (entityCache == null) {
+        numEntities=0;
+        numViewEntities=0;
+        numFields=0;
+        numRelations=0;
+        numAutoRelations=0;
+        entityCache=FastMap.newInstance();
+        List tempViewEntityList=FastList.newInstance();
+        UtilTimer utilTimer=new UtilTimer();
+        Iterator rhIter=entityResourceHandlers.iterator();
+        while (rhIter.hasNext()) {
+          ResourceHandler entityResourceHandler=(ResourceHandler)rhIter.next();
+          Document document=null;
+          try {
+            document=entityResourceHandler.getDocument();
+          }
+ catch (          GenericConfigException e) {
+            throw new GenericEntityConfException("Error getting document from resource handler",e);
+          }
+          if (document == null) {
+            throw new GenericEntityConfException("Could not get document for " + entityResourceHandler.toString());
+          }
+          Element docElement=document.getDocumentElement();
+          if (docElement == null) {
+            entityCache=null;
+            return null;
+          }
+          docElement.normalize();
+          Node curChild=docElement.getFirstChild();
+          ModelInfo def=new ModelInfo();
+          def.populateFromElements(docElement);
+          int i=0;
+          if (curChild != null) {
+            utilTimer.timerString("Before start of entity loop in " + entityResourceHandler.toString());
+            do {
+              boolean isEntity="entity".equals(curChild.getNodeName());
+              boolean isViewEntity="view-entity".equals(curChild.getNodeName());
+              if ((isEntity || isViewEntity) && curChild.getNodeType() == Node.ELEMENT_NODE) {
+                i++;
+                Element curEntity=(Element)curChild;
+                String entityName=UtilXml.checkEmpty(curEntity.getAttribute("entity-name"));
+                Collection resourceHandlerEntityNames=(Collection)resourceHandlerEntities.get(entityResourceHandler);
+                if (resourceHandlerEntityNames == null) {
+                  resourceHandlerEntityNames=FastList.newInstance();
+                  resourceHandlerEntities.put(entityResourceHandler,resourceHandlerEntityNames);
+                }
+                resourceHandlerEntityNames.add(entityName);
+                if (entityCache.containsKey(entityName)) {
+                  Debug.logWarning("WARNING: Entity " + entityName + " is defined more than once, most recent will over-write "+ "previous definition(s)",module);
+                  Debug.logWarning("WARNING: Entity " + entityName + " was found in "+ entityResourceHandler+ ", but was already defined in "+ entityResourceHandlerMap.get(entityName).toString(),module);
+                }
+                entityResourceHandlerMap.put(entityName,entityResourceHandler);
+                ModelEntity entity=null;
+                if (isEntity) {
+                  entity=createModelEntity(curEntity,null,def);
+                }
+ else {
+                  entity=createModelViewEntity(curEntity,null,def);
+                  tempViewEntityList.add(entity);
+                }
+                if (entity != null) {
+                  entityCache.put(entityName,entity);
+                  if (isEntity) {
+                    if (Debug.verboseOn())                     Debug.logVerbose("-- [Entity]: #" + i + ": "+ entityName,module);
+                  }
+ else {
+                    if (Debug.verboseOn())                     Debug.logVerbose("-- [ViewEntity]: #" + i + ": "+ entityName,module);
+                  }
+                }
+ else {
+                  Debug.logWarning("-- -- ENTITYGEN ERROR:getModelEntity: Could not create " + "entity for entityName: " + entityName,module);
+                }
+              }
+            }
+ while ((curChild=curChild.getNextSibling()) != null);
+          }
+ else {
+            Debug.logWarning("No child nodes found.",module);
+          }
+          utilTimer.timerString("Finished " + entityResourceHandler.toString() + " - Total Entities: "+ i+ " FINISHED");
+        }
+        for (int velInd=0; velInd < tempViewEntityList.size(); velInd++) {
+          ModelViewEntity curViewEntity=(ModelViewEntity)tempViewEntityList.get(velInd);
+          curViewEntity.populateFields(this);
+          List memberEntities=curViewEntity.getAllModelMemberEntities();
+          for (int j=0; j < memberEntities.size(); j++) {
+            ModelViewEntity.ModelMemberEntity mve=(ModelViewEntity.ModelMemberEntity)memberEntities.get(j);
+            ModelEntity me=(ModelEntity)entityCache.get(mve.getEntityName());
+            if (me == null)             throw new GenericEntityConfException("View " + curViewEntity.getEntityName() + " references non-existant entity: "+ mve.getEntityName());
+            me.addViewEntity(curViewEntity);
+          }
+        }
+        TreeSet orderedMessages=new TreeSet();
+        Iterator entityNamesIter=new TreeSet(this.getEntityNames()).iterator();
+        while (entityNamesIter.hasNext()) {
+          String curEntityName=(String)entityNamesIter.next();
+          ModelEntity curModelEntity=this.getModelEntity(curEntityName);
+          if (curModelEntity instanceof ModelViewEntity) {
+          }
+ else {
+            List newSameEntityRelations=FastList.newInstance();
+            Iterator relationsIter=curModelEntity.getRelationsIterator();
+            while (relationsIter.hasNext()) {
+              ModelRelation modelRelation=(ModelRelation)relationsIter.next();
+              if (("one".equals(modelRelation.getType()) || "one-nofk".equals(modelRelation.getType())) && !modelRelation.isAutoRelation()) {
+                ModelEntity relatedEnt=this.getModelEntity(modelRelation.getRelEntityName());
+                if (relatedEnt != null) {
+                  String targetTitle=modelRelation.getTitle();
+                  if (curModelEntity.getEntityName().equals(relatedEnt.getEntityName()) && "Parent".equals(targetTitle)) {
+                    targetTitle="Child";
+                  }
+                  ModelRelation newRel=new ModelRelation();
+                  newRel.setModelEntity(relatedEnt);
+                  newRel.setRelEntityName(curModelEntity.getEntityName());
+                  newRel.setTitle(targetTitle);
+                  newRel.setAutoRelation(true);
+                  Set curEntityKeyFields=FastSet.newInstance();
+                  for (int kmn=0; kmn < modelRelation.getKeyMapsSize(); kmn++) {
+                    ModelKeyMap curkm=modelRelation.getKeyMap(kmn);
+                    ModelKeyMap newkm=new ModelKeyMap();
+                    newRel.addKeyMap(newkm);
+                    newkm.setFieldName(curkm.getRelFieldName());
+                    newkm.setRelFieldName(curkm.getFieldName());
+                    curEntityKeyFields.add(curkm.getFieldName());
+                  }
+                  if (curModelEntity.containsAllPkFieldNames(curEntityKeyFields)) {
+                    newRel.setType("one-nofk");
+                    List curPkFieldNames=curModelEntity.getPkFieldNames();
+                    Iterator nrkmIter=newRel.getKeyMapsIterator();
+                    while (nrkmIter.hasNext()) {
+                      ModelKeyMap nrkm=(ModelKeyMap)nrkmIter.next();
+                      String checkField=nrkm.getRelFieldName();
+                      if (!curPkFieldNames.contains(checkField)) {
+                        nrkmIter.remove();
+                      }
+                    }
+                  }
+ else {
+                    newRel.setType("many");
+                  }
+                  ModelRelation existingRelation=relatedEnt.getRelation(targetTitle + curModelEntity.getEntityName());
+                  if (existingRelation == null) {
+                    numAutoRelations++;
+                    if (curModelEntity.getEntityName().equals(relatedEnt.getEntityName())) {
+                      newSameEntityRelations.add(newRel);
+                    }
+ else {
+                      relatedEnt.addRelation(newRel);
+                    }
+                  }
+ else {
+                    if (newRel.equals(existingRelation)) {
+                      if (!(targetTitle + curModelEntity.getEntityName()).equals(modelRelation.getTitle() + modelRelation.getRelEntityName())) {
+                        String message="Entity [" + relatedEnt.getPackageName() + ":"+ relatedEnt.getEntityName()+ "] already has identical relationship to entity ["+ curModelEntity.getEntityName()+ "] title ["+ targetTitle+ "]; would auto-create: type ["+ newRel.getType()+ "] and fields ["+ newRel.keyMapString(",","")+ "]";
+                        orderedMessages.add(message);
+                      }
+                    }
+ else {
+                      String message="Existing relationship with the same name, but different specs found from what would be auto-created for Entity [" + relatedEnt.getEntityName() + "] ant relationship to entity ["+ curModelEntity.getEntityName()+ "] title ["+ targetTitle+ "]; would auto-create: type ["+ newRel.getType()+ "] and fields ["+ newRel.keyMapString(",","")+ "]";
+                    }
+                  }
+                }
+ else {
+                  String errorMsg="Could not find related entity [" + modelRelation.getRelEntityName() + "], no reverse relation added.";
+                  Debug.logWarning(errorMsg,module);
+                }
+              }
+            }
+            if (newSameEntityRelations.size() > 0) {
+              Iterator newRelsIter=newSameEntityRelations.iterator();
+              while (newRelsIter.hasNext()) {
+                ModelRelation newRel=(ModelRelation)newRelsIter.next();
+                curModelEntity.addRelation(newRel);
+              }
+            }
+          }
+        }
+        Iterator omIter=orderedMessages.iterator();
+        while (omIter.hasNext()) {
+          Debug.logInfo((String)omIter.next(),module);
+        }
+        Debug.log("FINISHED LOADING ENTITIES - ALL FILES; #Entities=" + numEntities + " #ViewEntities="+ numViewEntities+ " #Fields="+ numFields+ " #Relationships="+ numRelations+ " #AutoRelationships="+ numAutoRelations,module);
+      }
+    }
+  }
+  return entityCache;
+}

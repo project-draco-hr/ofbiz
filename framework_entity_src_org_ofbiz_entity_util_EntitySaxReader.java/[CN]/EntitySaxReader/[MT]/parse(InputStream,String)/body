@@ -1,0 +1,32 @@
+{
+  RealtimeParser parser=new RealtimeParser(16384);
+  parser.setContentHandler(this);
+  parser.setErrorHandler(this);
+  numberRead=0;
+  try {
+    boolean beganTransaction=false;
+    if (transactionTimeout > -1) {
+      beganTransaction=TransactionUtil.begin(transactionTimeout);
+      Debug.logImportant("Transaction Timeout set to " + transactionTimeout / 3600 + " hours (" + transactionTimeout + " seconds)",module);
+    }
+    try {
+      parser.parse(is);
+      if (valuesToWrite.size() > 0) {
+        writeValues(valuesToWrite);
+        valuesToWrite.clear();
+      }
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    Exception e) {
+      String errMsg="An error occurred saving the data, rolling back transaction (" + beganTransaction + ")";
+      Debug.logError(e,errMsg,module);
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+      throw new SAXException("A transaction error occurred reading data",e);
+    }
+  }
+ catch (  GenericTransactionException e) {
+    throw new SAXException("A transaction error occurred reading data",e);
+  }
+  Debug.logImportant("Finished " + numberRead + " values from "+ docDescription,module);
+  return numberRead;
+}

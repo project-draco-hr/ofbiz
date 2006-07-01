@@ -1,0 +1,62 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  String partyId=(String)context.get("partyId");
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  if (partyId == null || partyId.length() == 0) {
+    partyId=userLogin.getString("partyId");
+  }
+  if (Character.isDigit(partyId.charAt(0))) {
+    errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_create_affiliate_digit",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (partyId == null || partyId.length() == 0) {
+    try {
+      partyId=delegator.getNextSeqId("Party");
+    }
+ catch (    IllegalArgumentException e) {
+      errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_create_affiliate_generation_failure",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  GenericValue party=null;
+  try {
+    party=delegator.findByPrimaryKey("Party",UtilMisc.toMap("partyId",partyId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+  }
+  if (party == null) {
+    errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_create_affiliate_no_party_entity",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  GenericValue affiliate=null;
+  try {
+    affiliate=delegator.findByPrimaryKey("Affiliate",UtilMisc.toMap("partyId",partyId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+  }
+  if (affiliate != null) {
+    errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_create_affiliate_ID_already_exists",locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  affiliate=delegator.makeValue("Affiliate",UtilMisc.toMap("partyId",partyId));
+  affiliate.setNonPKFields(context);
+  affiliate.set("dateTimeCreated",now,false);
+  try {
+    delegator.create(affiliate);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"partyservices.could_not_add_affiliate_info_write",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put("partyId",partyId);
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

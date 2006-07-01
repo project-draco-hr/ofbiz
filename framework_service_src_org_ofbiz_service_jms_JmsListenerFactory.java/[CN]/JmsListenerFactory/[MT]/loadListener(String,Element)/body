@@ -1,0 +1,39 @@
+{
+  String serverName=server.getAttribute("jndi-server-name");
+  String jndiName=server.getAttribute("jndi-name");
+  String queueName=server.getAttribute("topic-queue");
+  String type=server.getAttribute("type");
+  String userName=server.getAttribute("username");
+  String password=server.getAttribute("password");
+  String className=server.getAttribute("listener-class");
+  if (className == null || className.length() == 0) {
+    if (type.equals("topic"))     className=JmsListenerFactory.TOPIC_LISTENER_CLASS;
+ else     if (type.equals("queue"))     className=JmsListenerFactory.QUEUE_LISTENER_CLASS;
+  }
+  GenericMessageListener listener=(GenericMessageListener)listeners.get(serverKey);
+  if (listener == null) {
+synchronized (this) {
+      listener=(GenericMessageListener)listeners.get(serverKey);
+      if (listener == null) {
+        ClassLoader cl=this.getClass().getClassLoader();
+        Class[] paramTypes=new Class[]{ServiceDispatcher.class,String.class,String.class,String.class,String.class,String.class};
+        Object[] params=new Object[]{dispatcher,serverName,jndiName,queueName,userName,password};
+        try {
+          Class c=cl.loadClass(className);
+          Constructor cn=c.getConstructor(paramTypes);
+          listener=(GenericMessageListener)cn.newInstance(params);
+        }
+ catch (        Exception e) {
+          throw new GenericServiceException(e.getMessage(),e);
+        }
+        if (listener != null)         listeners.put(serverKey,listener);
+        loadable++;
+      }
+    }
+  }
+  if (listener != null && !listener.isConnected()) {
+    listener.load();
+    if (listener.isConnected())     connected++;
+  }
+  return listener;
+}

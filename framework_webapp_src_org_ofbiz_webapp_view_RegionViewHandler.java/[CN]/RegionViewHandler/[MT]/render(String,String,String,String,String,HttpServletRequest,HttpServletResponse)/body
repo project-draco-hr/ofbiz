@@ -1,0 +1,30 @@
+{
+  if (request == null) {
+    throw new ViewHandlerException("The HttpServletRequest object was null, how did that happen?");
+  }
+  if (page == null || page.length() == 0) {
+    throw new ViewHandlerException("Page name was null or empty, but must be specified");
+  }
+  request.setAttribute(ContextFilter.FORWARDED_FROM_SERVLET,new Boolean(true));
+  Region region=regionManager.getRegion(page);
+  if (region == null) {
+    throw new ViewHandlerException("Error: could not find region with name " + page);
+  }
+  try {
+    RegionStack.push(request,region);
+    region.render(request,response);
+  }
+ catch (  IOException ie) {
+    throw new ViewHandlerException("IO Error in region",ie);
+  }
+catch (  ServletException e) {
+    Throwable throwable=e.getRootCause() != null ? e.getRootCause() : e;
+    if (throwable instanceof JspException) {
+      JspException jspe=(JspException)throwable;
+      throwable=jspe.getRootCause() != null ? jspe.getRootCause() : jspe;
+    }
+    Debug.logError(throwable,"ServletException rendering JSP view",module);
+    throw new ViewHandlerException(e.getMessage(),throwable);
+  }
+  RegionStack.pop(request);
+}

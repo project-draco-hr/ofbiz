@@ -1,0 +1,65 @@
+{
+  Map productFeaturesByTypeMap=FastMap.newInstance();
+  try {
+    List productFeatureCategoryAppls=delegator.findByAndCache("ProductFeatureCategoryAppl",UtilMisc.toMap("productCategoryId",productCategoryId));
+    productFeatureCategoryAppls=EntityUtil.filterByDate(productFeatureCategoryAppls,true);
+    if (productFeatureCategoryAppls != null) {
+      Iterator pfcasIter=productFeatureCategoryAppls.iterator();
+      while (pfcasIter.hasNext()) {
+        GenericValue productFeatureCategoryAppl=(GenericValue)pfcasIter.next();
+        List productFeatures=delegator.findByAndCache("ProductFeature",UtilMisc.toMap("productFeatureCategoryId",productFeatureCategoryAppl.get("productFeatureCategoryId")));
+        Iterator pfsIter=productFeatures.iterator();
+        while (pfsIter.hasNext()) {
+          GenericValue productFeature=(GenericValue)pfsIter.next();
+          String productFeatureTypeId=productFeature.getString("productFeatureTypeId");
+          Map featuresByType=(Map)productFeaturesByTypeMap.get(productFeatureTypeId);
+          if (featuresByType == null) {
+            featuresByType=FastMap.newInstance();
+            productFeaturesByTypeMap.put(productFeatureTypeId,featuresByType);
+          }
+          if (featuresByType.size() < perTypeMaxSize) {
+            featuresByType.put(productFeature.get("productFeatureId"),productFeature);
+          }
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting feature categories associated with the category with ID: " + productCategoryId,module);
+  }
+  try {
+    List productFeatureCatGrpAppls=delegator.findByAndCache("ProductFeatureCatGrpAppl",UtilMisc.toMap("productCategoryId",productCategoryId));
+    productFeatureCatGrpAppls=EntityUtil.filterByDate(productFeatureCatGrpAppls,true);
+    if (productFeatureCatGrpAppls != null) {
+      Iterator pfcgasIter=productFeatureCatGrpAppls.iterator();
+      while (pfcgasIter.hasNext()) {
+        GenericValue productFeatureCatGrpAppl=(GenericValue)pfcgasIter.next();
+        List productFeatureGroupAppls=delegator.findByAndCache("ProductFeatureGroupAppl",UtilMisc.toMap("productFeatureGroupId",productFeatureCatGrpAppl.get("productFeatureGroupId")));
+        Iterator pfgaasIter=productFeatureGroupAppls.iterator();
+        while (pfgaasIter.hasNext()) {
+          GenericValue productFeatureGroupAppl=(GenericValue)pfgaasIter.next();
+          GenericValue productFeature=delegator.findByPrimaryKeyCache("ProductFeature",UtilMisc.toMap("productFeatureId",productFeatureGroupAppl.get("productFeatureId")));
+          String productFeatureTypeId=productFeature.getString("productFeatureTypeId");
+          Map featuresByType=(Map)productFeaturesByTypeMap.get(productFeatureTypeId);
+          if (featuresByType == null) {
+            featuresByType=FastMap.newInstance();
+            productFeaturesByTypeMap.put(productFeatureTypeId,featuresByType);
+          }
+          if (featuresByType.size() < perTypeMaxSize) {
+            featuresByType.put(productFeature.get("productFeatureId"),productFeature);
+          }
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting feature groups associated with the category with ID: " + productCategoryId,module);
+  }
+  Iterator productFeatureTypeEntries=productFeaturesByTypeMap.entrySet().iterator();
+  while (productFeatureTypeEntries.hasNext()) {
+    Map.Entry entry=(Map.Entry)productFeatureTypeEntries.next();
+    List sortedFeatures=EntityUtil.orderBy(((Map)entry.getValue()).values(),UtilMisc.toList("description"));
+    productFeaturesByTypeMap.put(entry.getKey(),sortedFeatures);
+  }
+  return productFeaturesByTypeMap;
+}

@@ -1,0 +1,128 @@
+{
+  String productStoreId=(String)context.get("productStoreId");
+  Locale locale=(Locale)context.get("locale");
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map result=new HashMap();
+  List featureOrder=new LinkedList((Collection)context.get("featureOrder"));
+  if (featureOrder == null || featureOrder.size() == 0) {
+    return ServiceUtil.returnError("Empty list of features passed");
+  }
+  Collection variants=(Collection)prodFindAllVariants(dctx,context).get("assocProducts");
+  List virtualVariant=new ArrayList();
+  if (variants == null || variants.size() == 0) {
+    return ServiceUtil.returnSuccess();
+  }
+  List items=new ArrayList();
+  Iterator i=variants.iterator();
+  while (i.hasNext()) {
+    String productIdTo=(String)((GenericValue)i.next()).get("productIdTo");
+    GenericValue productTo=null;
+    try {
+      productTo=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productIdTo));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      Map messageMap=UtilMisc.toMap("productIdTo",productIdTo,"errMessage",e.toString());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"productservices.error_finding_associated_variant_with_ID_error",messageMap,locale));
+    }
+    if (productTo == null) {
+      Debug.logWarning("Could not find associated variant with ID " + productIdTo + ", not showing in list",module);
+      continue;
+    }
+    java.sql.Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+    if (productTo.get("introductionDate") != null && nowTimestamp.before(productTo.getTimestamp("introductionDate"))) {
+      if (Debug.verboseOn()) {
+        String excMsg="Tried to view the Product " + productTo.getString("productName") + " (productId: "+ productTo.getString("productId")+ ") as a variant. This product has not yet been made available for sale, so not adding for view.";
+        Debug.logVerbose(excMsg,module);
+      }
+      continue;
+    }
+    if (productTo.get("salesDiscontinuationDate") != null && nowTimestamp.after(productTo.getTimestamp("salesDiscontinuationDate"))) {
+      if (Debug.verboseOn()) {
+        String excMsg="Tried to view the Product " + productTo.getString("productName") + " (productId: "+ productTo.getString("productId")+ ") as a variant. This product is no longer available for sale, so not adding for view.";
+        Debug.logVerbose(excMsg,module);
+      }
+      continue;
+    }
+    try {
+      Map invReqResult=dispatcher.runSync("isStoreInventoryAvailableOrNotRequired",UtilMisc.toMap("productStoreId",productStoreId,"productId",productIdTo,"quantity",new Double(1.0)));
+      if (ServiceUtil.isError(invReqResult)) {
+        return ServiceUtil.returnError("Error calling the isStoreInventoryRequired when building the variant product tree.",null,null,invReqResult);
+      }
+ else       if ("Y".equals((String)invReqResult.get("availableOrNotRequired"))) {
+        items.add(productIdTo);
+        if (productTo.getString("isVirtual") != null && productTo.getString("isVirtual").equals("Y")) {
+          virtualVariant.add(productIdTo);
+        }
+      }
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error calling the isStoreInventoryRequired when building the variant product tree: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  String productId=(String)context.get("productId");
+  List selectableFeatures=null;
+  try {
+    Map fields=UtilMisc.toMap("productId",productId,"productFeatureApplTypeId","SELECTABLE_FEATURE");
+    List sort=UtilMisc.toList("sequenceNum");
+    selectableFeatures=delegator.findByAndCache("ProductFeatureAndAppl",fields,sort);
+    selectableFeatures=EntityUtil.filterByDate(selectableFeatures,true);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"productservices.empty_list_of_selectable_features_found",locale));
+  }
+  Map features=new HashMap();
+  Iterator sFIt=selectableFeatures.iterator();
+  while (sFIt.hasNext()) {
+    GenericValue v=(GenericValue)sFIt.next();
+    String featureType=v.getString("productFeatureTypeId");
+    String feature=v.getString("description");
+    if (!features.containsKey(featureType)) {
+      List featureList=new LinkedList();
+      featureList.add(feature);
+      features.put(featureType,featureList);
+    }
+ else {
+      List featureList=(LinkedList)features.get(featureType);
+      featureList.add(feature);
+      features.put(featureType,featureList);
+    }
+  }
+  Map tree=null;
+  try {
+    tree=makeGroup(delegator,features,items,featureOrder,0);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (tree == null || tree.size() == 0) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,UtilProperties.getMessage(resource,"productservices.feature_grouping_came_back_empty",locale));
+  }
+ else {
+    result.put("variantTree",tree);
+    result.put("virtualVariant",virtualVariant);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  }
+  Map sample=null;
+  try {
+    sample=makeVariantSample(dctx.getDelegator(),features,items,(String)featureOrder.get(0));
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (sample == null || sample.size() == 0) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,UtilProperties.getMessage(resource,"productservices.feature_sample_came_back_empty",locale));
+  }
+ else {
+    result.put("variantSample",sample);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  }
+  return result;
+}

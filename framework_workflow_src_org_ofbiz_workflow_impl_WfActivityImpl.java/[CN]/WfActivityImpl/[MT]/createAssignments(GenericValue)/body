@@ -1,0 +1,64 @@
+{
+  GenericValue valueObject=getDefinitionObject();
+  GenericValue performer=checkPerformer(currentPerformer);
+  boolean assignAll=false;
+  if (valueObject.get("acceptAllAssignments") != null) {
+    assignAll=valueObject.getBoolean("acceptAllAssignments").booleanValue();
+  }
+  if (!assignAll) {
+    if (performer != null) {
+      Debug.logVerbose("[WfActivity.createAssignments] : (S) Single assignment",module);
+      assign(WfFactory.getWfResource(performer),false);
+    }
+  }
+ else   if (performer.get("partyId") != null && !performer.getString("partyId").equals("_NA_")) {
+    GenericValue partyType=null;
+    GenericValue groupType=null;
+    try {
+      Map fields1=UtilMisc.toMap("partyId",performer.getString("partyId"));
+      GenericValue v1=getDelegator().findByPrimaryKey("Party",fields1);
+      partyType=v1.getRelatedOne("PartyType");
+      Map fields2=UtilMisc.toMap("partyTypeId","PARTY_GROUP");
+      groupType=getDelegator().findByPrimaryKeyCache("PartyType",fields2);
+    }
+ catch (    GenericEntityException e) {
+      throw new WfException(e.getMessage(),e);
+    }
+    if (EntityTypeUtil.isType(partyType,groupType)) {
+      Collection partyRelations=null;
+      try {
+        Map fields=UtilMisc.toMap("partyIdFrom",performer.getString("partyId"),"partyRelationshipTypeId","GROUP_ROLLUP");
+        partyRelations=getDelegator().findByAnd("PartyRelationship",fields);
+      }
+ catch (      GenericEntityException e) {
+        throw new WfException(e.getMessage(),e);
+      }
+      Debug.logVerbose("[WfActivity.createAssignments] : Group assignment",module);
+      Iterator i=partyRelations.iterator();
+      while (i.hasNext()) {
+        GenericValue value=(GenericValue)i.next();
+        assign(WfFactory.getWfResource(getDelegator(),null,null,value.getString("partyIdTo"),null),true);
+      }
+    }
+ else {
+      Debug.logVerbose("[WfActivity.createAssignments] : (G) Single assignment",module);
+      assign(WfFactory.getWfResource(performer),false);
+    }
+  }
+ else   if (performer.get("roleTypeId") != null && !performer.getString("roleTypeId").equals("_NA_")) {
+    Collection partyRoles=null;
+    try {
+      Map fields=UtilMisc.toMap("roleTypeId",performer.getString("roleTypeId"));
+      partyRoles=getDelegator().findByAnd("PartyRole",fields);
+    }
+ catch (    GenericEntityException e) {
+      throw new WfException(e.getMessage(),e);
+    }
+    Debug.logVerbose("[WfActivity.createAssignments] : Role assignment",module);
+    Iterator i=partyRoles.iterator();
+    while (i.hasNext()) {
+      GenericValue value=(GenericValue)i.next();
+      assign(WfFactory.getWfResource(value.getDelegator(),null,null,value.getString("partyId"),null),true);
+    }
+  }
+}

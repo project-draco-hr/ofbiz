@@ -1,0 +1,32 @@
+{
+  DataSource dataSource=(DataSource)dsCache.get(helperName);
+  if (dataSource != null) {
+    return TransactionFactory.getCursorConnection(helperName,dataSource.getConnection());
+  }
+  try {
+synchronized (DBCPConnectionFactory.class) {
+      dataSource=(DataSource)dsCache.get(helperName);
+      if (dataSource != null) {
+        return dataSource.getConnection();
+      }
+      ObjectPool connectionPool=new GenericObjectPool(null);
+      String connectURI=dbcpJdbcElement.getAttribute("jdbc-uri");
+      String username=dbcpJdbcElement.getAttribute("jdbc-username");
+      String password=dbcpJdbcElement.getAttribute("jdbc-password");
+      String driverClassName=dbcpJdbcElement.getAttribute("jdbc-driver");
+      ClassLoader loader=Thread.currentThread().getContextClassLoader();
+      Class clazz=loader.loadClass(driverClassName);
+      clazz.newInstance();
+      org.apache.commons.dbcp.ConnectionFactory connectionFactory=new DriverManagerConnectionFactory(connectURI,username,password);
+      dataSource=new PoolingDataSource(connectionPool);
+      dataSource.setLogWriter(Debug.getPrintWriter());
+      dsCache.put(helperName,dataSource);
+      return TransactionFactory.getCursorConnection(helperName,dataSource.getConnection());
+    }
+  }
+ catch (  Exception e) {
+    String errorMsg="Error getting datasource via DBCP.";
+    Debug.logError(e,errorMsg,module);
+  }
+  return null;
+}

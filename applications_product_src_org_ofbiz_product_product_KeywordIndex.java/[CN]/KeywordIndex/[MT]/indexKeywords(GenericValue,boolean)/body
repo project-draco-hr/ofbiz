@@ -1,0 +1,123 @@
+{
+  if (product == null)   return;
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  if (!doAll) {
+    if ("N".equals(product.getString("autoCreateKeywords"))) {
+      return;
+    }
+    if ("Y".equals(product.getString("isVariant")) && "true".equals(UtilProperties.getPropertyValue("prodsearch","index.ignore.variants"))) {
+      return;
+    }
+    Timestamp salesDiscontinuationDate=product.getTimestamp("salesDiscontinuationDate");
+    if (salesDiscontinuationDate != null && salesDiscontinuationDate.before(nowTimestamp) && "true".equals(UtilProperties.getPropertyValue("prodsearch","index.ignore.discontinued.sales"))) {
+      return;
+    }
+  }
+  GenericDelegator delegator=product.getDelegator();
+  if (delegator == null)   return;
+  String productId=product.getString("productId");
+  String separators=KeywordSearch.getSeparators();
+  String stopWordBagOr=KeywordSearch.getStopWordBagOr();
+  String stopWordBagAnd=KeywordSearch.getStopWordBagAnd();
+  boolean removeStems=KeywordSearch.getRemoveStems();
+  Set stemSet=KeywordSearch.getStemSet();
+  Map keywords=new TreeMap();
+  List strings=new ArrayList(50);
+  int pidWeight=1;
+  try {
+    pidWeight=Integer.parseInt(UtilProperties.getPropertyValue("prodsearch","index.weight.Product.productId","1"));
+  }
+ catch (  Exception e) {
+    Debug.logWarning("Could not parse weight number: " + e.toString(),module);
+  }
+  keywords.put(product.getString("productId").toLowerCase(),new Long(pidWeight));
+  addWeightedKeywordSourceString(product,"productName",strings);
+  addWeightedKeywordSourceString(product,"internalName",strings);
+  addWeightedKeywordSourceString(product,"brandName",strings);
+  addWeightedKeywordSourceString(product,"description",strings);
+  addWeightedKeywordSourceString(product,"longDescription",strings);
+  if (!"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.ProductFeatureAndAppl.description","1")) || !"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.ProductFeatureAndAppl.abbrev","1")) || !"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.ProductFeatureAndAppl.idCode","1"))) {
+    Iterator productFeatureAndAppls=UtilMisc.toIterator(delegator.findByAnd("ProductFeatureAndAppl",UtilMisc.toMap("productId",productId)));
+    while (productFeatureAndAppls != null && productFeatureAndAppls.hasNext()) {
+      GenericValue productFeatureAndAppl=(GenericValue)productFeatureAndAppls.next();
+      addWeightedKeywordSourceString(productFeatureAndAppl,"description",strings);
+      addWeightedKeywordSourceString(productFeatureAndAppl,"abbrev",strings);
+      addWeightedKeywordSourceString(productFeatureAndAppl,"idCode",strings);
+    }
+  }
+  if (!"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.ProductAttribute.attrName","1")) || !"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.ProductAttribute.attrValue","1"))) {
+    Iterator productAttributes=UtilMisc.toIterator(delegator.findByAnd("ProductAttribute",UtilMisc.toMap("productId",productId)));
+    while (productAttributes != null && productAttributes.hasNext()) {
+      GenericValue productAttribute=(GenericValue)productAttributes.next();
+      addWeightedKeywordSourceString(productAttribute,"attrName",strings);
+      addWeightedKeywordSourceString(productAttribute,"attrValue",strings);
+    }
+  }
+  if (!"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.GoodIdentification.idValue","1"))) {
+    Iterator goodIdentifications=UtilMisc.toIterator(delegator.findByAnd("GoodIdentification",UtilMisc.toMap("productId",productId)));
+    while (goodIdentifications != null && goodIdentifications.hasNext()) {
+      GenericValue goodIdentification=(GenericValue)goodIdentifications.next();
+      addWeightedKeywordSourceString(goodIdentification,"idValue",strings);
+    }
+  }
+  if ("Y".equals(product.getString("isVirtual"))) {
+    if (!"0".equals(UtilProperties.getPropertyValue("prodsearch","index.weight.Variant.Product.productId","1"))) {
+      Iterator variantProductAssocs=UtilMisc.toIterator(delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productId",productId,"productAssocTypeId","PRODUCT_VARIANT")));
+      while (variantProductAssocs != null && variantProductAssocs.hasNext()) {
+        GenericValue variantProductAssoc=(GenericValue)variantProductAssocs.next();
+        int weight=1;
+        try {
+          weight=Integer.parseInt(UtilProperties.getPropertyValue("prodsearch","index.weight.Variant.Product.productId","1"));
+        }
+ catch (        Exception e) {
+          Debug.logWarning("Could not parse weight number: " + e.toString(),module);
+        }
+        for (int i=0; i < weight; i++) {
+          strings.add(variantProductAssoc.getString("productIdTo"));
+        }
+      }
+    }
+  }
+  String productContentTypes=UtilProperties.getPropertyValue("prodsearch","index.include.ProductContentTypes");
+  List productContentTypeList=Arrays.asList(productContentTypes.split(","));
+  Iterator productContentTypeIter=productContentTypeList.iterator();
+  while (productContentTypeIter.hasNext()) {
+    String productContentTypeId=(String)productContentTypeIter.next();
+    int weight=1;
+    try {
+      weight=Integer.parseInt(UtilProperties.getPropertyValue("prodsearch","index.weight.ProductContent." + productContentTypeId,"1"));
+    }
+ catch (    Exception e) {
+      Debug.logWarning("Could not parse weight number: " + e.toString(),module);
+    }
+    List productContentAndInfos=delegator.findByAnd("ProductContentAndInfo",UtilMisc.toMap("productId",productId,"productContentTypeId",productContentTypeId),null);
+    Iterator productContentAndInfoIter=productContentAndInfos.iterator();
+    while (productContentAndInfoIter.hasNext()) {
+      GenericValue productContentAndInfo=(GenericValue)productContentAndInfoIter.next();
+      addWeightedDataResourceString(productContentAndInfo,weight,strings,delegator,product);
+      List alternateViews=productContentAndInfo.getRelated("ContentAssocDataResourceViewTo",UtilMisc.toMap("caContentAssocTypeId","ALTERNATE_LOCALE"),UtilMisc.toList("-caFromDate"));
+      alternateViews=EntityUtil.filterByDate(alternateViews,UtilDateTime.nowTimestamp(),"caFromDate","caThruDate",true);
+      Iterator alternateViewIter=alternateViews.iterator();
+      while (alternateViewIter.hasNext()) {
+        GenericValue thisView=(GenericValue)alternateViewIter.next();
+        addWeightedDataResourceString(thisView,weight,strings,delegator,product);
+      }
+    }
+  }
+  Iterator strIter=strings.iterator();
+  while (strIter.hasNext()) {
+    String str=(String)strIter.next();
+    KeywordSearch.processKeywordsForIndex(str,keywords,separators,stopWordBagAnd,stopWordBagOr,removeStems,stemSet);
+  }
+  List toBeStored=new LinkedList();
+  Iterator kiter=keywords.entrySet().iterator();
+  while (kiter.hasNext()) {
+    Map.Entry entry=(Map.Entry)kiter.next();
+    GenericValue productKeyword=delegator.makeValue("ProductKeyword",UtilMisc.toMap("productId",product.getString("productId"),"keyword",entry.getKey(),"relevancyWeight",entry.getValue()));
+    toBeStored.add(productKeyword);
+  }
+  if (toBeStored.size() > 0) {
+    if (Debug.verboseOn())     Debug.logVerbose("[KeywordSearch.induceKeywords] Storing " + toBeStored.size() + " keywords for productId "+ product.getString("productId"),module);
+    delegator.storeAll(toBeStored);
+  }
+}

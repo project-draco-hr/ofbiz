@@ -1,0 +1,45 @@
+{
+  if (modelEntity instanceof ModelViewEntity) {
+    return singleUpdateView(entity,(ModelViewEntity)modelEntity,fieldsToSave,sqlP);
+  }
+  if (fieldsToSave.size() <= 0) {
+    if (Debug.verboseOn())     Debug.logVerbose("Trying to do an update on an entity with no non-PK fields, returning having done nothing; entity=" + entity,module);
+    return 1;
+  }
+  if (modelEntity.lock()) {
+    GenericEntity entityCopy=GenericEntity.createGenericEntity(entity);
+    select(entityCopy,sqlP);
+    Object stampField=entity.get(ModelEntity.STAMP_FIELD);
+    if ((stampField != null) && (!stampField.equals(entityCopy.get(ModelEntity.STAMP_FIELD)))) {
+      String lockedTime=entityCopy.getTimestamp(ModelEntity.STAMP_FIELD).toString();
+      throw new EntityLockedException("You tried to update an old version of this data. Version locked: (" + lockedTime + ")");
+    }
+  }
+  if (modelEntity.isField(ModelEntity.STAMP_TX_FIELD) && (!entity.getIsFromEntitySync() || entity.get(ModelEntity.STAMP_TX_FIELD) == null)) {
+    entity.set(ModelEntity.STAMP_TX_FIELD,TransactionUtil.getTransactionStartStamp());
+    addFieldIfMissing(fieldsToSave,ModelEntity.STAMP_TX_FIELD,modelEntity);
+  }
+  if (modelEntity.isField(ModelEntity.STAMP_FIELD) && (!entity.getIsFromEntitySync() || entity.get(ModelEntity.STAMP_FIELD) == null)) {
+    entity.set(ModelEntity.STAMP_FIELD,TransactionUtil.getTransactionUniqueNowStamp());
+    addFieldIfMissing(fieldsToSave,ModelEntity.STAMP_FIELD,modelEntity);
+  }
+  String sql="UPDATE " + modelEntity.getTableName(datasourceInfo) + " SET "+ modelEntity.colNameString(fieldsToSave,"=?, ","=?",false)+ " WHERE "+ SqlJdbcUtil.makeWhereStringFromFields(modelEntity.getPksCopy(),entity,"AND");
+  int retVal=0;
+  try {
+    sqlP.prepareStatement(sql);
+    SqlJdbcUtil.setValues(sqlP,fieldsToSave,entity,modelFieldTypeReader);
+    SqlJdbcUtil.setPkValues(sqlP,modelEntity,entity,modelFieldTypeReader);
+    retVal=sqlP.executeUpdate();
+    entity.synchronizedWithDatasource();
+  }
+ catch (  GenericEntityException e) {
+    throw new GenericEntityException("while updating: " + entity.toString(),e);
+  }
+ finally {
+    sqlP.close();
+  }
+  if (retVal == 0) {
+    throw new GenericEntityNotFoundException("Tried to update an entity that does not exist.");
+  }
+  return retVal;
+}

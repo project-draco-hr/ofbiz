@@ -1,0 +1,65 @@
+{
+  HttpSession session=event.getSession();
+  ShoppingCart cart=(ShoppingCart)session.getAttribute("shoppingCart");
+  if (cart == null) {
+    Debug.logInfo("No cart to save, doing nothing.",module);
+    return;
+  }
+  String delegatorName=(String)session.getAttribute("delegatorName");
+  GenericDelegator delegator=null;
+  if (UtilValidate.isNotEmpty(delegatorName)) {
+    delegator=GenericDelegator.getGenericDelegator(delegatorName);
+  }
+  if (delegator == null) {
+    Debug.logError("Could not find delegator with delegatorName in session, not saving abandoned cart info.",module);
+    return;
+  }
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    GenericValue visit=VisitHandler.getVisit(session);
+    if (visit == null) {
+      Debug.logError("Could not get the current visit, not saving abandoned cart info.",module);
+      return;
+    }
+    Debug.logInfo("Saving abandoned cart",module);
+    Iterator cartItems=cart.iterator();
+    int seqId=1;
+    while (cartItems.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)cartItems.next();
+      GenericValue cartAbandonedLine=delegator.makeValue("CartAbandonedLine",null);
+      cartAbandonedLine.set("visitId",visit.get("visitId"));
+      cartAbandonedLine.set("cartAbandonedLineSeqId",(new Integer(seqId)).toString());
+      cartAbandonedLine.set("productId",cartItem.getProductId());
+      cartAbandonedLine.set("prodCatalogId",cartItem.getProdCatalogId());
+      cartAbandonedLine.set("quantity",new Double(cartItem.getQuantity()));
+      cartAbandonedLine.set("reservStart",cartItem.getReservStart());
+      cartAbandonedLine.set("reservLength",new Double(cartItem.getReservLength()));
+      cartAbandonedLine.set("reservPersons",new Double(cartItem.getReservPersons()));
+      cartAbandonedLine.set("unitPrice",new Double(cartItem.getBasePrice()));
+      cartAbandonedLine.set("reserv2ndPPPerc",new Double(cartItem.getReserv2ndPPPerc()));
+      cartAbandonedLine.set("reservNthPPPerc",new Double(cartItem.getReservNthPPPerc()));
+      cartAbandonedLine.set("totalWithAdjustments",new Double(cartItem.getItemSubTotal()));
+      cartAbandonedLine.set("wasReserved","N");
+      cartAbandonedLine.create();
+      seqId++;
+    }
+  }
+ catch (  GenericEntityException e) {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Error saving abandoned cart info",e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"Could not rollback transaction: " + e2.toString(),module);
+    }
+    Debug.logError(e,"An entity engine error occurred while saving abandoned cart information",module);
+  }
+ finally {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Could not commit transaction for entity engine error occurred while saving abandoned cart information",module);
+    }
+  }
+}

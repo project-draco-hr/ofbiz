@@ -1,0 +1,81 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String orderId=(String)context.get("orderId");
+  Map result=new HashMap();
+  GenericValue orderHeader=null;
+  List paymentPrefs=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    Map lookupMap=UtilMisc.toMap("orderId",orderId,"statusId","PAYMENT_NOT_AUTH");
+    List orderList=UtilMisc.toList("maxAmount");
+    paymentPrefs=delegator.findByAnd("OrderPaymentPreference",lookupMap,orderList);
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logError(gee,"Problems getting the order information",module);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,"ERROR: Could not get order information (" + gee.getMessage() + ").");
+    return result;
+  }
+  if (orderHeader == null) {
+    return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  double totalRemaining=0.0;
+  try {
+    totalRemaining=getTotalRemaining(orh);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Problem getting parsed grand total amount",module);
+    return ServiceUtil.returnError("ERROR: Cannot parse grand total from formatted string; see logs");
+  }
+  int finished=0;
+  int hadError=0;
+  List messages=new ArrayList();
+  Iterator payments=paymentPrefs.iterator();
+  while (payments.hasNext()) {
+    GenericValue paymentPref=(GenericValue)payments.next();
+    Map authContext=new HashMap();
+    authContext.put("orderPaymentPreferenceId",paymentPref.getString("orderPaymentPreferenceId"));
+    authContext.put("userLogin",context.get("userLogin"));
+    Map results=null;
+    try {
+      results=dispatcher.runSync("authOrderPaymentPreference",authContext);
+    }
+ catch (    GenericServiceException se) {
+      Debug.logError(se,"Error in calling authOrderPaymentPreference from authOrderPayments: " + se.getMessage(),module);
+      hadError+=1;
+      messages.add("Could not authorize OrderPaymentPreference [" + paymentPref.getString("orderPaymentPreferenceId") + "] for order ["+ orderId+ "]: "+ se.getMessage());
+      continue;
+    }
+    if (ServiceUtil.isError(results)) {
+      hadError+=1;
+      messages.add("Could not authorize OrderPaymentPreference [" + paymentPref.getString("orderPaymentPreferenceId") + "] for order ["+ orderId+ "]: "+ results.get(ModelService.ERROR_MESSAGE));
+      continue;
+    }
+    if (((Boolean)results.get("finished")).booleanValue())     finished+=1;
+    if (((Boolean)results.get("errors")).booleanValue())     hadError+=1;
+    if (results.get("messages") != null)     messages.addAll((List)results.get("messages"));
+    if (results.get("processAmount") != null)     totalRemaining-=((Double)results.get("processAmount")).doubleValue();
+  }
+  Debug.logInfo("Finished with auth(s) checking results",module);
+  result.put("authResultMsgs",messages);
+  if (hadError > 0) {
+    Debug.logError("Error(s) (" + hadError + ") during auth; returning ERROR",module);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+    result.put("processResult","ERROR");
+    return result;
+  }
+ else   if (finished == paymentPrefs.size()) {
+    Debug.logInfo("All auth(s) passed total remaining : " + totalRemaining,module);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+    result.put("processResult","APPROVED");
+    return result;
+  }
+ else {
+    Debug.logInfo("Only (" + finished + ") passed auth; returning FAILED",module);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+    result.put("processResult","FAILED");
+    return result;
+  }
+}

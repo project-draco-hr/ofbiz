@@ -1,0 +1,51 @@
+{
+  if (!mgrLoggedIn) {
+    pos.showDialog("dialog/error/mgrnotloggedin");
+    return;
+  }
+  PosTransaction trans=PosTransaction.getCurrentTx(pos.getSession());
+  Input input=pos.getInput();
+  if (!trans.isOpen()) {
+    if (input.isFunctionSet("OPEN")) {
+      String amountStr=input.value();
+      if (UtilValidate.isNotEmpty(amountStr)) {
+        try {
+          double amt=Double.parseDouble(amountStr);
+          amt=amt / 100;
+          amountStr=UtilFormatOut.formatPrice(amt);
+        }
+ catch (        NumberFormatException e) {
+          Debug.logError(e,module);
+        }
+      }
+      GenericValue state=pos.getSession().getDelegator().makeValue("PosTerminalState",null);
+      state.set("posTerminalId",pos.getSession().getId());
+      state.set("openedDate",UtilDateTime.nowTimestamp());
+      state.set("openedByUserLoginId",pos.getSession().getUserId());
+      state.set("startingTxId",trans.getTransactionId());
+      try {
+        state.set("startingDrawerAmount",new Double(priceDecimalFormat.parse(amountStr).doubleValue()));
+      }
+ catch (      ParseException pe) {
+        Debug.logError(pe,module);
+      }
+      try {
+        state.create();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/exception",e.getMessage());
+      }
+      NavagationEvents.showPosScreen(pos);
+    }
+ else {
+      input.clear();
+      input.setFunction("OPEN");
+      pos.getOutput().print(UtilProperties.getMessage("pos","OPDRAM",Locale.getDefault()));
+      return;
+    }
+  }
+ else {
+    pos.showPage("pospanel");
+  }
+}

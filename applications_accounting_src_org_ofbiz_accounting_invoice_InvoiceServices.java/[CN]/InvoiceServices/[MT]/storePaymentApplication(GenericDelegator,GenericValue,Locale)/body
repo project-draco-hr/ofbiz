@@ -1,0 +1,80 @@
+{
+  Map results=ServiceUtil.returnSuccess(successMessage);
+  boolean debug=true;
+  if (debug)   Debug.logInfo("Start updating the paymentApplication table ",module);
+  if (decimals == -1 || rounding == -1) {
+    return ServiceUtil.returnError("Arithmetic properties for Invoice services not configured properly. Cannot proceed.");
+  }
+  List checkAppls=null;
+  try {
+    checkAppls=delegator.findByAnd("PaymentApplication",UtilMisc.toMap("invoiceId",paymentApplication.get("invoiceId"),"invoiceItemSeqId",paymentApplication.get("invoiceItemSeqId"),"billingAccountId",paymentApplication.get("billingAccountId"),"paymentId",paymentApplication.get("paymentId"),"toPaymentId",paymentApplication.get("toPaymentId"),"taxAuthGeoId",paymentApplication.get("taxAuthGeoId")));
+  }
+ catch (  GenericEntityException e) {
+    ServiceUtil.returnError(e.getMessage());
+  }
+  if (checkAppls != null && checkAppls.size() > 0) {
+    if (debug)     Debug.logInfo(checkAppls.size() + " records already exist",module);
+    GenericValue checkAppl=(GenericValue)checkAppls.get(0);
+    if (paymentApplication.get("paymentApplicationId") == null) {
+      checkAppl.set("amountApplied",new Double(paymentApplication.getBigDecimal("amountApplied").add(checkAppl.getBigDecimal("amountApplied")).setScale(decimals,rounding).doubleValue()));
+      if (debug)       Debug.logInfo("Update paymentApplication record: " + checkAppl.getString("paymentApplicationId") + " with appliedAmount:"+ checkAppl.getBigDecimal("amountApplied"),module);
+      try {
+        checkAppl.store();
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+    }
+ else     if (paymentApplication.getString("paymentApplicationId").equals(checkAppl.getString("paymentApplicationId"))) {
+      checkAppl.set("amountApplied",new Double(paymentApplication.getBigDecimal("amountApplied").doubleValue()));
+      if (debug)       Debug.logInfo("Update paymentApplication record: " + checkAppl.getString("paymentApplicationId") + " with appliedAmount:"+ checkAppl.getBigDecimal("amountApplied"),module);
+      try {
+        checkAppl.store();
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+    }
+ else {
+      checkAppl.set("amountApplied",new Double(paymentApplication.getBigDecimal("amountApplied").add(checkAppl.getBigDecimal("amountApplied")).setScale(decimals,rounding).doubleValue()));
+      if (debug)       Debug.logInfo("Delete paymentApplication record: " + paymentApplication.getString("paymentApplicationId") + " with appliedAmount:"+ paymentApplication.getBigDecimal("amountApplied"),module);
+      try {
+        paymentApplication.remove();
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+      if (debug)       Debug.logInfo("Update paymentApplication record: " + checkAppl.getString("paymentApplicationId") + " with appliedAmount:"+ checkAppl.getBigDecimal("amountApplied"),module);
+      try {
+        checkAppl.store();
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+    }
+  }
+ else {
+    if (debug)     Debug.logInfo("No records found with paymentId,invoiceid..etc probaly changed one of them...",module);
+    if (paymentApplication.get("paymentApplicationId") == null) {
+      paymentApplication.set("paymentApplicationId",delegator.getNextSeqId("PaymentApplication"));
+      if (debug)       Debug.logInfo("Create new paymentAppication record: " + paymentApplication.getString("paymentApplicationId") + " with appliedAmount:"+ paymentApplication.getBigDecimal("amountApplied"),module);
+      try {
+        paymentApplication.create();
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+    }
+ else {
+      if (debug)       Debug.logInfo("Update existing paymentApplication record: " + paymentApplication.getString("paymentApplicationId") + " with appliedAmount:"+ paymentApplication.getBigDecimal("amountApplied"),module);
+      try {
+        paymentApplication.store();
+      }
+ catch (      GenericEntityException e) {
+        ServiceUtil.returnError(e.getMessage());
+      }
+    }
+  }
+  successMessage.concat(UtilProperties.getMessage(resource,"AccountingSuccessFull",locale));
+  return results;
+}

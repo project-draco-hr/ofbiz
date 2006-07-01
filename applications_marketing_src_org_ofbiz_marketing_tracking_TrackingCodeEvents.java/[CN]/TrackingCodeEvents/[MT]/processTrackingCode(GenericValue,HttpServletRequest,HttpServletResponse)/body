@@ -1,0 +1,81 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String trackingCodeId=trackingCode.getString("trackingCodeId");
+  java.sql.Timestamp nowStamp=UtilDateTime.nowTimestamp();
+  if (trackingCode.get("fromDate") != null && nowStamp.before(trackingCode.getTimestamp("fromDate"))) {
+    if (Debug.infoOn())     Debug.logInfo("The TrackingCode with ID [" + trackingCodeId + "] has not yet gone into effect, ignoring this trackingCodeId",module);
+    return "success";
+  }
+  if (trackingCode.get("thruDate") != null && nowStamp.after(trackingCode.getTimestamp("thruDate"))) {
+    if (Debug.infoOn())     Debug.logInfo("The TrackingCode with ID [" + trackingCodeId + "] has expired, ignoring this trackingCodeId",module);
+    return "success";
+  }
+  GenericValue visit=VisitHandler.getVisit(request.getSession());
+  if (visit == null) {
+    Debug.logWarning("Could not get visit, not associating trackingCode [" + trackingCodeId + "] with visit",module);
+  }
+ else {
+    GenericValue trackingCodeVisit=delegator.makeValue("TrackingCodeVisit",UtilMisc.toMap("trackingCodeId",trackingCodeId,"visitId",visit.get("visitId"),"fromDate",UtilDateTime.nowTimestamp(),"sourceEnumId","TKCDSRC_URL_PARAM"));
+    try {
+      trackingCodeVisit.create();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error while saving TrackingCodeVisit",module);
+    }
+  }
+  String cookieDomain=null;
+  String webSiteId=WebSiteWorker.getWebSiteId(request);
+  if (webSiteId != null) {
+    try {
+      GenericValue webSite=delegator.findByPrimaryKeyCache("WebSite",UtilMisc.toMap("webSiteId",webSiteId));
+      if (webSite != null) {
+        cookieDomain=webSite.getString("cookieDomain");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Problems with WebSite entity; using global default cookie domain",module);
+    }
+  }
+  if (cookieDomain == null) {
+    cookieDomain=UtilProperties.getPropertyValue("url","cookie.domain","");
+  }
+  Long trackableLifetime=trackingCode.getLong("trackableLifetime");
+  if (trackableLifetime != null && trackableLifetime.longValue() > 0) {
+    Cookie trackableCookie=new Cookie("TKCDT_" + trackingCode.getString("trackingCodeTypeId"),trackingCode.getString("trackingCodeId"));
+    trackableCookie.setMaxAge(trackableLifetime.intValue());
+    trackableCookie.setPath("/");
+    trackableCookie.setVersion(1);
+    if (cookieDomain.length() > 0)     trackableCookie.setDomain(cookieDomain);
+    response.addCookie(trackableCookie);
+  }
+  Long billableLifetime=trackingCode.getLong("billableLifetime");
+  if (billableLifetime != null && billableLifetime.longValue() > 0) {
+    Cookie billableCookie=new Cookie("TKCDB_" + trackingCode.getString("trackingCodeTypeId"),trackingCode.getString("trackingCodeId"));
+    billableCookie.setMaxAge(billableLifetime.intValue());
+    billableCookie.setPath("/");
+    billableCookie.setVersion(1);
+    if (cookieDomain.length() > 0)     billableCookie.setDomain(cookieDomain);
+    response.addCookie(billableCookie);
+  }
+  HttpSession session=request.getSession();
+  String overrideLogo=trackingCode.getString("overrideLogo");
+  if (overrideLogo != null)   session.setAttribute("overrideLogo",overrideLogo);
+  String overrideCss=trackingCode.getString("overrideCss");
+  if (overrideCss != null)   session.setAttribute("overrideCss",overrideCss);
+  String prodCatalogId=trackingCode.getString("prodCatalogId");
+  if (prodCatalogId != null && prodCatalogId.length() > 0) {
+    session.setAttribute("CURRENT_CATALOG_ID",prodCatalogId);
+    CategoryWorker.setTrail(request,new ArrayList());
+  }
+  String redirectUrl=trackingCode.getString("redirectUrl");
+  if (UtilValidate.isNotEmpty(redirectUrl)) {
+    try {
+      response.sendRedirect(redirectUrl);
+    }
+ catch (    java.io.IOException e) {
+      Debug.logError(e,"Could not redirect as requested in the trackingCode to: " + redirectUrl,module);
+    }
+    return null;
+  }
+  return "success";
+}

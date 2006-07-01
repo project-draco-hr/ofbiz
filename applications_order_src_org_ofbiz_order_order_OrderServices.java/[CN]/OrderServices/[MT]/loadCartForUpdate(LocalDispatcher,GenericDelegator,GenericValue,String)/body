@@ -1,0 +1,51 @@
+{
+  List shipGroupAssocs=null;
+  try {
+    shipGroupAssocs=delegator.findByAnd("OrderItemShipGroupAssoc",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (shipGroupAssocs != null) {
+    Iterator iri=shipGroupAssocs.iterator();
+    while (iri.hasNext()) {
+      GenericValue shipGroupAssoc=(GenericValue)iri.next();
+      String orderItemSeqId=shipGroupAssoc.getString("orderItemSeqId");
+      String shipGroupSeqId=shipGroupAssoc.getString("shipGroupSeqId");
+      Map cancelCtx=UtilMisc.toMap("userLogin",userLogin,"orderId",orderId);
+      cancelCtx.put("orderItemSeqId",orderItemSeqId);
+      cancelCtx.put("shipGroupSeqId",shipGroupSeqId);
+      Map cancelResp=null;
+      try {
+        cancelResp=dispatcher.runSync("cancelOrderInventoryReservation",cancelCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+      if (ServiceUtil.isError(cancelResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(cancelResp));
+      }
+    }
+  }
+  Map loadCartResp=null;
+  try {
+    loadCartResp=dispatcher.runSync("loadCartFromOrder",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (ServiceUtil.isError(loadCartResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(loadCartResp));
+  }
+  ShoppingCart cart=(ShoppingCart)loadCartResp.get("shoppingCart");
+  if (cart == null) {
+    throw new GeneralException("Error loading shopping cart from order [" + orderId + "]");
+  }
+ else {
+    cart.setOrderId(orderId);
+  }
+  return cart;
+}

@@ -1,0 +1,46 @@
+{
+  String defaultValveFilter=".*.gif;.*.js;.*.jpg;.*.htm;.*.html;.*.txt;";
+  ReplicationValve clusterValve=new ReplicationValve();
+  clusterValve.setFilter(ContainerConfig.getPropertyValue(clusterProps,"rep-valve-filter",defaultValveFilter));
+  String mcb=ContainerConfig.getPropertyValue(clusterProps,"mcast-bind-addr",null);
+  String mca=ContainerConfig.getPropertyValue(clusterProps,"mcast-addr",null);
+  int mcp=ContainerConfig.getPropertyValue(clusterProps,"mcast-port",-1);
+  int mcd=ContainerConfig.getPropertyValue(clusterProps,"mcast-freq",500);
+  int mcf=ContainerConfig.getPropertyValue(clusterProps,"mcast-drop-time",3000);
+  if (mca == null || mcp == -1) {
+    throw new ContainerException("Cluster configuration requires mcast-addr and mcast-port properties");
+  }
+  McastService mcast=new McastService();
+  if (mcb != null) {
+    mcast.setMcastBindAddress(mcb);
+  }
+  mcast.setMcastAddr(mca);
+  mcast.setMcastPort(mcp);
+  mcast.setMcastDropTime(mcd);
+  mcast.setMcastFrequency(mcf);
+  String tla=ContainerConfig.getPropertyValue(clusterProps,"tcp-listen-host","auto");
+  int tlp=ContainerConfig.getPropertyValue(clusterProps,"tcp-listen-port",4001);
+  int tlt=ContainerConfig.getPropertyValue(clusterProps,"tcp-sector-timeout",100);
+  int tlc=ContainerConfig.getPropertyValue(clusterProps,"tcp-thread-count",6);
+  if (tlp == -1) {
+    throw new ContainerException("Cluster configuration requires tcp-listen-port property");
+  }
+  ReplicationListener listener=new ReplicationListener();
+  listener.setTcpListenAddress(tla);
+  listener.setTcpListenPort(tlp);
+  listener.setTcpSelectorTimeout(tlt);
+  listener.setTcpThreadCount(tlc);
+  ReplicationTransmitter trans=new ReplicationTransmitter();
+  trans.setReplicationMode(ContainerConfig.getPropertyValue(clusterProps,"replication-mode","pooled"));
+  String mgrClassName=ContainerConfig.getPropertyValue(clusterProps,"manager-class","org.apache.catalina.cluster.session.DeltaManager");
+  SimpleTcpCluster cluster=new SimpleTcpCluster();
+  cluster.setClusterName(clusterProps.name);
+  cluster.setManagerClassName(mgrClassName);
+  cluster.setClusterReceiver(listener);
+  cluster.setClusterSender(trans);
+  cluster.setMembershipService(mcast);
+  cluster.addValve(clusterValve);
+  host.setCluster(cluster);
+  Debug.logInfo("Catalina Cluster [" + cluster.getClusterName() + "] configured for host - "+ host.getName(),module);
+  return cluster;
+}

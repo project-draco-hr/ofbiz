@@ -1,0 +1,67 @@
+{
+  Map statusFields=UtilMisc.toMap("orderId",orderId,"statusId",orderStatus,"userLogin",userLogin);
+  Map statusResult=dispatcher.runSync("changeOrderStatus",statusFields);
+  if (statusResult.containsKey(ModelService.ERROR_MESSAGE)) {
+    Debug.logError("Problems adjusting order header status for order #" + orderId,module);
+  }
+  Map itemStatusFields=UtilMisc.toMap("orderId",orderId,"statusId",toItemStatus,"userLogin",userLogin);
+  if (fromItemStatus != null) {
+    itemStatusFields.put("fromStatusId",fromItemStatus);
+  }
+  Map itemStatusResult=dispatcher.runSync("changeOrderItemStatus",itemStatusFields);
+  if (itemStatusResult.containsKey(ModelService.ERROR_MESSAGE)) {
+    Debug.logError("Problems adjusting order item status for order #" + orderId,module);
+  }
+  if (digitalItemStatus != null && !digitalItemStatus.equals(toItemStatus)) {
+    GenericDelegator delegator=dispatcher.getDelegator();
+    GenericValue orderHeader=null;
+    try {
+      orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"ERROR: Unable to get OrderHeader for OrderID : " + orderId,module);
+    }
+    if (orderHeader != null) {
+      List orderItems=null;
+      try {
+        orderItems=orderHeader.getRelated("OrderItem");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"ERROR: Unable to get OrderItem records for OrderHeader : " + orderId,module);
+      }
+      if (orderItems != null && orderItems.size() > 0) {
+        Iterator oii=orderItems.iterator();
+        while (oii.hasNext()) {
+          GenericValue orderItem=(GenericValue)oii.next();
+          String orderItemSeqId=orderItem.getString("orderItemSeqId");
+          GenericValue product=null;
+          try {
+            product=orderItem.getRelatedOne("Product");
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"ERROR: Unable to get Product record for OrderItem : " + orderId + "/"+ orderItemSeqId,module);
+          }
+          if (product != null) {
+            GenericValue productType=null;
+            try {
+              productType=product.getRelatedOne("ProductType");
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,"ERROR: Unable to get ProductType from Product : " + product,module);
+            }
+            if (productType != null) {
+              String isDigital=productType.getString("isDigital");
+              if (isDigital != null && "Y".equalsIgnoreCase(isDigital)) {
+                Map digitalStatusFields=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId",digitalItemStatus,"userLogin",userLogin);
+                Map digitalStatusChange=dispatcher.runSync("changeOrderItemStatus",digitalStatusFields);
+                if (ModelService.RESPOND_ERROR.equals(digitalStatusChange.get(ModelService.RESPONSE_MESSAGE))) {
+                  Debug.logError("Problems with digital product status change : " + product,module);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

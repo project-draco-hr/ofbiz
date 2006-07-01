@@ -1,0 +1,30 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  ShoppingCart cart=(ShoppingCart)context.get("shoppingCart");
+  String orderId=(String)context.get("orderId");
+  OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+  String productStoreId=orh.getProductStoreId();
+  CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
+  if (!"PURCHASE_ORDER".equals(cart.getOrderType())) {
+    GenericValue productStore=ProductStoreWorker.getProductStore(productStoreId,delegator);
+    Map paymentResp=null;
+    try {
+      Debug.log("Calling process payments...",module);
+      paymentResp=coh.processPayment(productStore,userLogin);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+catch (    GeneralRuntimeException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (ServiceUtil.isError(paymentResp)) {
+      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(paymentResp));
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

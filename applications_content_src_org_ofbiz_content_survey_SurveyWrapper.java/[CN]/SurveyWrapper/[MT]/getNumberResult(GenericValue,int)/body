@@ -1,0 +1,58 @@
+{
+  double[] result={0,0,0};
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    EntityListIterator eli=this.getEli(question);
+    if (eli != null) {
+      GenericValue value;
+      while (((value=(GenericValue)eli.next()) != null)) {
+switch (type) {
+case 1:
+          Long n=value.getLong("numericResponse");
+        result[1]+=n.longValue();
+      break;
+case 2:
+    Double c=value.getDouble("currencyResponse");
+  result[1]+=(((double)Math.round((c.doubleValue() - c.doubleValue()) * 100)) / 100);
+break;
+case 3:
+Double f=value.getDouble("floatResponse");
+result[1]+=f.doubleValue();
+break;
+}
+result[0]++;
+}
+eli.close();
+}
+}
+ catch (GenericEntityException e) {
+try {
+TransactionUtil.rollback(beganTransaction,"Error getting survey question responses Number result",e);
+}
+ catch (GenericEntityException e2) {
+Debug.logError(e2,"Could not rollback transaction: " + e2.toString(),module);
+}
+throw new SurveyWrapperException(e);
+}
+ finally {
+try {
+TransactionUtil.commit(beganTransaction);
+}
+ catch (GenericEntityException e) {
+throw new SurveyWrapperException(e);
+}
+}
+switch (type) {
+case 1:
+if (result[0] > 0) result[2]=((long)result[1]) / ((long)result[0]);
+break;
+case 2:
+if (result[0] > 0) result[2]=(((double)Math.round((result[1] / result[0]) * 100)) / 100);
+break;
+case 3:
+if (result[0] > 0) result[2]=result[1] / result[0];
+break;
+}
+return result;
+}

@@ -1,0 +1,52 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  GenericValue party=null;
+  java.net.URL ecommercePropertiesUrl=null;
+  try {
+    ecommercePropertiesUrl=((ServletContext)request.getAttribute("servletContext")).getResource("/WEB-INF/ecommerce.properties");
+  }
+ catch (  java.net.MalformedURLException e) {
+    Debug.logWarning(e,module);
+  }
+  String store=UtilProperties.getPropertyValue(ecommercePropertiesUrl,"affiliate.store.customer");
+  if (store == null || store.toUpperCase().startsWith("N"))   return "success";
+  String storeOnClick=UtilProperties.getPropertyValue(ecommercePropertiesUrl,"affiliate.store.onclick");
+  if (storeOnClick == null || storeOnClick.toUpperCase().startsWith("N"))   return "success";
+  try {
+    party=userLogin == null ? null : userLogin.getRelatedOne("Party");
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logWarning(gee,module);
+  }
+  if (party != null) {
+    String currentAffiliateId=getId(party,"AFFILIATE");
+    if (UtilValidate.isEmpty(currentAffiliateId)) {
+      String affiliateId=(String)request.getSession().getAttribute(AFFILIATE_ID);
+      if (UtilValidate.isNotEmpty(affiliateId)) {
+        GenericValue partyRelationship=delegator.makeValue("PartyRelationship",UtilMisc.toMap("partyIdFrom",party.getString("partyId"),"partyIdTo",affiliateId,"roleTypeIdFrom","CUSTOMER","roleTypeIdTo","AFFILIATE"));
+        partyRelationship.set("fromDate",UtilDateTime.nowTimestamp());
+        partyRelationship.set("partyRelationshipTypeId","SALES_AFFILIATE");
+        try {
+          delegator.create(partyRelationship);
+          if (Debug.infoOn())           Debug.logInfo("Affiliate for user " + party.getString("partyId") + " set to "+ affiliateId,module);
+        }
+ catch (        GenericEntityException gee) {
+          Debug.logWarning(gee,module);
+        }
+      }
+ else {
+        Debug.logInfo("No affiliate in session or already associated with user " + userLogin.getString("partyId"),module);
+        return "success";
+      }
+    }
+ else {
+      request.getSession().setAttribute(AFFILIATE_ID,currentAffiliateId);
+    }
+    return "success";
+  }
+ else {
+    Debug.logWarning("Cannot associate affiliate since not logged in yet",module);
+    return "success";
+  }
+}

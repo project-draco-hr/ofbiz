@@ -1,0 +1,129 @@
+{
+  Connection connection=null;
+  try {
+    connection=getConnection();
+  }
+ catch (  SQLException sqle) {
+    String message="Unable to esablish a connection with the database... Error was:" + sqle.toString();
+    Debug.logError(message,module);
+    if (messages != null)     messages.add(message);
+    return null;
+  }
+catch (  GenericEntityException e) {
+    String message="Unable to esablish a connection with the database... Error was:" + e.toString();
+    Debug.logError(message,module);
+    if (messages != null)     messages.add(message);
+    return null;
+  }
+  DatabaseMetaData dbData=null;
+  try {
+    dbData=connection.getMetaData();
+  }
+ catch (  SQLException sqle) {
+    String message="Unable to get database meta data... Error was:" + sqle.toString();
+    Debug.logError(message,module);
+    if (messages != null)     messages.add(message);
+    try {
+      connection.close();
+    }
+ catch (    SQLException sqle2) {
+      String message2="Unable to close database connection, continuing anyway... Error was:" + sqle2.toString();
+      Debug.logError(message2,module);
+      if (messages != null)       messages.add(message2);
+    }
+    return null;
+  }
+  if (Debug.infoOn())   Debug.logInfo("Getting Foreign Key (Reference) Info From Database",module);
+  Map refInfo=FastMap.newInstance();
+  try {
+    String lookupSchemaName=null;
+    if (dbData.supportsSchemasInTableDefinitions()) {
+      if (this.datasourceInfo.schemaName != null && this.datasourceInfo.schemaName.length() > 0) {
+        lookupSchemaName=this.datasourceInfo.schemaName;
+      }
+ else {
+        lookupSchemaName=dbData.getUserName();
+      }
+    }
+    boolean needsUpperCase=false;
+    try {
+      needsUpperCase=dbData.storesLowerCaseIdentifiers() || dbData.storesMixedCaseIdentifiers();
+    }
+ catch (    SQLException sqle) {
+      String message="Error getting identifier case information... Error was:" + sqle.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+    }
+    ResultSet rsCols=dbData.getImportedKeys(null,lookupSchemaName,null);
+    int totalFkRefs=0;
+    while (rsCols.next()) {
+      try {
+        ReferenceCheckInfo rcInfo=new ReferenceCheckInfo();
+        rcInfo.pkTableName=rsCols.getString("PKTABLE_NAME");
+        if (needsUpperCase && rcInfo.pkTableName != null) {
+          rcInfo.pkTableName=rcInfo.pkTableName.toUpperCase();
+        }
+        rcInfo.pkColumnName=rsCols.getString("PKCOLUMN_NAME");
+        if (needsUpperCase && rcInfo.pkColumnName != null) {
+          rcInfo.pkColumnName=rcInfo.pkColumnName.toUpperCase();
+        }
+        rcInfo.fkTableName=rsCols.getString("FKTABLE_NAME");
+        if (needsUpperCase && rcInfo.fkTableName != null) {
+          rcInfo.fkTableName=rcInfo.fkTableName.toUpperCase();
+        }
+        if (!tableNames.contains(rcInfo.fkTableName)) {
+          continue;
+        }
+        rcInfo.fkColumnName=rsCols.getString("FKCOLUMN_NAME");
+        if (needsUpperCase && rcInfo.fkColumnName != null) {
+          rcInfo.fkColumnName=rcInfo.fkColumnName.toUpperCase();
+        }
+        rcInfo.fkName=rsCols.getString("FK_NAME");
+        if (needsUpperCase && rcInfo.fkName != null) {
+          rcInfo.fkName=rcInfo.fkName.toUpperCase();
+        }
+        if (Debug.verboseOn())         Debug.logVerbose("Got: " + rcInfo.toString(),module);
+        Map tableRefInfo=(Map)refInfo.get(rcInfo.fkTableName);
+        if (tableRefInfo == null) {
+          tableRefInfo=FastMap.newInstance();
+          refInfo.put(rcInfo.fkTableName,tableRefInfo);
+          if (Debug.verboseOn())           Debug.logVerbose("Adding new Map for table: " + rcInfo.fkTableName,module);
+        }
+        if (!tableRefInfo.containsKey(rcInfo.fkName))         totalFkRefs++;
+        tableRefInfo.put(rcInfo.fkName,rcInfo);
+      }
+ catch (      SQLException sqle) {
+        String message="Error getting fk reference info for table. Error was:" + sqle.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+        continue;
+      }
+    }
+    try {
+      rsCols.close();
+    }
+ catch (    SQLException sqle) {
+      String message="Unable to close ResultSet for fk reference list, continuing anyway... Error was:" + sqle.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+    }
+    if (Debug.infoOn())     Debug.logInfo("There are " + totalFkRefs + " foreign key refs in the database",module);
+  }
+ catch (  SQLException sqle) {
+    String message="Error getting fk reference meta data Error was:" + sqle.toString() + ". Not checking fk refs.";
+    Debug.logError(message,module);
+    if (messages != null)     messages.add(message);
+    refInfo=null;
+  }
+ finally {
+    try {
+      connection.close();
+    }
+ catch (    SQLException sqle) {
+      String message="Unable to close database connection, continuing anyway... Error was:" + sqle.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+    }
+  }
+  return refInfo;
+}

@@ -1,0 +1,31 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=(GenericValue)context.get("authTrans");
+  Debug.logInfo("Test Capture with 2 minute delay failure/re-auth process",module);
+  if (authTransaction == null) {
+    authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot capture");
+  }
+  Timestamp txStamp=authTransaction.getTimestamp("transactionDate");
+  Timestamp nowStamp=UtilDateTime.nowTimestamp();
+  Map result=ServiceUtil.returnSuccess();
+  long nowTime=new Date().getTime();
+  result.put("captureAmount",context.get("captureAmount"));
+  result.put("captureRefNum",new Long(nowTime).toString());
+  Calendar cal=Calendar.getInstance();
+  cal.setTimeInMillis(txStamp.getTime());
+  cal.add(Calendar.MINUTE,2);
+  Timestamp twoMinAfter=new Timestamp(cal.getTimeInMillis());
+  Debug.log("Re-Auth Capture Test : Tx Date - " + txStamp + " : 2 Min - "+ twoMinAfter+ " : Now - "+ nowStamp,module);
+  if (nowStamp.after(twoMinAfter)) {
+    result.put("captureResult",new Boolean(false));
+  }
+ else {
+    result.put("captureResult",new Boolean(true));
+    result.put("captureFlag","C");
+    result.put("captureMessage","This is a test capture; no money was transferred");
+  }
+  return result;
+}

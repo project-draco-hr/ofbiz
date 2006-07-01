@@ -1,0 +1,83 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  String partyId=(String)context.get("partyId");
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  if (partyId == null || partyId.length() == 0) {
+    try {
+      partyId=delegator.getNextSeqId("Party");
+    }
+ catch (    IllegalArgumentException e) {
+      errMsg=UtilProperties.getMessage(resource,"partyservices.could_not_create_party_group_generation_failure",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+ else {
+    if (Character.isDigit(partyId.charAt(0))) {
+      errMsg=UtilProperties.getMessage(resource,"partyservices.could_not_create_party_ID_digit",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  try {
+    GenericValue party=delegator.findByPrimaryKey("Party",UtilMisc.toMap("partyId",partyId));
+    GenericValue partyGroupPartyType=delegator.findByPrimaryKeyCache("PartyType",UtilMisc.toMap("partyTypeId","PARTY_GROUP"));
+    if (partyGroupPartyType == null) {
+      errMsg=UtilProperties.getMessage(resource,"partyservices.party_type_not_found_in_database_cannot_create_party_group",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+    if (party != null) {
+      GenericValue partyType=party.getRelatedOneCache("PartyType");
+      if (!EntityTypeUtil.isType(partyType,partyGroupPartyType)) {
+        errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_create_party_group_already_exists_not_PARTY_GROUP_type",locale);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+ else {
+      String partyTypeId="PARTY_GROUP";
+      if (UtilValidate.isNotEmpty(((String)context.get("partyTypeId")))) {
+        GenericValue desiredPartyType=delegator.findByPrimaryKeyCache("PartyType",UtilMisc.toMap("partyTypeId",context.get("partyTypeId")));
+        if (desiredPartyType != null && EntityTypeUtil.isType(desiredPartyType,partyGroupPartyType)) {
+          partyTypeId=desiredPartyType.getString("partyTypeId");
+        }
+ else {
+          return ServiceUtil.returnError("The specified partyTypeId [" + context.get("partyTypeId") + "] could not be found or is not a sub-type of PARTY_GROUP");
+        }
+      }
+      Map newPartyMap=UtilMisc.toMap("partyId",partyId,"partyTypeId",partyTypeId,"createdDate",now,"lastModifiedDate",now);
+      if (userLogin != null) {
+        newPartyMap.put("createdByUserLogin",userLogin.get("userLoginId"));
+        newPartyMap.put("lastModifiedByUserLogin",userLogin.get("userLoginId"));
+      }
+      String statusId=(String)context.get("statusId");
+      party=delegator.makeValue("Party",newPartyMap);
+      party.setNonPKFields(context);
+      if (statusId == null) {
+        statusId="PARTY_ENABLED";
+      }
+      party.set("statusId",statusId);
+      party.create();
+      GenericValue partyStat=delegator.makeValue("PartyStatus",UtilMisc.toMap("partyId",partyId,"statusId",statusId,"statusDate",now));
+      partyStat.create();
+    }
+    GenericValue partyGroup=delegator.findByPrimaryKey("PartyGroup",UtilMisc.toMap("partyId",partyId));
+    if (partyGroup != null) {
+      errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_create_party_group_already_exists",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+    partyGroup=delegator.makeValue("PartyGroup",UtilMisc.toMap("partyId",partyId));
+    partyGroup.setNonPKFields(context);
+    partyGroup.create();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+    Map messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"partyservices.data_source_error_adding_party_group",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put("partyId",partyId);
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

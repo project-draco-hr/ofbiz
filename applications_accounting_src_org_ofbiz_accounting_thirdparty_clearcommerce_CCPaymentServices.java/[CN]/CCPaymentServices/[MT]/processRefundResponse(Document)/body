@@ -1,0 +1,28 @@
+{
+  Element engineDocElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"EngineDoc");
+  Element orderFormElement=UtilXml.firstChildElement(engineDocElement,"OrderFormDoc");
+  Element transactionElement=UtilXml.firstChildElement(orderFormElement,"Transaction");
+  Element procResponseElement=UtilXml.firstChildElement(transactionElement,"CardProcResp");
+  Map result=ServiceUtil.returnSuccess();
+  String errorCode=UtilXml.childElementValue(procResponseElement,"CcErrCode");
+  if ("1".equals(errorCode)) {
+    result.put("refundResult",Boolean.valueOf(true));
+    result.put("refundCode",UtilXml.childElementValue(transactionElement,"AuthCode"));
+    Element currentTotalsElement=UtilXml.firstChildElement(transactionElement,"CurrentTotals");
+    Element totalsElement=UtilXml.firstChildElement(currentTotalsElement,"Totals");
+    String refundAmountStr=UtilXml.childElementValue(totalsElement,"Total");
+    result.put("refundAmount",new Double(Double.parseDouble(refundAmountStr) / 100));
+  }
+ else {
+    result.put("refundResult",Boolean.valueOf(false));
+    result.put("refundAmount",Double.valueOf("0.00"));
+  }
+  result.put("refundRefNum",UtilXml.childElementValue(orderFormElement,"Id"));
+  result.put("refundFlag",UtilXml.childElementValue(procResponseElement,"Status"));
+  result.put("refundMessage",UtilXml.childElementValue(procResponseElement,"CcReturnMsg"));
+  List messages=getMessageList(responseDocument);
+  if (UtilValidate.isNotEmpty(messages)) {
+    result.put("internalRespMsgs",messages);
+  }
+  return result;
+}

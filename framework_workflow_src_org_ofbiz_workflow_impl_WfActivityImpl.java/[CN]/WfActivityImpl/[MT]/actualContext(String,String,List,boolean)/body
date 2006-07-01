@@ -1,0 +1,69 @@
+{
+  Map actualContext=new HashMap();
+  Map context=processContext();
+  Map extendedAttributes=StringUtil.strToMap(extendedAttr);
+  if (extendedAttributes != null && extendedAttributes.size() > 0) {
+    context.putAll(extendedAttributes);
+  }
+  GenericValue userLogin=null;
+  if (context.containsKey("runAsUser")) {
+    userLogin=getUserLogin((String)context.get("runAsUser"));
+    actualContext.put("userLogin",userLogin);
+  }
+ else   if (context.containsKey("workflowOwnerId")) {
+    userLogin=getUserLogin((String)context.get("workflowOwnerId"));
+  }
+  context.put("userLogin",userLogin);
+  context.put("workEffortId",runtimeKey());
+  if (howManyAssignment() == 1) {
+    Debug.logVerbose("Single assignment; getting assignment info.",module);
+    List assignments=getAssignments();
+    WfAssignment assign=(WfAssignment)assignments.iterator().next();
+    WfResource res=assign.assignee();
+    context.put("assignedPartyId",res.resourcePartyId());
+    context.put("assignedRoleTypeId",res.resourceRoleId());
+  }
+  if (actualParameters != null) {
+    List params=StringUtil.split(actualParameters,",");
+    Iterator i=params.iterator();
+    while (i.hasNext()) {
+      Object key=i.next();
+      String keyStr=(String)key;
+      if (keyStr != null && keyStr.trim().toLowerCase().startsWith("expr:")) {
+        try {
+          BshUtil.eval(keyStr.trim().substring(5).trim(),context);
+        }
+ catch (        bsh.EvalError e) {
+          throw new WfException("Bsh evaluation error.",e);
+        }
+      }
+ else       if (keyStr != null && keyStr.trim().toLowerCase().startsWith("name:")) {
+        List couple=StringUtil.split(keyStr.trim().substring(5).trim(),"=");
+        String mName=(String)couple.get(0);
+        String cName=(String)couple.get(1);
+        if (mName != null)         mName=mName.trim();
+        if (cName != null)         cName=cName.trim();
+        if (mName != null && cName != null && context.containsKey(cName)) {
+          actualContext.put(mName,context.get(cName));
+        }
+      }
+ else       if (context.containsKey(key)) {
+        actualContext.put(key,context.get(key));
+      }
+ else       if (!actualContext.containsKey(key) && !ignoreUnknown) {
+        throw new WfException("Context does not contain the key: '" + (String)key + "'");
+      }
+    }
+  }
+  if (serviceSignature != null) {
+    Iterator si=serviceSignature.iterator();
+    while (si.hasNext()) {
+      Object key=si.next();
+      String keyStr=(String)key;
+      if (!actualContext.containsKey(key) && context.containsKey(key)) {
+        actualContext.put(keyStr,context.get(keyStr));
+      }
+    }
+  }
+  return actualContext;
+}

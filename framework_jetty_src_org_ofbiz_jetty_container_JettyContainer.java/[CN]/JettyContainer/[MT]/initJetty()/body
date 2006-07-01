@@ -1,0 +1,62 @@
+{
+  SSLUtil.loadJsseProperties();
+  Log log=Log.instance();
+  log.disableLog();
+  Log4jSink sink=new Log4jSink();
+  log.add(sink);
+  sink.setOptions(UtilURL.fromResource("debug.properties").toExternalForm());
+  try {
+    sink.start();
+  }
+ catch (  Exception e) {
+    Debug.logWarning(e,module);
+  }
+  ContainerConfig.Container jc=ContainerConfig.getContainer("jetty-container",configFile);
+  Iterator sci=jc.properties.values().iterator();
+  while (sci.hasNext()) {
+    ContainerConfig.Container.Property prop=(ContainerConfig.Container.Property)sci.next();
+    servers.put(prop.name,createServer(prop));
+  }
+  Collection componentConfigs=ComponentConfig.getAllComponents();
+  if (componentConfigs != null) {
+    Iterator components=componentConfigs.iterator();
+    while (components.hasNext()) {
+      ComponentConfig component=(ComponentConfig)components.next();
+      Iterator appInfos=component.getWebappInfos().iterator();
+      while (appInfos.hasNext()) {
+        ComponentConfig.WebappInfo appInfo=(ComponentConfig.WebappInfo)appInfos.next();
+        List virtualHosts=appInfo.getVirtualHosts();
+        Map initParameters=appInfo.getInitParameters();
+        Server server=(Server)servers.get(appInfo.server);
+        if (server == null) {
+          Debug.logWarning("Server with name [" + appInfo.server + "] not found; not mounting ["+ appInfo.name+ "]",module);
+        }
+ else {
+          try {
+            String location=component.getRootLocation() + appInfo.location;
+            location=location.replace('\\','/');
+            if (!location.endsWith("/")) {
+              location=location + "/";
+            }
+            WebApplicationContext ctx=server.addWebApplication(appInfo.mountPoint,location);
+            ctx.setAttribute("_serverId",appInfo.server);
+            SessionManager sm=new HashSessionManager();
+            ctx.getWebApplicationHandler().setSessionManager(sm);
+            Iterator vh=virtualHosts.iterator();
+            while (vh.hasNext()) {
+              ctx.addVirtualHost((String)vh.next());
+            }
+            Iterator ip=initParameters.keySet().iterator();
+            while (ip.hasNext()) {
+              String paramName=(String)ip.next();
+              ctx.setInitParameter(paramName,(String)initParameters.get(paramName));
+            }
+          }
+ catch (          IOException e) {
+            Debug.logError(e,"Problem mounting application [" + appInfo.name + " / "+ appInfo.location+ "]",module);
+          }
+        }
+      }
+    }
+  }
+}

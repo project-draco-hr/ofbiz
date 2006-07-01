@@ -1,0 +1,34 @@
+{
+  List billingAccountList=FastList.newInstance();
+  Map agentResult=dispatcher.runSync("getRelatedParties",UtilMisc.toMap("userLogin",userLogin,"partyIdFrom",partyId,"roleTypeIdFrom","AGENT","roleTypeIdTo","CUSTOMER","partyRelationshipTypeId","AGENT","includeFromToSwitched","Y"));
+  if (ServiceUtil.isError(agentResult)) {
+    throw new GeneralException("Error while finding party BillingAccounts when getting Customers that this party is an agent of: " + ServiceUtil.getErrorMessage(agentResult));
+  }
+  List relatedPartyIdList=(List)agentResult.get("relatedPartyIdList");
+  EntityCondition barFindCond=new EntityConditionList(UtilMisc.toList(new EntityExpr("partyId",EntityOperator.IN,relatedPartyIdList),new EntityExpr("roleTypeId",EntityOperator.EQUALS,"BILL_TO_CUSTOMER")),EntityOperator.AND);
+  List billingAccountRoleList=delegator.findByCondition("BillingAccountRole",barFindCond,null,null);
+  billingAccountRoleList=EntityUtil.filterByDate(billingAccountRoleList);
+  if (billingAccountRoleList != null && billingAccountRoleList.size() > 0) {
+    double totalAvailable=0.0;
+    TreeMap sortedAccounts=new TreeMap();
+    Iterator billingAcctIter=billingAccountRoleList.iterator();
+    while (billingAcctIter.hasNext()) {
+      GenericValue billingAccountRole=(GenericValue)billingAcctIter.next();
+      GenericValue billingAccountVO=billingAccountRole.getRelatedOne("BillingAccount");
+      if (currencyUomId.equals(billingAccountVO.getString("accountCurrencyUomId"))) {
+        double accountBalance=(BillingAccountWorker.getBillingAccountBalance(billingAccountVO)).doubleValue();
+        Map billingAccount=new HashMap(billingAccountVO);
+        double accountLimit=0.0;
+        if (billingAccountVO.getDouble("accountLimit") != null) {
+          accountLimit=billingAccountVO.getDouble("accountLimit").doubleValue();
+        }
+        billingAccount.put("accountBalance",new Double(accountBalance));
+        double accountAvailable=accountLimit - accountBalance;
+        totalAvailable+=accountAvailable;
+        sortedAccounts.put(new Double(accountAvailable),billingAccount);
+      }
+    }
+    billingAccountList.addAll(sortedAccounts.values());
+  }
+  return billingAccountList;
+}

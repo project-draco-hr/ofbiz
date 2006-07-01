@@ -1,0 +1,117 @@
+{
+  if (templateRoot == null) {
+    templateRoot=new HashMap();
+  }
+  String disableCache=UtilProperties.getPropertyValue("content","disable.ftl.template.cache");
+  if (disableCache == null || !disableCache.equalsIgnoreCase("true")) {
+    Template cachedTemplate=FreeMarkerWorker.getTemplateCached(dataResourceId);
+    if (cachedTemplate != null) {
+      try {
+        String subContentId=(String)templateRoot.get("subContentId");
+        if (UtilValidate.isNotEmpty(subContentId)) {
+          templateRoot.put("contentId",subContentId);
+          templateRoot.put("subContentId",null);
+          templateRoot.put("globalNodeTrail",null);
+        }
+        FreeMarkerWorker.renderTemplateCached(cachedTemplate,templateRoot,out);
+      }
+ catch (      TemplateException e) {
+        Debug.logError("Error rendering FTL template. " + e.getMessage(),module);
+        throw new GeneralException("Error rendering FTL template",e);
+      }
+      return;
+    }
+  }
+  if (UtilValidate.isEmpty(mimeTypeId)) {
+    mimeTypeId="text/html";
+  }
+  if (!mimeTypeId.startsWith("text/")) {
+    throw new GeneralException("The desired mime-type is not a text type, cannot render as text: " + mimeTypeId);
+  }
+  GenericValue dataResource=null;
+  if (view != null) {
+    String entityName=view.getEntityName();
+    dataResource=delegator.makeValue("DataResource",null);
+    if ("DataResource".equals(entityName)) {
+      dataResource.setAllFields(view,true,null,null);
+    }
+ else {
+      dataResource.setAllFields(view,true,"dr",null);
+    }
+    String thisDataResourceId=null;
+    try {
+      thisDataResourceId=(String)view.get("drDataResourceId");
+    }
+ catch (    Exception e) {
+      thisDataResourceId=(String)view.get("dataResourceId");
+    }
+    if (UtilValidate.isEmpty(thisDataResourceId)) {
+      if (UtilValidate.isNotEmpty(dataResourceId))       view=null;
+ else       throw new GeneralException("The dataResourceId [" + dataResourceId + "] is empty.");
+    }
+  }
+  if (dataResource == null || dataResource.isEmpty()) {
+    if (dataResourceId == null) {
+      throw new GeneralException("DataResourceId is null");
+    }
+    dataResource=delegator.findByPrimaryKeyCache("DataResource",UtilMisc.toMap("dataResourceId",dataResourceId));
+  }
+  if (dataResource == null || dataResource.isEmpty()) {
+    throw new GeneralException("DataResource not found with id=" + dataResourceId);
+  }
+  String drMimeTypeId=dataResource.getString("mimeTypeId");
+  if (UtilValidate.isEmpty(drMimeTypeId)) {
+    drMimeTypeId="text/plain";
+  }
+  String dataTemplateTypeId=dataResource.getString("dataTemplateTypeId");
+  if (UtilValidate.isEmpty(dataTemplateTypeId) || "NONE".equals(dataTemplateTypeId)) {
+    writeDataResourceTextCache(dataResource,mimeTypeId,locale,templateRoot,delegator,out);
+  }
+ else {
+    String subContentId=(String)templateRoot.get("subContentId");
+    if (UtilValidate.isNotEmpty(subContentId)) {
+      templateRoot.put("contentId",subContentId);
+      templateRoot.put("subContentId",null);
+    }
+    templateRoot.put("mimeTypeId",null);
+    if ("FTL".equals(dataTemplateTypeId)) {
+      try {
+        templateRoot.put("contentId",subContentId);
+        templateRoot.put("subContentId",null);
+        templateRoot.put("globalNodeTrail",null);
+        String templateText=getDataResourceTextCache(dataResource,mimeTypeId,locale,templateRoot,delegator);
+        FreeMarkerWorker.renderTemplate("DataResource:" + dataResourceId,templateText,templateRoot,out);
+      }
+ catch (      TemplateException e) {
+        throw new GeneralException("Error rendering FTL template",e);
+      }
+    }
+ else     if ("SCREEN_COMBINED".equals(dataTemplateTypeId)) {
+      try {
+        Map context=MapStack.create(templateRoot);
+        ScreenStringRenderer screenStringRenderer=null;
+        ScreenRenderer screenRenderer=(ScreenRenderer)context.get("screens");
+        if (screenRenderer != null) {
+          screenStringRenderer=screenRenderer.getScreenStringRenderer();
+        }
+ else {
+          if (screenStringRenderer == null) {
+            screenStringRenderer=new HtmlScreenRenderer();
+          }
+        }
+        String combinedName=(String)dataResource.get("objectInfo");
+        ModelScreen modelScreen=ScreenFactory.getScreenFromLocation(combinedName);
+        modelScreen.renderScreenString(out,context,screenStringRenderer);
+      }
+ catch (      SAXException e) {
+        throw new GeneralException("Error rendering Screen template",e);
+      }
+catch (      ParserConfigurationException e3) {
+        throw new GeneralException("Error rendering Screen template",e3);
+      }
+    }
+ else {
+      throw new GeneralException("The dataTemplateTypeId [" + dataTemplateTypeId + "] is not yet supported");
+    }
+  }
+}

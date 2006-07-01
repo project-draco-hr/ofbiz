@@ -1,0 +1,32 @@
+{
+  Debug.logInfo("Aborting workflow for order " + orderId,module);
+  GenericDelegator delegator=dispatcher.getDelegator();
+  GenericValue workEffort=null;
+  try {
+    List workEfforts=delegator.findByAnd("WorkEffort",UtilMisc.toMap("workEffortTypeId","WORK_FLOW","sourceReferenceId",orderId));
+    if (workEfforts != null && workEfforts.size() > 1) {
+      Debug.logWarning("More then one workflow found for defined order: " + orderId,module);
+    }
+    workEffort=EntityUtil.getFirst(workEfforts);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems getting WorkEffort with order ref number: " + orderId,module);
+    return false;
+  }
+  if (workEffort != null) {
+    String workEffortId=workEffort.getString("workEffortId");
+    if (workEffort.getString("currentStatusId").equals("WF_RUNNING")) {
+      Debug.logInfo("WF is running; trying to abort",module);
+      WorkflowClient client=new WorkflowClient(dispatcher.getDispatchContext());
+      try {
+        client.abortProcess(workEffortId);
+      }
+ catch (      WfException e) {
+        Debug.logError(e,"Problem aborting workflow",module);
+        return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}

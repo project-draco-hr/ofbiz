@@ -1,0 +1,44 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  String returnId=(String)context.get("returnId");
+  Locale locale=(Locale)context.get("locale");
+  Map returnAmountByOrder=null;
+  Map serviceResult=null;
+  try {
+    serviceResult=dispatcher.runSync("getReturnAmountByOrder",org.ofbiz.base.util.UtilMisc.toMap("returnId",returnId));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem running the getReturnAmountByOrder service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsWithGetReturnAmountByOrder",locale));
+  }
+  if (ServiceUtil.isError(serviceResult)) {
+    return ServiceUtil.returnError((String)serviceResult.get(ModelService.ERROR_MESSAGE));
+  }
+ else {
+    returnAmountByOrder=(Map)serviceResult.get("orderReturnAmountMap");
+  }
+  if ((returnAmountByOrder != null) && (returnAmountByOrder.keySet() != null)) {
+    Iterator orderIterator=returnAmountByOrder.keySet().iterator();
+    while (orderIterator.hasNext()) {
+      String orderId=(String)orderIterator.next();
+      Double returnAmount=(Double)returnAmountByOrder.get(orderId);
+      if (Math.abs(returnAmount.doubleValue()) < 0.000001) {
+        Debug.logError("Order [" + orderId + "] refund amount[ "+ returnAmount+ "] less than zero",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderReturnTotalCannotLessThanZero",locale));
+      }
+      OrderReadHelper helper=new OrderReadHelper(OrderReadHelper.getOrderHeader(delegator,orderId));
+      double grandTotal=helper.getOrderGrandTotal();
+      if (returnAmount == null) {
+        Debug.logInfo("No returnAmount found for order:" + orderId,module);
+      }
+ else {
+        if ((returnAmount.doubleValue() - grandTotal) > 0.01) {
+          Debug.logError("Order [" + orderId + "] refund amount[ "+ returnAmount+ "] exceeds order total ["+ grandTotal+ "]",module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderRefundAmountExceedsOrderTotal",locale));
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

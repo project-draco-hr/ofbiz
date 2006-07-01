@@ -1,0 +1,56 @@
+{
+  GenericValue productStore=getProductStore(productStoreId,delegator);
+  if (productStore == null) {
+    Debug.logWarning("No ProductStore found with id " + productStoreId + ", returning false for inventory available check",module);
+    return false;
+  }
+  if ("N".equals(productStore.getString("checkInventory"))) {
+    if (Debug.verboseOn())     Debug.logVerbose("ProductStore with id " + productStoreId + ", is set to NOT check inventory, returning true for inventory available check",module);
+    return true;
+  }
+  boolean isInventoryAvailable=false;
+  if ("Y".equals(productStore.getString("oneInventoryFacility"))) {
+    String inventoryFacilityId=productStore.getString("inventoryFacilityId");
+    if (UtilValidate.isEmpty(inventoryFacilityId)) {
+      Debug.logWarning("ProductStore with id " + productStoreId + " has Y for oneInventoryFacility but inventoryFacilityId is empty, returning false for inventory check",module);
+      return false;
+    }
+    try {
+      isInventoryAvailable=ProductWorker.isProductInventoryAvailableByFacility(productConfig,inventoryFacilityId,quantity,dispatcher);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logWarning(e,"Error invoking isProductInventoryAvailableByFacility in isCatalogInventoryAvailable",module);
+      return false;
+    }
+    return isInventoryAvailable;
+  }
+ else {
+    GenericValue product=productConfig.getProduct();
+    ;
+    List productFacilities=null;
+    try {
+      productFacilities=delegator.getRelatedCache("ProductFacility",product);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Error invoking getRelatedCache in isCatalogInventoryAvailable",module);
+      return false;
+    }
+    if (productFacilities != null && productFacilities.size() > 0) {
+      Iterator pfIter=productFacilities.iterator();
+      while (pfIter.hasNext()) {
+        try {
+          GenericValue pfValue=(GenericValue)pfIter.next();
+          isInventoryAvailable=ProductWorker.isProductInventoryAvailableByFacility(productConfig,pfValue.getString("facilityId"),quantity,dispatcher);
+          if (isInventoryAvailable == true) {
+            return isInventoryAvailable;
+          }
+        }
+ catch (        GenericServiceException e) {
+          Debug.logWarning(e,"Error invoking isProductInventoryAvailableByFacility in isCatalogInventoryAvailable",module);
+          return false;
+        }
+      }
+    }
+    return false;
+  }
+}

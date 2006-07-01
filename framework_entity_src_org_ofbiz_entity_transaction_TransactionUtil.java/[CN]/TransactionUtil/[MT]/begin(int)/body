@@ -1,0 +1,61 @@
+{
+  UserTransaction ut=TransactionFactory.getUserTransaction();
+  if (ut != null) {
+    try {
+      int currentStatus=ut.getStatus();
+      Debug.logVerbose("[TransactionUtil.begin] current status : " + getTransactionStateString(currentStatus),module);
+      if (currentStatus == Status.STATUS_ACTIVE) {
+        Debug.logVerbose("[TransactionUtil.begin] active transaction in place, so no transaction begun",module);
+        return false;
+      }
+ else       if (currentStatus == Status.STATUS_MARKED_ROLLBACK) {
+        Exception e=getTransactionBeginStack();
+        if (e != null) {
+          Debug.logWarning(e,"[TransactionUtil.begin] active transaction marked for rollback in place, so no transaction begun; this stack trace shows when the exception began: ",module);
+        }
+ else {
+          Debug.logWarning("[TransactionUtil.begin] active transaction marked for rollback in place, so no transaction begun",module);
+        }
+        RollbackOnlyCause roc=getSetRollbackOnlyCause();
+        if (roc != null && !roc.isEmpty()) {
+          throw new GenericTransactionException("The current transaction is marked for rollback, not beginning a new transaction and aborting current operation; the rollbackOnly was caused by: " + roc.getCauseMessage(),roc.getCauseThrowable());
+        }
+ else {
+          return false;
+        }
+      }
+      if (timeout > 0) {
+        ut.setTransactionTimeout(timeout);
+        Debug.logVerbose("[TransactionUtil.begin] set transaction timeout to : " + timeout + " seconds",module);
+      }
+      ut.begin();
+      Debug.logVerbose("[TransactionUtil.begin] transaction begun",module);
+      if (timeout > 0) {
+        ut.setTransactionTimeout(0);
+      }
+      clearTransactionStamps();
+      getTransactionStartStamp();
+      setTransactionBeginStack();
+      if (debugResources) {
+        DebugXaResource dxa=new DebugXaResource();
+        try {
+          dxa.enlist();
+        }
+ catch (        XAException e) {
+          Debug.logError(e,module);
+        }
+      }
+      return true;
+    }
+ catch (    NotSupportedException e) {
+      throw new GenericTransactionException("Not Supported error, could not begin transaction (probably a nesting problem)",e);
+    }
+catch (    SystemException e) {
+      throw new GenericTransactionException("System error, could not begin transaction",e);
+    }
+  }
+ else {
+    Debug.logInfo("[TransactionUtil.begin] no user transaction, so no transaction begun",module);
+    return false;
+  }
+}

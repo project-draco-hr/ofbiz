@@ -1,0 +1,48 @@
+{
+  Map result;
+  String errMsg=null;
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=this.delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems getting order header",module);
+    errMsg=UtilProperties.getMessage(resource,"checkhelper.problems_getting_order_header",(cart != null ? cart.getLocale() : Locale.getDefault()));
+    result=ServiceUtil.returnError(errMsg);
+    return result;
+  }
+  if (orderHeader != null) {
+    List paymentPrefs=null;
+    try {
+      paymentPrefs=orderHeader.getRelated("OrderPaymentPreference");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problems getting order payments",module);
+      errMsg=UtilProperties.getMessage(resource,"checkhelper.problems_getting_payment_preference",(cart != null ? cart.getLocale() : Locale.getDefault()));
+      result=ServiceUtil.returnError(errMsg);
+      return result;
+    }
+    if (paymentPrefs != null && paymentPrefs.size() > 0) {
+      if (paymentPrefs.size() > 1) {
+        Debug.logError("Too many payment preferences, you cannot have more then one when using external gateways",module);
+      }
+      GenericValue paymentPreference=EntityUtil.getFirst(paymentPrefs);
+      String paymentMethodTypeId=paymentPreference.getString("paymentMethodTypeId");
+      if (paymentMethodTypeId.startsWith("EXT_")) {
+        String type=paymentMethodTypeId.substring(4);
+        result=ServiceUtil.returnSuccess();
+        result.put("type",type.toLowerCase());
+        return result;
+      }
+    }
+    result=ServiceUtil.returnSuccess();
+    result.put("type","none");
+    return result;
+  }
+ else {
+    errMsg=UtilProperties.getMessage(resource,"checkhelper.problems_getting_order_header",(cart != null ? cart.getLocale() : Locale.getDefault()));
+    result=ServiceUtil.returnError(errMsg);
+    result.put("type","error");
+    return result;
+  }
+}

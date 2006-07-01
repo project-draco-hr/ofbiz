@@ -1,0 +1,50 @@
+{
+  int rowsChecked=0;
+  if (dataUrl == null) {
+    String errMsg="Cannot assert/check data, dataUrl was null";
+    errorMessages.add(errMsg);
+    Debug.logError(errMsg,module);
+    return 0;
+  }
+  Debug.logVerbose("[install.loadData] Loading XML Resource: \"" + dataUrl.toExternalForm() + "\"",module);
+  try {
+    List checkValueList=delegator.readXmlDocument(dataUrl);
+    Iterator checkValueIter=checkValueList.iterator();
+    while (checkValueIter.hasNext()) {
+      GenericValue checkValue=(GenericValue)checkValueIter.next();
+      GenericPK checkPK=checkValue.getPrimaryKey();
+      GenericValue currentValue=delegator.findByPrimaryKey(checkPK);
+      ModelEntity modelEntity=currentValue.getModelEntity();
+      List nonpkFieldNameList=modelEntity.getNoPkFieldNames();
+      Iterator nonpkFieldNameIter=nonpkFieldNameList.iterator();
+      while (nonpkFieldNameIter.hasNext()) {
+        String nonpkFieldName=(String)nonpkFieldNameIter.next();
+        Object checkField=checkValue.get(nonpkFieldName);
+        Object currentField=currentValue.get(nonpkFieldName);
+        boolean matches=false;
+        if (checkField == null) {
+          if (currentField == null) {
+            matches=true;
+          }
+        }
+ else {
+          if (checkField.equals(currentField)) {
+            matches=true;
+          }
+        }
+        if (!matches) {
+          StringBuffer matchError=new StringBuffer();
+          matchError.append("Field [" + modelEntity.getEntityName() + "."+ nonpkFieldName+ "] did not match; file value ["+ checkField+ "], db value ["+ currentField+ "] pk ["+ checkPK+ "]");
+          errorMessages.add(matchError.toString());
+        }
+      }
+      rowsChecked++;
+    }
+  }
+ catch (  Exception e) {
+    String xmlError="Error checking/asserting XML Resource \"" + dataUrl.toExternalForm() + "\"; Error was: "+ e.getMessage();
+    errorMessages.add(xmlError);
+    Debug.logError(e,xmlError,module);
+  }
+  return rowsChecked;
+}

@@ -1,0 +1,97 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String overrideDelegatorName=(String)context.get("delegatorName");
+  if (UtilValidate.isNotEmpty(overrideDelegatorName)) {
+    delegator=GenericDelegator.getGenericDelegator(overrideDelegatorName);
+    if (delegator == null) {
+      return ServiceUtil.returnError("Could not find delegator with specified name " + overrideDelegatorName);
+    }
+  }
+  String entitySyncId=(String)context.get("entitySyncId");
+  List valuesToCreate=(List)context.get("valuesToCreate");
+  List valuesToStore=(List)context.get("valuesToStore");
+  List keysToRemove=(List)context.get("keysToRemove");
+  if (Debug.infoOn())   Debug.logInfo("Running storeEntitySyncData (" + entitySyncId + ") - ["+ valuesToCreate.size()+ "] to create; ["+ valuesToStore.size()+ "] to store; ["+ keysToRemove.size()+ "] to remove.",module);
+  try {
+    long toCreateInserted=0;
+    long toCreateUpdated=0;
+    long toCreateNotUpdated=0;
+    long toStoreInserted=0;
+    long toStoreUpdated=0;
+    long toStoreNotUpdated=0;
+    long toRemoveDeleted=0;
+    long toRemoveAlreadyDeleted=0;
+    Iterator valueToCreateIter=valuesToCreate.iterator();
+    while (valueToCreateIter.hasNext()) {
+      GenericValue valueToCreate=(GenericValue)valueToCreateIter.next();
+      valueToCreate.setIsFromEntitySync(true);
+      valueToCreate.checkFks(true);
+      GenericValue existingValue=delegator.findByPrimaryKey(valueToCreate.getPrimaryKey());
+      if (existingValue == null) {
+        delegator.create(valueToCreate);
+        toCreateInserted++;
+      }
+ else {
+        if (existingValue.get(ModelEntity.STAMP_FIELD) != null && existingValue.getTimestamp(ModelEntity.STAMP_FIELD).after(valueToCreate.getTimestamp(ModelEntity.STAMP_FIELD))) {
+          toCreateNotUpdated++;
+        }
+ else {
+          delegator.store(valueToCreate);
+          toCreateUpdated++;
+        }
+      }
+    }
+    Iterator valueToStoreIter=valuesToStore.iterator();
+    while (valueToStoreIter.hasNext()) {
+      GenericValue valueToStore=(GenericValue)valueToStoreIter.next();
+      valueToStore.setIsFromEntitySync(true);
+      valueToStore.checkFks(true);
+      GenericValue existingValue=delegator.findByPrimaryKey(valueToStore.getPrimaryKey());
+      if (existingValue == null) {
+        delegator.create(valueToStore);
+        toStoreInserted++;
+      }
+ else {
+        if (existingValue.get(ModelEntity.STAMP_FIELD) != null && existingValue.getTimestamp(ModelEntity.STAMP_FIELD).after(valueToStore.getTimestamp(ModelEntity.STAMP_FIELD))) {
+          toStoreNotUpdated++;
+        }
+ else {
+          delegator.store(valueToStore);
+          toStoreUpdated++;
+        }
+      }
+    }
+    Iterator keyToRemoveIter=keysToRemove.iterator();
+    while (keyToRemoveIter.hasNext()) {
+      GenericEntity pkToRemove=(GenericEntity)keyToRemoveIter.next();
+      pkToRemove.setIsFromEntitySync(true);
+      int numRemByAnd=delegator.removeByAnd(pkToRemove.getEntityName(),pkToRemove);
+      if (numRemByAnd == 0) {
+        toRemoveAlreadyDeleted++;
+      }
+ else {
+        toRemoveDeleted++;
+      }
+    }
+    Map result=ServiceUtil.returnSuccess();
+    result.put("toCreateInserted",new Long(toCreateInserted));
+    result.put("toCreateUpdated",new Long(toCreateUpdated));
+    result.put("toCreateNotUpdated",new Long(toCreateNotUpdated));
+    result.put("toStoreInserted",new Long(toStoreInserted));
+    result.put("toStoreUpdated",new Long(toStoreUpdated));
+    result.put("toStoreNotUpdated",new Long(toStoreNotUpdated));
+    result.put("toRemoveDeleted",new Long(toRemoveDeleted));
+    result.put("toRemoveAlreadyDeleted",new Long(toRemoveAlreadyDeleted));
+    return result;
+  }
+ catch (  GenericEntityException e) {
+    String errorMsg="Exception saving Entity Sync Data for entitySyncId [" + entitySyncId + "]: "+ e.toString();
+    Debug.logError(e,errorMsg,module);
+    return ServiceUtil.returnError(errorMsg);
+  }
+catch (  Throwable t) {
+    String errorMsg="Error saving Entity Sync Data for entitySyncId [" + entitySyncId + "]: "+ t.toString();
+    Debug.logError(t,errorMsg,module);
+    return ServiceUtil.returnError(errorMsg);
+  }
+}

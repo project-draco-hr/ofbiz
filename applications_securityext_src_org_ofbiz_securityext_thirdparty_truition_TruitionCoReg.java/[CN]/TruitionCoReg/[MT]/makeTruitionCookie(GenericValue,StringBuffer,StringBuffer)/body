@@ -1,0 +1,154 @@
+{
+  String domainName=UtilProperties.getPropertyValue("truition.properties","truition.domain.name");
+  String siteId=UtilProperties.getPropertyValue("truition.properties","truition.siteId");
+  if (UtilValidate.isEmpty(domainName)) {
+    Debug.logError("Truition is not properly configured; domainName missing; see truition.properties!",module);
+    return false;
+  }
+  if (UtilValidate.isEmpty(siteId)) {
+    Debug.logError("Truition is not properly configured; siteId missing; see truition.properties!",module);
+    return false;
+  }
+  String nickName=userLogin.getString("userLoginId");
+  String password=userLogin.getString("currentPassword");
+  String partyId=userLogin.getString("partyId");
+  Debug.log(logPrefix + "nickName: " + nickName,module);
+  Debug.log(logPrefix + "password: " + password,module);
+  Debug.log(logPrefix + "partyId: " + partyId,module);
+  GenericValue party=null;
+  try {
+    party=userLogin.getRelatedOne("Party");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (party != null) {
+    String title=null;
+    String firstName=null;
+    String lastName=null;
+    if ("PERSON".equals(party.getString("partyTypeId"))) {
+      GenericValue person=null;
+      try {
+        person=party.getRelatedOne("Person");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (person != null) {
+        title=person.getString("personalTitle");
+        firstName=person.getString("firstName");
+        lastName=person.getString("lastName");
+        if (title == null) {
+          title="";
+        }
+      }
+      Debug.log(logPrefix + "title: " + title,module);
+      Debug.log(logPrefix + "firstName: " + firstName,module);
+      Debug.log(logPrefix + "lastName: " + lastName,module);
+      String emailAddress=null;
+      Collection emCol=ContactHelper.getContactMech(party,"PRIMARY_EMAIL","EMAIL_ADDRESS",false);
+      if (emCol == null || emCol.size() == 0) {
+        emCol=ContactHelper.getContactMech(party,null,"EMAIL_ADDRESS",false);
+      }
+      if (emCol != null && emCol.size() > 0) {
+        GenericValue emVl=(GenericValue)emCol.iterator().next();
+        if (emVl != null) {
+          emailAddress=emVl.getString("infoString");
+        }
+      }
+ else {
+        emailAddress="";
+      }
+      Debug.log(logPrefix + "emailAddress: " + emailAddress,module);
+      String address1=null;
+      String address2=null;
+      String city=null;
+      String state=null;
+      String zipCode=null;
+      String country=null;
+      Collection adCol=ContactHelper.getContactMech(party,"SHIPPING_LOCATION","POSTAL_ADDRESS",false);
+      if (adCol == null || adCol.size() == 0) {
+        adCol=ContactHelper.getContactMech(party,null,"POSTAL_ADDRESS",false);
+      }
+      if (adCol != null && adCol.size() > 0) {
+        GenericValue adVl=(GenericValue)adCol.iterator().next();
+        if (adVl != null) {
+          GenericValue addr=null;
+          try {
+            addr=adVl.getDelegator().findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",adVl.getString("contactMechId")));
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+          }
+          if (addr != null) {
+            address1=addr.getString("address1");
+            address2=addr.getString("address2");
+            city=addr.getString("city");
+            state=addr.getString("stateProvinceGeoId");
+            zipCode=addr.getString("postalCode");
+            country=addr.getString("countryGeoId");
+            if (address2 == null) {
+              address2="";
+            }
+          }
+        }
+      }
+      Debug.log(logPrefix + "address1: " + address1,module);
+      Debug.log(logPrefix + "address2: " + address2,module);
+      Debug.log(logPrefix + "city: " + city,module);
+      Debug.log(logPrefix + "state: " + state,module);
+      Debug.log(logPrefix + "zipCode: " + zipCode,module);
+      Debug.log(logPrefix + "country: " + country,module);
+      String phoneNumber=null;
+      Collection phCol=ContactHelper.getContactMech(party,"PHONE_HOME","TELECOM_NUMBER",false);
+      if (phCol == null || phCol.size() == 0) {
+        phCol=ContactHelper.getContactMech(party,null,"TELECOM_NUMBER",false);
+      }
+      if (phCol != null && phCol.size() > 0) {
+        GenericValue phVl=(GenericValue)phCol.iterator().next();
+        if (phVl != null) {
+          GenericValue tele=null;
+          try {
+            tele=phVl.getDelegator().findByPrimaryKey("TelecomNumber",UtilMisc.toMap("contactMechId",phVl.getString("contactMechId")));
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+          }
+          if (tele != null) {
+            phoneNumber="";
+            String cc=tele.getString("countryCode");
+            String ac=tele.getString("areaCode");
+            String nm=tele.getString("contactNumber");
+            if (UtilValidate.isNotEmpty(cc)) {
+              phoneNumber=phoneNumber + cc + "-";
+            }
+            if (UtilValidate.isNotEmpty(ac)) {
+              phoneNumber=phoneNumber + ac + "-";
+            }
+            phoneNumber=phoneNumber + nm;
+          }
+ else {
+            phoneNumber="";
+          }
+        }
+      }
+      Debug.log(logPrefix + "phoneNumber: " + phoneNumber,module);
+      int retCode=-1;
+      if (lastName != null && address1 != null) {
+        retCode=edeal.coreg.EdCoReg.ed_create_cookie_nvp(nickName,"pwd",title,firstName,lastName,emailAddress,address1,address2,city,state,zipCode,country,phoneNumber,siteId,cookieName,cookieValue,"","","",partyId,"","");
+      }
+      if (retCode < 0) {
+        Debug.logError("EDeal cookie not set; API return code: " + retCode,module);
+        return false;
+      }
+ else {
+        Debug.logInfo("EDeal cookie success; API return code: " + retCode,module);
+      }
+    }
+ else {
+      Debug.logError("Truition requires a Person to be logged in. First/Last name required!",module);
+      return false;
+    }
+  }
+  return true;
+}

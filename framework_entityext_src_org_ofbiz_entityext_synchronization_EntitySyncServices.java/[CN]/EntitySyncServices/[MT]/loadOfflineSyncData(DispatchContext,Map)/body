@@ -1,0 +1,54 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String fileName=(String)context.get("xmlFileName");
+  URL xmlFile=UtilURL.fromResource(fileName);
+  if (xmlFile != null) {
+    Document xmlSyncDoc=null;
+    try {
+      xmlSyncDoc=UtilXml.readXmlDocument(xmlFile,false);
+    }
+ catch (    SAXException e) {
+      Debug.logError(e,module);
+    }
+catch (    ParserConfigurationException e) {
+      Debug.logError(e,module);
+    }
+catch (    IOException e) {
+      Debug.logError(e,module);
+    }
+    if (xmlSyncDoc == null) {
+      return ServiceUtil.returnError("EntitySync XML document (" + fileName + ") is not valid!");
+    }
+    List syncElements=UtilXml.childElementList(xmlSyncDoc.getDocumentElement());
+    if (syncElements != null) {
+      Iterator i=syncElements.iterator();
+      while (i.hasNext()) {
+        Element entitySync=(Element)i.next();
+        String entitySyncId=entitySync.getAttribute("entitySyncId");
+        String startTime=entitySync.getAttribute("lastSuccessfulSynchTime");
+        String createString=UtilXml.childElementValue(entitySync,"values-to-create");
+        String storeString=UtilXml.childElementValue(entitySync,"values-to-store");
+        String removeString=UtilXml.childElementValue(entitySync,"keys-to-remove");
+        try {
+          List valuesToCreate=(List)XmlSerializer.deserialize(createString,delegator);
+          List valuesToStore=(List)XmlSerializer.deserialize(storeString,delegator);
+          List keysToRemove=(List)XmlSerializer.deserialize(removeString,delegator);
+          Map storeContext=UtilMisc.toMap("entitySyncId",entitySyncId,"valuesToCreate",valuesToCreate,"valuesToStore",valuesToStore,"keysToRemove",keysToRemove,"userLogin",userLogin);
+          Map storeResult=dispatcher.runSync("storeEntitySyncData",storeContext);
+          if (ServiceUtil.isError(storeResult)) {
+            throw new Exception(ServiceUtil.getErrorMessage(storeResult));
+          }
+        }
+ catch (        Exception e) {
+          return ServiceUtil.returnError("Unable to load EntitySync XML [" + entitySyncId + "] - Problem at '"+ startTime+ "' Error: "+ e.getMessage());
+        }
+      }
+    }
+  }
+ else {
+    return ServiceUtil.returnError("Offline EntitySync XML file not found (" + fileName + ")");
+  }
+  return ServiceUtil.returnSuccess();
+}

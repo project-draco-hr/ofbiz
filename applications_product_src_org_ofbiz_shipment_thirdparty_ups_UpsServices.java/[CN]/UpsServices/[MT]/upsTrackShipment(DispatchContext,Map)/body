@@ -1,0 +1,120 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  String shipmentId=(String)context.get("shipmentId");
+  String shipmentRouteSegmentId=(String)context.get("shipmentRouteSegmentId");
+  boolean shipmentUpsSaveCertificationInfo="true".equals(UtilProperties.getPropertyValue("shipment","shipment.ups.save.certification.info"));
+  String shipmentUpsSaveCertificationPath=UtilProperties.getPropertyValue("shipment","shipment.ups.save.certification.path");
+  File shipmentUpsSaveCertificationFile=null;
+  if (shipmentUpsSaveCertificationInfo) {
+    shipmentUpsSaveCertificationFile=new File(shipmentUpsSaveCertificationPath);
+    if (!shipmentUpsSaveCertificationFile.exists()) {
+      shipmentUpsSaveCertificationFile.mkdirs();
+    }
+  }
+  String trackResponseString=null;
+  try {
+    GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+    GenericValue shipmentRouteSegment=delegator.findByPrimaryKey("ShipmentRouteSegment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId));
+    if (!"UPS".equals(shipmentRouteSegment.getString("carrierPartyId"))) {
+      return ServiceUtil.returnError("ERROR: The Carrier for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is not UPS.");
+    }
+    if (!"SHRSCS_ACCEPTED".equals(shipmentRouteSegment.getString("carrierServiceStatusId"))) {
+      return ServiceUtil.returnError("ERROR: The Carrier Service Status for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is ["+ shipmentRouteSegment.getString("carrierServiceStatusId")+ "], but must be [SHRSCS_ACCEPTED] to perform the UPS Track Shipment operation.");
+    }
+    List shipmentPackageRouteSegs=shipmentRouteSegment.getRelated("ShipmentPackageRouteSeg",null,UtilMisc.toList("+shipmentPackageSeqId"));
+    if (shipmentPackageRouteSegs == null || shipmentPackageRouteSegs.size() == 0) {
+      return ServiceUtil.returnError("No ShipmentPackageRouteSegs found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+    }
+    if (UtilValidate.isEmpty(shipmentRouteSegment.getString("trackingIdNumber"))) {
+      return ServiceUtil.returnError("ERROR: The trackingIdNumber was not set for this Route Segment, meaning that a UPS shipment confirm has not been done.");
+    }
+    Document trackRequestDoc=UtilXml.makeEmptyXmlDocument("TrackRequest");
+    Element trackRequestElement=trackRequestDoc.getDocumentElement();
+    trackRequestElement.setAttribute("xml:lang","en-US");
+    Element requestElement=UtilXml.addChildElement(trackRequestElement,"Request",trackRequestDoc);
+    Element transactionReferenceElement=UtilXml.addChildElement(requestElement,"TransactionReference",trackRequestDoc);
+    UtilXml.addChildElementValue(transactionReferenceElement,"CustomerContext","Track",trackRequestDoc);
+    UtilXml.addChildElementValue(transactionReferenceElement,"XpciVersion","1.0001",trackRequestDoc);
+    UtilXml.addChildElementValue(requestElement,"RequestAction","Track",trackRequestDoc);
+    UtilXml.addChildElementValue(trackRequestElement,"ShipmentIdentificationNumber",shipmentRouteSegment.getString("trackingIdNumber"),trackRequestDoc);
+    String trackRequestString=null;
+    try {
+      trackRequestString=UtilXml.writeXmlDocument(trackRequestDoc);
+    }
+ catch (    IOException e) {
+      String ioeErrMsg="Error writing the TrackRequest XML Document to a String: " + e.toString();
+      Debug.logError(e,ioeErrMsg,module);
+      return ServiceUtil.returnError(ioeErrMsg);
+    }
+    Document accessRequestDocument=createAccessRequestDocument();
+    String accessRequestString=null;
+    try {
+      accessRequestString=UtilXml.writeXmlDocument(accessRequestDocument);
+    }
+ catch (    IOException e) {
+      String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
+      Debug.logError(e,ioeErrMsg,module);
+      return ServiceUtil.returnError(ioeErrMsg);
+    }
+    StringBuffer xmlString=new StringBuffer();
+    xmlString.append(accessRequestString);
+    xmlString.append(trackRequestString);
+    if (shipmentUpsSaveCertificationInfo) {
+      String outFileName=shipmentUpsSaveCertificationPath + "/UpsTrackRequest" + shipmentId+ "_"+ shipmentRouteSegment.getString("shipmentRouteSegmentId")+ ".xml";
+      try {
+        FileOutputStream fileOut=new FileOutputStream(outFileName);
+        fileOut.write(xmlString.toString().getBytes());
+        fileOut.flush();
+        fileOut.close();
+      }
+ catch (      IOException e) {
+        Debug.log(e,"Could not save UPS XML file: [[[" + xmlString.toString() + "]]] to file: "+ outFileName,module);
+      }
+    }
+    try {
+      trackResponseString=sendUpsRequest("Track",xmlString.toString());
+    }
+ catch (    UpsConnectException e) {
+      String uceErrMsg="Error sending UPS request for UPS Service Track: " + e.toString();
+      Debug.logError(e,uceErrMsg,module);
+      return ServiceUtil.returnError(uceErrMsg);
+    }
+    if (shipmentUpsSaveCertificationInfo) {
+      String outFileName=shipmentUpsSaveCertificationPath + "/UpsTrackResponseString" + shipmentId+ "_"+ shipmentRouteSegment.getString("shipmentRouteSegmentId")+ ".xml";
+      try {
+        FileOutputStream fileOut=new FileOutputStream(outFileName);
+        fileOut.write(trackResponseString.getBytes());
+        fileOut.flush();
+        fileOut.close();
+      }
+ catch (      IOException e) {
+        Debug.log(e,"Could not save UPS XML file: [[[" + xmlString.toString() + "]]] to file: "+ outFileName,module);
+      }
+    }
+    Document trackResponseDocument=null;
+    try {
+      trackResponseDocument=UtilXml.readXmlDocument(trackResponseString,false);
+    }
+ catch (    SAXException e2) {
+      String excErrMsg="Error parsing the TrackResponse: " + e2.toString();
+      Debug.logError(e2,excErrMsg,module);
+      return ServiceUtil.returnError(excErrMsg);
+    }
+catch (    ParserConfigurationException e2) {
+      String excErrMsg="Error parsing the TrackResponse: " + e2.toString();
+      Debug.logError(e2,excErrMsg,module);
+      return ServiceUtil.returnError(excErrMsg);
+    }
+catch (    IOException e2) {
+      String excErrMsg="Error parsing the TrackResponse: " + e2.toString();
+      Debug.logError(e2,excErrMsg,module);
+      return ServiceUtil.returnError(excErrMsg);
+    }
+    return handleUpsTrackShipmentResponse(trackResponseDocument,shipmentRouteSegment,shipmentPackageRouteSegs);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Error reading or writing Shipment data for UPS Track Shipment: " + e.toString());
+  }
+}

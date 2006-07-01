@@ -1,0 +1,86 @@
+{
+  ContainerConfig.Container cfg=ContainerConfig.getContainer("rmi-dispatcher",configFile);
+  ContainerConfig.Container.Property initialCtxProp=cfg.getProperty("use-initial-context");
+  ContainerConfig.Container.Property lookupHostProp=cfg.getProperty("bound-host");
+  ContainerConfig.Container.Property lookupPortProp=cfg.getProperty("bound-port");
+  ContainerConfig.Container.Property lookupNameProp=cfg.getProperty("bound-name");
+  ContainerConfig.Container.Property delegatorProp=cfg.getProperty("delegator-name");
+  ContainerConfig.Container.Property clientProp=cfg.getProperty("client-factory");
+  ContainerConfig.Container.Property serverProp=cfg.getProperty("server-factory");
+  if (lookupNameProp == null || lookupNameProp.value == null || lookupNameProp.value.length() == 0) {
+    throw new ContainerException("Invalid lookup-name defined in container configuration");
+  }
+ else {
+    this.name=lookupNameProp.value;
+  }
+  if (delegatorProp == null || delegatorProp.value == null || delegatorProp.value.length() == 0) {
+    throw new ContainerException("Invalid delegator-name defined in container configuration");
+  }
+  String useCtx=initialCtxProp == null || initialCtxProp.value == null ? "false" : initialCtxProp.value;
+  String host=lookupHostProp == null || lookupHostProp.value == null ? "localhost" : lookupHostProp.value;
+  String port=lookupPortProp == null || lookupPortProp.value == null ? "1099" : lookupPortProp.value;
+  boolean clientAuth=ContainerConfig.getPropertyValue(cfg,"ssl-client-auth",false);
+  RMIClientSocketFactory csf=null;
+  RMIServerSocketFactory ssf=null;
+  ClassLoader loader=Thread.currentThread().getContextClassLoader();
+  if (clientProp != null && clientProp.value != null && clientProp.value.length() > 0) {
+    try {
+      Class c=loader.loadClass(clientProp.value);
+      csf=(RMIClientSocketFactory)c.newInstance();
+    }
+ catch (    Exception e) {
+      throw new ContainerException(e);
+    }
+  }
+  if (serverProp != null && serverProp.value != null && serverProp.value.length() > 0) {
+    try {
+      Class c=loader.loadClass(serverProp.value);
+      ssf=(RMIServerSocketFactory)c.newInstance();
+    }
+ catch (    Exception e) {
+      throw new ContainerException(e);
+    }
+  }
+  if (ssf != null && ssf instanceof org.ofbiz.service.rmi.socket.ssl.SSLServerSocketFactory) {
+    ((org.ofbiz.service.rmi.socket.ssl.SSLServerSocketFactory)ssf).setNeedClientAuth(clientAuth);
+  }
+  GenericDelegator delegator=GenericDelegator.getGenericDelegator(delegatorProp.value);
+  LocalDispatcher dispatcher=new GenericDispatcher(name,delegator);
+  try {
+    remote=new RemoteDispatcherImpl(dispatcher,csf,ssf);
+  }
+ catch (  RemoteException e) {
+    throw new ContainerException("Unable to start the RMI dispatcher",e);
+  }
+  if (!useCtx.equalsIgnoreCase("true")) {
+    try {
+      Naming.rebind("//" + host + ":"+ port+ "/"+ name,remote);
+    }
+ catch (    RemoteException e) {
+      throw new ContainerException("Unable to bind RMIDispatcher to RMI",e);
+    }
+catch (    java.net.MalformedURLException e) {
+      throw new ContainerException("Invalid URL for binding",e);
+    }
+  }
+ else {
+    try {
+      InitialContext ic=new InitialContext();
+      ic.rebind(name,remote);
+    }
+ catch (    NamingException e) {
+      throw new ContainerException("Unable to bind RMIDispatcher to JNDI",e);
+    }
+    try {
+      InitialContext ic=new InitialContext();
+      Object o=ic.lookup(name);
+      if (o == null) {
+        throw new NamingException("Object came back null");
+      }
+    }
+ catch (    NamingException e) {
+      throw new ContainerException("Unable to lookup bound objects",e);
+    }
+  }
+  return true;
+}

@@ -1,0 +1,57 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String contentId=(String)context.get("contentId");
+  boolean contentExists=true;
+  if (UtilValidate.isEmpty(contentId)) {
+    contentExists=false;
+  }
+ else {
+    try {
+      GenericValue val=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+      if (val == null)       contentExists=false;
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error running serviceName persistContentAndAssoc",module);
+      String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.error_modelservice_for_srv_name",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  ModelService modelService=null;
+  try {
+    modelService=dispatcher.getDispatchContext().getModelService("persistContentAndAssoc");
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error getting model service for serviceName, 'persistContentAndAssoc'. " + e.toString();
+    Debug.logError(errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  Map persistMap=modelService.makeValid(context,ModelService.IN_PARAM);
+  persistMap.put("userLogin",userLogin);
+  try {
+    Map persistContentResult=dispatcher.runSync("persistContentAndAssoc",persistMap);
+    if (ServiceUtil.isError(persistContentResult)) {
+      return ServiceUtil.returnError("Error saving content information: ",null,null,persistContentResult);
+    }
+    contentId=(String)persistContentResult.get("contentId");
+    result.putAll(persistContentResult);
+    Map contentRevisionMap=new HashMap();
+    contentRevisionMap.put("itemContentId",contentId);
+    contentRevisionMap.put("contentId",contentId);
+    contentRevisionMap.put("userLogin",userLogin);
+    Map persistRevResult=dispatcher.runSync("persistContentRevisionAndItem",contentRevisionMap);
+    if (ServiceUtil.isError(persistRevResult)) {
+      return ServiceUtil.returnError("Error saving revision information: ",null,null,persistRevResult);
+    }
+    result.putAll(persistRevResult);
+    return result;
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error running serviceName, 'persistContentAndAssoc'. " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+}

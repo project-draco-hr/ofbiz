@@ -1,0 +1,67 @@
+{
+  ServletContext application=((ServletContext)request.getAttribute("servletContext"));
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  String orderId=(String)request.getAttribute("orderId");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
+    request.setAttribute("_ERROR_MESSAGE_","Problems getting order header.");
+    return "error";
+  }
+  String orderTotal=UtilFormatOut.formatPrice(orderHeader.getDouble("grandTotal"));
+  String webSiteId=CatalogWorker.getWebSiteId(request);
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (productStore == null) {
+    Debug.logError("ProductStore is null",module);
+    request.setAttribute("_ERROR_MESSAGE_","Problems getting merchant configuration, please contact customer service.");
+    return "error";
+  }
+  GenericValue paymentConfig=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStore.getString("productStoreId"),"EXT_PAYPAL",null,true);
+  String configString=null;
+  if (paymentConfig != null) {
+    configString=paymentConfig.getString("paymentPropertiesPath");
+  }
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  String company=UtilFormatOut.checkEmpty(productStore.getString("companyName"),"");
+  String itemName="Order #" + orderId + (company != null ? " from " + company : "");
+  String itemNumber="0";
+  String redirectUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.redirect");
+  String notifyUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.notify");
+  String returnUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.return");
+  String cancelReturnUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.cancelReturn");
+  String imageUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.image");
+  String payPalAccount=UtilProperties.getPropertyValue(configString,"payment.paypal.business");
+  Map parameters=new LinkedMap();
+  parameters.put("cmd","_xclick");
+  parameters.put("business",payPalAccount);
+  parameters.put("item_name",itemName);
+  parameters.put("item_number",itemNumber);
+  parameters.put("invoice",orderId);
+  parameters.put("custom",userLogin.getString("userLoginId"));
+  parameters.put("amount",orderTotal);
+  parameters.put("return",returnUrl);
+  parameters.put("cancel_return",cancelReturnUrl);
+  parameters.put("notify_url",notifyUrl);
+  parameters.put("image_url",imageUrl);
+  parameters.put("no_note","1");
+  parameters.put("no_shipping","1");
+  String encodedParameters=UtilHttp.urlEncodeArgs(parameters,false);
+  String redirectString=redirectUrl + "?" + encodedParameters;
+  request.getSession().setAttribute("PAYPAL_ORDER",orderId);
+  try {
+    response.sendRedirect(redirectString);
+  }
+ catch (  IOException e) {
+    Debug.logError(e,"Problems redirecting to PayPal",module);
+    request.setAttribute("_ERROR_MESSAGE_","Problems connecting with PayPal, please contact customer service.");
+    return "error";
+  }
+  return "success";
+}

@@ -1,0 +1,43 @@
+{
+  GenericDelegator delegator=orderHeader.getDelegator();
+  double size=0;
+  GenericValue product=null;
+  try {
+    product=item.getRelatedOne("Product");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting Product from OrderItem",module);
+    return 0;
+  }
+  if (product != null) {
+    if (ProductWorker.shippingApplies(product)) {
+      Double height=product.getDouble("shippingHeight");
+      Double width=product.getDouble("shippingWidth");
+      Double depth=product.getDouble("shippingDepth");
+      String isVariant=product.getString("isVariant");
+      if ((height == null || width == null || depth == null) && "Y".equals(isVariant)) {
+        try {
+          String virtualId=ProductWorker.getVariantVirtualId(product);
+          if (UtilValidate.isNotEmpty(virtualId)) {
+            GenericValue virtual=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",virtualId));
+            if (virtual != null) {
+              if (height == null)               height=virtual.getDouble("shippingHeight");
+              if (width == null)               width=virtual.getDouble("shippingWidth");
+              if (depth == null)               depth=virtual.getDouble("shippingDepth");
+            }
+          }
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Problem getting virtual product");
+        }
+      }
+      if (height == null)       height=new Double(0);
+      if (width == null)       width=new Double(0);
+      if (depth == null)       depth=new Double(0);
+      double[] sizeInfo={height.doubleValue(),width.doubleValue(),depth.doubleValue()};
+      Arrays.sort(sizeInfo);
+      size=(sizeInfo[0] * 2) + (sizeInfo[1] * 2) + sizeInfo[2];
+    }
+  }
+  return size;
+}

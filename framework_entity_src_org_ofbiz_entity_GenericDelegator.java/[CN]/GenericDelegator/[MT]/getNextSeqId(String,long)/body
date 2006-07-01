@@ -1,0 +1,38 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    Long nextSeqLong=this.getNextSeqIdLong(seqName,staggerMax);
+    if (nextSeqLong == null) {
+      throw new IllegalArgumentException("Could not get next sequenced ID for sequence name: " + seqName);
+    }
+    if (UtilValidate.isNotEmpty(this.getDelegatorInfo().sequencedIdPrefix)) {
+      return this.getDelegatorInfo().sequencedIdPrefix + nextSeqLong.toString();
+    }
+ else {
+      return nextSeqLong.toString();
+    }
+  }
+ catch (  Exception e) {
+    String errMsg="Failure in getNextSeqId operation for seqName [" + seqName + "]: "+ e.toString()+ ". Rolling back transaction";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    Debug.logError(e,"[GenericDelegator] Error getting next sequence ID: " + e.toString(),module);
+    return null;
+  }
+ finally {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e1) {
+      Debug.logError(e1,"[GenericDelegator] Could not commit transaction: " + e1.toString(),module);
+    }
+  }
+}

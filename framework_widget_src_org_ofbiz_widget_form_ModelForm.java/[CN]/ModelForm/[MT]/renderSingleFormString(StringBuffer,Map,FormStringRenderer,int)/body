@@ -1,0 +1,178 @@
+{
+  List tempFieldList=FastList.newInstance();
+  tempFieldList.addAll(this.fieldList);
+  for (int j=0; j < tempFieldList.size(); j++) {
+    ModelFormField modelFormField=(ModelFormField)tempFieldList.get(j);
+    if (!modelFormField.isUseWhenEmpty()) {
+      boolean shouldUse1=modelFormField.shouldUse(context);
+      for (int i=j + 1; i < tempFieldList.size(); i++) {
+        ModelFormField curField=(ModelFormField)tempFieldList.get(i);
+        if (curField.getName() != null && curField.getName().equals(modelFormField.getName())) {
+          boolean shouldUse2=curField.shouldUse(context);
+          if (shouldUse1 == shouldUse2) {
+            tempFieldList.remove(i--);
+          }
+        }
+ else {
+          continue;
+        }
+      }
+    }
+  }
+  Set alreadyRendered=new TreeSet();
+  FieldGroup lastFieldGroup=null;
+  if (!skipStart)   formStringRenderer.renderFormOpen(buffer,context,this);
+  this.renderHiddenIgnoredFields(buffer,context,formStringRenderer,alreadyRendered);
+  Iterator fieldIter=tempFieldList.iterator();
+  ModelFormField lastFormField=null;
+  ModelFormField currentFormField=null;
+  ModelFormField nextFormField=null;
+  if (fieldIter.hasNext()) {
+    currentFormField=(ModelFormField)fieldIter.next();
+  }
+  if (fieldIter.hasNext()) {
+    nextFormField=(ModelFormField)fieldIter.next();
+  }
+  FieldGroup currentFieldGroup=null;
+  String currentFieldGroupName=null;
+  String lastFieldGroupName=null;
+  if (currentFormField != null) {
+    currentFieldGroup=(FieldGroup)fieldGroupMap.get(currentFormField.getFieldName());
+    if (currentFieldGroup == null) {
+      currentFieldGroup=defaultFieldGroup;
+    }
+    if (currentFieldGroup != null) {
+      currentFieldGroupName=currentFieldGroup.getId();
+    }
+  }
+  boolean isFirstPass=true;
+  boolean haveRenderedOpenFieldRow=false;
+  while (currentFormField != null) {
+    if (isFirstPass) {
+      isFirstPass=false;
+      List inbetweenList=getInbetweenList(lastFieldGroup,currentFieldGroup);
+      Iterator iter=inbetweenList.iterator();
+      while (iter.hasNext()) {
+        Object obj=iter.next();
+        if (obj instanceof ModelForm.Banner) {
+          ((ModelForm.Banner)obj).renderString(buffer,context,formStringRenderer);
+        }
+ else {
+          formStringRenderer.renderFieldGroupOpen(buffer,context,(FieldGroup)obj);
+          formStringRenderer.renderFieldGroupClose(buffer,context,(FieldGroup)obj);
+        }
+      }
+      if (currentFieldGroup != null && (lastFieldGroup == null || !lastFieldGroupName.equals(currentFieldGroupName))) {
+        currentFieldGroup.renderStartString(buffer,context,formStringRenderer);
+        lastFieldGroup=currentFieldGroup;
+      }
+    }
+ else {
+      if (fieldIter.hasNext()) {
+        lastFormField=currentFormField;
+        currentFormField=nextFormField;
+        nextFormField=(ModelFormField)fieldIter.next();
+      }
+ else       if (nextFormField != null) {
+        lastFormField=currentFormField;
+        currentFormField=nextFormField;
+        nextFormField=null;
+      }
+ else {
+        lastFormField=currentFormField;
+        currentFormField=null;
+        break;
+      }
+      currentFieldGroup=null;
+      if (currentFormField != null) {
+        currentFieldGroup=(FieldGroup)fieldGroupMap.get(currentFormField.getName());
+      }
+      if (currentFieldGroup == null) {
+        currentFieldGroup=defaultFieldGroup;
+      }
+      currentFieldGroupName=currentFieldGroup.getId();
+      if (lastFieldGroup != null) {
+        lastFieldGroupName=lastFieldGroup.getId();
+        if (!lastFieldGroupName.equals(currentFieldGroupName)) {
+          lastFieldGroup.renderEndString(buffer,context,formStringRenderer);
+          List inbetweenList=getInbetweenList(lastFieldGroup,currentFieldGroup);
+          Iterator iter=inbetweenList.iterator();
+          while (iter.hasNext()) {
+            Object obj=iter.next();
+            if (obj instanceof ModelForm.Banner) {
+              ((ModelForm.Banner)obj).renderString(buffer,context,formStringRenderer);
+            }
+ else {
+              formStringRenderer.renderFieldGroupOpen(buffer,context,(FieldGroup)obj);
+              formStringRenderer.renderFieldGroupClose(buffer,context,(FieldGroup)obj);
+            }
+          }
+        }
+      }
+      if (currentFieldGroup != null && (lastFieldGroup == null || !lastFieldGroupName.equals(currentFieldGroupName))) {
+        currentFieldGroup.renderStartString(buffer,context,formStringRenderer);
+        lastFieldGroup=currentFieldGroup;
+      }
+    }
+    ModelFormField.FieldInfo fieldInfo=currentFormField.getFieldInfo();
+    if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
+      continue;
+    }
+    if (alreadyRendered.contains(currentFormField.getName())) {
+      continue;
+    }
+    if (!currentFormField.shouldUse(context)) {
+      continue;
+    }
+    alreadyRendered.add(currentFormField.getName());
+    boolean stayingOnRow=false;
+    if (lastFormField != null) {
+      if (lastFormField.getPosition() >= currentFormField.getPosition()) {
+        stayingOnRow=false;
+      }
+ else {
+        stayingOnRow=true;
+      }
+    }
+    int positionSpan=1;
+    Integer nextPositionInRow=null;
+    if (nextFormField != null) {
+      if (nextFormField.getPosition() > currentFormField.getPosition()) {
+        positionSpan=nextFormField.getPosition() - currentFormField.getPosition() - 1;
+        nextPositionInRow=new Integer(nextFormField.getPosition());
+      }
+ else {
+        positionSpan=positions - currentFormField.getPosition();
+        if (!stayingOnRow && nextFormField.getPosition() > 1) {
+        }
+      }
+    }
+    if (stayingOnRow) {
+    }
+ else {
+      if (haveRenderedOpenFieldRow) {
+        formStringRenderer.renderFormatFieldRowClose(buffer,context,this);
+        haveRenderedOpenFieldRow=false;
+      }
+      formStringRenderer.renderFormatFieldRowOpen(buffer,context,this);
+      haveRenderedOpenFieldRow=true;
+    }
+    formStringRenderer.renderFormatFieldRowTitleCellOpen(buffer,context,currentFormField);
+    if (fieldInfo.getFieldType() != ModelFormField.FieldInfo.SUBMIT && fieldInfo.getFieldType() != ModelFormField.FieldInfo.RESET) {
+      formStringRenderer.renderFieldTitle(buffer,context,currentFormField);
+    }
+ else {
+      formStringRenderer.renderFormatEmptySpace(buffer,context,this);
+    }
+    formStringRenderer.renderFormatFieldRowTitleCellClose(buffer,context,currentFormField);
+    formStringRenderer.renderFormatFieldRowSpacerCell(buffer,context,currentFormField);
+    formStringRenderer.renderFormatFieldRowWidgetCellOpen(buffer,context,currentFormField,positions,positionSpan,nextPositionInRow);
+    currentFormField.renderFieldString(buffer,context,formStringRenderer);
+    formStringRenderer.renderFormatFieldRowWidgetCellClose(buffer,context,currentFormField,positions,positionSpan,nextPositionInRow);
+  }
+  formStringRenderer.renderFormatFieldRowClose(buffer,context,this);
+  if (lastFieldGroup != null) {
+    lastFieldGroup.renderEndString(buffer,context,formStringRenderer);
+  }
+  if (!skipEnd)   formStringRenderer.renderFormClose(buffer,context,this);
+}

@@ -1,0 +1,203 @@
+{
+  if (tableNames.size() == 0) {
+    return FastMap.newInstance();
+  }
+  Connection connection=null;
+  try {
+    try {
+      connection=getConnection();
+    }
+ catch (    SQLException sqle) {
+      String message="Unable to esablish a connection with the database... Error was:" + sqle.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+      return null;
+    }
+catch (    GenericEntityException e) {
+      String message="Unable to esablish a connection with the database... Error was:" + e.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+      return null;
+    }
+    DatabaseMetaData dbData=null;
+    try {
+      dbData=connection.getMetaData();
+    }
+ catch (    SQLException sqle) {
+      String message="Unable to get database meta data... Error was:" + sqle.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+      try {
+        connection.close();
+      }
+ catch (      SQLException sqle2) {
+        String message2="Unable to close database connection, continuing anyway... Error was:" + sqle2.toString();
+        Debug.logError(message2,module);
+        if (messages != null)         messages.add(message2);
+      }
+      return null;
+    }
+    if (Debug.infoOn())     Debug.logInfo("Getting Column Info From Database",module);
+    Map colInfo=FastMap.newInstance();
+    String lookupSchemaName=null;
+    try {
+      if (dbData.supportsSchemasInTableDefinitions()) {
+        if (this.datasourceInfo.schemaName != null && this.datasourceInfo.schemaName.length() > 0) {
+          lookupSchemaName=this.datasourceInfo.schemaName;
+        }
+ else {
+          lookupSchemaName=dbData.getUserName();
+        }
+      }
+      boolean needsUpperCase=false;
+      try {
+        needsUpperCase=dbData.storesLowerCaseIdentifiers() || dbData.storesMixedCaseIdentifiers();
+      }
+ catch (      SQLException sqle) {
+        String message="Error getting identifier case information... Error was:" + sqle.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+      }
+      boolean foundCols=false;
+      ResultSet rsCols=dbData.getColumns(null,lookupSchemaName,null,null);
+      if (!rsCols.next()) {
+        try {
+          rsCols.close();
+        }
+ catch (        SQLException sqle) {
+          String message="Unable to close ResultSet for column list, continuing anyway... Error was:" + sqle.toString();
+          Debug.logError(message,module);
+          if (messages != null)           messages.add(message);
+        }
+        rsCols=dbData.getColumns(null,lookupSchemaName,"%","%");
+        if (!rsCols.next()) {
+        }
+ else {
+          foundCols=true;
+        }
+      }
+ else {
+        foundCols=true;
+      }
+      if (foundCols) {
+        do {
+          try {
+            ColumnCheckInfo ccInfo=new ColumnCheckInfo();
+            ccInfo.tableName=ColumnCheckInfo.fixupTableName(rsCols.getString("TABLE_NAME"),lookupSchemaName,needsUpperCase);
+            if (!tableNames.contains(ccInfo.tableName)) {
+              continue;
+            }
+            ccInfo.columnName=rsCols.getString("COLUMN_NAME");
+            if (needsUpperCase && ccInfo.columnName != null) {
+              ccInfo.columnName=ccInfo.columnName.toUpperCase();
+            }
+            ccInfo.typeName=rsCols.getString("TYPE_NAME");
+            ccInfo.columnSize=rsCols.getInt("COLUMN_SIZE");
+            ccInfo.decimalDigits=rsCols.getInt("DECIMAL_DIGITS");
+            ccInfo.isNullable=rsCols.getString("IS_NULLABLE");
+            Map tableColInfo=(Map)colInfo.get(ccInfo.tableName);
+            if (tableColInfo == null) {
+              tableColInfo=FastMap.newInstance();
+              colInfo.put(ccInfo.tableName,tableColInfo);
+            }
+            tableColInfo.put(ccInfo.columnName,ccInfo);
+          }
+ catch (          SQLException sqle) {
+            String message="Error getting column info for column. Error was:" + sqle.toString();
+            Debug.logError(message,module);
+            if (messages != null)             messages.add(message);
+            continue;
+          }
+        }
+ while (rsCols.next());
+      }
+      try {
+        rsCols.close();
+      }
+ catch (      SQLException sqle) {
+        String message="Unable to close ResultSet for column list, continuing anyway... Error was:" + sqle.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+      }
+      if (getPks) {
+        boolean foundPks=false;
+        ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,null);
+        if (!rsPks.next()) {
+          try {
+            rsPks.close();
+          }
+ catch (          SQLException sqle) {
+            String message="Unable to close ResultSet for primary key list, continuing anyway... Error was:" + sqle.toString();
+            Debug.logError(message,module);
+            if (messages != null)             messages.add(message);
+          }
+          rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,"%");
+          if (!rsPks.next()) {
+          }
+ else {
+            foundPks=true;
+          }
+        }
+ else {
+          foundPks=true;
+        }
+        if (foundPks) {
+          do {
+            try {
+              String tableName=ColumnCheckInfo.fixupTableName(rsPks.getString("TABLE_NAME"),lookupSchemaName,needsUpperCase);
+              String columnName=rsPks.getString("COLUMN_NAME");
+              if (needsUpperCase && columnName != null) {
+                columnName=columnName.toUpperCase();
+              }
+              Map tableColInfo=(Map)colInfo.get(tableName);
+              if (tableColInfo == null) {
+                continue;
+              }
+              ColumnCheckInfo ccInfo=(ColumnCheckInfo)tableColInfo.get(columnName);
+              if (ccInfo == null) {
+                Debug.logWarning("Got primary key information for a column that we didn't get column information for: tableName=[" + tableName + "], columnName=["+ columnName+ "]",module);
+                continue;
+              }
+              ccInfo.isPk=true;
+              ccInfo.pkSeq=rsPks.getShort("KEY_SEQ");
+              ccInfo.pkName=rsPks.getString("PK_NAME");
+            }
+ catch (            SQLException sqle) {
+              String message="Error getting primary key info for column. Error was:" + sqle.toString();
+              Debug.logError(message,module);
+              if (messages != null)               messages.add(message);
+              continue;
+            }
+          }
+ while (rsPks.next());
+        }
+        try {
+          rsPks.close();
+        }
+ catch (        SQLException sqle) {
+          String message="Unable to close ResultSet for primary key list, continuing anyway... Error was:" + sqle.toString();
+          Debug.logError(message,module);
+          if (messages != null)           messages.add(message);
+        }
+      }
+    }
+ catch (    SQLException sqle) {
+      String message="Error getting column meta data for Error was:" + sqle.toString() + ". Not checking columns.";
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+    }
+    return colInfo;
+  }
+  finally {
+    if (connection != null) {
+      try {
+        connection.close();
+      }
+ catch (      SQLException sqle) {
+        String message="Unable to close database connection, continuing anyway... Error was:" + sqle.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+      }
+    }
+  }
+}

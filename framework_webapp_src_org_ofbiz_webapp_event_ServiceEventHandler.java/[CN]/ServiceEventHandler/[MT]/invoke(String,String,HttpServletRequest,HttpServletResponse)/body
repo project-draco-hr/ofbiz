@@ -1,0 +1,225 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  if (dispatcher == null) {
+    throw new EventHandlerException("The local service dispatcher is null");
+  }
+  DispatchContext dctx=dispatcher.getDispatchContext();
+  if (dctx == null) {
+    throw new EventHandlerException("Dispatch context cannot be found");
+  }
+  String mode=SYNC;
+  String serviceName=null;
+  if (eventPath == null || eventPath.length() == 0) {
+    mode=SYNC;
+  }
+ else {
+    mode=eventPath;
+  }
+  serviceName=eventMethod;
+  if (serviceName == null) {
+    throw new EventHandlerException("Service name (eventMethod) cannot be null");
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Set mode/service]: " + mode + "/"+ serviceName,module);
+  Locale locale=UtilHttp.getLocale(request);
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  ModelService model=null;
+  try {
+    model=dctx.getModelService(serviceName);
+  }
+ catch (  GenericServiceException e) {
+    throw new EventHandlerException("Problems getting the service model",e);
+  }
+  if (model == null) {
+    throw new EventHandlerException("Problems getting the service model");
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Processing]: SERVICE Event",module);
+  if (Debug.verboseOn())   Debug.logVerbose("[Using delegator]: " + dispatcher.getDelegator().getDelegatorName(),module);
+  String maxSizeStr=UtilProperties.getPropertyValue("general.properties","http.upload.max.size","-1");
+  long maxUploadSize=-1;
+  try {
+    maxUploadSize=Long.parseLong(maxSizeStr);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logError(e,"Unable to obtain the max upload size from general.properties; using default -1",module);
+    maxUploadSize=-1;
+  }
+  boolean isMultiPart=FileUpload.isMultipartContent(request);
+  Map multiPartMap=new HashMap();
+  if (isMultiPart) {
+    DiskFileUpload upload=new DiskFileUpload();
+    upload.setSizeMax(maxUploadSize);
+    List uploadedItems=null;
+    try {
+      uploadedItems=upload.parseRequest(request);
+    }
+ catch (    FileUploadException e) {
+      throw new EventHandlerException("Problems reading uploaded data",e);
+    }
+    if (uploadedItems != null) {
+      Iterator i=uploadedItems.iterator();
+      while (i.hasNext()) {
+        FileItem item=(FileItem)i.next();
+        String fieldName=item.getFieldName();
+        if (item.isFormField() || item.getSize() == 0) {
+          if (multiPartMap.containsKey(fieldName)) {
+            Object mapValue=multiPartMap.get(fieldName);
+            if (mapValue instanceof List) {
+              ((List)mapValue).add(item.getString());
+            }
+ else             if (mapValue instanceof String) {
+              List newList=new ArrayList();
+              newList.add((String)mapValue);
+              newList.add(item.getString());
+              multiPartMap.put(fieldName,newList);
+            }
+ else {
+              Debug.logWarning("Form field found [" + fieldName + "] which was not handled!",module);
+            }
+          }
+ else {
+            multiPartMap.put(fieldName,item.getString());
+          }
+        }
+ else {
+          String fileName=item.getName();
+          if (fileName.indexOf('\\') > -1 || fileName.indexOf('/') > -1) {
+            int lastIndex=fileName.lastIndexOf('\\');
+            if (lastIndex == -1) {
+              lastIndex=fileName.lastIndexOf('/');
+            }
+            if (lastIndex > -1) {
+              fileName=fileName.substring(lastIndex + 1);
+            }
+          }
+          multiPartMap.put(fieldName,new ByteWrapper(item.get()));
+          multiPartMap.put("_" + fieldName + "_size",new Long(item.getSize()));
+          multiPartMap.put("_" + fieldName + "_fileName",fileName);
+          multiPartMap.put("_" + fieldName + "_contentType",item.getContentType());
+        }
+      }
+    }
+  }
+  request.setAttribute("multiPartMap",multiPartMap);
+  Map serviceContext=new HashMap();
+  Iterator modelParmInIter=model.getInModelParamList().iterator();
+  while (modelParmInIter.hasNext()) {
+    ModelParam modelParam=(ModelParam)modelParmInIter.next();
+    String name=modelParam.name;
+    if ("userLogin".equals(name))     continue;
+    if ("locale".equals(name))     continue;
+    Object value=null;
+    if (modelParam.stringMapPrefix != null && modelParam.stringMapPrefix.length() > 0) {
+      Map paramMap=UtilHttp.makeParamMapWithPrefix(request,multiPartMap,modelParam.stringMapPrefix,null);
+      value=paramMap;
+      if (Debug.verboseOn())       Debug.log("Set [" + modelParam.name + "]: "+ paramMap,module);
+    }
+ else     if (modelParam.stringListSuffix != null && modelParam.stringListSuffix.length() > 0) {
+      List paramList=UtilHttp.makeParamListWithSuffix(request,multiPartMap,modelParam.stringListSuffix,null);
+      value=paramList;
+    }
+ else {
+      value=multiPartMap.get(name);
+      if (UtilValidate.isEmpty(value)) {
+        String[] paramArr=request.getParameterValues(name);
+        if (paramArr != null) {
+          if (paramArr.length > 1) {
+            value=Arrays.asList(paramArr);
+          }
+ else {
+            value=paramArr[0];
+          }
+        }
+        if (value == null) {
+          value=UtilHttp.makeParamValueFromComposite(request,name,locale);
+        }
+      }
+      if (UtilValidate.isEmpty(value)) {
+        Object tempVal=request.getAttribute(name);
+        if (tempVal != null) {
+          value=tempVal;
+        }
+      }
+      if (UtilValidate.isEmpty(value)) {
+        Object tempVal=request.getSession().getAttribute(name);
+        if (tempVal != null) {
+          value=tempVal;
+        }
+      }
+      if (value == null) {
+        continue;
+      }
+      if (value instanceof String && ((String)value).length() == 0) {
+        value=null;
+      }
+    }
+    serviceContext.put(name,value);
+  }
+  List errorMessages=new LinkedList();
+  serviceContext=model.makeValid(serviceContext,ModelService.IN_PARAM,true,errorMessages,locale);
+  if (errorMessages.size() > 0) {
+    request.setAttribute("_ERROR_MESSAGE_LIST_",errorMessages);
+    return "error";
+  }
+  if (userLogin != null) {
+    serviceContext.put("userLogin",userLogin);
+  }
+  if (locale != null) {
+    serviceContext.put("locale",locale);
+  }
+  Map result=null;
+  try {
+    if (ASYNC.equalsIgnoreCase(mode)) {
+      dispatcher.runAsync(serviceName,serviceContext);
+    }
+ else {
+      result=dispatcher.runSync(serviceName,serviceContext);
+    }
+  }
+ catch (  ServiceAuthException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getNonNestedMessage());
+    return "error";
+  }
+catch (  ServiceValidationException e) {
+    request.setAttribute("serviceValidationException",e);
+    if (e.getMessageList() != null) {
+      request.setAttribute("_ERROR_MESSAGE_LIST_",e.getMessageList());
+    }
+ else {
+      request.setAttribute("_ERROR_MESSAGE_",e.getNonNestedMessage());
+    }
+    return "error";
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,"Service invocation error",module);
+    throw new EventHandlerException("Service invocation error",e.getNested());
+  }
+  String responseString=null;
+  if (result == null) {
+    responseString=ModelService.RESPOND_SUCCESS;
+  }
+ else {
+    if (!result.containsKey(ModelService.RESPONSE_MESSAGE)) {
+      responseString=ModelService.RESPOND_SUCCESS;
+    }
+ else {
+      responseString=(String)result.get(ModelService.RESPONSE_MESSAGE);
+    }
+    request.setAttribute("_ERROR_MESSAGE_LIST_",result.get(ModelService.ERROR_MESSAGE_LIST));
+    request.setAttribute("_ERROR_MESSAGE_MAP_",result.get(ModelService.ERROR_MESSAGE_MAP));
+    request.setAttribute("_ERROR_MESSAGE_",result.get(ModelService.ERROR_MESSAGE));
+    request.setAttribute("_EVENT_MESSAGE_LIST_",result.get(ModelService.SUCCESS_MESSAGE_LIST));
+    request.setAttribute("_EVENT_MESSAGE_",result.get(ModelService.SUCCESS_MESSAGE));
+    Iterator rmei=result.entrySet().iterator();
+    while (rmei.hasNext()) {
+      Map.Entry rme=(Map.Entry)rmei.next();
+      String resultKey=(String)rme.getKey();
+      Object resultValue=rme.getValue();
+      if (resultKey != null && !ModelService.RESPONSE_MESSAGE.equals(resultKey) && !ModelService.ERROR_MESSAGE.equals(resultKey) && !ModelService.ERROR_MESSAGE_LIST.equals(resultKey) && !ModelService.ERROR_MESSAGE_MAP.equals(resultKey) && !ModelService.SUCCESS_MESSAGE.equals(resultKey) && !ModelService.SUCCESS_MESSAGE_LIST.equals(resultKey)) {
+        request.setAttribute(resultKey,resultValue);
+      }
+    }
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("[Event Return]: " + responseString,module);
+  return responseString;
+}

@@ -1,0 +1,105 @@
+{
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericDelegator delegator=ctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Double cancelQuantity=(Double)context.get("cancelQuantity");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  String itemMsgInfo=orderId + " / " + orderItemSeqId+ " / "+ shipGroupSeqId;
+  Security security=ctx.getSecurity();
+  if (!security.hasEntityPermission("ORDERMGR","_UPDATE",userLogin)) {
+    GenericValue placingCustomer=null;
+    try {
+      Map placingCustomerFields=UtilMisc.toMap("orderId",orderId,"partyId",userLogin.getString("partyId"),"roleTypeId","PLACING_CUSTOMER");
+      placingCustomer=delegator.findByPrimaryKey("OrderRole",placingCustomerFields);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderRoleEntity",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+    }
+    if (placingCustomer == null)     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+  }
+  Map fields=UtilMisc.toMap("orderId",orderId);
+  if (orderItemSeqId != null) {
+    fields.put("orderItemSeqId",orderItemSeqId);
+  }
+  if (shipGroupSeqId != null) {
+    fields.put("shipGroupSeqId",shipGroupSeqId);
+  }
+  List orderItemShipGroupAssocs=null;
+  try {
+    orderItemShipGroupAssocs=delegator.findByAnd("OrderItemShipGroupAssoc",fields);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderItemAssocEntity",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+  }
+  if (orderItemShipGroupAssocs != null) {
+    if (orderItemShipGroupAssocs == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotCancelItemItemNotFound",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+    }
+    Iterator i=orderItemShipGroupAssocs.iterator();
+    while (i.hasNext()) {
+      GenericValue orderItemShipGroupAssoc=(GenericValue)i.next();
+      GenericValue orderItem=null;
+      try {
+        orderItem=orderItemShipGroupAssoc.getRelatedOne("OrderItem");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (orderItem == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotCancelItemItemNotFound",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+      }
+      Double availableQuantity=orderItemShipGroupAssoc.getDouble("quantity");
+      Double itemQuantity=orderItem.getDouble("quantity");
+      if (availableQuantity == null)       availableQuantity=new Double(0.0);
+      if (itemQuantity == null)       itemQuantity=new Double(0.0);
+      Double thisCancelQty=null;
+      if (cancelQuantity != null) {
+        thisCancelQty=new Double(cancelQuantity.doubleValue());
+      }
+ else {
+        thisCancelQty=new Double(availableQuantity.doubleValue());
+      }
+      if (availableQuantity.doubleValue() >= thisCancelQty.doubleValue()) {
+        orderItem.set("cancelQuantity",thisCancelQty);
+        orderItemShipGroupAssoc.set("cancelQuantity",thisCancelQty);
+        try {
+          List toStore=UtilMisc.toList(orderItem,orderItemShipGroupAssoc);
+          delegator.storeAll(toStore);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToSetCancelQuantity",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+        }
+        if (thisCancelQty.doubleValue() >= itemQuantity.doubleValue()) {
+          Map statusCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
+          try {
+            dispatcher.runSyncIgnore("changeOrderItemStatus",statusCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToCancelOrderLine",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+          }
+        }
+ else {
+          Map invCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId,"cancelQuantity",thisCancelQty,"userLogin",userLogin);
+          try {
+            dispatcher.runSyncIgnore("cancelOrderItemInvResQty",invCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToUpdateInventoryReservations",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+          }
+        }
+      }
+ else {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderInvalidCancelQuantityCannotCancel",UtilMisc.toMap("thisCancelQty",thisCancelQty),locale));
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
