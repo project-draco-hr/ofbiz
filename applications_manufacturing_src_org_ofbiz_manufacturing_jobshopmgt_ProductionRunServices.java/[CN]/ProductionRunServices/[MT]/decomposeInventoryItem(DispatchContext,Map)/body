@@ -1,0 +1,72 @@
+{
+  Map result=new HashMap();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List msgResult=new LinkedList();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String inventoryItemId=(String)context.get("inventoryItemId");
+  Double quantity=(Double)context.get("quantity");
+  try {
+    GenericValue inventoryItem=delegator.findByPrimaryKey("InventoryItem",UtilMisc.toMap("inventoryItemId",inventoryItemId));
+    if (inventoryItem == null) {
+      return ServiceUtil.returnError("Error decomposing inventory item: inventory item with id [" + inventoryItemId + "] not found.");
+    }
+    Map serviceContext=UtilMisc.toMap("workEffortTypeId","PROD_ORDER_HEADER","workEffortPurposeTypeId","WEPT_PRODUCTION_RUN","currentStatusId","PRUN_CREATED");
+    serviceContext.put("workEffortName","Decompose inventory item [" + inventoryItem.getString("inventoryItemId") + "]");
+    serviceContext.put("facilityId",inventoryItem.getString("facilityId"));
+    serviceContext.put("estimatedStartDate",now);
+    serviceContext.put("userLogin",userLogin);
+    Map resultService=dispatcher.runSync("createWorkEffort",serviceContext);
+    String workEffortId=(String)resultService.get("workEffortId");
+    serviceContext.clear();
+    serviceContext=UtilMisc.toMap("inventoryItem",inventoryItem,"workEffortId",workEffortId,"userLogin",userLogin);
+    if (quantity != null) {
+      serviceContext.put("quantity",quantity);
+    }
+    resultService=dispatcher.runSync("issueInventoryItemToWorkEffort",serviceContext);
+    Double issuedQuantity=(Double)resultService.get("issuedQuantity");
+    serviceContext.clear();
+    serviceContext=UtilMisc.toMap("productId",inventoryItem.getString("productId"),"currencyUomId",inventoryItem.getString("currencyUomId"),"costComponentTypePrefix","EST_STD_","userLogin",userLogin);
+    resultService=dispatcher.runSync("getProductCost",serviceContext);
+    Double packageCost=(Double)resultService.get("productCost");
+    if (packageCost == null || packageCost.doubleValue() == 0) {
+      packageCost=new Double(1.0);
+    }
+    Double inventoryItemCost=(Double)inventoryItem.getDouble("unitCost");
+    if (inventoryItemCost == null) {
+      inventoryItemCost=new Double(1.0);
+    }
+    Double costCoefficient=new Double(inventoryItemCost.doubleValue() / packageCost.doubleValue());
+    serviceContext.clear();
+    serviceContext=UtilMisc.toMap("productId",inventoryItem.getString("productId"),"quantity",issuedQuantity,"userLogin",userLogin);
+    resultService=dispatcher.runSync("getManufacturingComponents",serviceContext);
+    List components=(List)resultService.get("componentsMap");
+    if (components == null || components.isEmpty()) {
+      return ServiceUtil.returnError("Error decomposing inventory item: no components found for marketing package [" + inventoryItem.getString("productId") + "].");
+    }
+    Iterator componentsIt=components.iterator();
+    while (componentsIt.hasNext()) {
+      Map component=(Map)componentsIt.next();
+      serviceContext.clear();
+      serviceContext=UtilMisc.toMap("productId",((GenericValue)component.get("product")).getString("productId"),"currencyUomId",inventoryItem.getString("currencyUomId"),"costComponentTypePrefix","EST_STD_","userLogin",userLogin);
+      resultService=dispatcher.runSync("getProductCost",serviceContext);
+      Double componentCost=(Double)resultService.get("productCost");
+      Double componentInventoryItemCost=new Double(costCoefficient.doubleValue() * componentCost.doubleValue());
+      serviceContext.clear();
+      serviceContext=UtilMisc.toMap("productId",((GenericValue)component.get("product")).getString("productId"),"quantity",component.get("quantity"),"facilityId",inventoryItem.getString("facilityId"),"unitCost",componentInventoryItemCost,"userLogin",userLogin);
+      serviceContext.put("workEffortId",workEffortId);
+      resultService=dispatcher.runSync("productionRunTaskProduce",serviceContext);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem calling the createWorkEffort service",module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the createWorkEffort service",module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
