@@ -14,21 +14,16 @@
  catch (  GenericEntityException gee) {
     Debug.logError(gee,"Problems getting the order information",module);
     result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
-    result.put(ModelService.ERROR_MESSAGE,"ERROR: Could not get order information (" + gee.getMessage() + ").");
+    result.put(ModelService.ERROR_MESSAGE,"ERROR: Could not get order information (" + gee.toString() + ").");
     return result;
   }
   if (orderHeader == null) {
     return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
-  double totalRemaining=0.0;
-  try {
-    totalRemaining=getTotalRemaining(orh);
-  }
- catch (  Exception e) {
-    Debug.logError(e,"Problem getting parsed grand total amount",module);
-    return ServiceUtil.returnError("ERROR: Cannot parse grand total from formatted string; see logs");
-  }
+  BigDecimal orderGrandTotal=orh.getOrderGrandTotalBd();
+  orderGrandTotal=orderGrandTotal.setScale(2,BigDecimal.ROUND_HALF_UP);
+  double totalRemaining=orderGrandTotal.doubleValue();
   int finished=0;
   int hadError=0;
   List messages=new ArrayList();
@@ -43,9 +38,9 @@
       results=dispatcher.runSync("authOrderPaymentPreference",authContext);
     }
  catch (    GenericServiceException se) {
-      Debug.logError(se,"Error in calling authOrderPaymentPreference from authOrderPayments: " + se.getMessage(),module);
+      Debug.logError(se,"Error in calling authOrderPaymentPreference from authOrderPayments: " + se.toString(),module);
       hadError+=1;
-      messages.add("Could not authorize OrderPaymentPreference [" + paymentPref.getString("orderPaymentPreferenceId") + "] for order ["+ orderId+ "]: "+ se.getMessage());
+      messages.add("Could not authorize OrderPaymentPreference [" + paymentPref.getString("orderPaymentPreferenceId") + "] for order ["+ orderId+ "]: "+ se.toString());
       continue;
     }
     if (ServiceUtil.isError(results)) {

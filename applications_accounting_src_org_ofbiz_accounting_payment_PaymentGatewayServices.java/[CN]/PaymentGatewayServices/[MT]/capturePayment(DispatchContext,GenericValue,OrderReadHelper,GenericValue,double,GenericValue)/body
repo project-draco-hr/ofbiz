@@ -19,26 +19,33 @@
     paymentConfig="payment.properties";
   }
   if (!PaymentGatewayServices.checkAuthValidity(paymentPref,paymentConfig)) {
-    Map processorResult=PaymentGatewayServices.authPayment(dispatcher,userLogin,orh,paymentPref,amount,true);
-    boolean authResult=false;
-    if (processorResult != null) {
-      try {
-        authResult=processResult(dctx,processorResult,userLogin,paymentPref);
-        if (!authResult) {
-          Debug.logError("Re-Authorization failed : " + paymentPref + " : "+ processorResult,module);
+    try {
+      Map processorResult=PaymentGatewayServices.authPayment(dispatcher,userLogin,orh,paymentPref,amount,true);
+      boolean authResult=false;
+      if (processorResult != null) {
+        try {
+          authResult=processResult(dctx,processorResult,userLogin,paymentPref);
+          if (!authResult) {
+            Debug.logError("Re-Authorization failed : " + paymentPref + " : "+ processorResult,module);
+          }
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,"Trouble processing the re-auth result : " + paymentPref + " : "+ processorResult,module);
         }
       }
- catch (      GeneralException e) {
-        Debug.logError(e,"Trouble processing the re-auth result : " + paymentPref + " : "+ processorResult,module);
-      }
-    }
  else {
-      Debug.logError("Payment not re-authorized : " + paymentPref + " : "+ processorResult,module);
+        Debug.logError("Payment not re-authorized : " + paymentPref + " : "+ processorResult,module);
+      }
+      if (!authResult) {
+        return null;
+      }
+      authTrans=getAuthTransaction(paymentPref);
     }
-    if (!authResult) {
-      return null;
+ catch (    GeneralException e) {
+      String errMsg="Error re-authorizing payment: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
     }
-    authTrans=getAuthTransaction(paymentPref);
   }
   Map captureContext=new HashMap();
   captureContext.put("userLogin",userLogin);

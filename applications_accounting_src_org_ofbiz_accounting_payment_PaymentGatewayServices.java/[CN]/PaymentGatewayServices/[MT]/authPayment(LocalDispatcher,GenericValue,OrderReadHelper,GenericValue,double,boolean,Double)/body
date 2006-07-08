@@ -5,41 +5,80 @@
   if (reauth) {
     serviceType=REAUTH_SERVICE_TYPE;
   }
-  GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPref,serviceType,false);
+  GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPreference,serviceType,false);
   if (paymentSettings != null) {
     serviceName=paymentSettings.getString("paymentService");
     paymentConfig=paymentSettings.getString("paymentPropertiesPath");
   }
  else {
-    Debug.logError("Invalid payment settings entity, no payment settings found",module);
-    return null;
+    throw new GeneralException("Could not find any valid payment settings for order with ID [" + orh.getOrderId() + "], and payment operation (serviceType) ["+ serviceType+ "]");
   }
   if (serviceName == null) {
-    Debug.logError("Invalid payment processor: + " + paymentSettings,module);
-    return null;
+    throw new GeneralException("Invalid payment processor, serviceName is null: + " + paymentSettings);
   }
-  Map processContext=null;
+  Map processContext=new HashMap();
+  GenericValue orderHeader=orh.getOrderHeader();
+  if (orderHeader != null) {
+    String visitId=orderHeader.getString("visitId");
+    GenericValue visit=null;
+    if (visitId != null) {
+      try {
+        visit=orderHeader.getDelegator().findByPrimaryKey("Visit",UtilMisc.toMap("visitId",visitId));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+    }
+    if (visit != null && visit.get("clientIpAddress") != null) {
+      processContext.put("customerIpAddress",visit.getString("clientIpAddress"));
+    }
+  }
+  processContext.put("userLogin",userLogin);
+  processContext.put("orderId",orh.getOrderId());
+  processContext.put("orderItems",orh.getOrderItems());
+  processContext.put("shippingAddress",EntityUtil.getFirst(orh.getShippingLocations()));
+  processContext.put("paymentConfig",paymentConfig);
+  processContext.put("currency",orh.getCurrency());
+  processContext.put("orderPaymentPreference",paymentPreference);
+  if (paymentPreference.get("securityCode") != null) {
+    processContext.put("cardSecurityCode",paymentPreference.get("securityCode"));
+  }
+  getBillingInformation(orh,paymentPreference,processContext);
+  double thisAmount=totalRemaining;
+  if (overrideAmount != null) {
+    thisAmount=overrideAmount.doubleValue();
+  }
+ else   if (paymentPreference.get("maxAmount") != null) {
+    thisAmount=paymentPreference.getDouble("maxAmount").doubleValue();
+  }
+  if (thisAmount > totalRemaining) {
+    thisAmount=totalRemaining;
+  }
+  String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
+  DecimalFormat formatter=new DecimalFormat(currencyFormat);
+  String amountString=formatter.format(thisAmount);
+  Double processAmount=null;
   try {
-    processContext=makeAuthContext(orh,userLogin,paymentPref,paymentConfig,totalRemaining,overrideAmount);
+    processAmount=new Double(formatter.parse(amountString).doubleValue());
   }
- catch (  GeneralException e) {
-    Debug.logError(e,"Problems creating the context for the auth service",module);
-    return null;
+ catch (  ParseException e) {
+    Debug.logError(e,"Problems parsing string formatted double to Double",module);
+    throw new GeneralException("ParseException in number format",e);
   }
+  if (Debug.verboseOn())   Debug.logVerbose("Charging amount: " + processAmount,module);
+  processContext.put("processAmount",processAmount);
   Map processorResult=null;
   try {
     processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
   }
  catch (  GenericServiceException gse) {
-    Debug.logError("Error occurred on: " + serviceName + " => "+ processContext,module);
-    Debug.logError(gse,"Problems invoking payment processor! Will retry later." + "(" + orh.getOrderId() + ")",module);
-    return null;
+    Debug.logError(gse,"Error occurred on: " + serviceName + " => "+ processContext,module);
+    throw new GeneralException("Problems invoking payment processor! Will retry later. Order ID is: [" + orh.getOrderId() + "",gse);
   }
   if (processorResult != null) {
-    String resultResponseCode=(String)processorResult.get(ModelService.RESPONSE_MESSAGE);
-    if (resultResponseCode != null && resultResponseCode.equals(ModelService.RESPOND_ERROR)) {
+    if (ServiceUtil.isError(processorResult)) {
       Debug.logError("Processor failed; will retry later : " + processorResult.get(ModelService.ERROR_MESSAGE),module);
-      saveError(dispatcher,userLogin,paymentPref,processorResult,"PRDS_PAY_AUTH","PGT_AUTHORIZE");
+      saveError(dispatcher,userLogin,paymentPreference,processorResult,"PRDS_PAY_AUTH","PGT_AUTHORIZE");
       return null;
     }
     String payToPartyId=getPayToPartyId(orh.getOrderHeader());

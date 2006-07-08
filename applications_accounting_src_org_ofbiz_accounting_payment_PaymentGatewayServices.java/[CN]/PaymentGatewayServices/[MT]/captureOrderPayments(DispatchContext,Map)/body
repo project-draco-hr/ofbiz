@@ -18,7 +18,7 @@
  catch (  GenericEntityException gee) {
     Debug.logError(gee,"Problems getting entity record(s), see stack trace",module);
     result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
-    result.put(ModelService.ERROR_MESSAGE,"ERROR: Could not get order information (" + gee.getMessage() + ").");
+    result.put(ModelService.ERROR_MESSAGE,"ERROR: Could not get order information (" + gee.toString() + ").");
     return result;
   }
   if (orderHeader == null) {
@@ -31,7 +31,9 @@
     return result;
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
-  double orderTotal=orh.getOrderGrandTotal();
+  BigDecimal orderGrandTotal=orh.getOrderGrandTotalBd();
+  orderGrandTotal=orderGrandTotal.setScale(2,BigDecimal.ROUND_HALF_UP);
+  double orderTotal=orderGrandTotal.doubleValue();
   double totalPayments=PaymentWorker.getPaymentsTotal(orh.getOrderPayments());
   double remainingTotal=orderTotal - totalPayments;
   if (Debug.infoOn())   Debug.logInfo("Capture Remaining Total: " + remainingTotal,module);
@@ -139,19 +141,14 @@
           newPref.set("createdByUserLogin",userLogin.getString("userLoginId"));
         }
         Debug.logInfo("New preference : " + newPref,module);
+        Map processorResult=null;
         try {
           delegator.create(newPref);
-          Map processorResult=authPayment(dispatcher,userLogin,orh,newPref,newAmount,false);
+          processorResult=authPayment(dispatcher,userLogin,orh,newPref,newAmount,false);
           if (processorResult != null) {
-            boolean authResult=false;
-            try {
-              authResult=processResult(dctx,processorResult,userLogin,newPref);
-              if (!authResult) {
-                Debug.logError("Authorization failed : " + newPref + " : "+ processorResult,module);
-              }
-            }
- catch (            GeneralException e) {
-              Debug.logError(e,"Trouble processing the auth result : " + newPref + " : "+ processorResult,module);
+            boolean authResult=processResult(dctx,processorResult,userLogin,newPref);
+            if (!authResult) {
+              Debug.logError("Authorization failed : " + newPref + " : "+ processorResult,module);
             }
           }
  else {
@@ -160,6 +157,14 @@
         }
  catch (        GenericEntityException e) {
           Debug.logError(e,"ERROR: cannot create new payment preference : " + newPref,module);
+        }
+catch (        GeneralException e) {
+          if (processorResult != null) {
+            Debug.logError(e,"Trouble processing the auth result: " + newPref + " : "+ processorResult,module);
+          }
+ else {
+            Debug.logError(e,"Trouble authorizing the payment: " + newPref,module);
+          }
         }
       }
     }

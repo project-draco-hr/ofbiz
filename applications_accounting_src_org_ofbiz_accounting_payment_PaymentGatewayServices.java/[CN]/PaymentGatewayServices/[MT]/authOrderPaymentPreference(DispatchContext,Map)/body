@@ -19,14 +19,9 @@
     return ServiceUtil.returnError("Problems getting required information: orderPaymentPreference [" + orderPaymentPreferenceId + "]");
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
-  double totalRemaining=0.0;
-  try {
-    totalRemaining=getTotalRemaining(orh);
-  }
- catch (  Exception e) {
-    Debug.logError(e,"Problem getting parsed grand total amount",module);
-    return ServiceUtil.returnError("ERROR: Cannot parse grand total from formatted string; see logs");
-  }
+  BigDecimal orderGrandTotal=orh.getOrderGrandTotalBd();
+  orderGrandTotal=orderGrandTotal.setScale(2,BigDecimal.ROUND_HALF_UP);
+  double totalRemaining=orderGrandTotal.doubleValue();
   Long procAttempt=orderPaymentPreference.getLong("processAttempt");
   if (procAttempt == null) {
     procAttempt=new Long(0);
@@ -54,35 +49,41 @@
   if ((transAmount != null) && (transAmount.doubleValue() <= 0)) {
     return results;
   }
-  Map processorResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,overrideAmount);
-  if (processorResult != null) {
-    if (processorResult.get("customerRespMsgs") != null) {
-      results.put("messages",processorResult.get("customerRespMsgs"));
-    }
-    Double thisAmount=(Double)processorResult.get("processAmount");
-    boolean processResult=false;
-    try {
-      processResult=processResult(dctx,processorResult,userLogin,orderPaymentPreference);
-      if (processResult) {
-        results.put("processAmount",thisAmount);
-        results.put("finished",new Boolean(true));
+  try {
+    Map processorResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,overrideAmount);
+    if (processorResult != null) {
+      if (processorResult.get("customerRespMsgs") != null) {
+        results.put("messages",processorResult.get("customerRespMsgs"));
+      }
+      Double thisAmount=(Double)processorResult.get("processAmount");
+      try {
+        boolean processResult=processResult(dctx,processorResult,userLogin,orderPaymentPreference);
+        if (processResult) {
+          results.put("processAmount",thisAmount);
+          results.put("finished",new Boolean(true));
+        }
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,"Trouble processing the result; processorResult: " + processorResult,module);
+        results.put("errors",new Boolean(true));
       }
     }
- catch (    GeneralException e) {
-      Debug.logError(e,"Trouble processing the result; processorResult: " + processorResult,module);
+ else {
+      Debug.logInfo("Invalid OrderPaymentPreference; maxAmount is 0",module);
+      orderPaymentPreference.set("statusId","PAYMENT_CANCELLED");
+      try {
+        orderPaymentPreference.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"ERROR: Problem setting OrderPaymentPreference status to CANCELLED",module);
+      }
       results.put("errors",new Boolean(true));
     }
+    return results;
   }
- else {
-    Debug.logInfo("Invalid OrderPaymentPreference; maxAmount is 0",module);
-    orderPaymentPreference.set("statusId","PAYMENT_CANCELLED");
-    try {
-      orderPaymentPreference.store();
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,"ERROR: Problem setting OrderPaymentPreference status to CANCELLED",module);
-    }
-    results.put("errors",new Boolean(true));
+ catch (  GeneralException e) {
+    String errMsg="Error processing payment authorization: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
   }
-  return results;
 }
