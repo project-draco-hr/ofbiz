@@ -1,0 +1,36 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String invoiceId=(String)context.get("invoiceId");
+  String billingAccountId=(String)context.get("billingAccountId");
+  Double captureAmount=(Double)context.get("captureAmount");
+  Map results=ServiceUtil.returnSuccess();
+  try {
+    GenericValue invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+    Map paymentParams=UtilMisc.toMap("paymentTypeId","CUSTOMER_PAYMENT","paymentMethodTypeId","EXT_BILLACT","partyIdFrom",invoice.getString("partyIdFrom"),"partyIdTo",invoice.getString("partyId"),"statusId","PMNT_RECEIVED","effectiveDate",UtilDateTime.nowTimestamp());
+    paymentParams.put("amount",captureAmount);
+    paymentParams.put("currencyUomId",invoice.getString("currencyUomId"));
+    paymentParams.put("userLogin",userLogin);
+    Map tmpResult=dispatcher.runSync("createPayment",paymentParams);
+    if (ServiceUtil.isError(tmpResult)) {
+      return tmpResult;
+    }
+    String paymentId=(String)tmpResult.get("paymentId");
+    tmpResult=dispatcher.runSync("createPaymentApplication",UtilMisc.toMap("paymentId",paymentId,"invoiceId",invoiceId,"billingAccountId",billingAccountId,"amountApplied",captureAmount,"userLogin",userLogin));
+    if (ServiceUtil.isError(tmpResult)) {
+      return tmpResult;
+    }
+    if (paymentId == null) {
+      return ServiceUtil.returnError("No payment created for invoice [" + invoiceId + "] and billing account ["+ billingAccountId+ "]");
+    }
+    results.put("paymentId",paymentId);
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+catch (  GenericServiceException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  return results;
+}

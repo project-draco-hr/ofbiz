@@ -1,5 +1,5 @@
 {
-  BigDecimal balance=ZERO;
+  BigDecimal balance=getBillingAccountNetBalance(delegator,billingAccountId);
   List orderHeaders=null;
   List exprs1=new LinkedList();
   exprs1.add(new EntityExpr("billingAccountId",EntityOperator.EQUALS,billingAccountId));
@@ -13,34 +13,6 @@
       GenericValue orderHeader=(GenericValue)ohi.next();
       OrderReadHelper orh=new OrderReadHelper(orderHeader);
       balance=balance.add(orh.getOrderGrandTotalBd());
-    }
-  }
-  List invoices=null;
-  List exprs2=new LinkedList();
-  exprs2.add(new EntityExpr("billingAccountId",EntityOperator.EQUALS,billingAccountId));
-  exprs2.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"INVOICE_CANCELLED"));
-  exprs2.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"INVOICE_PAID"));
-  invoices=delegator.findByAnd("Invoice",exprs2);
-  if (invoices != null) {
-    Iterator ii=invoices.iterator();
-    while (ii.hasNext()) {
-      GenericValue invoice=(GenericValue)ii.next();
-      balance=balance.add(InvoiceWorker.getInvoiceNotApplied(invoice));
-    }
-  }
-  List credits=null;
-  List exprs3=new LinkedList();
-  exprs3.add(new EntityExpr("billingAccountId",EntityOperator.EQUALS,billingAccountId));
-  exprs3.add(new EntityExpr("invoiceId",EntityOperator.EQUALS,GenericEntity.NULL_FIELD));
-  credits=delegator.findByAnd("PaymentApplication",exprs3);
-  if (credits != null) {
-    Iterator ci=credits.iterator();
-    while (ci.hasNext()) {
-      GenericValue credit=(GenericValue)ci.next();
-      BigDecimal amount=credit.getBigDecimal("amountApplied");
-      if (amount != null) {
-        balance=balance.subtract(amount);
-      }
     }
   }
   balance=balance.setScale(decimals,rounding);

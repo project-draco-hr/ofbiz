@@ -24,6 +24,52 @@
   if (orderHeader == null) {
     return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
   }
+  GenericValue billingAccount=null;
+  BigDecimal billingAccountBalance=null;
+  BigDecimal billingAccountAvail=null;
+  BigDecimal billingAccountCaptureAmount=ZERO;
+  Map billingAccountInfo=null;
+  if (UtilValidate.isNotEmpty(billingAccountId)) {
+    try {
+      billingAccountInfo=dispatcher.runSync("calcBillingAccountBalance",UtilMisc.toMap("billingAccountId",billingAccountId));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Unable to get billing account information for #" + billingAccountId,module);
+    }
+  }
+  if (billingAccountInfo != null) {
+    billingAccount=(GenericValue)billingAccountInfo.get("billingAccount");
+    Double billingAccountBalanceD=(Double)billingAccountInfo.get("netAccountBalance");
+    billingAccountBalance=new BigDecimal(billingAccountBalanceD.doubleValue());
+  }
+  if (billingAccount != null && billingAccountBalance != null) {
+    try {
+      billingAccountAvail=BillingAccountWorker.getBillingAccountAvailableBalance(billingAccount);
+      BigDecimal captureAmountBd=new BigDecimal(captureAmount.doubleValue());
+      billingAccountCaptureAmount=billingAccountAvail.min(captureAmountBd);
+      Debug.logInfo("billing account avail = [" + billingAccountAvail + "] capture amount = ["+ billingAccountCaptureAmount+ "]",module);
+      Map tmpResult=dispatcher.runSync("captureBillingAccountPayment",UtilMisc.toMap("invoiceId",invoiceId,"billingAccountId",billingAccountId,"captureAmount",new Double(billingAccountCaptureAmount.doubleValue()),"userLogin",userLogin));
+      if (ServiceUtil.isError(tmpResult)) {
+        return tmpResult;
+      }
+      if (billingAccountCaptureAmount.compareTo(captureAmountBd) == -1) {
+        BigDecimal outstandingAmount=captureAmountBd.subtract(billingAccountCaptureAmount).setScale(decimals,rounding);
+        captureAmount=new Double(outstandingAmount.doubleValue());
+      }
+ else {
+        Debug.logInfo("Amount to capture [" + captureAmount + "] was fully captured in Payment ["+ tmpResult.get("paymentId")+ "].",module);
+        result=ServiceUtil.returnSuccess();
+        result.put("processResult","COMPLETE");
+        return result;
+      }
+    }
+ catch (    GenericEntityException ex) {
+      return ServiceUtil.returnError(ex.getMessage());
+    }
+catch (    GenericServiceException ex) {
+      return ServiceUtil.returnError(ex.getMessage());
+    }
+  }
   if (paymentPrefs == null || paymentPrefs.size() == 0) {
     Debug.logWarning("No orderPaymentPreferences available to capture",module);
     result.put("processResult","COMPLETE");
@@ -55,29 +101,6 @@
   }
   double amountToCapture=captureAmount.doubleValue();
   if (Debug.infoOn())   Debug.logInfo("Actual Expected Capture Amount : " + amountToCapture,module);
-  GenericValue billingAccount=null;
-  Double billingAccountBalance=null;
-  Double billingAccountAvail=null;
-  Map billingAccountInfo=null;
-  if (UtilValidate.isNotEmpty(billingAccountId)) {
-    try {
-      billingAccountInfo=dispatcher.runSync("calcBillingAccountBalance",UtilMisc.toMap("billingAccountId",billingAccountId));
-    }
- catch (    GenericServiceException e) {
-      Debug.logError(e,"Unable to get billing account information for #" + billingAccountId,module);
-    }
-  }
-  if (billingAccountInfo != null) {
-    billingAccount=(GenericValue)billingAccountInfo.get("billingAccount");
-    billingAccountBalance=(Double)billingAccountInfo.get("accountBalance");
-  }
-  if (billingAccount != null && billingAccountBalance != null) {
-    Double accountLimit=billingAccount.getDouble("accountLimit");
-    if (accountLimit == null) {
-      accountLimit=new Double(0.00);
-    }
-    billingAccountAvail=new Double(accountLimit.doubleValue() - billingAccountBalance.doubleValue());
-  }
   List finished=new ArrayList();
   Iterator payments=paymentPrefs.iterator();
   while (payments.hasNext()) {
@@ -126,9 +149,11 @@
         Debug.logError(e,"Trouble processing the result; captureResult: " + captureResult,module);
         return ServiceUtil.returnError("Trouble processing the capture results");
       }
-      if (authAmount.doubleValue() > amountThisCapture) {
+      BigDecimal totalAmountCaptured=new BigDecimal(amountThisCapture);
+      totalAmountCaptured=totalAmountCaptured.add(billingAccountCaptureAmount).setScale(decimals,rounding);
+      if (authAmount.doubleValue() > totalAmountCaptured.doubleValue()) {
+        double newAmount=authAmount.doubleValue() - totalAmountCaptured.doubleValue();
         Debug.logInfo("Creating payment preference split",module);
-        double newAmount=authAmount.doubleValue() - amountThisCapture;
         String newPrefId=delegator.getNextSeqId("OrderPaymentPreference");
         GenericValue newPref=delegator.makeValue("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",newPrefId));
         newPref.set("orderId",paymentPref.get("orderId"));
