@@ -8,10 +8,6 @@
   Double amount=(Double)context.get("captureAmount");
   String serviceType=(String)context.get("serviceTypeEnum");
   String currencyUomId=(String)context.get("currencyUomId");
-  if (UtilValidate.isEmpty(payTo)) {
-    payTo="Company";
-    Debug.logWarning("Using default value of [Company] for payTo on invoice [" + invoiceId + "] and orderPaymentPreference ["+ paymentPreference.getString("orderPaymentPreferenceId")+ "]",module);
-  }
   if (UtilValidate.isEmpty(serviceType)) {
     serviceType=CAPTURE_SERVICE_TYPE;
   }
@@ -63,21 +59,52 @@
       }
     }
   }
-  String orderId=paymentPreference.getString("orderId");
-  List orl=null;
-  try {
-    orl=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","BILL_TO_CUSTOMER"));
+  GenericValue invoice=null;
+  if (invoiceId != null) {
+    try {
+      invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+    }
+ catch (    GenericEntityException e) {
+      String message="Failed to process capture result:  Could not find invoice [" + invoiceId + "] due to entity error: "+ e.getMessage();
+      Debug.logError(e,message,module);
+      return ServiceUtil.returnError(message);
+    }
   }
- catch (  GenericEntityException e) {
-    Debug.logError(e,module);
+  String partyIdFrom=null;
+  if (invoice != null) {
+    partyIdFrom=invoice.getString("partyId");
   }
-  GenericValue orderRole=EntityUtil.getFirst(orl);
+ else {
+    String orderId=paymentPreference.getString("orderId");
+    List orl=null;
+    try {
+      orl=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","BILL_TO_CUSTOMER"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (orl.size() > 0) {
+      GenericValue orderRole=EntityUtil.getFirst(orl);
+      partyIdFrom=orderRole.getString("partyId");
+    }
+  }
+  String partyIdTo=null;
+  if (!UtilValidate.isEmpty(payTo)) {
+    partyIdTo=payTo;
+  }
+ else   if (invoice != null) {
+    partyIdTo=invoice.getString("partyIdFrom");
+  }
+ else {
+    payTo="Company";
+    Debug.logWarning("Using default value of [Company] for payTo on invoice [" + invoiceId + "] and orderPaymentPreference ["+ paymentPreference.getString("orderPaymentPreferenceId")+ "]",module);
+  }
   Map paymentCtx=UtilMisc.toMap("paymentTypeId","CUSTOMER_PAYMENT");
   paymentCtx.put("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
   paymentCtx.put("paymentMethodId",paymentPreference.get("paymentMethodId"));
   paymentCtx.put("paymentGatewayResponseId",responseId);
-  paymentCtx.put("partyIdTo",payTo);
-  paymentCtx.put("partyIdFrom",orderRole.get("partyId"));
+  paymentCtx.put("partyIdTo",partyIdTo);
+  paymentCtx.put("partyIdFrom",partyIdFrom);
   paymentCtx.put("statusId","PMNT_RECEIVED");
   paymentCtx.put("paymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
   paymentCtx.put("amount",amount);
