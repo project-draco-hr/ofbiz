@@ -1,3 +1,28 @@
 {
-  return getBillingAccountBalance(billingAccount.getDelegator(),billingAccount.getString("billingAccountId"));
+  GenericDelegator delegator=billingAccount.getDelegator();
+  String billingAccountId=billingAccount.getString("billingAccountId");
+  BigDecimal balance=getBillingAccountNetBalance(delegator,billingAccountId);
+  List orderHeaders=null;
+  List exprs1=new LinkedList();
+  exprs1.add(new EntityExpr("billingAccountId",EntityOperator.EQUALS,billingAccountId));
+  exprs1.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"));
+  exprs1.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED"));
+  exprs1.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"ORDER_COMPLETED"));
+  orderHeaders=delegator.findByAnd("OrderHeader",exprs1);
+  if (orderHeaders != null) {
+    Iterator ohi=orderHeaders.iterator();
+    while (ohi.hasNext()) {
+      GenericValue orderHeader=(GenericValue)ohi.next();
+      OrderReadHelper orh=new OrderReadHelper(orderHeader);
+      balance=balance.add(orh.getOrderGrandTotalBd());
+    }
+  }
+  BigDecimal accountLimit=new BigDecimal(billingAccount.getDouble("accountLimit").doubleValue());
+  if (balance.compareTo(accountLimit) == 1) {
+    balance=accountLimit;
+  }
+ else {
+    balance=balance.setScale(decimals,rounding);
+  }
+  return balance;
 }
