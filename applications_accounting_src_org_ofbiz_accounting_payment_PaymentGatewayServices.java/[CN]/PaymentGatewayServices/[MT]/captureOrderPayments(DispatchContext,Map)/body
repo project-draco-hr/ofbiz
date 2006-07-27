@@ -25,7 +25,6 @@
     return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
   }
   GenericValue billingAccount=null;
-  BigDecimal billingAccountBalance=null;
   BigDecimal billingAccountAvail=null;
   BigDecimal billingAccountCaptureAmount=ZERO;
   Map billingAccountInfo=null;
@@ -39,14 +38,13 @@
   }
   if (billingAccountInfo != null) {
     billingAccount=(GenericValue)billingAccountInfo.get("billingAccount");
-    Double billingAccountBalanceD=(Double)billingAccountInfo.get("netAccountBalance");
-    billingAccountBalance=new BigDecimal(billingAccountBalanceD.doubleValue());
+    Double availableToCapture=(Double)billingAccountInfo.get("availableToCapture");
+    billingAccountAvail=new BigDecimal(availableToCapture.doubleValue());
   }
-  if (billingAccount != null && billingAccountBalance != null) {
+  if (billingAccount != null && billingAccountAvail != null) {
     try {
-      billingAccountAvail=BillingAccountWorker.getBillingAccountAvailableBalance(billingAccount);
       BigDecimal captureAmountBd=new BigDecimal(captureAmount.doubleValue());
-      billingAccountCaptureAmount=billingAccountAvail.min(captureAmountBd);
+      billingAccountCaptureAmount=captureAmountBd.min(billingAccountAvail);
       Debug.logInfo("billing account avail = [" + billingAccountAvail + "] capture amount = ["+ billingAccountCaptureAmount+ "]",module);
       Map tmpResult=dispatcher.runSync("captureBillingAccountPayment",UtilMisc.toMap("invoiceId",invoiceId,"billingAccountId",billingAccountId,"captureAmount",new Double(billingAccountCaptureAmount.doubleValue()),"userLogin",userLogin));
       if (ServiceUtil.isError(tmpResult)) {
@@ -63,10 +61,7 @@
         return result;
       }
     }
- catch (    GenericEntityException ex) {
-      return ServiceUtil.returnError(ex.getMessage());
-    }
-catch (    GenericServiceException ex) {
+ catch (    GenericServiceException ex) {
       return ServiceUtil.returnError(ex.getMessage());
     }
   }
