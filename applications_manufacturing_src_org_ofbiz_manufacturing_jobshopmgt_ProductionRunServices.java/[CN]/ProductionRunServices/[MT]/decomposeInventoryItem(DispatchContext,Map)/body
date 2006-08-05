@@ -8,13 +8,14 @@
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String inventoryItemId=(String)context.get("inventoryItemId");
   Double quantity=(Double)context.get("quantity");
+  List inventoryItemIds=new ArrayList();
   try {
     GenericValue inventoryItem=delegator.findByPrimaryKey("InventoryItem",UtilMisc.toMap("inventoryItemId",inventoryItemId));
     if (inventoryItem == null) {
       return ServiceUtil.returnError("Error decomposing inventory item: inventory item with id [" + inventoryItemId + "] not found.");
     }
-    Map serviceContext=UtilMisc.toMap("workEffortTypeId","PROD_ORDER_HEADER","workEffortPurposeTypeId","WEPT_PRODUCTION_RUN","currentStatusId","PRUN_CREATED");
-    serviceContext.put("workEffortName","Decompose inventory item [" + inventoryItem.getString("inventoryItemId") + "]");
+    Map serviceContext=UtilMisc.toMap("workEffortTypeId","TASK","workEffortPurposeTypeId","WEPT_PRODUCTION_RUN","currentStatusId","CAL_COMPLETED");
+    serviceContext.put("workEffortName","Decomposing product [" + inventoryItem.getString("productId") + "] inventory item ["+ inventoryItem.getString("inventoryItemId")+ "]");
     serviceContext.put("facilityId",inventoryItem.getString("facilityId"));
     serviceContext.put("estimatedStartDate",now);
     serviceContext.put("userLogin",userLogin);
@@ -61,6 +62,8 @@
       serviceContext=UtilMisc.toMap("productId",((GenericValue)component.get("product")).getString("productId"),"quantity",component.get("quantity"),"facilityId",inventoryItem.getString("facilityId"),"unitCost",componentInventoryItemCost,"userLogin",userLogin);
       serviceContext.put("workEffortId",workEffortId);
       resultService=dispatcher.runSync("productionRunTaskProduce",serviceContext);
+      List newInventoryItemIds=(List)resultService.get("inventoryItemIds");
+      inventoryItemIds.addAll(newInventoryItemIds);
     }
   }
  catch (  GenericEntityException e) {
@@ -71,5 +74,6 @@ catch (  GenericServiceException e) {
     Debug.logError(e,"Problem calling the createWorkEffort service",module);
     return ServiceUtil.returnError(e.getMessage());
   }
+  result.put("inventoryItemIds",inventoryItemIds);
   return result;
 }
