@@ -1,0 +1,50 @@
+{
+  if (cart.size() == 0) {
+    pos.showDialog("dialog/error/exception",UtilProperties.getMessage("OrderErrorUiLabels","OrderUnableToCreateNewShoppingList",locale));
+    return;
+  }
+  GenericDelegator delegator=this.session.getDelegator();
+  LocalDispatcher dispatcher=session.getDispatcher();
+  GenericValue userLogin=session.getUserLogin();
+  Locale locale=defaultLocale;
+  String shoppingListId=null;
+  if (!UtilValidate.isEmpty(shoppingListName)) {
+    Map serviceCtx=UtilMisc.toMap("userLogin",session.getUserLogin(),"partyId",session.getUserPartyId(),"productStoreId",productStoreId,"listName",shoppingListName);
+    serviceCtx.put("shoppingListTypeId","SLT_SPEC_PURP");
+    Map newListResult=null;
+    try {
+      newListResult=dispatcher.runSync("createShoppingList",serviceCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem while creating new ShoppingList",module);
+      pos.showDialog("dialog/error/exception",UtilProperties.getMessage("OrderErrorUiLabels","OrderUnableToCreateNewShoppingList",locale));
+      return;
+    }
+    if (ServiceUtil.isError(newListResult)) {
+      String error=ServiceUtil.getErrorMessage(newListResult);
+      Debug.logError(error,module);
+      pos.showDialog("dialog/error/exception",error);
+      return;
+    }
+    if (newListResult != null) {
+      shoppingListId=(String)newListResult.get("shoppingListId");
+    }
+ else {
+      Debug.logError("Problem while creating new ShoppingList",module);
+      pos.showDialog("dialog/error/exception",UtilProperties.getMessage("OrderErrorUiLabels","OrderUnableToCreateNewShoppingList",locale));
+      return;
+    }
+  }
+  String selectedCartItems[]=new String[cart.size()];
+  for (int i=0; i < cart.size(); i++) {
+    Integer integer=new Integer(i);
+    selectedCartItems[i]=integer.toString();
+  }
+  try {
+    ShoppingListEvents.addBulkFromCart(delegator,dispatcher,cart,userLogin,shoppingListId,selectedCartItems,true,true);
+  }
+ catch (  IllegalArgumentException e) {
+    Debug.logError(e,"Problem while creating new ShoppingList",module);
+    pos.showDialog("dialog/error/exception",UtilProperties.getMessage("OrderErrorUiLabels","OrderUnableToCreateNewShoppingList",locale));
+  }
+}
