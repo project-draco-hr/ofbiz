@@ -9,6 +9,7 @@ synchronized (ModelReader.class) {
         numAutoRelations=0;
         entityCache=FastMap.newInstance();
         List tempViewEntityList=FastList.newInstance();
+        List tempExtendEntityElementList=FastList.newInstance();
         UtilTimer utilTimer=new UtilTimer();
         Iterator rhIter=entityResourceHandlers.iterator();
         while (rhIter.hasNext()) {
@@ -38,10 +39,11 @@ synchronized (ModelReader.class) {
             do {
               boolean isEntity="entity".equals(curChild.getNodeName());
               boolean isViewEntity="view-entity".equals(curChild.getNodeName());
+              boolean isExtendEntity="extend-entity".equals(curChild.getNodeName());
               if ((isEntity || isViewEntity) && curChild.getNodeType() == Node.ELEMENT_NODE) {
                 i++;
-                Element curEntity=(Element)curChild;
-                String entityName=UtilXml.checkEmpty(curEntity.getAttribute("entity-name"));
+                Element curEntityElement=(Element)curChild;
+                String entityName=UtilXml.checkEmpty(curEntityElement.getAttribute("entity-name"));
                 Collection resourceHandlerEntityNames=(Collection)resourceHandlerEntities.get(entityResourceHandler);
                 if (resourceHandlerEntityNames == null) {
                   resourceHandlerEntityNames=FastList.newInstance();
@@ -53,16 +55,16 @@ synchronized (ModelReader.class) {
                   Debug.logWarning("WARNING: Entity " + entityName + " was found in "+ entityResourceHandler+ ", but was already defined in "+ entityResourceHandlerMap.get(entityName).toString(),module);
                 }
                 entityResourceHandlerMap.put(entityName,entityResourceHandler);
-                ModelEntity entity=null;
+                ModelEntity modelEntity=null;
                 if (isEntity) {
-                  entity=createModelEntity(curEntity,null,def);
+                  modelEntity=createModelEntity(curEntityElement,null,def);
                 }
  else {
-                  entity=createModelViewEntity(curEntity,null,def);
-                  tempViewEntityList.add(entity);
+                  modelEntity=createModelViewEntity(curEntityElement,null,def);
+                  tempViewEntityList.add(modelEntity);
                 }
-                if (entity != null) {
-                  entityCache.put(entityName,entity);
+                if (modelEntity != null) {
+                  entityCache.put(entityName,modelEntity);
                   if (isEntity) {
                     if (Debug.verboseOn())                     Debug.logVerbose("-- [Entity]: #" + i + ": "+ entityName,module);
                   }
@@ -74,6 +76,9 @@ synchronized (ModelReader.class) {
                   Debug.logWarning("-- -- ENTITYGEN ERROR:getModelEntity: Could not create " + "entity for entityName: " + entityName,module);
                 }
               }
+ else               if (isExtendEntity && curChild.getNodeType() == Node.ELEMENT_NODE) {
+                tempExtendEntityElementList.add(curChild);
+              }
             }
  while ((curChild=curChild.getNextSibling()) != null);
           }
@@ -82,12 +87,21 @@ synchronized (ModelReader.class) {
           }
           utilTimer.timerString("Finished " + entityResourceHandler.toString() + " - Total Entities: "+ i+ " FINISHED");
         }
-        for (int velInd=0; velInd < tempViewEntityList.size(); velInd++) {
-          ModelViewEntity curViewEntity=(ModelViewEntity)tempViewEntityList.get(velInd);
+        Iterator tempExtendEntityElementIter=tempExtendEntityElementList.iterator();
+        while (tempExtendEntityElementIter.hasNext()) {
+          Element extendEntityElement=(Element)tempExtendEntityElementIter.next();
+          String entityName=UtilXml.checkEmpty(extendEntityElement.getAttribute("entity-name"));
+          ModelEntity modelEntity=(ModelEntity)entityCache.get(entityName);
+          modelEntity.addExtendEntity(this,extendEntityElement);
+        }
+        Iterator tempViewEntityIter=tempViewEntityList.iterator();
+        while (tempViewEntityIter.hasNext()) {
+          ModelViewEntity curViewEntity=(ModelViewEntity)tempViewEntityIter.next();
           curViewEntity.populateFields(this);
           List memberEntities=curViewEntity.getAllModelMemberEntities();
-          for (int j=0; j < memberEntities.size(); j++) {
-            ModelViewEntity.ModelMemberEntity mve=(ModelViewEntity.ModelMemberEntity)memberEntities.get(j);
+          Iterator memberEntityIter=memberEntities.iterator();
+          while (memberEntityIter.hasNext()) {
+            ModelViewEntity.ModelMemberEntity mve=(ModelViewEntity.ModelMemberEntity)memberEntityIter.next();
             ModelEntity me=(ModelEntity)entityCache.get(mve.getEntityName());
             if (me == null)             throw new GenericEntityConfException("View " + curViewEntity.getEntityName() + " references non-existant entity: "+ mve.getEntityName());
             me.addViewEntity(curViewEntity);
