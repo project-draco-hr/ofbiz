@@ -18,21 +18,20 @@
   }
   Map processContext=new HashMap();
   GenericValue orderHeader=orh.getOrderHeader();
-  if (orderHeader != null) {
-    String visitId=orderHeader.getString("visitId");
-    GenericValue visit=null;
-    if (visitId != null) {
-      try {
-        visit=orderHeader.getDelegator().findByPrimaryKey("Visit",UtilMisc.toMap("visitId",visitId));
-      }
- catch (      GenericEntityException e) {
-        Debug.logError(e,module);
-      }
+  String visitId=orderHeader.getString("visitId");
+  GenericValue visit=null;
+  if (visitId != null) {
+    try {
+      visit=orderHeader.getDelegator().findByPrimaryKey("Visit",UtilMisc.toMap("visitId",visitId));
     }
-    if (visit != null && visit.get("clientIpAddress") != null) {
-      processContext.put("customerIpAddress",visit.getString("clientIpAddress"));
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
     }
   }
+  if (visit != null && visit.get("clientIpAddress") != null) {
+    processContext.put("customerIpAddress",visit.getString("clientIpAddress"));
+  }
+  GenericValue productStore=orderHeader.getRelatedOne("ProductStore");
   processContext.put("userLogin",userLogin);
   processContext.put("orderId",orh.getOrderId());
   processContext.put("orderItems",orh.getOrderItems());
@@ -69,15 +68,41 @@
   processContext.put("processAmount",processAmount);
   Map processorResult=null;
   try {
-    processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
+    GenericValue creditCard=(GenericValue)processContext.get("creditCard");
+    boolean tryOtherExpDates="Y".equals(productStore.getString("autoOrderCcTryExp")) && creditCard != null && UtilValidate.isNotEmpty(orderHeader.getString("autoOrderShoppingListId"));
+    if (!tryOtherExpDates || UtilValidate.isDateAfterToday(creditCard.getString("expireDate"))) {
+      processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
+    }
+    if (tryOtherExpDates && (!UtilValidate.isDateAfterToday(creditCard.getString("expireDate")) || (processorResult != null && Boolean.TRUE.equals((Boolean)processorResult.get("resultBadExpire"))))) {
+      String expireDate=creditCard.getString("expireDate");
+      int dateSlash1=expireDate.indexOf("/");
+      String month=expireDate.substring(0,dateSlash1);
+      String year=expireDate.substring(dateSlash1 + 1);
+      year=StringUtil.addToNumberString(year,2);
+      creditCard.set("expireDate",month + "/" + year);
+      processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
+      if (!ServiceUtil.isError(processorResult) && Boolean.TRUE.equals((Boolean)processorResult.get("resultBadExpire"))) {
+        year=StringUtil.addToNumberString(year,1);
+        creditCard.set("expireDate",month + "/" + year);
+        processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
+      }
+      if (!ServiceUtil.isError(processorResult) && Boolean.TRUE.equals((Boolean)processorResult.get("resultBadExpire"))) {
+        year=StringUtil.addToNumberString(year,1);
+        creditCard.set("expireDate",month + "/" + year);
+        processorResult=dispatcher.runSync(serviceName,processContext,TX_TIME,true);
+      }
+      if (!ServiceUtil.isError(processorResult) && Boolean.TRUE.equals((Boolean)processorResult.get("authResult"))) {
+        creditCard.store();
+      }
+    }
   }
- catch (  GenericServiceException gse) {
-    Debug.logError(gse,"Error occurred on: " + serviceName + " => "+ processContext,module);
-    throw new GeneralException("Problems invoking payment processor! Will retry later. Order ID is: [" + orh.getOrderId() + "",gse);
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error occurred on: " + serviceName + " => "+ processContext,module);
+    throw new GeneralException("Problems invoking payment processor! Will retry later. Order ID is: [" + orh.getOrderId() + "",e);
   }
   if (processorResult != null) {
     if (ServiceUtil.isError(processorResult)) {
-      Debug.logError("Processor failed; will retry later : " + processorResult.get(ModelService.ERROR_MESSAGE),module);
+      Debug.logError("Processor failed; will retry later: " + processorResult.get(ModelService.ERROR_MESSAGE),module);
       saveError(dispatcher,userLogin,paymentPreference,processorResult,"PRDS_PAY_AUTH","PGT_AUTHORIZE");
       return null;
     }
