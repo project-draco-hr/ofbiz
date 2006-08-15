@@ -1,0 +1,36 @@
+{
+  List returnedItemsBase=getOrderReturnItems();
+  if (returnTypeId != null) {
+    returnedItemsBase=EntityUtil.filterByAnd(returnedItemsBase,UtilMisc.toMap("returnTypeId",returnTypeId));
+  }
+  List returnedItems=new ArrayList(returnedItemsBase.size());
+  if (!includeAll) {
+    returnedItems.addAll(EntityUtil.filterByAnd(returnedItemsBase,UtilMisc.toMap("statusId","RETURN_RECEIVED")));
+    returnedItems.addAll(EntityUtil.filterByAnd(returnedItemsBase,UtilMisc.toMap("statusId","RETURN_COMPLETED")));
+  }
+ else {
+    returnedItems.addAll(EntityUtil.filterByAnd(returnedItemsBase,UtilMisc.toList(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"RETURN_CANCELLED"))));
+  }
+  BigDecimal returnedAmount=ZERO;
+  Iterator i=returnedItems.iterator();
+  String orderId=orderHeader.getString("orderId");
+  List returnHeaderList=new ArrayList();
+  while (i.hasNext()) {
+    GenericValue returnedItem=(GenericValue)i.next();
+    if ((returnedItem.get("returnPrice") != null) && (returnedItem.get("returnQuantity") != null)) {
+      returnedAmount=returnedAmount.add(returnedItem.getBigDecimal("returnPrice").multiply(returnedItem.getBigDecimal("returnQuantity"))).setScale(scale,rounding);
+    }
+    Map itemAdjustmentCondition=UtilMisc.toMap("returnId",returnedItem.get("returnId"),"returnItemSeqId",returnedItem.get("returnItemSeqId"));
+    returnedAmount=returnedAmount.add(getReturnAdjustmentTotalBd(orderHeader.getDelegator(),itemAdjustmentCondition));
+    if (orderId.equals(returnedItem.getString("orderId")) && (!returnHeaderList.contains(returnedItem.getString("returnId")))) {
+      returnHeaderList.add(returnedItem.getString("returnId"));
+    }
+  }
+  Iterator returnHeaderIterator=returnHeaderList.iterator();
+  while (returnHeaderIterator.hasNext()) {
+    String returnId=(String)returnHeaderIterator.next();
+    Map returnHeaderAdjFilter=UtilMisc.toMap("returnId",returnId,"returnItemSeqId","_NA_");
+    returnedAmount=returnedAmount.add(getReturnAdjustmentTotalBd(orderHeader.getDelegator(),returnHeaderAdjFilter)).setScale(scale,rounding);
+  }
+  return returnedAmount.setScale(scale,rounding);
+}
