@@ -4,6 +4,7 @@
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
   Map paramMap=UtilHttp.getParameterMap(request);
   Boolean offlinePayments;
+  String shipGroupIndexPar=null;
   String shippingContactMechId=null;
   String shippingMethod=null;
   String shippingInstructions=null;
@@ -71,6 +72,16 @@
   if (userLogin != null && "anonymous".equals(userLogin.getString("userLoginId"))) {
     isAnonymousCheckout=true;
   }
+  shipGroupIndexPar=request.getParameter("shipGroupIndex");
+  int shipGroupIndex=0;
+  if (shipGroupIndexPar != null) {
+    try {
+      shipGroupIndex=Integer.parseInt(shipGroupIndexPar);
+    }
+ catch (    Exception exc) {
+      Debug.logWarning("Unable to parse shipGroupIndex [" + shipGroupIndexPar + "]: "+ exc.getMessage(),module);
+    }
+  }
   shippingContactMechId=request.getParameter("shipping_contact_mech_id");
   if (shippingContactMechId == null) {
     shippingContactMechId=(String)request.getAttribute("contactMechId");
@@ -121,7 +132,7 @@
   if (mode != null && mode.equals("payment")) {
     checkOutHelper.setCheckOutPayment(selectedPaymentMethods,null,billingAccountId,billingAccountAmt);
   }
-  Map callResult=checkOutHelper.finalizeOrderEntry(mode,shippingContactMechId,shippingMethod,shippingInstructions,maySplit,giftMessage,isGift,methodType,checkOutPaymentId,isSingleUsePayment,doAppendPayment,paramMap,internalCode,shipBeforeDate,shipAfterDate);
+  Map callResult=checkOutHelper.finalizeOrderEntry(mode,shipGroupIndex,shippingContactMechId,shippingMethod,shippingInstructions,maySplit,giftMessage,isGift,methodType,checkOutPaymentId,isSingleUsePayment,doAppendPayment,paramMap,internalCode,shipBeforeDate,shipAfterDate);
   ServiceUtil.getMessages(request,callResult,null);
   if (callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
     return "error";
@@ -150,9 +161,9 @@
     }
     requireAdditionalParty=requireAdditionalPartyStr == null || requireAdditionalPartyStr.equalsIgnoreCase("true");
   }
-  String shipContactMechId=cart.getShippingContactMechId();
   String customerPartyId=cart.getPartyId();
-  String shipmentMethodTypeId=cart.getShipmentMethodTypeId();
+  String shipContactMechId=cart.getShippingContactMechId(shipGroupIndex);
+  String shipmentMethodTypeId=cart.getShipmentMethodTypeId(shipGroupIndex);
   List paymentMethodIds=cart.getPaymentMethodIds();
   List paymentMethodTypeIds=cart.getPaymentMethodTypeIds();
   if (requireCustomer && (customerPartyId == null || customerPartyId.equals("_NA_"))) {
