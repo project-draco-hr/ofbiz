@@ -1,0 +1,26 @@
+{
+  Map paymentMethodAmounts=new HashMap();
+  List paymentPrefs=getPaymentPreferences();
+  Iterator ppit=paymentPrefs.iterator();
+  while (ppit.hasNext()) {
+    GenericValue paymentPref=(GenericValue)ppit.next();
+    List returnItemResponses=new ArrayList();
+    try {
+      returnItemResponses=orderHeader.getDelegator().findByAnd("ReturnItemResponse",UtilMisc.toMap("orderPaymentPreferenceId",paymentPref.getString("orderPaymentPreferenceId")));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    BigDecimal refundedToPaymentPref=ZERO;
+    Iterator ririt=returnItemResponses.iterator();
+    while (ririt.hasNext()) {
+      GenericValue returnItemResponse=(GenericValue)ririt.next();
+      refundedToPaymentPref=refundedToPaymentPref.add(returnItemResponse.getBigDecimal("responseAmount")).setScale(scale + 1,rounding);
+    }
+    if (refundedToPaymentPref.compareTo(ZERO) == 1) {
+      String paymentMethodId=paymentPref.getString("paymentMethodId") != null ? paymentPref.getString("paymentMethodId") : paymentPref.getString("paymentMethodTypeId");
+      paymentMethodAmounts.put(paymentMethodId,new Double(refundedToPaymentPref.setScale(scale,rounding).doubleValue()));
+    }
+  }
+  return paymentMethodAmounts;
+}
