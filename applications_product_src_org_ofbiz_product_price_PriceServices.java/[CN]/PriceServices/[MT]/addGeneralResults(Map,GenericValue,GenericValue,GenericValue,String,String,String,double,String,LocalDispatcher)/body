@@ -1,0 +1,31 @@
+{
+  result.put("competitivePrice",competitivePriceValue != null ? competitivePriceValue.getDouble("price") : null);
+  result.put("specialPromoPrice",specialPromoPriceValue != null ? specialPromoPriceValue.getDouble("price") : null);
+  result.put("currencyUsed",currencyUomId);
+  if ("Y".equals(checkIncludeVat) && productStore != null && "Y".equals(productStore.getString("showPricesWithVatTax"))) {
+    Map calcTaxForDisplayContext=UtilMisc.toMap("productStoreId",productStore.get("productStoreId"),"productId",productId,"quantity",new BigDecimal(quantity),"basePrice",new BigDecimal(((Double)result.get("price")).doubleValue()));
+    if (UtilValidate.isNotEmpty(partyId)) {
+      calcTaxForDisplayContext.put("billToPartyId",partyId);
+    }
+    try {
+      Map calcTaxForDisplayResult=dispatcher.runSync("calcTaxForDisplay",calcTaxForDisplayContext);
+      if (ServiceUtil.isError(calcTaxForDisplayResult)) {
+        return ServiceUtil.returnError("Error calculating VAT tax (with calcTaxForDisplay service)",null,null,calcTaxForDisplayResult);
+      }
+      result.put("price",new Double(((BigDecimal)calcTaxForDisplayResult.get("priceWithTax")).doubleValue()));
+      BigDecimal taxPercentage=(BigDecimal)calcTaxForDisplayResult.get("taxPercentage");
+      BigDecimal taxMultiplier=ONE_BASE.add(taxPercentage.divide(PERCENT_SCALE,3));
+      if (result.get("listPrice") != null)       result.put("listPrice",new Double((new BigDecimal(((Double)result.get("listPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("defaultPrice") != null)       result.put("defaultPrice",new Double((new BigDecimal(((Double)result.get("defaultPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("averageCost") != null)       result.put("averageCost",new Double((new BigDecimal(((Double)result.get("averageCost")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("promoPrice") != null)       result.put("promoPrice",new Double((new BigDecimal(((Double)result.get("promoPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+      if (result.get("competitivePrice") != null)       result.put("competitivePrice",new Double((new BigDecimal(((Double)result.get("competitivePrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error calculating VAT tax (with calcTaxForDisplay service): " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  return null;
+}

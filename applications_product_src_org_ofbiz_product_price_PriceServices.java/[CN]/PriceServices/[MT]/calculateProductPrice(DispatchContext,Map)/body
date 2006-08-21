@@ -4,13 +4,13 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Map result=new HashMap();
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
-  boolean isSale=false;
-  List orderItemPriceInfos=new LinkedList();
   GenericValue product=(GenericValue)context.get("product");
   String productId=product.getString("productId");
   String prodCatalogId=(String)context.get("prodCatalogId");
   String webSiteId=(String)context.get("webSiteId");
   String checkIncludeVat=(String)context.get("checkIncludeVat");
+  String findAllQuantityPricesStr=(String)context.get("findAllQuantityPrices");
+  boolean findAllQuantityPrices="Y".equals(findAllQuantityPricesStr);
   String agreementId=(String)context.get("agreementId");
   String productStoreId=(String)context.get("productStoreId");
   String productStoreGroupId=(String)context.get("productStoreGroupId");
@@ -361,360 +361,71 @@
     result.put("averageCost",averageCostValue != null ? averageCostValue.getDouble("price") : null);
     result.put("promoPrice",promoPriceValue != null ? promoPriceValue.getDouble("price") : null);
     result.put("specialPromoPrice",specialPromoPriceValue != null ? specialPromoPriceValue.getDouble("price") : null);
+    result.put("validPriceFound",new Boolean(validPriceFound));
+    result.put("isSale",new Boolean(false));
+    result.put("orderItemPriceInfos",FastList.newInstance());
+    Map errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+    if (errorResult != null)     return errorResult;
   }
  else {
     try {
-      double listPrice=listPriceDbl.doubleValue();
-      double averageCost=(averageCostValue != null && averageCostValue.get("price") != null) ? averageCostValue.getDouble("price").doubleValue() : listPrice;
-      double margin=listPrice - averageCost;
-      double price=listPrice;
-      Collection productPriceRules=null;
-      if (optimizeForLargeRuleSet) {
-        TreeSet productPriceRuleIds=new TreeSet();
-        Collection productCategoryIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PROD_CAT_ID"));
-        if (productCategoryIdConds != null && productCategoryIdConds.size() > 0) {
-          Iterator productCategoryIdCondsIter=productCategoryIdConds.iterator();
-          while (productCategoryIdCondsIter.hasNext()) {
-            GenericValue productCategoryIdCond=(GenericValue)productCategoryIdCondsIter.next();
-            productPriceRuleIds.add(productCategoryIdCond.getString("productPriceRuleId"));
-          }
-        }
-        Collection quantityConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_QUANTITY"));
-        if (quantityConds != null && quantityConds.size() > 0) {
-          Iterator quantityCondsIter=quantityConds.iterator();
-          while (quantityCondsIter.hasNext()) {
-            GenericValue quantityCond=(GenericValue)quantityCondsIter.next();
-            productPriceRuleIds.add(quantityCond.getString("productPriceRuleId"));
-          }
-        }
-        Collection roleTypeIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_ROLE_TYPE"));
-        if (roleTypeIdConds != null && roleTypeIdConds.size() > 0) {
-          Iterator roleTypeIdCondsIter=roleTypeIdConds.iterator();
-          while (roleTypeIdCondsIter.hasNext()) {
-            GenericValue roleTypeIdCond=(GenericValue)roleTypeIdCondsIter.next();
-            productPriceRuleIds.add(roleTypeIdCond.getString("productPriceRuleId"));
-          }
-        }
-        Collection listPriceConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_LIST_PRICE"));
-        if (listPriceConds != null && listPriceConds.size() > 0) {
-          Iterator listPriceCondsIter=listPriceConds.iterator();
-          while (listPriceCondsIter.hasNext()) {
-            GenericValue listPriceCond=(GenericValue)listPriceCondsIter.next();
-            productPriceRuleIds.add(listPriceCond.getString("productPriceRuleId"));
-          }
-        }
-        Collection productIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PRODUCT_ID","condValue",productId));
-        if (productIdConds != null && productIdConds.size() > 0) {
-          Iterator productIdCondsIter=productIdConds.iterator();
-          while (productIdCondsIter.hasNext()) {
-            GenericValue productIdCond=(GenericValue)productIdCondsIter.next();
-            productPriceRuleIds.add(productIdCond.getString("productPriceRuleId"));
-          }
-        }
-        if (virtualProductId != null) {
-          Collection virtualProductIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PRODUCT_ID","condValue",virtualProductId));
-          if (virtualProductIdConds != null && virtualProductIdConds.size() > 0) {
-            Iterator virtualProductIdCondsIter=virtualProductIdConds.iterator();
-            while (virtualProductIdCondsIter.hasNext()) {
-              GenericValue virtualProductIdCond=(GenericValue)virtualProductIdCondsIter.next();
-              productPriceRuleIds.add(virtualProductIdCond.getString("productPriceRuleId"));
-            }
-          }
-        }
-        if (UtilValidate.isNotEmpty(prodCatalogId)) {
-          Collection prodCatalogIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PROD_CLG_ID","condValue",prodCatalogId));
-          if (prodCatalogIdConds != null && prodCatalogIdConds.size() > 0) {
-            Iterator prodCatalogIdCondsIter=prodCatalogIdConds.iterator();
-            while (prodCatalogIdCondsIter.hasNext()) {
-              GenericValue prodCatalogIdCond=(GenericValue)prodCatalogIdCondsIter.next();
-              productPriceRuleIds.add(prodCatalogIdCond.getString("productPriceRuleId"));
-            }
-          }
-        }
-        if (UtilValidate.isNotEmpty(productStoreGroupId)) {
-          Collection storeGroupConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PROD_SGRP_ID","condValue",productStoreGroupId));
-          if (storeGroupConds != null && storeGroupConds.size() > 0) {
-            Iterator storeGroupCondsIter=storeGroupConds.iterator();
-            while (storeGroupCondsIter.hasNext()) {
-              GenericValue storeGroupCond=(GenericValue)storeGroupCondsIter.next();
-              productPriceRuleIds.add(storeGroupCond.getString("productPriceRuleId"));
-            }
-          }
-        }
-        if (UtilValidate.isNotEmpty(webSiteId)) {
-          Collection webSiteIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_WEBSITE_ID","condValue",webSiteId));
-          if (webSiteIdConds != null && webSiteIdConds.size() > 0) {
-            Iterator webSiteIdCondsIter=webSiteIdConds.iterator();
-            while (webSiteIdCondsIter.hasNext()) {
-              GenericValue webSiteIdCond=(GenericValue)webSiteIdCondsIter.next();
-              productPriceRuleIds.add(webSiteIdCond.getString("productPriceRuleId"));
-            }
-          }
-        }
-        if (UtilValidate.isNotEmpty(partyId)) {
-          Collection partyIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_PARTY_ID","condValue",partyId));
-          if (partyIdConds != null && partyIdConds.size() > 0) {
-            Iterator partyIdCondsIter=partyIdConds.iterator();
-            while (partyIdCondsIter.hasNext()) {
-              GenericValue partyIdCond=(GenericValue)partyIdCondsIter.next();
-              productPriceRuleIds.add(partyIdCond.getString("productPriceRuleId"));
-            }
-          }
-        }
-        Collection currencyUomIdConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("inputParamEnumId","PRIP_CURRENCY_UOMID","condValue",currencyUomId));
-        if (currencyUomIdConds != null && currencyUomIdConds.size() > 0) {
-          Iterator currencyUomIdCondsIter=currencyUomIdConds.iterator();
-          while (currencyUomIdCondsIter.hasNext()) {
-            GenericValue currencyUomIdCond=(GenericValue)currencyUomIdCondsIter.next();
-            productPriceRuleIds.add(currencyUomIdCond.getString("productPriceRuleId"));
-          }
-        }
-        productPriceRules=new LinkedList();
-        Iterator productPriceRuleIdsIter=productPriceRuleIds.iterator();
-        while (productPriceRuleIdsIter.hasNext()) {
-          String productPriceRuleId=(String)productPriceRuleIdsIter.next();
-          GenericValue productPriceRule=delegator.findByPrimaryKeyCache("ProductPriceRule",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
-          if (productPriceRule == null)           continue;
-          productPriceRules.add(productPriceRule);
-        }
-      }
- else {
-        productPriceRules=delegator.findAllCache("ProductPriceRule");
-        if (productPriceRules == null)         productPriceRules=new LinkedList();
-      }
-      int totalConds=0;
-      int totalActions=0;
-      int totalRules=0;
-      Iterator productPriceRulesIter=productPriceRules.iterator();
-      while (productPriceRulesIter.hasNext()) {
-        GenericValue productPriceRule=(GenericValue)productPriceRulesIter.next();
-        String productPriceRuleId=productPriceRule.getString("productPriceRuleId");
-        java.sql.Timestamp fromDate=productPriceRule.getTimestamp("fromDate");
-        java.sql.Timestamp thruDate=productPriceRule.getTimestamp("thruDate");
-        if (fromDate != null && fromDate.after(nowTimestamp)) {
-          continue;
-        }
-        if (thruDate != null && thruDate.before(nowTimestamp)) {
-          continue;
-        }
-        boolean allTrue=true;
-        StringBuffer condsDescription=new StringBuffer();
-        Collection productPriceConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
-        Iterator productPriceCondsIter=UtilMisc.toIterator(productPriceConds);
-        while (productPriceCondsIter != null && productPriceCondsIter.hasNext()) {
-          GenericValue productPriceCond=(GenericValue)productPriceCondsIter.next();
-          totalConds++;
-          if (!checkPriceCondition(productPriceCond,productId,prodCatalogId,productStoreGroupId,webSiteId,partyId,new Double(quantity),listPrice,currencyUomId,delegator)) {
-            if (virtualProductId != null) {
-              if (!checkPriceCondition(productPriceCond,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,new Double(quantity),listPrice,currencyUomId,delegator)) {
-                allTrue=false;
-                break;
-              }
-            }
- else {
-              allTrue=false;
+      List allProductPriceRules=makeProducePriceRuleList(delegator,optimizeForLargeRuleSet,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,currencyUomId);
+      List quantityProductPriceRules=null;
+      List nonQuantityProductPriceRules=null;
+      if (findAllQuantityPrices) {
+        quantityProductPriceRules=FastList.newInstance();
+        nonQuantityProductPriceRules=FastList.newInstance();
+        Iterator productPriceRulesIter=allProductPriceRules.iterator();
+        while (productPriceRulesIter.hasNext()) {
+          GenericValue productPriceRule=(GenericValue)productPriceRulesIter.next();
+          List productPriceCondList=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("productPriceRuleId",productPriceRule.get("productPriceRuleId")));
+          boolean foundQuantityInputParam=false;
+          Iterator productPriceCondIter=productPriceCondList.iterator();
+          while (productPriceCondIter.hasNext()) {
+            GenericValue productPriceCond=(GenericValue)productPriceCondIter.next();
+            if ("PRIP_QUANTITY".equals(productPriceCond.getString("inputParamEnumId"))) {
+              foundQuantityInputParam=true;
               break;
             }
           }
-          condsDescription.append("[");
-          GenericValue inputParamEnum=productPriceCond.getRelatedOneCache("InputParamEnumeration");
-          condsDescription.append(inputParamEnum.getString("enumCode"));
-          GenericValue operatorEnum=productPriceCond.getRelatedOneCache("OperatorEnumeration");
-          condsDescription.append(operatorEnum.getString("description"));
-          condsDescription.append(productPriceCond.getString("condValue"));
-          condsDescription.append("] ");
-        }
-        condsDescription.append("[list:");
-        condsDescription.append(listPrice);
-        condsDescription.append(";avgCost:");
-        condsDescription.append(averageCost);
-        condsDescription.append(";margin:");
-        condsDescription.append(margin);
-        condsDescription.append("] ");
-        boolean foundFlatOverride=false;
-        if (allTrue) {
-          if ("Y".equals(productPriceRule.getString("isSale"))) {
-            isSale=true;
+          if (foundQuantityInputParam) {
+            quantityProductPriceRules.add(productPriceRule);
           }
-          Collection productPriceActions=delegator.findByAndCache("ProductPriceAction",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
-          Iterator productPriceActionsIter=UtilMisc.toIterator(productPriceActions);
-          while (productPriceActionsIter != null && productPriceActionsIter.hasNext()) {
-            GenericValue productPriceAction=(GenericValue)productPriceActionsIter.next();
-            totalActions++;
-            double modifyAmount=0;
-            if ("PRICE_POD".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              if (productPriceAction.get("amount") != null) {
-                modifyAmount=defaultPrice * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
-              }
-            }
- else             if ("PRICE_POL".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              if (productPriceAction.get("amount") != null) {
-                modifyAmount=listPrice * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
-              }
-            }
- else             if ("PRICE_POAC".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              if (productPriceAction.get("amount") != null) {
-                modifyAmount=averageCost * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
-              }
-            }
- else             if ("PRICE_POM".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              if (productPriceAction.get("amount") != null) {
-                modifyAmount=margin * (productPriceAction.getDouble("amount").doubleValue() / 100.0);
-              }
-            }
- else             if ("PRICE_FOL".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              if (productPriceAction.get("amount") != null) {
-                modifyAmount=productPriceAction.getDouble("amount").doubleValue();
-              }
-            }
- else             if ("PRICE_FLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              foundFlatOverride=true;
-              if (productPriceAction.get("amount") != null) {
-                price=productPriceAction.getDouble("amount").doubleValue();
-              }
  else {
-                Debug.logInfo("ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
-                price=defaultPrice;
-                isSale=false;
-              }
-            }
- else             if ("PRICE_PFLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              foundFlatOverride=true;
-              price=promoPrice;
-              if (productPriceAction.get("amount") != null) {
-                price+=productPriceAction.getDouble("amount").doubleValue();
-              }
-              if (price == 0.00) {
-                if (defaultPrice != 0.00) {
-                  Debug.logInfo("PromoPrice and ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
-                  price=defaultPrice;
-                }
- else                 if (listPrice != 0.00) {
-                  Debug.logInfo("PromoPrice and ProductPriceAction had null amount and no default price was available, using list price: " + listPrice + " for product with id "+ productId,module);
-                  price=listPrice;
-                }
- else {
-                  Debug.logError("PromoPrice and ProductPriceAction had null amount and no default or list price was available, so price is set to zero for product with id " + productId,module);
-                  price=0.00;
-                }
-                isSale=false;
-              }
-            }
- else             if ("PRICE_WFLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
-              foundFlatOverride=true;
-              price=wholesalePrice;
-              if (productPriceAction.get("amount") != null) {
-                price+=productPriceAction.getDouble("amount").doubleValue();
-              }
-              if (price == 0.00) {
-                if (defaultPrice != 0.00) {
-                  Debug.logInfo("WholesalePrice and ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
-                  price=defaultPrice;
-                }
- else                 if (listPrice != 0.00) {
-                  Debug.logInfo("WholesalePrice and ProductPriceAction had null amount and no default price was available, using list price: " + listPrice + " for product with id "+ productId,module);
-                  price=listPrice;
-                }
- else {
-                  Debug.logError("WholesalePrice and ProductPriceAction had null amount and no default or list price was available, so price is set to zero for product with id " + productId,module);
-                  price=0.00;
-                }
-                isSale=false;
-              }
-            }
-            StringBuffer priceInfoDescription=new StringBuffer();
-            priceInfoDescription.append(condsDescription.toString());
-            priceInfoDescription.append("[type:");
-            priceInfoDescription.append(productPriceAction.getString("productPriceActionTypeId"));
-            priceInfoDescription.append("]");
-            GenericValue orderItemPriceInfo=delegator.makeValue("OrderItemPriceInfo",null);
-            orderItemPriceInfo.set("productPriceRuleId",productPriceAction.get("productPriceRuleId"));
-            orderItemPriceInfo.set("productPriceActionSeqId",productPriceAction.get("productPriceActionSeqId"));
-            orderItemPriceInfo.set("modifyAmount",new Double(modifyAmount));
-            String priceInfoDescriptionString=priceInfoDescription.toString();
-            if (priceInfoDescriptionString.length() > 250) {
-              priceInfoDescriptionString=priceInfoDescriptionString.substring(0,250);
-            }
-            orderItemPriceInfo.set("description",priceInfoDescriptionString);
-            orderItemPriceInfos.add(orderItemPriceInfo);
-            if (foundFlatOverride) {
-              break;
-            }
- else {
-              price+=modifyAmount;
-            }
+            nonQuantityProductPriceRules.add(productPriceRule);
           }
         }
-        totalRules++;
-        if (foundFlatOverride) {
-          break;
-        }
       }
-      if (Debug.verboseOn()) {
-        Debug.logVerbose("Unchecked Calculated price: " + price,module);
-        Debug.logVerbose("PriceInfo:",module);
-        Iterator orderItemPriceInfosIter=orderItemPriceInfos.iterator();
-        while (orderItemPriceInfosIter.hasNext()) {
-          GenericValue orderItemPriceInfo=(GenericValue)orderItemPriceInfosIter.next();
-          Debug.logVerbose(" --- " + orderItemPriceInfo.toString(),module);
+      if (findAllQuantityPrices) {
+        List allQuantityPrices=FastList.newInstance();
+        Iterator quantityProductPriceRuleIter=quantityProductPriceRules.iterator();
+        while (quantityProductPriceRuleIter.hasNext()) {
+          GenericValue quantityProductPriceRule=(GenericValue)quantityProductPriceRuleIter.next();
+          List ruleListToUse=FastList.newInstance();
+          ruleListToUse.add(quantityProductPriceRule);
+          ruleListToUse.addAll(nonQuantityProductPriceRules);
+          Map quantCalcResults=calcPriceResultFromRules(ruleListToUse,listPriceDbl.doubleValue(),defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,null,currencyUomId,delegator,nowTimestamp);
+          Map quantErrorResult=addGeneralResults(quantCalcResults,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+          if (quantErrorResult != null)           return quantErrorResult;
+          quantCalcResults.put("quantityProductPriceRule",quantityProductPriceRule);
+          allQuantityPrices.add(quantCalcResults);
         }
-      }
-      if (totalActions == 0) {
-        price=defaultPrice;
+        result.put("allQuantityPrices",allQuantityPrices);
+        Map calcResults=calcPriceResultFromRules(allProductPriceRules,listPriceDbl.doubleValue(),defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,new Double(1.0),currencyUomId,delegator,nowTimestamp);
+        result.putAll(calcResults);
+        Map errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+        if (errorResult != null)         return errorResult;
       }
  else {
-        validPriceFound=true;
+        Map calcResults=calcPriceResultFromRules(allProductPriceRules,listPriceDbl.doubleValue(),defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,new Double(quantity),currencyUomId,delegator,nowTimestamp);
+        result.putAll(calcResults);
+        Map errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+        if (errorResult != null)         return errorResult;
       }
-      Double maxSellPrice=maximumPriceValue != null ? maximumPriceValue.getDouble("price") : null;
-      if (maxSellPrice != null && price > maxSellPrice.doubleValue()) {
-        price=maxSellPrice.doubleValue();
-      }
-      Double minSellPrice=minimumPriceValue != null ? minimumPriceValue.getDouble("price") : null;
-      if (minSellPrice != null && price < minSellPrice.doubleValue()) {
-        price=minSellPrice.doubleValue();
-        validPriceFound=true;
-      }
-      if (Debug.verboseOn())       Debug.logVerbose("Final Calculated price: " + price + ", rules: "+ totalRules+ ", conds: "+ totalConds+ ", actions: "+ totalActions,module);
-      result.put("basePrice",new Double(price));
-      result.put("price",new Double(price));
-      result.put("listPrice",new Double(listPrice));
-      result.put("defaultPrice",new Double(defaultPrice));
-      result.put("averageCost",new Double(averageCost));
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Error getting rules from the database while calculating price",module);
       return ServiceUtil.returnError("Error getting rules from the database while calculating price: " + e.toString());
-    }
-  }
-  result.put("competitivePrice",competitivePriceValue != null ? competitivePriceValue.getDouble("price") : null);
-  result.put("specialPromoPrice",specialPromoPriceValue != null ? specialPromoPriceValue.getDouble("price") : null);
-  result.put("orderItemPriceInfos",orderItemPriceInfos);
-  result.put("isSale",new Boolean(isSale));
-  result.put("validPriceFound",new Boolean(validPriceFound));
-  result.put("currencyUsed",currencyUomId);
-  if ("Y".equals(checkIncludeVat) && productStore != null && "Y".equals(productStore.getString("showPricesWithVatTax"))) {
-    Map calcTaxForDisplayContext=UtilMisc.toMap("productStoreId",productStoreId,"productId",productId,"quantity",new BigDecimal(quantity),"basePrice",new BigDecimal(((Double)result.get("price")).doubleValue()));
-    if (UtilValidate.isNotEmpty(partyId)) {
-      calcTaxForDisplayContext.put("billToPartyId",partyId);
-    }
-    try {
-      Map calcTaxForDisplayResult=dispatcher.runSync("calcTaxForDisplay",calcTaxForDisplayContext);
-      if (ServiceUtil.isError(calcTaxForDisplayResult)) {
-        return ServiceUtil.returnError("Error calculating VAT tax (with calcTaxForDisplay service)",null,null,calcTaxForDisplayResult);
-      }
-      result.put("price",new Double(((BigDecimal)calcTaxForDisplayResult.get("priceWithTax")).doubleValue()));
-      BigDecimal taxPercentage=(BigDecimal)calcTaxForDisplayResult.get("taxPercentage");
-      BigDecimal taxMultiplier=ONE_BASE.add(taxPercentage.divide(PERCENT_SCALE,3));
-      if (result.get("listPrice") != null)       result.put("listPrice",new Double((new BigDecimal(((Double)result.get("listPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
-      if (result.get("defaultPrice") != null)       result.put("defaultPrice",new Double((new BigDecimal(((Double)result.get("defaultPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
-      if (result.get("averageCost") != null)       result.put("averageCost",new Double((new BigDecimal(((Double)result.get("averageCost")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
-      if (result.get("promoPrice") != null)       result.put("promoPrice",new Double((new BigDecimal(((Double)result.get("promoPrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
-      if (result.get("competitivePrice") != null)       result.put("competitivePrice",new Double((new BigDecimal(((Double)result.get("competitivePrice")).doubleValue())).multiply(taxMultiplier).setScale(2,BigDecimal.ROUND_HALF_UP).doubleValue()));
-    }
- catch (    GenericServiceException e) {
-      String errMsg="Error calculating VAT tax (with calcTaxForDisplay service): " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
     }
   }
   return result;
