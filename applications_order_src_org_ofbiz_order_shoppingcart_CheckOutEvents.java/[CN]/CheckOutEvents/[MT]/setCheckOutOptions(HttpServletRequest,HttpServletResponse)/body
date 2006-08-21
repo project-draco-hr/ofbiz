@@ -23,6 +23,8 @@
   String shipBeforeDate=request.getParameter("shipBeforeDate");
   String shipAfterDate=request.getParameter("shipAfterDate");
   List singleUsePayments=new ArrayList();
+  Map params=UtilHttp.getParameterMap(request);
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
   if (UtilValidate.isNotEmpty(taxAuthPartyGeoIds)) {
     try {
       Map createCustomerTaxAuthInfoResult=dispatcher.runSync("createCustomerTaxAuthInfo",UtilMisc.toMap("partyId",cart.getPartyId(),"taxAuthPartyGeoIds",taxAuthPartyGeoIds,"partyTaxId",partyTaxId,"isExempt",isExempt));
@@ -38,22 +40,13 @@
     }
   }
   String billingAccountId=request.getParameter("billingAccountId");
-  String billingAcctAmtStr=request.getParameter("amount_" + billingAccountId);
-  Double billingAccountAmt=null;
-  if (billingAcctAmtStr != null) {
-    try {
-      billingAccountAmt=new Double(formatter.parse(billingAcctAmtStr).doubleValue());
-    }
- catch (    ParseException e) {
-      Debug.logError(e,module);
-      Map messageMap=UtilMisc.toMap("billingAccountId",billingAccountId);
-      String errMsg=UtilProperties.getMessage(resource,"checkevents.invalid_amount_set_for_billing_account",messageMap,(cart != null ? cart.getLocale() : Locale.getDefault()));
-      request.setAttribute("_ERROR_MESSAGE_",errMsg);
-      return "error";
-    }
+  Double billingAccountAmt=determineBillingAccountAmount(request,checkOutHelper,formatter);
+  if ((billingAccountId != null) && !"_NA_".equals(billingAccountId) && (billingAccountAmt == null)) {
+    Map messageMap=UtilMisc.toMap("billingAccountId",billingAccountId);
+    String errMsg=UtilProperties.getMessage(resource,"checkevents.invalid_amount_set_for_billing_account",messageMap,(cart != null ? cart.getLocale() : Locale.getDefault()));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
   }
-  Map params=UtilHttp.getParameterMap(request);
-  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
   Map gcResult=checkOutHelper.checkGiftCard(params,selectedPaymentMethods);
   ServiceUtil.getMessages(request,gcResult,null);
   if (ServiceUtil.isError(gcResult)) {
