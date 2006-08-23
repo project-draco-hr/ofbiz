@@ -1,0 +1,66 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  Double refundAmount=(Double)context.get("refundAmount");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=paymentPref.getRelatedOne("OrderHeader");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get OrderHeader from OrderPaymentPreference",module);
+    return ServiceUtil.returnError("Problems getting OrderHeader from OrderPaymentPreference: " + e.toString());
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  String payFromPartyId=orh.getBillFromParty().getString("partyId");
+  String payToPartyId=orh.getBillToParty().getString("partyId");
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue response=delegator.makeValue("PaymentGatewayResponse",null);
+  response.set("paymentGatewayResponseId",responseId);
+  response.set("paymentServiceTypeEnumId","PRDS_PAY_REFUND");
+  response.set("orderPaymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+  response.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+  response.set("transCodeEnumId","PGT_REFUND");
+  response.set("amount",refundAmount);
+  response.set("transactionDate",UtilDateTime.nowTimestamp());
+  response.set("currencyUomId",orh.getCurrency());
+  try {
+    delegator.create(response);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to create PaymentGatewayResponse record");
+  }
+  Map paymentCtx=UtilMisc.toMap("paymentTypeId","CUSTOMER_REFUND");
+  paymentCtx.put("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+  paymentCtx.put("paymentGatewayResponseId",responseId);
+  paymentCtx.put("partyIdTo",payToPartyId);
+  paymentCtx.put("partyIdFrom",payFromPartyId);
+  paymentCtx.put("statusId","PMNT_CONFIRMED");
+  paymentCtx.put("paymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+  paymentCtx.put("currencyUomId",orh.getCurrency());
+  paymentCtx.put("amount",refundAmount);
+  paymentCtx.put("userLogin",userLogin);
+  paymentCtx.put("comments","Refund");
+  String paymentId=null;
+  try {
+    Map paymentCreationResult=dispatcher.runSync("createPayment",paymentCtx);
+    if (ModelService.RESPOND_ERROR.equals(paymentCreationResult.get(ModelService.RESPONSE_MESSAGE))) {
+      return ServiceUtil.returnError((String)paymentCreationResult.get(ModelService.ERROR_MESSAGE));
+    }
+ else {
+      paymentId=(String)paymentCreationResult.get("paymentId");
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem creating Payment",module);
+    return ServiceUtil.returnError("Problem creating Payment");
+  }
+  if (paymentId == null) {
+    return ServiceUtil.returnError("Create payment failed");
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("paymentId",paymentId);
+  return result;
+}
