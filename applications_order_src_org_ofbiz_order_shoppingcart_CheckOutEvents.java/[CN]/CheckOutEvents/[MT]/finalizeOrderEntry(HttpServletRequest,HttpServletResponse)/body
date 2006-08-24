@@ -70,10 +70,6 @@
   if (mode != null && mode.equals("term")) {
     cart.setOrderTermSet(true);
   }
-  boolean isAnonymousCheckout=false;
-  if (userLogin != null && "anonymous".equals(userLogin.getString("userLoginId"))) {
-    isAnonymousCheckout=true;
-  }
   CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
   if (mode != null && (mode.equals("ship") || mode.equals("options"))) {
     Map callResult=ServiceUtil.returnSuccess();
@@ -173,80 +169,5 @@
       return "error";
     }
   }
-  boolean requireCustomer=true;
-  boolean requireShipping=true;
-  boolean requireOptions=true;
-  boolean requireShipGroups=false;
-  boolean requirePayment=!cart.getOrderType().equals("PURCHASE_ORDER");
-  boolean requireTerm=cart.getOrderType().equals("PURCHASE_ORDER");
-  boolean requireAdditionalParty=isAnonymousCheckout;
-  if (userLogin != null && !"anonymous".equals(userLogin.getString("userLoginId"))) {
-    String requireCustomerStr=request.getParameter("finalizeReqCustInfo");
-    String requireShippingStr=request.getParameter("finalizeReqShipInfo");
-    String requireOptionsStr=request.getParameter("finalizeReqOptions");
-    String requirePaymentStr=request.getParameter("finalizeReqPayInfo");
-    String requireTermStr=request.getParameter("finalizeReqTermInfo");
-    String requireAdditionalPartyStr=request.getParameter("finalizeReqAdditionalParty");
-    String requireShipGroupsStr=request.getParameter("finalizeReqShipGroups");
-    requireCustomer=requireCustomerStr == null || requireCustomerStr.equalsIgnoreCase("true");
-    requireShipping=requireShippingStr == null || requireShippingStr.equalsIgnoreCase("true");
-    requireOptions=requireOptionsStr == null || requireOptionsStr.equalsIgnoreCase("true");
-    requireShipGroups=requireShipGroupsStr != null && requireShipGroupsStr.equalsIgnoreCase("true");
-    if (requirePayment) {
-      requirePayment=requirePaymentStr == null || requirePaymentStr.equalsIgnoreCase("true");
-    }
-    if (requireTerm) {
-      requireTerm=requireTermStr == null || requireTermStr.equalsIgnoreCase("true");
-    }
-    requireAdditionalParty=requireAdditionalPartyStr == null || requireAdditionalPartyStr.equalsIgnoreCase("true");
-  }
-  boolean shippingAddressSet=true;
-  boolean shippingOptionsSet=true;
-  for (int shipGroupIndex=0; shipGroupIndex < cart.getShipGroupSize(); shipGroupIndex++) {
-    String shipContactMechId=cart.getShippingContactMechId(shipGroupIndex);
-    if (shipContactMechId == null) {
-      shippingAddressSet=false;
-    }
-    String shipmentMethodTypeId=cart.getShipmentMethodTypeId(shipGroupIndex);
-    if (shipmentMethodTypeId == null) {
-      shippingOptionsSet=false;
-    }
-  }
-  String customerPartyId=cart.getPartyId();
-  List paymentMethodIds=cart.getPaymentMethodIds();
-  List paymentMethodTypeIds=cart.getPaymentMethodTypeIds();
-  if (requireCustomer && (customerPartyId == null || customerPartyId.equals("_NA_"))) {
-    return "customer";
-  }
-  if (requireShipping && !shippingAddressSet) {
-    return "shipping";
-  }
-  if (requireShipGroups) {
-    return "shipGroups";
-  }
-  if (requireOptions && !shippingOptionsSet) {
-    return "options";
-  }
-  if (requireTerm && !cart.isOrderTermSet()) {
-    return "term";
-  }
-  if (requirePayment && (paymentMethodIds == null || paymentMethodIds.size() == 0) && (paymentMethodTypeIds == null || paymentMethodTypeIds.size() == 0)) {
-    return "payment";
-  }
-  if (requireAdditionalParty && cart.getAttribute("addpty") == null) {
-    return "addparty";
-  }
-  if (isSingleUsePayment) {
-    return "paysplit";
-  }
-  String checkoutGoTo=request.getParameter("checkoutGoTo");
-  if (UtilValidate.isNotEmpty(checkoutGoTo)) {
-    return checkoutGoTo;
-  }
-  if ("SALES_ORDER".equals(cart.getOrderType())) {
-    return "sales";
-  }
- else {
-    return "po";
-  }
+  return determineNextFinalizeStep(request,response);
 }
