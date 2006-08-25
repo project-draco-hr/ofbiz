@@ -41,8 +41,10 @@
     }
  else {
       GenericValue contactList=communicationEvent.getRelatedOne("ContactList");
+      boolean singleUse=("Y".equals(contactList.get("singleUse")) ? true : false);
+      Timestamp now=UtilDateTime.nowTimestamp();
       EntityConditionList conditions=new EntityConditionList(UtilMisc.toList(new EntityExpr("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),new EntityExpr("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),new EntityExpr("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr()),EntityOperator.AND);
-      List fieldsToSelect=UtilMisc.toList("partyId","preferredContactMechId");
+      List fieldsToSelect=UtilMisc.toList("partyId","preferredContactMechId","contactListId","fromDate");
       EntityListIterator sendToPartiesIt=delegator.findListIteratorByCondition("ContactListParty",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
       GenericValue nextSendToParty=null;
       while ((nextSendToParty=(GenericValue)sendToPartiesIt.next()) != null) {
@@ -53,6 +55,12 @@
         Map tmpResult=dispatcher.runSync("sendMail",sendMailParams);
         if (ServiceUtil.isError(tmpResult)) {
           errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+        }
+ else         if (singleUse) {
+          tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",nextSendToParty.get("contactListId"),"partyId",nextSendToParty.get("partyId"),"fromDate",nextSendToParty.get("fromDate"),"thruDate",now,"userLogin",userLogin));
+          if (ServiceUtil.isError(tmpResult)) {
+            errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+          }
         }
       }
       sendToPartiesIt.close();
