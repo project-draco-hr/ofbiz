@@ -1,0 +1,26 @@
+{
+  BigDecimal total=ZERO;
+  try {
+    List orderItemBillings=orderHeader.getRelatedCache("OrderItemBilling");
+    Set invoiceIds=new HashSet();
+    for (Iterator iter=orderItemBillings.iterator(); iter.hasNext(); ) {
+      GenericValue orderItemBilling=(GenericValue)iter.next();
+      invoiceIds.add(orderItemBilling.get("invoiceId"));
+    }
+    List conditions=UtilMisc.toList(new EntityExpr("statusId",EntityOperator.EQUALS,"PMNT_RECEIVED"),new EntityExpr("invoiceId",EntityOperator.IN,invoiceIds));
+    if (paymentMethodTypeId != null) {
+      conditions.add(new EntityExpr("paymentMethodTypeId",EntityOperator.EQUALS,paymentMethodTypeId));
+    }
+    EntityConditionList ecl=new EntityConditionList(conditions,EntityOperator.AND);
+    List payments=orderHeader.getDelegator().findByConditionCache("PaymentAndApplication",ecl,null,null);
+    for (Iterator iter=payments.iterator(); iter.hasNext(); ) {
+      GenericValue payment=(GenericValue)iter.next();
+      if (payment.get("amountApplied") == null)       continue;
+      total=total.add(payment.getBigDecimal("amountApplied")).setScale(scale,rounding);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,e.getMessage(),module);
+  }
+  return total;
+}
