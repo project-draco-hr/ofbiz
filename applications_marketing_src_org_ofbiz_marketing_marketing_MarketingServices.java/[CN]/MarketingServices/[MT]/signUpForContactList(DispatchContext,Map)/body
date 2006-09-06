@@ -1,0 +1,43 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  Timestamp fromDate=UtilDateTime.nowTimestamp();
+  String contactListId=(String)context.get("contactListId");
+  String email=(String)context.get("email");
+  if (!UtilValidate.isEmail(email)) {
+    String error=UtilProperties.getMessage(resourceMarketing,"MarketingInvalidEmailInput",locale);
+    return ServiceUtil.returnError(error);
+  }
+  try {
+    Map input=UtilMisc.toMap("contactListId",contactListId);
+    GenericValue contactList=delegator.findByPrimaryKey("ContactList",input);
+    if (contactList == null) {
+      String error=UtilProperties.getMessage(resourceMarketing,"ContactListNotFound",input,locale);
+      return ServiceUtil.returnError(error);
+    }
+    GenericValue userLogin=delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId","system"));
+    input=UtilMisc.toMap("userLogin",userLogin,"emailAddress",email,"partyId","_NA_","fromDate",fromDate,"contactMechPurposeTypeId","OTHER_EMAIL");
+    Map serviceResults=dispatcher.runSync("createPartyEmailAddress",input);
+    if (ServiceUtil.isError(serviceResults)) {
+      throw new GenericServiceException(ServiceUtil.getErrorMessage(serviceResults));
+    }
+    String contactMechId=(String)serviceResults.get("contactMechId");
+    input=UtilMisc.toMap("userLogin",userLogin,"contactListId",contactList.get("contactListId"),"partyId","_NA_","fromDate",fromDate,"statusId","CLPT_ACCEPTED","preferredContactMechId",contactMechId);
+    serviceResults=dispatcher.runSync("createContactListParty",input);
+    if (ServiceUtil.isError(serviceResults)) {
+      throw new GenericServiceException(ServiceUtil.getErrorMessage(serviceResults));
+    }
+  }
+ catch (  GenericEntityException e) {
+    String error=UtilProperties.getMessage(resourceOrder,"checkhelper.problems_reading_database",locale);
+    Debug.log(e,error + e.getMessage(),module);
+    return ServiceUtil.returnError(error);
+  }
+catch (  GenericServiceException e) {
+    String error=UtilProperties.getMessage(resourceMarketing,"MarketingServiceError",locale);
+    Debug.log(e,error + e.getMessage(),module);
+    return ServiceUtil.returnError(error);
+  }
+  return ServiceUtil.returnSuccess();
+}
