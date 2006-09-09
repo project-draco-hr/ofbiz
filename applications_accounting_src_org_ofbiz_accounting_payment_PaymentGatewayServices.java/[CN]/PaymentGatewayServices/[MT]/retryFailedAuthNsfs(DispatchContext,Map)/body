@@ -2,10 +2,13 @@
   GenericDelegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
-  List exprs=UtilMisc.toList(new EntityExpr("statusId",EntityOperator.EQUALS,"PAYMENT_NOT_AUTH"),new EntityExpr("processAttempt",EntityOperator.GREATER_THAN,new Long(0)));
+  Calendar calcCal=Calendar.getInstance();
+  calcCal.setTimeInMillis(System.currentTimeMillis());
+  calcCal.add(Calendar.WEEK_OF_YEAR,-1);
+  Timestamp oneWeekAgo=new Timestamp(calcCal.getTimeInMillis());
   EntityListIterator eli=null;
   try {
-    eli=delegator.findListIteratorByCondition("OrderPaymentPreference",new EntityConditionList(exprs,EntityOperator.AND),null,UtilMisc.toList("orderId"));
+    eli=delegator.findListIteratorByCondition("OrderPaymentPreference",new EntityExpr(new EntityExpr("needsNsfRetry",EntityOperator.EQUALS,"Y"),EntityOperator.AND,new EntityExpr(ModelEntity.STAMP_FIELD,EntityOperator.LESS_THAN_EQUAL_TO,oneWeekAgo)),null,UtilMisc.toList("orderId"));
     List processList=new ArrayList();
     if (eli != null) {
       Debug.logInfo("Processing failed order re-auth(s)",module);
@@ -14,7 +17,7 @@
         String orderId=value.getString("orderId");
         if (!processList.contains(orderId)) {
           try {
-            dispatcher.runAsync("retryFailedOrderAuth",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+            dispatcher.runAsync("retryFailedOrderAuthNsf",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
             processList.add(orderId);
           }
  catch (          GenericServiceException e) {

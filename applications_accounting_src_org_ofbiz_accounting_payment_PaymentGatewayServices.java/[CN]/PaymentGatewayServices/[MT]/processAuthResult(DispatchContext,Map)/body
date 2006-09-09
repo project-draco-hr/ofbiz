@@ -9,6 +9,12 @@
     authType=("PAYMENT_NOT_AUTH".equals(orderPaymentPreference.getString("statusId"))) ? AUTH_SERVICE_TYPE : REAUTH_SERVICE_TYPE;
   }
   try {
+    String paymentMethodId=orderPaymentPreference.getString("paymentMethodId");
+    GenericValue paymentMethod=delegator.findByPrimaryKey("PaymentMethod",UtilMisc.toMap("paymentMethodId",paymentMethodId));
+    GenericValue creditCard=null;
+    if ("CREDIT_CARD".equals(paymentMethod.getString("paymentMethodTypeId"))) {
+      creditCard=paymentMethod.getRelatedOne("CreditCard");
+    }
     String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
     GenericValue response=delegator.makeValue("PaymentGatewayResponse",null);
     response.set("paymentGatewayResponseId",responseId);
@@ -27,7 +33,11 @@
     response.set("gatewayFlag",context.get("authFlag"));
     response.set("gatewayMessage",context.get("authMessage"));
     response.set("transactionDate",UtilDateTime.nowTimestamp());
-    delegator.create(response);
+    if (Boolean.TRUE.equals((Boolean)context.get("resultDeclined")))     response.set("resultDeclined","Y");
+    if (Boolean.TRUE.equals((Boolean)context.get("resultNsf")))     response.set("resultNsf","Y");
+    if (Boolean.TRUE.equals((Boolean)context.get("resultBadExpire")))     response.set("resultBadExpire","Y");
+    if (Boolean.TRUE.equals((Boolean)context.get("resultBadCardNumber")))     response.set("resultBadCardNumber","Y");
+    response.create();
     List messages=(List)context.get("internalRespMsgs");
     if (messages != null && messages.size() > 0) {
       Iterator i=messages.iterator();
@@ -54,12 +64,16 @@
  else {
       orderPaymentPreference.set("statusId","PAYMENT_ERROR");
     }
+    boolean needsNsfRetry=needsNsfRetry(orderPaymentPreference,context,delegator);
+    if (needsNsfRetry) {
+      orderPaymentPreference.set("needsNsfRetry","Y");
+    }
+ else {
+      orderPaymentPreference.set("needsNsfRetry","N");
+    }
     orderPaymentPreference.store();
-    if (context != null && !authResult.booleanValue()) {
-      String paymentMethodId=orderPaymentPreference.getString("paymentMethodId");
-      GenericValue paymentMethod=delegator.findByPrimaryKey("PaymentMethod",UtilMisc.toMap("paymentMethodId",paymentMethodId));
-      if ("CREDIT_CARD".equals(paymentMethod.getString("paymentMethodTypeId"))) {
-        GenericValue creditCard=paymentMethod.getRelatedOne("CreditCard");
+    if (!authResult.booleanValue()) {
+      if (creditCard != null) {
         Long consecutiveFailedAuths=creditCard.getLong("consecutiveFailedAuths");
         if (consecutiveFailedAuths == null) {
           creditCard.set("consecutiveFailedAuths",new Long(1));
@@ -68,6 +82,25 @@
           creditCard.set("consecutiveFailedAuths",new Long(consecutiveFailedAuths.longValue() + 1));
         }
         creditCard.set("lastFailedAuthDate",nowTimestamp);
+        if (Boolean.TRUE.equals((Boolean)context.get("resultNsf"))) {
+          Long consecutiveFailedNsf=creditCard.getLong("consecutiveFailedNsf");
+          if (consecutiveFailedNsf == null) {
+            creditCard.set("consecutiveFailedNsf",new Long(1));
+          }
+ else {
+            creditCard.set("consecutiveFailedNsf",new Long(consecutiveFailedNsf.longValue() + 1));
+          }
+          creditCard.set("lastFailedNsfDate",nowTimestamp);
+        }
+        creditCard.store();
+      }
+    }
+    if (authResult.booleanValue()) {
+      if ((creditCard != null) && (creditCard.get("lastFailedAuthDate") != null)) {
+        creditCard.set("consecutiveFailedAuths",new Long(0));
+        creditCard.set("lastFailedAuthDate",null);
+        creditCard.set("consecutiveFailedNsf",new Long(0));
+        creditCard.set("lastFailedNsfDate",null);
         creditCard.store();
       }
     }
