@@ -45,36 +45,102 @@
  else {
     transAmount=orderPaymentPreference.getDouble("maxAmount");
   }
-  Map results=UtilMisc.toMap(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS,"finished",Boolean.FALSE,"errors",Boolean.FALSE);
   if ((transAmount != null) && (transAmount.doubleValue() <= 0)) {
+    Map results=ServiceUtil.returnSuccess();
+    results.put("finished",Boolean.FALSE);
+    results.put("errors",Boolean.FALSE);
     return results;
   }
   try {
-    Map processorResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,overrideAmount);
-    if (processorResult != null) {
-      if (processorResult.get("customerRespMsgs") != null) {
-        results.put("messages",processorResult.get("customerRespMsgs"));
+    Map authPaymentResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,overrideAmount);
+    if (authPaymentResult != null) {
+      if (authPaymentResult.get("customerRespMsgs") != null) {
       }
-      Double thisAmount=(Double)processorResult.get("processAmount");
+      Double thisAmount=(Double)authPaymentResult.get("processAmount");
       try {
-        boolean processResult=processResult(dctx,processorResult,userLogin,orderPaymentPreference);
+        boolean processResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference);
         if (processResult) {
+          Map results=ServiceUtil.returnSuccess();
+          results.put("messages",authPaymentResult.get("customerRespMsgs"));
           results.put("processAmount",thisAmount);
           results.put("finished",Boolean.TRUE);
+          results.put("errors",Boolean.FALSE);
+          return results;
         }
  else {
+          boolean needsNsfRetry=needsNsfRetry(orderPaymentPreference,authPaymentResult,delegator);
+          if (needsNsfRetry) {
+          }
+          if (!needsNsfRetry) {
+            if (UtilValidate.isNotEmpty(orderHeader.getString("autoOrderShoppingListId"))) {
+              GenericValue productStore=orderHeader.getRelatedOne("ProductStore");
+              if ("Y".equals(productStore.getString("autoOrderCcTryOtherCards"))) {
+                List otherPaymentMethodAndCreditCardList=null;
+                String billToPartyId=null;
+                GenericValue billToParty=orh.getBillToParty();
+                if (billToParty != null) {
+                  billToPartyId=billToParty.getString("partyId");
+                }
+ else {
+                }
+                if (UtilValidate.isNotEmpty(billToPartyId)) {
+                  otherPaymentMethodAndCreditCardList=delegator.findByAnd("PaymentMethodAndCreditCard",UtilMisc.toMap("partyId",billToPartyId,"paymentMethodTypeId","CREDIT_CARD"));
+                  otherPaymentMethodAndCreditCardList=EntityUtil.filterByDate(otherPaymentMethodAndCreditCardList,true);
+                }
+                if (otherPaymentMethodAndCreditCardList != null && otherPaymentMethodAndCreditCardList.size() > 0) {
+                  Iterator otherPaymentMethodAndCreditCardIter=otherPaymentMethodAndCreditCardList.iterator();
+                  while (otherPaymentMethodAndCreditCardIter.hasNext()) {
+                    GenericValue otherPaymentMethodAndCreditCard=(GenericValue)otherPaymentMethodAndCreditCardIter.next();
+                    orderPaymentPreference.set("paymentMethodId",otherPaymentMethodAndCreditCard.getString("paymentMethodId"));
+                    Map authRetryResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,overrideAmount);
+                    try {
+                      boolean processRetryResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference);
+                      if (processRetryResult) {
+                        orderPaymentPreference.store();
+                        Map results=ServiceUtil.returnSuccess();
+                        results.put("messages",authRetryResult.get("customerRespMsgs"));
+                        results.put("processAmount",thisAmount);
+                        results.put("finished",Boolean.TRUE);
+                        results.put("errors",Boolean.FALSE);
+                        return results;
+                      }
+                    }
+ catch (                    GeneralException e) {
+                      String errMsg="Error saving and processing payment authorization results: " + e.toString();
+                      Debug.logError(e,errMsg + "; authRetryResult: " + authRetryResult,module);
+                      Map results=ServiceUtil.returnSuccess();
+                      results.put(ModelService.ERROR_MESSAGE,errMsg);
+                      results.put("finished",Boolean.FALSE);
+                      results.put("errors",Boolean.TRUE);
+                      return results;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          Map results=ServiceUtil.returnSuccess();
+          results.put("messages",authPaymentResult.get("customerRespMsgs"));
+          results.put("finished",Boolean.FALSE);
+          results.put("errors",Boolean.FALSE);
+          return results;
         }
       }
  catch (      GeneralException e) {
         String errMsg="Error saving and processing payment authorization results: " + e.toString();
-        Debug.logError(e,errMsg + "; processorResult: " + processorResult,module);
+        Debug.logError(e,errMsg + "; authPaymentResult: " + authPaymentResult,module);
+        Map results=ServiceUtil.returnSuccess();
         results.put(ModelService.ERROR_MESSAGE,errMsg);
+        results.put("finished",Boolean.FALSE);
         results.put("errors",Boolean.TRUE);
+        return results;
       }
     }
  else {
       String errMsg="Invalid Order Payment Preference: maxAmount is 0";
       Debug.logInfo(errMsg,module);
+      Map results=ServiceUtil.returnSuccess();
+      results.put("finished",Boolean.FALSE);
       results.put("errors",Boolean.TRUE);
       results.put(ModelService.ERROR_MESSAGE,errMsg);
       orderPaymentPreference.set("statusId","PAYMENT_CANCELLED");
@@ -84,8 +150,8 @@
  catch (      GenericEntityException e) {
         Debug.logError(e,"ERROR: Problem setting OrderPaymentPreference status to CANCELLED",module);
       }
+      return results;
     }
-    return results;
   }
  catch (  GeneralException e) {
     String errMsg="Error processing payment authorization: " + e.toString();
