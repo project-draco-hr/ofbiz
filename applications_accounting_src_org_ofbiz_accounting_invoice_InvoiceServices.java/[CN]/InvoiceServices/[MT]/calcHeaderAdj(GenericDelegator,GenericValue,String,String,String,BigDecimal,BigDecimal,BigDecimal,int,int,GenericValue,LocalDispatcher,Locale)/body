@@ -1,0 +1,42 @@
+{
+  BigDecimal adjAmount=ZERO;
+  if (adj.get("amount") != null) {
+    BigDecimal baseAdjAmount=adj.getBigDecimal("amount");
+    BigDecimal amount=ZERO;
+    if (divisor.signum() != 0) {
+      amount=baseAdjAmount.multiply(multiplier).divide(divisor,decimals,rounding);
+    }
+    if (amount.signum() != 0) {
+      Map createInvoiceItemContext=FastMap.newInstance();
+      createInvoiceItemContext.put("invoiceId",invoiceId);
+      createInvoiceItemContext.put("invoiceItemSeqId",invoiceItemSeqId);
+      createInvoiceItemContext.put("invoiceItemTypeId",getInvoiceItemType(delegator,adj.getString("orderAdjustmentTypeId"),null,invoiceTypeId,"INVOICE_ADJ"));
+      createInvoiceItemContext.put("description",adj.get("description"));
+      createInvoiceItemContext.put("quantity",new Double(1));
+      createInvoiceItemContext.put("amount",new Double(amount.doubleValue()));
+      createInvoiceItemContext.put("overrideGlAccountId",adj.get("overrideGlAccountId"));
+      createInvoiceItemContext.put("taxAuthPartyId",adj.get("taxAuthPartyId"));
+      createInvoiceItemContext.put("taxAuthGeoId",adj.get("taxAuthGeoId"));
+      createInvoiceItemContext.put("taxAuthorityRateSeqId",adj.get("taxAuthorityRateSeqId"));
+      createInvoiceItemContext.put("userLogin",userLogin);
+      Map createInvoiceItemResult=null;
+      try {
+        createInvoiceItemResult=dispatcher.runSync("createInvoiceItem",createInvoiceItemContext);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(resource,"AccountingServiceErrorCreatingInvoiceItemFromOrder",locale) + ": " + e.toString();
+        Debug.logError(e,errMsg,module);
+        ServiceUtil.returnError(errMsg);
+      }
+      if (ServiceUtil.isError(createInvoiceItemResult)) {
+        ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceItemFromOrder",locale),null,null,createInvoiceItemResult);
+      }
+    }
+    amount.setScale(decimals,rounding);
+    adjAmount=amount;
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("adjAmount: " + adjAmount + ", divisor: "+ divisor+ ", multiplier: "+ multiplier+ ", invoiceTypeId: "+ invoiceTypeId+ ", invoiceId: "+ invoiceId+ ", itemSeqId: "+ invoiceItemSeqId+ ", decimals: "+ decimals+ ", rounding: "+ rounding+ ", adj: "+ adj,module);
+  }
+  return adjAmount;
+}

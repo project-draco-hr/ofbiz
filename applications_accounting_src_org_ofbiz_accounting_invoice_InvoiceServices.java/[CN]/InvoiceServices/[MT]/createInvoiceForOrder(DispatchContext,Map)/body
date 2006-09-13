@@ -14,7 +14,6 @@
     return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"AccountingNoOrderItemsToInvoice",locale));
   }
   try {
-    List toStore=new LinkedList();
     GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
     if (orderHeader == null) {
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingNoOrderHeader",locale));
@@ -101,27 +100,29 @@
       }
     }
     List orderTerms=orh.getOrderTerms();
-    toStore.addAll(createInvoiceTerms(delegator,invoiceId,orderTerms));
+    createInvoiceTerms(delegator,dispatcher,invoiceId,orderTerms,userLogin,locale);
     List billingAccountTerms=null;
     if (billingAccount != null) {
       billingAccountTerms=billingAccount.getRelated("BillingAccountTerm");
-      toStore.addAll(createInvoiceTerms(delegator,invoiceId,billingAccountTerms));
+      createInvoiceTerms(delegator,dispatcher,invoiceId,billingAccountTerms,userLogin,locale);
       List billToRoles=billingAccount.getRelated("BillingAccountRole",UtilMisc.toMap("roleTypeId","BILL_TO_CUSTOMER"),null);
       Iterator billToIter=billToRoles.iterator();
       while (billToIter.hasNext()) {
         GenericValue billToRole=(GenericValue)billToIter.next();
         if (!(billToRole.getString("partyId").equals(billToCustomerPartyId))) {
-          GenericValue invoiceRole=delegator.makeValue("InvoiceRole",UtilMisc.toMap("invoiceId",invoiceId));
-          invoiceRole.set("partyId",billToRole.get("partyId"));
-          invoiceRole.set("roleTypeId","BILL_TO_CUSTOMER");
-          toStore.add(invoiceRole);
+          Map createInvoiceRoleContext=UtilMisc.toMap("invoiceId",invoiceId,"partyId",billToRole.get("partyId"),"roleTypeId","BILL_TO_CUSTOMER","userLogin",userLogin);
+          Map createInvoiceRoleResult=dispatcher.runSync("createInvoiceRole",createInvoiceRoleContext);
+          if (ServiceUtil.isError(createInvoiceRoleResult)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceRoleFromOrder",locale),null,null,createInvoiceRoleResult);
+          }
         }
       }
       if (UtilValidate.isNotEmpty(billingAccount.getString("contactMechId"))) {
-        GenericValue billToContactMech=delegator.makeValue("InvoiceContactMech",UtilMisc.toMap("invoiceId",invoiceId));
-        billToContactMech.set("contactMechId",billingAccount.getString("contactMechId"));
-        billToContactMech.set("contactMechPurposeTypeId","BILLING_LOCATION");
-        toStore.add(billToContactMech);
+        Map createBillToContactMechContext=UtilMisc.toMap("invoiceId",invoiceId,"contactMechId",billingAccount.getString("contactMechId"),"contactMechPurposeTypeId","BILLING_LOCATION","userLogin",userLogin);
+        Map createBillToContactMechResult=dispatcher.runSync("createInvoiceContactMech",createBillToContactMechContext);
+        if (ServiceUtil.isError(createBillToContactMechResult)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceContactMechFromOrder",locale),null,null,createBillToContactMechResult);
+        }
       }
     }
  else {
@@ -130,10 +131,11 @@
         Iterator bli=billingLocations.iterator();
         while (bli.hasNext()) {
           GenericValue ocm=(GenericValue)bli.next();
-          GenericValue billToContactMech=delegator.makeValue("InvoiceContactMech",UtilMisc.toMap("invoiceId",invoiceId));
-          billToContactMech.set("contactMechId",ocm.getString("contactMechId"));
-          billToContactMech.set("contactMechPurposeTypeId","BILLING_LOCATION");
-          toStore.add(billToContactMech);
+          Map createBillToContactMechContext=UtilMisc.toMap("invoiceId",invoiceId,"contactMechId",ocm.getString("contactMechId"),"contactMechPurposeTypeId","BILLING_LOCATION","userLogin",userLogin);
+          Map createBillToContactMechResult=dispatcher.runSync("createInvoiceContactMech",createBillToContactMechContext);
+          if (ServiceUtil.isError(createBillToContactMechResult)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceContactMechFromOrder",locale),null,null,createBillToContactMechResult);
+          }
         }
       }
     }
@@ -151,10 +153,11 @@
       payToAddress=PaymentWorker.getPaymentAddress(delegator,productStore.getString("payToPartyId"));
     }
     if (payToAddress != null) {
-      GenericValue payToCm=delegator.makeValue("InvoiceContactMech",UtilMisc.toMap("invoiceId",invoiceId));
-      payToCm.set("contactMechId",payToAddress.getString("contactMechId"));
-      payToCm.set("contactMechPurposeTypeId","PAYMENT_LOCATION");
-      toStore.add(payToCm);
+      Map createPayToContactMechContext=UtilMisc.toMap("invoiceId",invoiceId,"contactMechId",payToAddress.getString("contactMechId"),"contactMechPurposeTypeId","PAYMENT_LOCATION","userLogin",userLogin);
+      Map createPayToContactMechResult=dispatcher.runSync("createInvoiceContactMech",createPayToContactMechContext);
+      if (ServiceUtil.isError(createPayToContactMechResult)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceContactMechFromOrder",locale),null,null,createPayToContactMechResult);
+      }
     }
     int invoiceItemSeqNum=1;
     String invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
@@ -208,39 +211,52 @@
         if ((product != null) && (ProductWorker.shippingApplies(product)) && (invoiceType.equals("SALES_INVOICE"))) {
           shippingApplies=true;
         }
-        GenericValue invoiceItem=delegator.makeValue("InvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
-        invoiceItem.set("invoiceItemTypeId",getInvoiceItemType(delegator,(orderItem == null ? null : orderItem.getString("orderItemTypeId")),(product == null ? null : product.getString("productTypeId")),invoiceType,"INV_FPROD_ITEM"));
-        invoiceItem.set("description",orderItem.get("itemDescription"));
-        invoiceItem.set("quantity",new Double(billingQuantity.doubleValue()));
-        invoiceItem.set("amount",orderItem.get("unitPrice"));
-        invoiceItem.set("productId",orderItem.get("productId"));
-        invoiceItem.set("productFeatureId",orderItem.get("productFeatureId"));
-        invoiceItem.set("overrideGlAccountId",orderItem.get("overrideGlAccountId"));
+        BigDecimal billingAmount=orderItem.getBigDecimal("unitPrice").setScale(decimals,rounding);
+        Map createInvoiceItemContext=FastMap.newInstance();
+        createInvoiceItemContext.put("invoiceId",invoiceId);
+        createInvoiceItemContext.put("invoiceItemSeqId",invoiceItemSeqId);
+        createInvoiceItemContext.put("invoiceItemTypeId",getInvoiceItemType(delegator,(orderItem == null ? null : orderItem.getString("orderItemTypeId")),(product == null ? null : product.getString("productTypeId")),invoiceType,"INV_FPROD_ITEM"));
+        createInvoiceItemContext.put("description",orderItem.get("itemDescription"));
+        createInvoiceItemContext.put("quantity",new Double(billingQuantity.doubleValue()));
+        createInvoiceItemContext.put("amount",new Double(billingAmount.doubleValue()));
+        createInvoiceItemContext.put("productId",orderItem.get("productId"));
+        createInvoiceItemContext.put("productFeatureId",orderItem.get("productFeatureId"));
+        createInvoiceItemContext.put("overrideGlAccountId",orderItem.get("overrideGlAccountId"));
+        createInvoiceItemContext.put("userLogin",userLogin);
         String itemIssuanceId=null;
         if (itemIssuance != null && itemIssuance.get("inventoryItemId") != null) {
           itemIssuanceId=itemIssuance.getString("itemIssuanceId");
-          invoiceItem.set("inventoryItemId",itemIssuance.get("inventoryItemId"));
+          createInvoiceItemContext.put("inventoryItemId",itemIssuance.get("inventoryItemId"));
         }
         if ((product != null) && (invoiceType.equals("SALES_INVOICE"))) {
-          invoiceItem.set("taxableFlag",product.get("taxable"));
+          createInvoiceItemContext.put("taxableFlag",product.get("taxable"));
         }
-        toStore.add(invoiceItem);
-        BigDecimal thisAmount=invoiceItem.getBigDecimal("amount").multiply(invoiceItem.getBigDecimal("quantity")).setScale(decimals,rounding);
+        Map createInvoiceItemResult=dispatcher.runSync("createInvoiceItem",createInvoiceItemContext);
+        if (ServiceUtil.isError(createInvoiceItemResult)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceItemFromOrder",locale),null,null,createInvoiceItemResult);
+        }
+        BigDecimal thisAmount=billingAmount.multiply(billingQuantity).setScale(decimals,rounding);
         if (shippingApplies) {
           invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAmount).setScale(decimals,rounding);
         }
         invoiceSubTotal=invoiceSubTotal.add(thisAmount).setScale(decimals,rounding);
         invoiceQuantity=invoiceQuantity.add(billingQuantity).setScale(decimals,rounding);
-        GenericValue orderItemBill=delegator.makeValue("OrderItemBilling",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
-        orderItemBill.set("orderId",orderItem.get("orderId"));
-        orderItemBill.set("orderItemSeqId",orderItem.get("orderItemSeqId"));
-        orderItemBill.set("itemIssuanceId",itemIssuanceId);
+        Map createOrderItemBillingContext=FastMap.newInstance();
+        createOrderItemBillingContext.put("invoiceId",invoiceId);
+        createOrderItemBillingContext.put("invoiceItemSeqId",invoiceItemSeqId);
+        createOrderItemBillingContext.put("orderId",orderItem.get("orderId"));
+        createOrderItemBillingContext.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
+        createOrderItemBillingContext.put("itemIssuanceId",itemIssuanceId);
+        createOrderItemBillingContext.put("quantity",new Double(billingQuantity.doubleValue()));
+        createOrderItemBillingContext.put("amount",new Double(billingAmount.doubleValue()));
+        createOrderItemBillingContext.put("userLogin",userLogin);
         if ((shipmentReceipt != null) && (shipmentReceipt.getString("receiptId") != null)) {
-          orderItemBill.set("shipmentReceiptId",shipmentReceipt.getString("receiptId"));
+          createOrderItemBillingContext.put("shipmentReceiptId",shipmentReceipt.getString("receiptId"));
         }
-        orderItemBill.set("quantity",invoiceItem.get("quantity"));
-        orderItemBill.set("amount",invoiceItem.get("amount"));
-        toStore.add(orderItemBill);
+        Map createOrderItemBillingResult=dispatcher.runSync("createOrderItemBilling",createOrderItemBillingContext);
+        if (ServiceUtil.isError(createOrderItemBillingResult)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingOrderItemBillingFromOrder",locale),null,null,createOrderItemBillingResult);
+        }
         String parentInvoiceItemSeqId=invoiceItemSeqId;
         invoiceItemSeqNum++;
         invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
@@ -250,26 +266,32 @@
           GenericValue adj=(GenericValue)itemAdjIter.next();
           if (adj.get("amount") != null) {
             BigDecimal amount=adj.getBigDecimal("amount").divide(orderItem.getBigDecimal("quantity"),100,rounding);
-            amount=amount.multiply(invoiceItem.getBigDecimal("quantity"));
+            amount=amount.multiply(billingQuantity);
             amount=amount.setScale(decimals,rounding);
-            GenericValue adjInvItem=delegator.makeValue("InvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
-            adjInvItem.set("invoiceItemTypeId",getInvoiceItemType(delegator,adj.getString("orderAdjustmentTypeId"),null,invoiceType,"INVOICE_ITM_ADJ"));
-            adjInvItem.set("productId",orderItem.get("productId"));
-            adjInvItem.set("productFeatureId",orderItem.get("productFeatureId"));
-            adjInvItem.set("parentInvoiceId",invoiceId);
-            adjInvItem.set("parentInvoiceItemSeqId",parentInvoiceItemSeqId);
+            Map createInvoiceItemAdjContext=FastMap.newInstance();
+            createInvoiceItemAdjContext.put("invoiceId",invoiceId);
+            createInvoiceItemAdjContext.put("invoiceItemSeqId",invoiceItemSeqId);
+            createInvoiceItemAdjContext.put("invoiceItemTypeId",getInvoiceItemType(delegator,adj.getString("orderAdjustmentTypeId"),null,invoiceType,"INVOICE_ITM_ADJ"));
+            createInvoiceItemAdjContext.put("description",adj.get("description"));
+            createInvoiceItemAdjContext.put("quantity",new Double(1));
+            createInvoiceItemAdjContext.put("amount",new Double(amount.doubleValue()));
+            createInvoiceItemAdjContext.put("productId",orderItem.get("productId"));
+            createInvoiceItemAdjContext.put("productFeatureId",orderItem.get("productFeatureId"));
+            createInvoiceItemAdjContext.put("overrideGlAccountId",adj.get("overrideGlAccountId"));
+            createInvoiceItemAdjContext.put("parentInvoiceId",invoiceId);
+            createInvoiceItemAdjContext.put("parentInvoiceItemSeqId",parentInvoiceItemSeqId);
+            createInvoiceItemAdjContext.put("userLogin",userLogin);
+            createInvoiceItemAdjContext.put("taxAuthPartyId",adj.get("taxAuthPartyId"));
+            createInvoiceItemAdjContext.put("taxAuthGeoId",adj.get("taxAuthGeoId"));
+            createInvoiceItemAdjContext.put("taxAuthorityRateSeqId",adj.get("taxAuthorityRateSeqId"));
             if (!(adj.getString("orderAdjustmentTypeId").equals("SALES_TAX"))) {
-              adjInvItem.set("taxableFlag",product.get("taxable"));
+              createInvoiceItemAdjContext.put("taxableFlag",product.get("taxable"));
             }
-            adjInvItem.set("quantity",new Double(1));
-            adjInvItem.set("amount",new Double(amount.doubleValue()));
-            adjInvItem.set("description",adj.get("description"));
-            adjInvItem.set("taxAuthPartyId",adj.get("taxAuthPartyId"));
-            adjInvItem.set("overrideGlAccountId",adj.get("overrideGlAccountId"));
-            adjInvItem.set("taxAuthGeoId",adj.get("taxAuthGeoId"));
-            adjInvItem.set("taxAuthorityRateSeqId",adj.get("taxAuthorityRateSeqId"));
-            toStore.add(adjInvItem);
-            BigDecimal thisAdjAmount=adjInvItem.getBigDecimal("amount").multiply(adjInvItem.getBigDecimal("quantity")).setScale(decimals,rounding);
+            Map createInvoiceItemAdjResult=dispatcher.runSync("createInvoiceItem",createInvoiceItemAdjContext);
+            if (ServiceUtil.isError(createInvoiceItemAdjResult)) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceItemFromOrder",locale),null,null,createInvoiceItemAdjResult);
+            }
+            BigDecimal thisAdjAmount=new BigDecimal(amount.doubleValue()).setScale(decimals,rounding);
             if (!"SALES_TAX".equals(adj.getString("orderAdjustmentTypeId")) && !"SHIPPING_ADJUSTMENT".equals(adj.getString("orderAdjustmentTypeId"))) {
               invoiceSubTotal=invoiceSubTotal.add(thisAdjAmount).setScale(decimals,rounding);
               if (shippingApplies) {
@@ -295,7 +317,7 @@
         taxAdjustments.add(adj);
       }
  else {
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,orderSubTotal,invoiceSubTotal,invoiceQuantity,decimals,rounding);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,invoiceQuantity,decimals,rounding,userLogin,dispatcher,locale);
         invoiceItemSeqNum++;
         invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
       }
@@ -309,7 +331,7 @@
           continue;
         }
  else {
-          BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,new BigDecimal("1"),new BigDecimal("1"),totalItemsInOrder,decimals,rounding);
+          BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,new BigDecimal("1"),new BigDecimal("1"),totalItemsInOrder,decimals,rounding,userLogin,dispatcher,locale);
           invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
           orderSubTotal=orderSubTotal.add(adj.getBigDecimal("amount")).setScale(decimals,rounding);
           invoiceItemSeqNum++;
@@ -317,7 +339,7 @@
         }
       }
  else {
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,shippableAmount,invoiceShipProRateAmount,invoiceQuantity,decimals,rounding);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,shippableAmount,invoiceShipProRateAmount,invoiceQuantity,decimals,rounding,userLogin,dispatcher,locale);
         invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
         orderSubTotal=orderSubTotal.add(adj.getBigDecimal("amount")).setScale(decimals,rounding);
         invoiceItemSeqNum++;
@@ -327,7 +349,7 @@
     Iterator taxAdjIter=taxAdjustments.iterator();
     while (taxAdjIter.hasNext()) {
       GenericValue adj=(GenericValue)taxAdjIter.next();
-      BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,toStore,orderSubTotal,invoiceSubTotal,invoiceQuantity,taxDecimals,taxRounding);
+      BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,invoiceQuantity,taxDecimals,taxRounding,userLogin,dispatcher,locale);
       invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
     }
     List orderPaymentPrefs=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId));
@@ -360,7 +382,6 @@
         }
       }
     }
-    delegator.storeAll(toStore);
     String nextStatusId="INVOICE_READY";
     if (invoiceType.equals("PURCHASE_INVOICE")) {
       nextStatusId="INVOICE_IN_PROCESS";
