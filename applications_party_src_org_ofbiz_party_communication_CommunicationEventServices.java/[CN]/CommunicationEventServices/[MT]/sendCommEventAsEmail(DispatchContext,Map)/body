@@ -43,27 +43,36 @@
       GenericValue contactList=communicationEvent.getRelatedOne("ContactList");
       boolean singleUse=("Y".equals(contactList.get("singleUse")) ? true : false);
       Timestamp now=UtilDateTime.nowTimestamp();
-      EntityConditionList conditions=new EntityConditionList(UtilMisc.toList(new EntityExpr("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),new EntityExpr("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),new EntityExpr("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr()),EntityOperator.AND);
-      List fieldsToSelect=UtilMisc.toList("partyId","preferredContactMechId","contactListId","fromDate");
-      EntityListIterator sendToPartiesIt=delegator.findListIteratorByCondition("ContactListParty",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
-      GenericValue nextSendToParty=null;
-      while ((nextSendToParty=(GenericValue)sendToPartiesIt.next()) != null) {
-        GenericValue email=nextSendToParty.getRelatedOne("PreferredContactMech");
-        if (email == null)         continue;
-        sendMailParams.put("sendTo",email.getString("infoString"));
-        sendMailParams.put("partyId",nextSendToParty.getString("partyId"));
+      List conditionList=UtilMisc.toList(new EntityExpr("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),new EntityExpr("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),new EntityExpr("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr());
+      EntityConditionList conditions=new EntityConditionList(conditionList,EntityOperator.AND);
+      List fieldsToSelect=UtilMisc.toList("infoString");
+      EntityListIterator sendToEmailsIt=delegator.findListIteratorByCondition("ContactListPartyAndContactMech",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
+      List orderBy=UtilMisc.toList("-fromDate");
+      GenericValue contactListPartyAndContactMech=null;
+      while ((contactListPartyAndContactMech=(GenericValue)sendToEmailsIt.next()) != null) {
+        String emailAddress=contactListPartyAndContactMech.getString("infoString");
+        if (emailAddress == null)         continue;
+        List clpConditionList=new ArrayList(conditionList);
+        clpConditionList.add(new EntityExpr("infoString",EntityOperator.EQUALS,emailAddress));
+        EntityConditionList clpConditions=new EntityConditionList(clpConditionList,EntityOperator.AND);
+        List emailCLPaCMs=delegator.findByConditionCache("ContactListPartyAndContactMech",clpConditions,null,orderBy);
+        GenericValue lastContactListPartyACM=EntityUtil.getFirst(emailCLPaCMs);
+        if (lastContactListPartyACM == null)         continue;
+        String partyId=lastContactListPartyACM.getString("partyId");
+        sendMailParams.put("sendTo",emailAddress);
+        sendMailParams.put("partyId",partyId);
         Map tmpResult=dispatcher.runSync("sendMail",sendMailParams);
         if (ServiceUtil.isError(tmpResult)) {
           errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
         }
  else         if (singleUse) {
-          tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",nextSendToParty.get("contactListId"),"partyId",nextSendToParty.get("partyId"),"fromDate",nextSendToParty.get("fromDate"),"thruDate",now,"userLogin",userLogin));
+          tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",lastContactListPartyACM.get("contactListId"),"partyId",partyId,"fromDate",lastContactListPartyACM.get("fromDate"),"thruDate",now,"userLogin",userLogin));
           if (ServiceUtil.isError(tmpResult)) {
             errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
           }
         }
       }
-      sendToPartiesIt.close();
+      sendToEmailsIt.close();
     }
   }
  catch (  GenericEntityException eex) {
