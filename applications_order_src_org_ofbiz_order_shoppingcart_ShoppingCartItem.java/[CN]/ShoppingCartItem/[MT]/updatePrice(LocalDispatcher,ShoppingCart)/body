@@ -27,13 +27,14 @@
         priceContext.put("webSiteId",cart.getWebSiteId());
         priceContext.put("productStoreId",cart.getProductStoreId());
         priceContext.put("agreementId",cart.getAgreementId());
+        priceContext.put("productPricePurposeId","PURCHASE");
         priceContext.put("checkIncludeVat","Y");
         Map priceResult=dispatcher.runSync("calculateProductPrice",priceContext);
         if (ServiceUtil.isError(priceResult)) {
           throw new CartItemModifyException("There was an error while calculating the price: " + ServiceUtil.getErrorMessage(priceResult));
         }
         Boolean validPriceFound=(Boolean)priceResult.get("validPriceFound");
-        if (!validPriceFound.booleanValue()) {
+        if (Boolean.FALSE.equals(validPriceFound)) {
           throw new CartItemModifyException("Could not find a valid price for the product with ID [" + this.getProductId() + "], not adding to cart.");
         }
         if (priceResult.get("listPrice") != null) {
@@ -50,6 +51,22 @@
         if (configWrapper != null) {
           this.setBasePrice(configWrapper.getTotalPrice());
           this.setDisplayPrice(configWrapper.getTotalPrice());
+        }
+        Map recurringPriceContext=FastMap.newInstance();
+        recurringPriceContext.putAll(priceContext);
+        recurringPriceContext.put("productPricePurposeId","RECURRING_CHARGE");
+        Map recurringPriceResult=dispatcher.runSync("calculateProductPrice",recurringPriceContext);
+        if (ServiceUtil.isError(recurringPriceResult)) {
+          throw new CartItemModifyException("There was an error while calculating the price: " + ServiceUtil.getErrorMessage(recurringPriceResult));
+        }
+        Boolean validRecurringPriceFound=(Boolean)recurringPriceResult.get("validPriceFound");
+        if (Boolean.TRUE.equals(validRecurringPriceFound)) {
+          if (recurringPriceResult.get("basePrice") != null) {
+            this.setRecurringBasePrice((Double)recurringPriceResult.get("basePrice"));
+          }
+          if (recurringPriceResult.get("price") != null) {
+            this.setRecurringDisplayPrice((Double)recurringPriceResult.get("price"));
+          }
         }
       }
     }
