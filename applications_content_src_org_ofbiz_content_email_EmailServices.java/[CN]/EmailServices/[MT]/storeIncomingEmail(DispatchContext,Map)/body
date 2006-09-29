@@ -23,18 +23,19 @@
     Address[] addressesTo=message.getRecipients(MimeMessage.RecipientType.TO);
     Address[] addressesCC=message.getRecipients(MimeMessage.RecipientType.CC);
     Address[] addressesBCC=message.getRecipients(MimeMessage.RecipientType.BCC);
+    Debug.logInfo("Processing Incoming Email message from: " + addressesFrom[0].toString() + " to: "+ addressesTo[0].toString(),module);
     String spamHeaderName=UtilProperties.getPropertyValue("general.properties","mail.spam.name","N");
     String configHeaderValue=UtilProperties.getPropertyValue("general.properties","mail.spam.value");
     if (!spamHeaderName.equals("N") && message.getHeader(spamHeaderName) != null) {
       String msgHeaderValue=message.getHeader(spamHeaderName)[0];
       if (msgHeaderValue != null && msgHeaderValue.startsWith(configHeaderValue)) {
         Debug.logInfo("Incoming Email message ignored, was detected by external spam checker",module);
-        ServiceUtil.returnSuccess();
+        return ServiceUtil.returnSuccess(" Message Ignored: detected by external spam checker");
       }
     }
     if (addressesFrom == null) {
       Debug.logInfo("Incoming Email message ignored, had not 'from' email address",module);
-      ServiceUtil.returnSuccess();
+      return ServiceUtil.returnSuccess(" Message Ignored: no 'From' address specified");
     }
     result=getParyInfoFromEmailAddress(addressesFrom,userLogin,dispatcher);
     partyIdFrom=(String)result.get("partyId");
@@ -49,7 +50,6 @@
     Map commEventMap=new HashMap();
     commEventMap.put("communicationEventTypeId","AUTO_EMAIL_COMM");
     commEventMap.put("contactMechTypeId","EMAIL_ADDRESS");
-    commEventMap.put("partyIdTo",partyIdTo);
     String subject=message.getSubject();
     commEventMap.put("subject",subject);
     commEventMap.put("entryDate",nowTimestamp);
@@ -92,16 +92,23 @@
     String commNote="";
     if (partyIdFrom != null) {
       commEventMap.put("partyIdFrom",partyIdFrom);
-      commEventMap.put("contactMechIdFrom",contactMechIdFrom);
       commEventMap.put("contactMechIdTo",contactMechIdTo);
+    }
+ else {
+      commNote+="Sent from: " + ((InternetAddress)addressesFrom[0]).getAddress() + "; ";
+    }
+    if (partyIdTo != null) {
+      commEventMap.put("partyIdTo",partyIdTo);
+      commEventMap.put("contactMechIdTo",contactMechIdTo);
+    }
+ else {
+      commNote+="Sent to: " + ((InternetAddress)addressesTo[0]).getAddress() + "; ";
+    }
+    if (partyIdTo != null && partyIdFrom != null) {
       commEventMap.put("statusId","COM_ENTERED");
     }
  else {
       commEventMap.put("statusId","COM_UNKNOWN_PARTY");
-      commNote+="Sent from: " + ((InternetAddress)addressesFrom[0]).getAddress();
-    }
-    if (partyIdTo == null) {
-      commNote+="Sent to: " + ((InternetAddress)addressesTo[0]).getAddress();
     }
     if (!("".equals(commNote))) {
       commEventMap.put("note",commNote);
