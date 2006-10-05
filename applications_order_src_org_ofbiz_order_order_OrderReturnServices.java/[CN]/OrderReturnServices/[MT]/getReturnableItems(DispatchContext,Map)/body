@@ -13,18 +13,28 @@
   }
   Map returnable=new HashMap();
   if (orderHeader != null) {
-    List orderItems=null;
+    EntityConditionList whereConditions=new EntityConditionList(UtilMisc.toList(new EntityExpr("orderId",EntityOperator.EQUALS,orderHeader.getString("orderId")),new EntityExpr("orderItemStatusId",EntityOperator.IN,UtilMisc.toList("ITEM_APPROVED","ITEM_COMPLETED"))),EntityOperator.AND);
+    EntityConditionList havingConditions=new EntityConditionList(UtilMisc.toList(new EntityExpr("quantityIssued",EntityOperator.GREATER_THAN,new Double(0))),EntityOperator.AND);
+    List orderItemQuantitiesIssued=null;
     try {
-      orderItems=orderHeader.getRelatedByAnd("OrderItem",UtilMisc.toMap("statusId","ITEM_COMPLETED"));
+      orderItemQuantitiesIssued=delegator.findByCondition("OrderItemQuantityReportGroupByItem",whereConditions,havingConditions,UtilMisc.toList("orderId","orderItemSeqId"),UtilMisc.toList("orderItemSeqId"),null);
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
       return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnHeaderFromItem",locale));
     }
-    if (orderItems != null) {
-      Iterator i=orderItems.iterator();
+    if (orderItemQuantitiesIssued != null) {
+      Iterator i=orderItemQuantitiesIssued.iterator();
       while (i.hasNext()) {
-        GenericValue item=(GenericValue)i.next();
+        GenericValue orderItemQuantityIssued=(GenericValue)i.next();
+        GenericValue item=null;
+        try {
+          item=orderItemQuantityIssued.getRelatedOne("OrderItem");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderItemInformation",locale));
+        }
         Map serviceResult=null;
         try {
           serviceResult=dispatcher.runSync("getReturnableQuantity",UtilMisc.toMap("orderItem",item));
@@ -37,6 +47,9 @@
           return ServiceUtil.returnError((String)serviceResult.get(ModelService.ERROR_MESSAGE));
         }
  else {
+          if (((Double)serviceResult.get("returnableQuantity")).doubleValue() == 0) {
+            continue;
+          }
           Map returnInfo=new HashMap();
           returnInfo.put("returnableQuantity",serviceResult.get("returnableQuantity"));
           returnInfo.put("returnablePrice",serviceResult.get("returnablePrice"));
