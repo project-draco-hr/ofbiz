@@ -264,6 +264,19 @@
         Iterator itemAdjIter=itemAdjustments.iterator();
         while (itemAdjIter.hasNext()) {
           GenericValue adj=(GenericValue)itemAdjIter.next();
+          BigDecimal adjAlreadyInvoicedAmount=null;
+          try {
+            Map checkResult=dispatcher.runSync("calculateInvoicedAdjustmentTotal",UtilMisc.toMap("orderAdjustment",adj));
+            adjAlreadyInvoicedAmount=(BigDecimal)checkResult.get("invoicedTotal");
+          }
+ catch (          GenericServiceException e) {
+            String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCalculateInvoicedAdjustmentTotalService",locale);
+            Debug.logError(e,errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+          if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(decimals,rounding).abs()) > 0) {
+            continue;
+          }
           BigDecimal amount=new BigDecimal(0);
           if (adj.get("amount") != null) {
             amount=adj.getBigDecimal("amount").divide(orderItem.getBigDecimal("quantity"),100,rounding);
@@ -302,6 +315,16 @@
             if (ServiceUtil.isError(createInvoiceItemAdjResult)) {
               return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceItemFromOrder",locale),null,null,createInvoiceItemAdjResult);
             }
+            Map createOrderAdjustmentBillingContext=FastMap.newInstance();
+            createOrderAdjustmentBillingContext.put("orderAdjustmentId",adj.getString("orderAdjustmentId"));
+            createOrderAdjustmentBillingContext.put("invoiceId",invoiceId);
+            createOrderAdjustmentBillingContext.put("invoiceItemSeqId",invoiceItemSeqId);
+            createOrderAdjustmentBillingContext.put("amount",new Double(amount.doubleValue()));
+            createOrderAdjustmentBillingContext.put("userLogin",userLogin);
+            Map createOrderAdjustmentBillingResult=dispatcher.runSync("createOrderAdjustmentBilling",createOrderAdjustmentBillingContext);
+            if (ServiceUtil.isError(createOrderAdjustmentBillingResult)) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingOrderAdjustmentBillingFromOrder",locale),null,null,createOrderAdjustmentBillingContext);
+            }
             BigDecimal thisAdjAmount=new BigDecimal(amount.doubleValue()).setScale(decimals,rounding);
             if (!"SALES_TAX".equals(adj.getString("orderAdjustmentTypeId")) && !"SHIPPING_ADJUSTMENT".equals(adj.getString("orderAdjustmentTypeId"))) {
               invoiceSubTotal=invoiceSubTotal.add(thisAdjAmount).setScale(100,rounding);
@@ -315,49 +338,80 @@
         }
       }
     }
-    List shipAdjustments=new ArrayList();
-    List taxAdjustments=new ArrayList();
+    Map shipAdjustments=new HashMap();
+    Map taxAdjustments=new HashMap();
     List headerAdjustments=orh.getOrderHeaderAdjustments();
     Iterator headerAdjIter=headerAdjustments.iterator();
     while (headerAdjIter.hasNext()) {
       GenericValue adj=(GenericValue)headerAdjIter.next();
+      BigDecimal adjAlreadyInvoicedAmount=null;
+      try {
+        Map checkResult=dispatcher.runSync("calculateInvoicedAdjustmentTotal",UtilMisc.toMap("orderAdjustment",adj));
+        adjAlreadyInvoicedAmount=((BigDecimal)checkResult.get("invoicedTotal")).setScale(decimals,rounding);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCalculateInvoicedAdjustmentTotalService",locale);
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+      if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(decimals,rounding).abs()) > 0) {
+        continue;
+      }
       if ("SHIPPING_CHARGES".equals(adj.getString("orderAdjustmentTypeId"))) {
-        shipAdjustments.add(adj);
+        shipAdjustments.put(adj,adjAlreadyInvoicedAmount);
       }
  else       if ("SALES_TAX".equals(adj.getString("orderAdjustmentTypeId"))) {
-        taxAdjustments.add(adj);
+        taxAdjustments.put(adj,adjAlreadyInvoicedAmount);
       }
  else {
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,invoiceQuantity,decimals,rounding,userLogin,dispatcher,locale);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,adj.getBigDecimal("amount").setScale(decimals,rounding),decimals,rounding,userLogin,dispatcher,locale);
         invoiceItemSeqNum++;
         invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
       }
     }
-    Iterator shipAdjIter=shipAdjustments.iterator();
+    Iterator shipAdjIter=shipAdjustments.keySet().iterator();
     while (shipAdjIter.hasNext()) {
       GenericValue adj=(GenericValue)shipAdjIter.next();
+      BigDecimal adjAlreadyInvoicedAmount=(BigDecimal)shipAdjustments.get(adj);
       if ("N".equalsIgnoreCase(prorateShipping)) {
-        if (previousInvoiceFound) {
-          Debug.logInfo("Previous invoice found for this order [" + orderId + "]; shipping already billed",module);
-          continue;
-        }
- else {
-          BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,new BigDecimal("1"),new BigDecimal("1"),totalItemsInOrder,decimals,rounding,userLogin,dispatcher,locale);
-          invoiceItemSeqNum++;
-          invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
-        }
+        BigDecimal divisor=new BigDecimal("1");
+        BigDecimal multiplier=new BigDecimal("1");
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding).subtract(adjAlreadyInvoicedAmount);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
       }
  else {
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,shippableAmount,invoiceShipProRateAmount,invoiceQuantity,decimals,rounding,userLogin,dispatcher,locale);
-        invoiceItemSeqNum++;
-        invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
+        BigDecimal divisor=shippableAmount;
+        BigDecimal multiplier=invoiceShipProRateAmount;
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
       }
+      invoiceItemSeqNum++;
+      invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
     }
-    Iterator taxAdjIter=taxAdjustments.iterator();
+    String prorateTaxes=productStore.getString("prorateTaxes");
+    if (prorateTaxes == null) {
+      prorateTaxes="Y";
+    }
+    Iterator taxAdjIter=taxAdjustments.keySet().iterator();
     while (taxAdjIter.hasNext()) {
       GenericValue adj=(GenericValue)taxAdjIter.next();
-      BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,invoiceQuantity,decimals,rounding,userLogin,dispatcher,locale);
+      BigDecimal adjAlreadyInvoicedAmount=(BigDecimal)taxAdjustments.get(adj);
+      BigDecimal adjAmount=null;
+      if ("N".equalsIgnoreCase(prorateTaxes)) {
+        BigDecimal divisor=new BigDecimal("1");
+        BigDecimal multiplier=new BigDecimal("1");
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding).subtract(adjAlreadyInvoicedAmount);
+        adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
+      }
+ else {
+        BigDecimal divisor=orderSubTotal;
+        BigDecimal multiplier=invoiceSubTotal;
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding);
+        adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
+      }
       invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
+      invoiceItemSeqNum++;
+      invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,2);
     }
     List orderPaymentPrefs=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId));
     if (orderPaymentPrefs != null) {

@@ -137,6 +137,154 @@
       }
       itemQtyAvail.put(issue.getString("orderItemSeqId"),billAvail);
     }
+    OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+    GenericValue productStore=orh.getProductStore();
+    if (productStore.getString("prorateShipping").equals("N")) {
+      List invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
+      List invoiceableShipments=null;
+      try {
+        invoiceableShipments=delegator.findByCondition("Shipment",new EntityExpr("shipmentId",EntityOperator.IN,invoiceableShipmentIds),null,null);
+      }
+ catch (      GenericEntityException e) {
+        String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateInvoicesFromShipmentsService",locale);
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+      Map additionalShippingCharges=new HashMap();
+      BigDecimal totalAdditionalShippingCharges=ZERO;
+      Iterator isit=invoiceableShipments.iterator();
+      while (isit.hasNext()) {
+        GenericValue shipment=(GenericValue)isit.next();
+        if (shipment.get("additionalShippingCharge") == null)         continue;
+        BigDecimal shipmentAdditionalShippingCharges=shipment.getBigDecimal("additionalShippingCharge").setScale(decimals,rounding);
+        additionalShippingCharges.put(shipment,shipmentAdditionalShippingCharges);
+        totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(shipmentAdditionalShippingCharges);
+      }
+      if (totalAdditionalShippingCharges.signum() == 1) {
+        Iterator ascit=additionalShippingCharges.keySet().iterator();
+        while (ascit.hasNext()) {
+          GenericValue shipment=(GenericValue)ascit.next();
+          String shipmentId=shipment.getString("shipmentId");
+          BigDecimal additionalShippingCharge=(BigDecimal)additionalShippingCharges.get(shipment);
+          Map createOrderAdjustmentContext=new HashMap();
+          createOrderAdjustmentContext.put("orderId",orderId);
+          createOrderAdjustmentContext.put("orderAdjustmentTypeId","SHIPPING_CHARGES");
+          createOrderAdjustmentContext.put("description",UtilProperties.getMessage(resource,"AccountingAdditionalShippingChargeForShipment",locale) + " #" + shipmentId);
+          createOrderAdjustmentContext.put("sourceReferenceId",shipmentId);
+          createOrderAdjustmentContext.put("amount",new Double(additionalShippingCharge.doubleValue()));
+          createOrderAdjustmentContext.put("userLogin",context.get("userLogin"));
+          String shippingOrderAdjustmentId=null;
+          try {
+            Map createOrderAdjustmentResult=dispatcher.runSync("createOrderAdjustment",createOrderAdjustmentContext);
+            shippingOrderAdjustmentId=(String)createOrderAdjustmentResult.get("orderAdjustmentId");
+          }
+ catch (          GenericServiceException e) {
+            String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateOrderAdjustmentService",locale);
+            Debug.logError(e,errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+          GenericValue billToParty=orh.getBillToParty();
+          GenericValue payToParty=orh.getBillFromParty();
+          GenericValue destinationContactMech=null;
+          try {
+            destinationContactMech=shipment.getRelatedOne("DestinationPostalAddress");
+          }
+ catch (          GenericEntityException e) {
+            String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateInvoicesFromShipmentService",locale);
+            Debug.logError(e,errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+          List emptyList=new ArrayList();
+          Map calcTaxContext=new HashMap();
+          calcTaxContext.put("productStoreId",orh.getProductStoreId());
+          calcTaxContext.put("payToPartyId",payToParty.getString("partyId"));
+          calcTaxContext.put("billToPartyId",billToParty.getString("partyId"));
+          calcTaxContext.put("orderShippingAmount",totalAdditionalShippingCharges);
+          calcTaxContext.put("shippingAddress",destinationContactMech);
+          calcTaxContext.put("itemProductList",emptyList);
+          calcTaxContext.put("itemAmountList",emptyList);
+          calcTaxContext.put("itemPriceList",emptyList);
+          calcTaxContext.put("itemShippingList",emptyList);
+          List orderAdjustments=null;
+          Map calcTaxResult=null;
+          try {
+            calcTaxResult=dispatcher.runSync("calcTax",calcTaxContext);
+          }
+ catch (          GenericServiceException e) {
+            String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCalcTaxService",locale);
+            Debug.logError(e,errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+          orderAdjustments=(List)calcTaxResult.get("orderAdjustments");
+          if (calcTaxResult != null && orderAdjustments != null) {
+            Iterator oait=orderAdjustments.iterator();
+            while (oait.hasNext()) {
+              GenericValue orderAdjustment=(GenericValue)oait.next();
+              totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(orderAdjustment.getBigDecimal("amount").setScale(decimals,rounding));
+              orderAdjustment.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+              orderAdjustment.set("orderId",orderId);
+              orderAdjustment.set("orderItemSeqId","_NA_");
+              orderAdjustment.set("shipGroupSeqId",shipment.getString("primaryShipGroupSeqId"));
+              orderAdjustment.set("originalAdjustmentId",shippingOrderAdjustmentId);
+            }
+            try {
+              delegator.storeAll(orderAdjustments);
+            }
+ catch (            GenericEntityException e) {
+              String errMsg=UtilProperties.getMessage(resource,"AccountingProblemStoringOrderAdjustments",UtilMisc.toMap("orderAdjustments",orderAdjustments),locale);
+              Debug.logError(e,errMsg,module);
+              return ServiceUtil.returnError(errMsg);
+            }
+          }
+          List orderPaymentPreferences=new ArrayList();
+          try {
+            orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId));
+          }
+ catch (          GenericEntityException e) {
+            String errMsg=UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale);
+            Debug.logError(e,errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+          String paymentMethodId=null;
+          Iterator oppit=orderPaymentPreferences.iterator();
+          while (oppit.hasNext()) {
+            GenericValue orderPaymentPreference=(GenericValue)oppit.next();
+            if (orderPaymentPreference.getString("paymentMethodTypeId").equals("CREDIT_CARD")) {
+              paymentMethodId=orderPaymentPreference.getString("paymentMethodId");
+              break;
+            }
+          }
+          if (paymentMethodId != null) {
+            Map serviceContext=UtilMisc.toMap("orderId",orderId,"paymentMethodId",paymentMethodId,"paymentMethodTypeId","CREDIT_CARD","userLogin",context.get("userLogin"));
+            String orderPaymentPreferenceId=null;
+            try {
+              Map result=dispatcher.runSync("createOrderPaymentPreference",serviceContext);
+              orderPaymentPreferenceId=(String)result.get("orderPaymentPreferenceId");
+            }
+ catch (            GenericServiceException e) {
+              String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateOrderPaymentPreferenceService",locale);
+              Debug.logError(e,errMsg,module);
+              return ServiceUtil.returnError(errMsg);
+            }
+            Map authResult=null;
+            try {
+              authResult=dispatcher.runSync("authOrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId,"overrideAmount",new Double(totalAdditionalShippingCharges.doubleValue()),"userLogin",context.get("userLogin")));
+            }
+ catch (            GenericServiceException e) {
+              String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingAuthOrderPaymentPreferenceService",locale);
+              Debug.logError(e,errMsg,module);
+              return ServiceUtil.returnError(errMsg);
+            }
+            boolean authFinished=((Boolean)authResult.get("finished")).booleanValue();
+            boolean authErrors=((Boolean)authResult.get("errors")).booleanValue();
+            if (authErrors || !authFinished) {
+              String errMsg=UtilProperties.getMessage(resource,"AccountingUnableToAuthAdditionalShipCharges",UtilMisc.toMap("shipmentId",shipmentId,"paymentMethodId",paymentMethodId,"orderPaymentPreferenceId",orderPaymentPreferenceId),locale);
+              Debug.logError(errMsg,module);
+            }
+          }
+        }
+      }
+    }
     Map serviceContext=UtilMisc.toMap("orderId",orderId,"billItems",toBillItems,"userLogin",context.get("userLogin"));
     try {
       Map result=dispatcher.runSync("createInvoiceForOrder",serviceContext);
