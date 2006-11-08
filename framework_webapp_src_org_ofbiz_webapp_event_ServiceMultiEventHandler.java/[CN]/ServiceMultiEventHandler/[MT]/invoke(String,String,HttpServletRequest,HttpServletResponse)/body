@@ -60,14 +60,18 @@
   String messageSuffixStr=UtilProperties.getMessage("DefaultMessages","service.message.suffix",locale);
   List errorMessages=FastList.newInstance();
   List successMessages=FastList.newInstance();
+  String requestUri=RequestHandler.getRequestUri(request.getPathInfo());
+  boolean eventGlobalTransaction=requestManager.getEventGlobalTransaction(requestUri);
   boolean beganTrans=false;
   String returnString=null;
   try {
-    try {
-      beganTrans=TransactionUtil.begin(modelService.transactionTimeout * rowCount);
-    }
- catch (    GenericTransactionException e) {
-      throw new EventHandlerException("Problem starting transaction",e);
+    if (eventGlobalTransaction) {
+      try {
+        beganTrans=TransactionUtil.begin(modelService.transactionTimeout * rowCount);
+      }
+ catch (      GenericTransactionException e) {
+        throw new EventHandlerException("Problem starting multi-service global transaction",e);
+      }
     }
     for (int i=0; i < rowCount; i++) {
       String curSuffix=UtilHttp.MULTI_ROW_DELIMITER + i;
@@ -201,11 +205,13 @@ catch (      GenericServiceException e) {
   }
   finally {
     if (errorMessages.size() > 0) {
-      try {
-        TransactionUtil.rollback(beganTrans,"Error in multi-service event handling: " + errorMessages.toString(),null);
-      }
- catch (      GenericTransactionException e) {
-        Debug.logError(e,"Could not rollback transaction",module);
+      if (eventGlobalTransaction) {
+        try {
+          TransactionUtil.rollback(beganTrans,"Error in multi-service event handling: " + errorMessages.toString(),null);
+        }
+ catch (        GenericTransactionException e) {
+          Debug.logError(e,"Could not rollback multi-service global transaction",module);
+        }
       }
       errorMessages.add(0,errorPrefixStr);
       errorMessages.add(errorSuffixStr);
@@ -219,12 +225,14 @@ catch (      GenericServiceException e) {
       returnString="error";
     }
  else {
-      try {
-        TransactionUtil.commit(beganTrans);
-      }
- catch (      GenericTransactionException e) {
-        Debug.logError(e,"Could not commit transaction",module);
-        throw new EventHandlerException("Commit transaction failed");
+      if (eventGlobalTransaction) {
+        try {
+          TransactionUtil.commit(beganTrans);
+        }
+ catch (        GenericTransactionException e) {
+          Debug.logError(e,"Could not commit multi-service global transaction",module);
+          throw new EventHandlerException("Commit multi-service global transaction failed");
+        }
       }
       if (successMessages.size() > 0) {
         request.setAttribute("_EVENT_MESSAGE_LIST_",successMessages);
