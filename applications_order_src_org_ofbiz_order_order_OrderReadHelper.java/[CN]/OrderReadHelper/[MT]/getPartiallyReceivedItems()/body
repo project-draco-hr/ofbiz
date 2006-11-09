@@ -1,13 +1,25 @@
 {
-  List exprs=UtilMisc.toList(new EntityExpr("statusId",EntityOperator.EQUALS,"ITEM_APPROVED"));
-  List itemsApproved=EntityUtil.filterByAnd(getOrderItems(),exprs);
-  Iterator i=itemsApproved.iterator();
+  List items=getOrderItems();
+  Iterator i=items.iterator();
   while (i.hasNext()) {
     GenericValue item=(GenericValue)i.next();
-    int shippedQuantity=(int)getItemShippedQuantity(item);
-    Double orderedQuantity=(Double)item.get("quantity");
-    if (shippedQuantity != orderedQuantity.intValue() && shippedQuantity > 0) {
-      return true;
+    List receipts=null;
+    try {
+      receipts=item.getRelated("ShipmentReceipt");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,module);
+    }
+    if (receipts != null && receipts.size() > 0) {
+      Iterator recIter=receipts.iterator();
+      while (recIter.hasNext()) {
+        GenericValue rec=(GenericValue)recIter.next();
+        Double acceptedQuantity=rec.getDouble("quantityAccepted");
+        Double orderedQuantity=(Double)item.get("quantity");
+        if (acceptedQuantity.intValue() != orderedQuantity.intValue() && acceptedQuantity.intValue() > 0) {
+          return true;
+        }
+      }
     }
   }
   return false;
