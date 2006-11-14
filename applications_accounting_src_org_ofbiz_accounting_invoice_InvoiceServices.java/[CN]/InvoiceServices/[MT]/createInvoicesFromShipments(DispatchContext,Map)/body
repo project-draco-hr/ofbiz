@@ -238,7 +238,7 @@
           }
           List orderPaymentPreferences=new ArrayList();
           try {
-            orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId));
+            orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId,"paymentMethodTypeId","CREDIT_CARD"));
           }
  catch (          GenericEntityException e) {
             String errMsg=UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale);
@@ -246,15 +246,36 @@
             return ServiceUtil.returnError(errMsg);
           }
           String paymentMethodId=null;
-          Iterator oppit=orderPaymentPreferences.iterator();
-          while (oppit.hasNext()) {
-            GenericValue orderPaymentPreference=(GenericValue)oppit.next();
-            if (orderPaymentPreference.getString("paymentMethodTypeId").equals("CREDIT_CARD")) {
-              paymentMethodId=orderPaymentPreference.getString("paymentMethodId");
-              break;
-            }
+          GenericValue cardOrderPaymentPref=EntityUtil.getFirst(orderPaymentPreferences);
+          if (cardOrderPaymentPref != null) {
+            paymentMethodId=cardOrderPaymentPref.getString("paymentMethodId");
           }
           if (paymentMethodId != null) {
+            BigDecimal totalNewAuthAmount=new BigDecimal(totalAdditionalShippingCharges.doubleValue()).setScale(decimals,rounding);
+            Iterator oppit=orderPaymentPreferences.iterator();
+            while (oppit.hasNext()) {
+              GenericValue orderPaymentPreference=(GenericValue)oppit.next();
+              if (!(orderPaymentPreference.getString("statusId").equals("PAYMENT_SETTLED") || orderPaymentPreference.getString("statusId").equals("PAYMENT_CANCELLED"))) {
+                GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+                if (authTransaction != null && authTransaction.get("amount") != null) {
+                  totalNewAuthAmount=totalNewAuthAmount.add(authTransaction.getBigDecimal("amount").setScale(decimals,rounding));
+                  Map prefReleaseResult=null;
+                  try {
+                    prefReleaseResult=dispatcher.runSync("releaseOrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreference.getString("orderPaymentPreferenceId"),"userLogin",context.get("userLogin")));
+                  }
+ catch (                  GenericServiceException e) {
+                    String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingReleaseOrderPaymentPreferenceService",locale);
+                    Debug.logError(e,errMsg,module);
+                    return ServiceUtil.returnError(errMsg);
+                  }
+                  if (ServiceUtil.isError(prefReleaseResult) || ServiceUtil.isFailure(prefReleaseResult)) {
+                    String errMsg=ServiceUtil.getErrorMessage(prefReleaseResult);
+                    Debug.logError(errMsg,module);
+                    return ServiceUtil.returnError(errMsg);
+                  }
+                }
+              }
+            }
             Map serviceContext=UtilMisc.toMap("orderId",orderId,"paymentMethodId",paymentMethodId,"paymentMethodTypeId","CREDIT_CARD","userLogin",context.get("userLogin"));
             String orderPaymentPreferenceId=null;
             try {
@@ -268,7 +289,7 @@
             }
             Map authResult=null;
             try {
-              authResult=dispatcher.runSync("authOrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId,"overrideAmount",new Double(totalAdditionalShippingCharges.doubleValue()),"userLogin",context.get("userLogin")));
+              authResult=dispatcher.runSync("authOrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId,"overrideAmount",new Double(totalNewAuthAmount.doubleValue()),"userLogin",context.get("userLogin")));
             }
  catch (            GenericServiceException e) {
               String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingAuthOrderPaymentPreferenceService",locale);
