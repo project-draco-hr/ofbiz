@@ -20,7 +20,19 @@
   }
   List paymentAppl=null;
   try {
-    paymentAppl=delegator.findByAnd("PaymentApplication",UtilMisc.toMap("invoiceId",invoiceId));
+    paymentAppl=delegator.findByAnd("PaymentAndApplication",UtilMisc.toMap("invoiceId",invoiceId));
+    if (paymentAppl != null) {
+      for (Iterator iter=paymentAppl.iterator(); iter.hasNext(); ) {
+        GenericValue payment=(GenericValue)iter.next();
+        if ("PMNT_RECEIVED".equals(payment.get("statusId")) && UtilAccounting.isReceipt(payment)) {
+          continue;
+        }
+        if ("PMNT_SENT".equals(payment.get("statusId")) && UtilAccounting.isDisbursement(payment)) {
+          continue;
+        }
+        iter.remove();
+      }
+    }
   }
  catch (  GenericEntityException e) {
     String errMsg=UtilProperties.getMessage(resource,"AccountingProblemGettingPaymentApplication",UtilMisc.toMap("invoiceId",invoiceId),locale);
@@ -34,19 +46,11 @@
     while (pai.hasNext()) {
       GenericValue payAppl=(GenericValue)pai.next();
       payments.put(payAppl.getString("paymentId"),payAppl.getBigDecimal("amountApplied"));
-      try {
-        GenericValue Payment=payAppl.getRelatedOne("Payment");
-        Timestamp paymentDate=Payment.getTimestamp("effectiveDate");
-        if (paymentDate != null) {
-          if ((paidDate == null) || (paidDate.before(paymentDate))) {
-            paidDate=paymentDate;
-          }
+      Timestamp paymentDate=payAppl.getTimestamp("effectiveDate");
+      if (paymentDate != null) {
+        if ((paidDate == null) || (paidDate.before(paymentDate))) {
+          paidDate=paymentDate;
         }
-      }
- catch (      GenericEntityException ex) {
-        String errMsg=UtilProperties.getMessage(resource,"AccountingCannotGetPaymentForApplication",UtilMisc.toMap("payAppl",payAppl,"msg",ex.getMessage()),locale);
-        Debug.logError(ex,errMsg,module);
-        return ServiceUtil.returnError(errMsg);
       }
     }
   }
