@@ -29,18 +29,25 @@
   if ("PURCHASE_ORDER".equals(orderHeader.getString("orderTypeId"))) {
     return ServiceUtil.returnSuccess();
   }
-  int removed=0;
+  List orderTaxAdjustments=null;
   try {
-    removed=delegator.removeByAnd("OrderAdjustment",UtilMisc.toMap("orderId",orderId,"orderAdjustmentTypeId","SALES_TAX"));
+    orderTaxAdjustments=delegator.findByAnd("OrderAdjustment",UtilMisc.toMap("orderId",orderId,"orderAdjustmentTypeId","SALES_TAX"));
   }
  catch (  GenericEntityException e) {
-    Debug.logError(e,"Unable to remove SALES_TAX adjustments for order : " + orderId,module);
-    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToRemoveSalesTaxAdjustments",locale));
+    Debug.logError(e,"Unable to retrieve SALES_TAX adjustments for order : " + orderId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToRetrieveSalesTaxAdjustments",locale));
   }
-  Debug.logInfo("Removed : " + removed + " SALES_TAX adjustments for order ["+ orderId+ "]",module);
+  BigDecimal totalExistingOrderTax=ZERO;
+  Iterator otait=UtilMisc.toIterator(orderTaxAdjustments);
+  while (otait != null && otait.hasNext()) {
+    GenericValue orderTaxAdjustment=(GenericValue)otait.next();
+    if (orderTaxAdjustment.get("amount") != null) {
+      totalExistingOrderTax=totalExistingOrderTax.add(orderTaxAdjustment.getBigDecimal("amount").setScale(taxDecimals,taxRounding));
+    }
+  }
+  BigDecimal totalNewOrderTax=ZERO;
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   List shipGroups=orh.getOrderItemShipGroups();
-  List toStore=new ArrayList();
   if (shipGroups != null) {
     Iterator itr=shipGroups.iterator();
     while (itr.hasNext()) {
@@ -113,34 +120,49 @@
           Iterator oai=orderAdj.iterator();
           while (oai.hasNext()) {
             GenericValue oa=(GenericValue)oai.next();
-            oa.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
-            oa.set("orderId",orderId);
-            toStore.add(oa);
+            if (oa.get("amount") != null) {
+              totalNewOrderTax=totalNewOrderTax.add(oa.getBigDecimal("amount").setScale(taxDecimals,taxRounding));
+            }
           }
         }
         if (itemAdj != null && itemAdj.size() > 0) {
-          for (int i=0; i < validOrderItems.size(); i++) {
-            GenericValue orderItem=(GenericValue)validOrderItems.get(i);
+          for (int i=0; i < itemAdj.size(); i++) {
             List itemAdjustments=(List)itemAdj.get(i);
             Iterator ida=itemAdjustments.iterator();
             while (ida.hasNext()) {
               GenericValue ia=(GenericValue)ida.next();
-              ia.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
-              ia.set("orderId",orderId);
-              ia.set("shipGroupSeqId",shipGroupSeqId);
-              ia.set("orderItemSeqId",orderItem.getString("orderItemSeqId"));
-              toStore.add(ia);
+              if (ia.get("amount") != null) {
+                totalNewOrderTax=totalNewOrderTax.add(ia.getBigDecimal("amount").setScale(taxDecimals,taxRounding));
+              }
             }
           }
         }
       }
     }
-    try {
-      delegator.storeAll(toStore);
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToUpdateOrderTaxInformation",UtilMisc.toMap("orderId",orderId),locale));
+    BigDecimal orderTaxDifference=totalNewOrderTax.subtract(totalExistingOrderTax).setScale(taxDecimals,taxRounding);
+    if (orderTaxDifference.signum() != 0) {
+      Map createOrderAdjContext=new HashMap();
+      createOrderAdjContext.put("orderAdjustmentTypeId","SALES_TAX");
+      createOrderAdjContext.put("orderId",orderId);
+      createOrderAdjContext.put("orderItemSeqId","_NA_");
+      createOrderAdjContext.put("shipGroupSeqId","_NA_");
+      createOrderAdjContext.put("description","Tax adjustment due to order change");
+      createOrderAdjContext.put("amount",new Double(orderTaxDifference.doubleValue()));
+      createOrderAdjContext.put("amount",new Double(orderTaxDifference.doubleValue()));
+      createOrderAdjContext.put("userLogin",userLogin);
+      Map createOrderAdjResponse=null;
+      try {
+        createOrderAdjResponse=dispatcher.runSync("createOrderAdjustment",createOrderAdjContext);
+      }
+ catch (      GenericServiceException e) {
+        String createOrderAdjErrMsg=UtilProperties.getMessage(resource_error,"OrderErrorCallingCreateOrderAdjustmentService",locale);
+        Debug.logError(createOrderAdjErrMsg,module);
+        return ServiceUtil.returnError(createOrderAdjErrMsg);
+      }
+      if (ServiceUtil.isError(createOrderAdjResponse)) {
+        Debug.logError(ServiceUtil.getErrorMessage(createOrderAdjResponse),module);
+        return ServiceUtil.returnError(ServiceUtil.getErrorMessage(createOrderAdjResponse));
+      }
     }
   }
   return ServiceUtil.returnSuccess();
