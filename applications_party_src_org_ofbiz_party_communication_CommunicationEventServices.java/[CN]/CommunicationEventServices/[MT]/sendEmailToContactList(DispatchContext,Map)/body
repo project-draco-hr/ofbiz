@@ -1,0 +1,93 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  List errorMessages=new ArrayList();
+  String errorCallingUpdateContactListPartyService=UtilProperties.getMessage(resource,"commeventservices.errorCallingUpdateContactListPartyService",locale);
+  String errorCallingSendMailService=UtilProperties.getMessage(resource,"commeventservices.errorCallingSendMailService",locale);
+  String errorInSendEmailToContactListService=UtilProperties.getMessage(resource,"commeventservices.errorForEmailAddress",locale);
+  String skippingInvalidEmailAddress=UtilProperties.getMessage(resource,"commeventservices.skippingInvalidEmailAddress",locale);
+  String contactListId=(String)context.get("contactListId");
+  String communicationEventId=(String)context.get("communicationEventId");
+  try {
+    GenericValue communicationEvent=delegator.findByPrimaryKey("CommunicationEvent",UtilMisc.toMap("communicationEventId",communicationEventId));
+    GenericValue contactList=delegator.findByPrimaryKey("ContactList",UtilMisc.toMap("contactListId",contactListId));
+    Map sendMailParams=new HashMap();
+    sendMailParams.put("sendFrom",communicationEvent.getRelatedOne("FromContactMech").getString("infoString"));
+    sendMailParams.put("subject",communicationEvent.getString("subject"));
+    sendMailParams.put("body",communicationEvent.getString("content"));
+    sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
+    sendMailParams.put("userLogin",userLogin);
+    List conditionList=UtilMisc.toList(new EntityExpr("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),new EntityExpr("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),new EntityExpr("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr());
+    EntityConditionList conditions=new EntityConditionList(conditionList,EntityOperator.AND);
+    List fieldsToSelect=UtilMisc.toList("infoString");
+    List sendToEmails=delegator.findByCondition("ContactListPartyAndContactMech",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
+    List orderBy=UtilMisc.toList("-fromDate");
+    Iterator sendToEmailsIt=sendToEmails.iterator();
+    while (sendToEmailsIt.hasNext()) {
+      GenericValue contactListPartyAndContactMech=(GenericValue)sendToEmailsIt.next();
+      try {
+        String emailAddress=contactListPartyAndContactMech.getString("infoString");
+        if (emailAddress == null)         continue;
+        emailAddress=emailAddress.trim();
+        if (!UtilValidate.isEmail(emailAddress,true)) {
+          Debug.logError(skippingInvalidEmailAddress + ": " + emailAddress,module);
+          errorMessages.add(skippingInvalidEmailAddress + ": " + emailAddress);
+          continue;
+        }
+        List clpConditionList=new ArrayList(conditionList);
+        clpConditionList.add(new EntityExpr("infoString",EntityOperator.EQUALS,emailAddress));
+        EntityConditionList clpConditions=new EntityConditionList(clpConditionList,EntityOperator.AND);
+        List emailCLPaCMs=delegator.findByConditionCache("ContactListPartyAndContactMech",clpConditions,null,orderBy);
+        GenericValue lastContactListPartyACM=EntityUtil.getFirst(emailCLPaCMs);
+        if (lastContactListPartyACM == null)         continue;
+        String partyId=lastContactListPartyACM.getString("partyId");
+        sendMailParams.put("sendTo",emailAddress);
+        sendMailParams.put("partyId",partyId);
+        if (!contactList.getString("contactListTypeId").equals("NEWSLETTER")) {
+          sendMailParams.put("communicationEventId",communicationEventId);
+        }
+        Map contactListCommStatusRecordMap=UtilMisc.toMap("contactListId",contactListId,"communicationEventId",communicationEventId,"contactMechId",lastContactListPartyACM.getString("preferredContactMechId"));
+        GenericValue contactListCommStatusRecord=delegator.findByPrimaryKey("ContactListCommStatus",contactListCommStatusRecordMap);
+        if (contactListCommStatusRecord == null) {
+          Map newContactListCommStatusRecordMap=new HashMap(contactListCommStatusRecordMap);
+          newContactListCommStatusRecordMap.put("statusId","COM_IN_PROGRESS");
+          contactListCommStatusRecord=delegator.create("ContactListCommStatus",newContactListCommStatusRecordMap);
+        }
+ else         if (contactListCommStatusRecord.get("statusId") != null && contactListCommStatusRecord.getString("statusId").equals("COM_COMPLETE")) {
+          continue;
+        }
+        Map tmpResult=null;
+        tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+        if (tmpResult == null || ServiceUtil.isError(tmpResult)) {
+          Debug.logError(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult),module);
+          errorMessages.add(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult));
+          continue;
+        }
+        if ("Y".equals(contactList.get("singleUse"))) {
+          tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",lastContactListPartyACM.get("contactListId"),"partyId",partyId,"fromDate",lastContactListPartyACM.get("fromDate"),"thruDate",UtilDateTime.nowTimestamp(),"userLogin",userLogin));
+          if (ServiceUtil.isError(tmpResult)) {
+            Debug.logError(errorCallingUpdateContactListPartyService + ": " + ServiceUtil.getErrorMessage(tmpResult),module);
+            errorMessages.add(errorCallingUpdateContactListPartyService + ": " + ServiceUtil.getErrorMessage(tmpResult));
+            continue;
+          }
+        }
+        contactListCommStatusRecord.set("statusId","COM_COMPLETE");
+        delegator.store(contactListCommStatusRecord);
+      }
+ catch (      GenericEntityException nonFatalGEE) {
+        Debug.logError(nonFatalGEE,errorInSendEmailToContactListService,module);
+        errorMessages.add(errorInSendEmailToContactListService + ": " + nonFatalGEE.getMessage());
+      }
+catch (      GenericServiceException nonFatalGSE) {
+        Debug.logError(nonFatalGSE,errorInSendEmailToContactListService,module);
+        errorMessages.add(errorInSendEmailToContactListService + ": " + nonFatalGSE.getMessage());
+      }
+    }
+  }
+ catch (  GenericEntityException fatalGEE) {
+    ServiceUtil.returnError(fatalGEE.getMessage());
+  }
+  return errorMessages.size() == 0 ? ServiceUtil.returnSuccess() : ServiceUtil.returnError(errorMessages);
+}

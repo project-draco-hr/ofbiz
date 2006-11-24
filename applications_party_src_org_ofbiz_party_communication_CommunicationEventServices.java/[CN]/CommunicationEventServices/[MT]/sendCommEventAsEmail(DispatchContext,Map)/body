@@ -40,39 +40,19 @@
       }
     }
  else {
-      GenericValue contactList=communicationEvent.getRelatedOne("ContactList");
-      boolean singleUse=("Y".equals(contactList.get("singleUse")) ? true : false);
-      Timestamp now=UtilDateTime.nowTimestamp();
-      List conditionList=UtilMisc.toList(new EntityExpr("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),new EntityExpr("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),new EntityExpr("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr());
-      EntityConditionList conditions=new EntityConditionList(conditionList,EntityOperator.AND);
-      List fieldsToSelect=UtilMisc.toList("infoString");
-      EntityListIterator sendToEmailsIt=delegator.findListIteratorByCondition("ContactListPartyAndContactMech",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
-      List orderBy=UtilMisc.toList("-fromDate");
-      GenericValue contactListPartyAndContactMech=null;
-      while ((contactListPartyAndContactMech=(GenericValue)sendToEmailsIt.next()) != null) {
-        String emailAddress=contactListPartyAndContactMech.getString("infoString");
-        if (emailAddress == null)         continue;
-        List clpConditionList=new ArrayList(conditionList);
-        clpConditionList.add(new EntityExpr("infoString",EntityOperator.EQUALS,emailAddress));
-        EntityConditionList clpConditions=new EntityConditionList(clpConditionList,EntityOperator.AND);
-        List emailCLPaCMs=delegator.findByConditionCache("ContactListPartyAndContactMech",clpConditions,null,orderBy);
-        GenericValue lastContactListPartyACM=EntityUtil.getFirst(emailCLPaCMs);
-        if (lastContactListPartyACM == null)         continue;
-        String partyId=lastContactListPartyACM.getString("partyId");
-        sendMailParams.put("sendTo",emailAddress);
-        sendMailParams.put("partyId",partyId);
-        Map tmpResult=dispatcher.runSync("sendMail",sendMailParams);
-        if (ServiceUtil.isError(tmpResult)) {
-          errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
-        }
- else         if (singleUse) {
-          tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",lastContactListPartyACM.get("contactListId"),"partyId",partyId,"fromDate",lastContactListPartyACM.get("fromDate"),"thruDate",now,"userLogin",userLogin));
-          if (ServiceUtil.isError(tmpResult)) {
-            errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
-          }
-        }
+      Map sendEmailToContactListContext=new HashMap();
+      sendEmailToContactListContext.put("contactListId",communicationEvent.getString("contactListId"));
+      sendEmailToContactListContext.put("communicationEventId",communicationEventId);
+      sendEmailToContactListContext.put("userLogin",userLogin);
+      try {
+        dispatcher.runAsync("sendEmailToContactList",sendEmailToContactListContext);
       }
-      sendToEmailsIt.close();
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(resource,"commeventservices.errorCallingSendEmailToContactListService",locale);
+        Debug.logError(e,errMsg,module);
+        errorMessages.add(errMsg);
+        errorMessages.addAll(e.getMessageList());
+      }
     }
   }
  catch (  GenericEntityException eex) {
