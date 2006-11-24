@@ -1,0 +1,58 @@
+{
+  try {
+    int multipartCount=multipart.getCount();
+    for (int i=0; i < multipartCount; i++) {
+      Part part=multipart.getBodyPart(i);
+      String thisContentTypeRaw=part.getContentType();
+      int idx2=thisContentTypeRaw.indexOf(";");
+      if (idx2 == -1)       idx2=thisContentTypeRaw.length();
+      String thisContentType=thisContentTypeRaw.substring(0,idx2);
+      String disposition=part.getDisposition();
+      ByteArrayOutputStream baos=new ByteArrayOutputStream();
+      if (thisContentType.startsWith("multipart") || thisContentType.startsWith("Multipart")) {
+        currentIndex=currentIndex.concat("." + i);
+        return addMultipartAttachementToComm((Multipart)part.getContent(),commEventMap,subject,dispatcher,userLogin);
+      }
+      if (currentIndex.concat("." + i).equals(EmailServices.contentIndex))       continue;
+      if (((disposition == null) && (i == 0) && thisContentType.startsWith("text")) || ((disposition != null) && (disposition.equals(Part.ATTACHMENT) || disposition.equals(Part.INLINE)))) {
+        String attFileName=part.getFileName();
+        if (attFileName != null && attFileName.length() > 17) {
+          attFileName=attFileName.substring(0,17);
+        }
+        commEventMap.put("contentName",subject + "-" + attachmentCount+ " "+ attFileName);
+        commEventMap.put("drMimeTypeId",thisContentType);
+        if (thisContentType.startsWith("text")) {
+          String content=(String)part.getContent();
+          commEventMap.put("drDataResourceTypeId","ELECTRONIC_TEXT");
+          commEventMap.put("textData",content);
+        }
+ else {
+          InputStream is=part.getInputStream();
+          int c;
+          while ((c=is.read()) > -1) {
+            baos.write(c);
+          }
+          ByteWrapper imageData=new ByteWrapper(baos.toByteArray());
+          int len=imageData.getLength();
+          if (Debug.infoOn())           Debug.logInfo("imageData length: " + len,module);
+          commEventMap.put("drDataResourceName",part.getFileName());
+          commEventMap.put("imageData",imageData);
+          commEventMap.put("drDataResourceTypeId","IMAGE_OBJECT");
+          commEventMap.put("_imageData_contentType",thisContentType);
+        }
+        dispatcher.runSync("createCommContentDataResource",commEventMap);
+        attachmentCount++;
+      }
+    }
+  }
+ catch (  MessagingException e) {
+    Debug.logError(e,module);
+  }
+catch (  IOException e) {
+    Debug.logError(e,module);
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+  }
+  return attachmentCount;
+}
