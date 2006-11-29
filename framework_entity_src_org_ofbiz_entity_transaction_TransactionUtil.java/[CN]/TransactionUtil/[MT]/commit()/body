@@ -16,17 +16,30 @@
       }
     }
  catch (    RollbackException e) {
-      if (Debug.infoOn())       Thread.dumpStack();
-      throw new GenericTransactionException("Roll back error, could not commit transaction, was rolled back instead",e);
+      RollbackOnlyCause rollbackOnlyCause=getSetRollbackOnlyCause();
+      if (rollbackOnlyCause != null) {
+        clearTransactionStamps();
+        clearTransactionBeginStack();
+        clearSetRollbackOnlyCause();
+        Debug.logError(e,"Rollback Only was set when trying to commit transaction here; throwing rollbackOnly cause exception",module);
+        throw new GenericTransactionException("Roll back error, could not commit transaction, was rolled back instead because of: " + rollbackOnlyCause.getCauseMessage(),rollbackOnlyCause.getCauseThrowable());
+      }
+ else {
+        Throwable t=e.getCause() == null ? e : e.getCause();
+        throw new GenericTransactionException("Roll back error (with no rollbackOnly cause found), could not commit transaction, was rolled back instead: " + t.toString(),t);
+      }
     }
 catch (    HeuristicMixedException e) {
-      throw new GenericTransactionException("Could not commit transaction, HeuristicMixed exception",e);
+      Throwable t=e.getCause() == null ? e : e.getCause();
+      throw new GenericTransactionException("Could not commit transaction, HeuristicMixed exception: " + t.toString(),t);
     }
 catch (    HeuristicRollbackException e) {
-      throw new GenericTransactionException("Could not commit transaction, HeuristicRollback exception",e);
+      Throwable t=e.getCause() == null ? e : e.getCause();
+      throw new GenericTransactionException("Could not commit transaction, HeuristicRollback exception: " + t.toString(),t);
     }
 catch (    SystemException e) {
-      throw new GenericTransactionException("System error, could not commit transaction",e);
+      Throwable t=e.getCause() == null ? e : e.getCause();
+      throw new GenericTransactionException("System error, could not commit transaction: " + t.toString(),t);
     }
   }
  else {
