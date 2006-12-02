@@ -28,32 +28,30 @@ catch (  ParserConfigurationException e) {
     return ServiceUtil.returnError(errMsg);
   }
   String reportXmlDocument=reportWriter.toString();
-  Logger logger=new Log4JLogger(Debug.getLogger(module));
-  MessageHandler.setScreenLogger(logger);
-  Driver driver=new Driver();
-  driver.setRenderer(Driver.RENDER_PDF);
-  driver.setLogger(logger);
-  Document xslfo=null;
-  try {
-    xslfo=UtilXml.readXmlDocument(reportXmlDocument);
-  }
- catch (  Throwable t) {
-    String errMsg="Problems reading the parsed content to XML Document: " + t.toString();
-    Debug.logError(t,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
-  }
   ByteArrayOutputStream out=new ByteArrayOutputStream();
-  driver.setOutputStream(out);
-  InputSource is=new DocumentInputSource(xslfo);
-  driver.setInputSource(is);
+  FopFactory fopFactory;
   try {
-    driver.run();
-    FopImageFactory.resetCache();
+    fopFactory=ApacheFopFactory.instance();
+    Fop fop=fopFactory.newFop(MimeConstants.MIME_PDF,out);
+    TransformerFactory transFactory=TransformerFactory.newInstance();
+    Transformer transformer=transFactory.newTransformer();
+    Reader reader=new StringReader(reportXmlDocument);
+    Source src=new StreamSource(reader);
+    Result res=new SAXResult(fop.getDefaultHandler());
+    transformer.transform(src,res);
+    fopFactory.getImageFactory().clearCaches();
   }
- catch (  Throwable t) {
-    String errMsg="Unable to generate PDF from XSL-FO: " + t.toString();
-    Debug.logError(t,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+ catch (  FOPException e) {
+    e.printStackTrace();
+  }
+catch (  TransformerConfigurationException e) {
+    e.printStackTrace();
+  }
+catch (  TransformerFactoryConfigurationError e) {
+    e.printStackTrace();
+  }
+catch (  TransformerException e) {
+    e.printStackTrace();
   }
   DocFlavor docFlavor=DocFlavor.BYTE_ARRAY.PDF;
   Doc myDoc=new SimpleDoc(out.toByteArray(),docFlavor,null);

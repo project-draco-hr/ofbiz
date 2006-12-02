@@ -1,5 +1,6 @@
 {
   Writer writer=new StringWriter();
+  FopFactory fopFactory=ApacheFopFactory.instance();
   try {
     ScreenRenderer screens=new ScreenRenderer(writer,null,htmlScreenRenderer);
     screens.populateContextForRequest(request,response,servletContext);
@@ -9,38 +10,46 @@
  catch (  Throwable t) {
     throw new ViewHandlerException("Problems with the response writer/output stream",t);
   }
-  if (Debug.verboseOn()) {
-  }
-  Logger logger=new Log4JLogger(Debug.getLogger(module));
-  MessageHandler.setScreenLogger(logger);
-  Driver driver=new Driver();
-  driver.setRenderer(Driver.RENDER_PDF);
-  driver.setLogger(logger);
-  Document xslfo=null;
-  try {
-    xslfo=UtilXml.readXmlDocument(writer.toString());
-  }
- catch (  Throwable t) {
-    throw new ViewHandlerException("Problems reading the parsed content to XML Document",t);
-  }
   ByteArrayOutputStream out=new ByteArrayOutputStream();
-  driver.setOutputStream(out);
-  InputSource is=new DocumentInputSource(xslfo);
-  driver.setInputSource(is);
+  TransformerFactory transFactory=TransformerFactory.newInstance();
   try {
-    driver.run();
-    FopImageFactory.resetCache();
+    Fop fop=fopFactory.newFop(MimeConstants.MIME_PDF,out);
+    Transformer transformer=transFactory.newTransformer();
+    Reader reader=new StringReader(writer.toString());
+    Source src=new StreamSource(reader);
+    Result res=new SAXResult(fop.getDefaultHandler());
+    try {
+      transformer.transform(src,res);
+      fopFactory.getImageFactory().clearCaches();
+      response.setContentType(MimeConstants.MIME_PDF);
+      response.setContentLength(out.size());
+      try {
+        out.writeTo(response.getOutputStream());
+        response.getOutputStream().flush();
+      }
+ catch (      IOException e) {
+        throw new ViewHandlerException("Unable write to browser OutputStream",e);
+      }
+    }
+ catch (    TransformerException e) {
+      Debug.logError("FOP transform failed:" + e,module);
+      throw new ViewHandlerException("Unable to transform FO to PDF",e);
+    }
   }
- catch (  Throwable t) {
-    throw new ViewHandlerException("Unable to generate PDF from XSL-FO",t);
+ catch (  TransformerConfigurationException e) {
+    Debug.logError("FOP TransformerConfiguration Exception " + e,module);
+    throw new ViewHandlerException("Transformer Configuration Error",e);
   }
-  response.setContentType("application/pdf");
-  response.setContentLength(out.size());
-  try {
-    out.writeTo(response.getOutputStream());
-    response.getOutputStream().flush();
+catch (  FOPException e) {
+    Debug.logError("FOP Exception " + e,module);
+    throw new ViewHandlerException("FOP Error",e);
   }
- catch (  IOException e) {
-    throw new ViewHandlerException("Unable write to browser OutputStream",e);
+ finally {
+    try {
+      out.close();
+    }
+ catch (    IOException e) {
+      Debug.logError("Unable to close output stream " + e,module);
+    }
   }
 }

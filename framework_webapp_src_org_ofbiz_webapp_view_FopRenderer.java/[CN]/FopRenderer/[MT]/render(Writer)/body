@@ -1,26 +1,29 @@
 {
-  Logger logger=new Log4JLogger(Debug.getLogger(module));
-  MessageHandler.setScreenLogger(logger);
-  Driver driver=new Driver();
-  driver.setRenderer(Driver.RENDER_PDF);
-  driver.setLogger(logger);
-  Document xslfo=null;
-  try {
-    xslfo=UtilXml.readXmlDocument(writer.toString());
-  }
- catch (  Throwable t) {
-    throw new GeneralException("Problems reading the parsed content to XML Document",t);
-  }
+  FopFactory fopFactory=ApacheFopFactory.instance();
   ByteArrayOutputStream out=new ByteArrayOutputStream();
-  driver.setOutputStream(out);
-  InputSource is=new DocumentInputSource(xslfo);
-  driver.setInputSource(is);
+  TransformerFactory transFactory=TransformerFactory.newInstance();
   try {
-    driver.run();
-    FopImageFactory.resetCache();
+    Fop fop=fopFactory.newFop(MimeConstants.MIME_PDF,out);
+    Transformer transformer=transFactory.newTransformer();
+    Reader reader=new StringReader(writer.toString());
+    Source src=new StreamSource(reader);
+    Result res=new SAXResult(fop.getDefaultHandler());
+    try {
+      transformer.transform(src,res);
+      fopFactory.getImageFactory().clearCaches();
+      return out;
+    }
+ catch (    TransformerException e) {
+      Debug.logError("FOP transform failed:" + e,module);
+      throw new GeneralException("Unable to transform FO to PDF",e);
+    }
   }
- catch (  Throwable t) {
-    throw new GeneralException("Unable to generate PDF from XSL-FO",t);
+ catch (  TransformerConfigurationException e) {
+    Debug.logError("FOP TransformerConfiguration Exception " + e,module);
+    throw new GeneralException("Transformer Configuration Error",e);
   }
-  return out;
+catch (  FOPException e) {
+    Debug.logError("FOP Exception " + e,module);
+    throw new GeneralException("FOP Error",e);
+  }
 }
