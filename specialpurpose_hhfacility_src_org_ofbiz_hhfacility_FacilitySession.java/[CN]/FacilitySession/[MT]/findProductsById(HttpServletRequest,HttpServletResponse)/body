@@ -1,0 +1,38 @@
+{
+  HttpSession session=request.getSession();
+  String idValueStr=request.getParameter("idValue");
+  String facilityIdStr=request.getParameter("facilityId");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  if (UtilValidate.isEmpty(idValueStr)) {
+    return "success";
+  }
+  Map productsMap=null;
+  try {
+    productsMap=dispatcher.runSync("findProductsById",UtilMisc.toMap("idValue",idValueStr,"facilityId",facilityIdStr));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem in findProductsById",module);
+    return "error";
+  }
+  if (ServiceUtil.isError(productsMap)) {
+    return "error";
+  }
+  List productList=(List)productsMap.get("productList");
+  if (productList != null && productList.size() == 1) {
+    ServletContext ctx=(ServletContext)request.getAttribute("servletContext");
+    RequestHandler rh=(RequestHandler)ctx.getAttribute("_REQUEST_HANDLER_");
+    GenericValue product=EntityUtil.getFirst(productList);
+    String requestName="/productstocktake?facilityId=" + facilityIdStr + "&productId="+ product.getString("productId");
+    ;
+    String target=rh.makeLink(request,response,requestName,false,false,false);
+    try {
+      response.sendRedirect(target);
+      return "none";
+    }
+ catch (    IOException e) {
+      Debug.logError(e,"Could not send redirect to: " + target,module);
+    }
+  }
+  request.setAttribute("productList",productList);
+  return "success";
+}
