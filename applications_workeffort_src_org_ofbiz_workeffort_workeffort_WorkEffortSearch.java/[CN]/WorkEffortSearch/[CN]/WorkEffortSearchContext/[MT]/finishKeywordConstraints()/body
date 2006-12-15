@@ -1,0 +1,69 @@
+{
+  if (orKeywordFixedSet.size() == 0 && andKeywordFixedSet.size() == 0 && keywordFixedOrSetAndList.size() == 0) {
+    return;
+  }
+  this.includedKeywordSearch=true;
+  if (orKeywordFixedSet.size() > 0) {
+    keywordFixedOrSetAndList.add(orKeywordFixedSet);
+  }
+  Iterator keywordFixedOrSetAndTestIter=keywordFixedOrSetAndList.iterator();
+  while (keywordFixedOrSetAndTestIter.hasNext()) {
+    Set keywordFixedOrSet=(Set)keywordFixedOrSetAndTestIter.next();
+    if (keywordFixedOrSet.size() == 0) {
+      keywordFixedOrSetAndTestIter.remove();
+    }
+ else     if (keywordFixedOrSet.size() == 1) {
+      andKeywordFixedSet.add(keywordFixedOrSet.iterator().next());
+      keywordFixedOrSetAndTestIter.remove();
+    }
+  }
+  boolean doingBothAndOr=(keywordFixedOrSetAndList.size() > 1) || (keywordFixedOrSetAndList.size() > 0 && andKeywordFixedSet.size() > 0);
+  Debug.logInfo("Finished initial setup of keywords, doingBothAndOr=" + doingBothAndOr + ", andKeywordFixedSet="+ andKeywordFixedSet+ "\n keywordFixedOrSetAndList="+ keywordFixedOrSetAndList,module);
+  ComplexAlias relevancyComplexAlias=new ComplexAlias("+");
+  if (andKeywordFixedSet.size() > 0) {
+    Iterator keywordIter=andKeywordFixedSet.iterator();
+    while (keywordIter.hasNext()) {
+      String keyword=(String)keywordIter.next();
+      String entityAlias="PK" + index;
+      String prefix="pk" + index;
+      index++;
+      dynamicViewEntity.addMemberEntity(entityAlias,"WorkEffortKeyword");
+      dynamicViewEntity.addAlias(entityAlias,prefix + "Keyword","keyword",null,null,null,null);
+      dynamicViewEntity.addViewLink("WEFF",entityAlias,Boolean.FALSE,ModelKeyMap.makeKeyMapList("workEffortId"));
+      entityConditionList.add(new EntityExpr(prefix + "Keyword",EntityOperator.LIKE,keyword));
+      relevancyComplexAlias.addComplexAliasMember(new ComplexAliasField(entityAlias,"relevancyWeight",null,null));
+    }
+    if (!doingBothAndOr) {
+      dynamicViewEntity.addAlias(null,"totalRelevancy",null,null,null,null,null,relevancyComplexAlias);
+    }
+  }
+  if (keywordFixedOrSetAndList.size() > 0) {
+    Iterator keywordFixedOrSetAndIter=keywordFixedOrSetAndList.iterator();
+    while (keywordFixedOrSetAndIter.hasNext()) {
+      Set keywordFixedOrSet=(Set)keywordFixedOrSetAndIter.next();
+      String entityAlias="PK" + index;
+      String prefix="pk" + index;
+      index++;
+      dynamicViewEntity.addMemberEntity(entityAlias,"WorkEffortKeyword");
+      dynamicViewEntity.addAlias(entityAlias,prefix + "Keyword","keyword",null,null,null,null);
+      dynamicViewEntity.addViewLink("WEFF",entityAlias,Boolean.FALSE,ModelKeyMap.makeKeyMapList("workEffortId"));
+      List keywordOrList=new LinkedList();
+      Iterator keywordIter=keywordFixedOrSet.iterator();
+      while (keywordIter.hasNext()) {
+        String keyword=(String)keywordIter.next();
+        keywordOrList.add(new EntityExpr(prefix + "Keyword",EntityOperator.LIKE,keyword));
+      }
+      entityConditionList.add(new EntityConditionList(keywordOrList,EntityOperator.OR));
+      workEffortIdGroupBy=true;
+      if (doingBothAndOr) {
+        relevancyComplexAlias.addComplexAliasMember(new ComplexAliasField(entityAlias,"relevancyWeight",null,"sum"));
+      }
+ else {
+        dynamicViewEntity.addAlias(entityAlias,"totalRelevancy","relevancyWeight",null,null,null,"sum");
+      }
+    }
+  }
+  if (doingBothAndOr) {
+    dynamicViewEntity.addAlias(null,"totalRelevancy",null,null,null,null,null,relevancyComplexAlias);
+  }
+}

@@ -1,0 +1,33 @@
+{
+  if (nowTimestamp == null) {
+    nowTimestamp=UtilDateTime.nowTimestamp();
+  }
+  workEffortIdSet.add(workEffortId);
+  try {
+    List workEffortAssocList=delegator.findByAndCache("WorkEffortAssoc",UtilMisc.toMap("workEffortIdFrom",workEffortId,"workEffortAssocTypeId","WORK_EFF_BREAKDOWN"));
+    Iterator workEffortAssocIter=workEffortAssocList.iterator();
+    while (workEffortAssocIter.hasNext()) {
+      GenericValue workEffortAssoc=(GenericValue)workEffortAssocIter.next();
+      String subWorkEffortId=workEffortAssoc.getString("workEffortIdTo");
+      if (workEffortIdSet.contains(subWorkEffortId)) {
+        continue;
+      }
+      if (EntityUtil.isValueActive(workEffortAssoc,nowTimestamp)) {
+        getAllSubWorkEffortIds(subWorkEffortId,workEffortIdSet,delegator,nowTimestamp);
+      }
+    }
+    List childWorkEffortList=delegator.findByConditionCache("WorkEffort",new EntityExpr("workEffortParentId",EntityComparisonOperator.EQUALS,workEffortId),UtilMisc.toList("workEffortId","workEffortParentId"),null);
+    Iterator childWorkEffortIter=childWorkEffortList.iterator();
+    while (childWorkEffortIter.hasNext()) {
+      GenericValue childWorkEffort=(GenericValue)childWorkEffortIter.next();
+      String subWorkEffortId=childWorkEffort.getString("workEffortId");
+      if (workEffortIdSet.contains(subWorkEffortId)) {
+        continue;
+      }
+      getAllSubWorkEffortIds(subWorkEffortId,workEffortIdSet,delegator,nowTimestamp);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error finding sub-categories for workEffort search",module);
+  }
+}
