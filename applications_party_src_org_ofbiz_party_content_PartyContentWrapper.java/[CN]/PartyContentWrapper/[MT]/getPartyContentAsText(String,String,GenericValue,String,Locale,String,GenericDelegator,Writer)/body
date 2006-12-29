@@ -1,0 +1,58 @@
+{
+  if (partyId == null && party != null) {
+    partyId=party.getString("partyId");
+  }
+  if (delegator == null && party != null) {
+    delegator=party.getDelegator();
+  }
+  if (UtilValidate.isEmpty(mimeTypeId)) {
+    mimeTypeId="text/html";
+  }
+  if (delegator == null) {
+    throw new GeneralRuntimeException("Unable to find a delegator to use!");
+  }
+  if (partyContentTypeId != null) {
+    String candidateFieldName=ModelUtil.dbNameToVarName(partyContentTypeId);
+    ModelEntity partyPersonModel=delegator.getModelEntity("PartyAndPerson");
+    if (partyPersonModel != null && partyPersonModel.isField(candidateFieldName)) {
+      if (party == null) {
+        party=delegator.findByPrimaryKeyCache("PartyAndPerson",UtilMisc.toMap("partyId",partyId));
+      }
+      if (party != null) {
+        String candidateValue=party.getString(candidateFieldName);
+        if (UtilValidate.isNotEmpty(candidateValue)) {
+          outWriter.write(candidateValue);
+          return;
+        }
+      }
+    }
+    ModelEntity partyGroupModel=delegator.getModelEntity("PartyAndGroup");
+    if (partyGroupModel != null && partyGroupModel.isField(candidateFieldName)) {
+      if (party == null) {
+        party=delegator.findByPrimaryKeyCache("PartyAndGroup",UtilMisc.toMap("partyId",partyId));
+      }
+      if (party != null) {
+        String candidateValue=party.getString(candidateFieldName);
+        if (UtilValidate.isNotEmpty(candidateValue)) {
+          outWriter.write(candidateValue);
+          return;
+        }
+      }
+    }
+  }
+  GenericValue partyContent;
+  if (contentId != null) {
+    partyContent=delegator.findByPrimaryKeyCache("PartyContent",UtilMisc.toMap("partyId",partyId,"contentId",contentId));
+  }
+ else {
+    List partyContentList=delegator.findByAndCache("PartyContent",UtilMisc.toMap("partyId",partyId,"contentPurposeEnumId",partyContentTypeId),UtilMisc.toList("-fromDate"));
+    partyContentList=EntityUtil.filterByDate(partyContentList);
+    partyContent=EntityUtil.getFirst(partyContentList);
+  }
+  if (partyContent != null) {
+    Map inContext=FastMap.newInstance();
+    inContext.put("party",party);
+    inContext.put("partyContent",partyContent);
+    ContentWorker.renderContentAsText(delegator,partyContent.getString("contentId"),outWriter,inContext,null,locale,mimeTypeId);
+  }
+}
