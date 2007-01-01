@@ -1,0 +1,76 @@
+{
+  Boolean alreadyRun=(Boolean)request.getAttribute("processSearchParametersAlreadyRun");
+  if (Boolean.TRUE.equals(alreadyRun)) {
+    return;
+  }
+ else {
+    request.setAttribute("processSearchParametersAlreadyRun",Boolean.TRUE);
+  }
+  HttpSession session=request.getSession();
+  boolean constraintsChanged=false;
+  String clearSearchString=(String)parameters.get("clearSearch");
+  if (!"N".equals(clearSearchString)) {
+    searchClear(session);
+    constraintsChanged=true;
+  }
+ else {
+    String removeConstraint=(String)parameters.get("removeConstraint");
+    if (UtilValidate.isNotEmpty(removeConstraint)) {
+      try {
+        searchRemoveConstraint(Integer.parseInt(removeConstraint),session);
+        constraintsChanged=true;
+      }
+ catch (      Exception e) {
+        Debug.logError(e,"Error removing constraint [" + removeConstraint + "]",module);
+      }
+    }
+  }
+  if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_STRING_REVIEW_TEXT"))) {
+    String reviewText=(String)parameters.get("SEARCH_STRING_REVIEW_TEXT");
+    searchAddConstraint(new WorkEffortSearch.WorkEffortReviewConstraint(reviewText),session);
+    constraintsChanged=true;
+  }
+  if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_STRING"))) {
+    String keywordString=(String)parameters.get("SEARCH_STRING");
+    String searchOperator=(String)parameters.get("SEARCH_OPERATOR");
+    boolean anyPrefixSuffix=!"N".equals((String)parameters.get("SEARCH_ANYPRESUF"));
+    searchAddConstraint(new WorkEffortSearch.KeywordConstraint(keywordString,anyPrefixSuffix,anyPrefixSuffix,null,"AND".equals(searchOperator)),session);
+    constraintsChanged=true;
+  }
+  String sortOrder=(String)parameters.get("sortOrder");
+  String sortAscending=(String)parameters.get("sortAscending");
+  boolean ascending=!"N".equals(sortAscending);
+  if (sortOrder != null) {
+    if (sortOrder.equals("SortKeywordRelevancy")) {
+      searchSetSortOrder(new WorkEffortSearch.SortKeywordRelevancy(),session);
+    }
+ else     if (sortOrder.startsWith("SortWorkEffortField:")) {
+      String fieldName=sortOrder.substring("SortWorkEffortField:".length());
+      searchSetSortOrder(new WorkEffortSearch.SortWorkEffortField(fieldName,ascending),session);
+    }
+  }
+  WorkEffortSearchOptions workEffortSearchOptions=getWorkEffortSearchOptions(session);
+  if (constraintsChanged) {
+    workEffortSearchOptions.clearViewInfo();
+  }
+  String viewIndexStr=(String)parameters.get("VIEW_INDEX");
+  if (UtilValidate.isNotEmpty(viewIndexStr)) {
+    try {
+      workEffortSearchOptions.setViewIndex(Integer.valueOf(viewIndexStr));
+    }
+ catch (    Exception e) {
+      Debug.logError(e,"Error formatting VIEW_INDEX, setting to 0",module);
+      workEffortSearchOptions.setViewIndex(new Integer(0));
+    }
+  }
+  String viewSizeStr=(String)parameters.get("VIEW_SIZE");
+  if (UtilValidate.isNotEmpty(viewSizeStr)) {
+    try {
+      workEffortSearchOptions.setViewSize(Integer.valueOf(viewSizeStr));
+    }
+ catch (    Exception e) {
+      Debug.logError(e,"Error formatting VIEW_SIZE, setting to 20",module);
+      workEffortSearchOptions.setViewSize(new Integer(20));
+    }
+  }
+}
