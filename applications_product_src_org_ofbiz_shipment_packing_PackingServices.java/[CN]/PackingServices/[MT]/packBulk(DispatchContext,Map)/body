@@ -2,38 +2,69 @@
   PackingSession session=(PackingSession)context.get("packingSession");
   String orderId=(String)context.get("orderId");
   String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  Boolean updateQuantity=(Boolean)context.get("updateQuantity");
+  if (updateQuantity == null) {
+    updateQuantity=Boolean.FALSE;
+  }
   String instructions=(String)context.get("handlingInstructions");
   session.setHandlingInstructions(instructions);
+  String pickerPartyId=(String)context.get("pickerPartyId");
+  session.setPickerPartyId(pickerPartyId);
+  Map selInfo=(Map)context.get("selInfo");
   Map prdInfo=(Map)context.get("prdInfo");
   Map qtyInfo=(Map)context.get("qtyInfo");
   Map pkgInfo=(Map)context.get("pkgInfo");
-  Map selInfo=(Map)context.get("selInfo");
   if (selInfo != null) {
     Iterator i=selInfo.keySet().iterator();
     while (i.hasNext()) {
       String orderItemSeqId=(String)i.next();
-      String qtyStr=(String)qtyInfo.get(orderItemSeqId);
-      String pkgStr=(String)pkgInfo.get(orderItemSeqId);
       String prdStr=(String)prdInfo.get(orderItemSeqId);
       if (UtilValidate.isEmpty(prdStr)) {
         prdStr=null;
       }
+      String pkgStr=(String)pkgInfo.get(orderItemSeqId);
+      String qtyStr=(String)qtyInfo.get(orderItemSeqId);
       Debug.log("Item: " + orderItemSeqId + " / Product: "+ prdStr+ " / Quantity: "+ qtyStr+ " /  Package: "+ pkgStr,module);
-      double quantity=0;
-      int packageSeq=0;
-      try {
-        quantity=Double.parseDouble(qtyStr);
-        packageSeq=Integer.parseInt(pkgStr);
+      String[] quantities;
+      String[] packages;
+      if (pkgStr.indexOf(",") != -1) {
+        packages=pkgStr.split(",");
       }
- catch (      Exception e) {
-        return ServiceUtil.returnError(e.getMessage());
+ else {
+        packages=new String[]{pkgStr};
       }
-      try {
-        session.addOrIncreaseLine(orderId,orderItemSeqId,shipGroupSeqId,prdStr,quantity,packageSeq);
+      if (packages == null || packages.length == 0) {
+        return ServiceUtil.returnError("No packages defined for processing.");
       }
- catch (      GeneralException e) {
-        Debug.logError(e,module);
-        return ServiceUtil.returnError(e.getMessage());
+      if (qtyStr == null) {
+        quantities=new String[packages.length];
+        for (int p=0; p < packages.length; p++) {
+          quantities[p]=(String)qtyInfo.get(orderItemSeqId + ":" + packages[p]);
+        }
+        if (quantities.length != packages.length) {
+          return ServiceUtil.returnError("Packages and quantities do not match.");
+        }
+      }
+ else {
+        quantities=new String[]{qtyStr};
+      }
+      for (int p=0; p < packages.length; p++) {
+        double quantity;
+        int packageSeq;
+        try {
+          quantity=Double.parseDouble(quantities[p]);
+          packageSeq=Integer.parseInt(packages[p]);
+        }
+ catch (        Exception e) {
+          return ServiceUtil.returnError(e.getMessage());
+        }
+        try {
+          session.addOrIncreaseLine(orderId,orderItemSeqId,shipGroupSeqId,prdStr,quantity,packageSeq,updateQuantity.booleanValue());
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
       }
     }
   }

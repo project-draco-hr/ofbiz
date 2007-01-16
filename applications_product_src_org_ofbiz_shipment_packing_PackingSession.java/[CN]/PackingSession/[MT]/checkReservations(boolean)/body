@@ -3,23 +3,15 @@
   Iterator i=this.getLines().iterator();
   while (i.hasNext()) {
     PackingSessionLine line=(PackingSessionLine)i.next();
-    Map invLookup=FastMap.newInstance();
-    invLookup.put("orderId",line.getOrderId());
-    invLookup.put("orderItemSeqId",line.getOrderItemSeqId());
-    invLookup.put("shipGroupSeqId",line.getShipGroupSeqId());
-    invLookup.put("inventoryItemId",line.getInventoryItemId());
-    GenericValue res=this.getDelegator().findByPrimaryKey("OrderItemShipGrpInvRes",invLookup);
-    Double qty=res.getDouble("quantity");
-    if (qty == null)     qty=new Double(0);
-    double resQty=qty.doubleValue();
-    double lineQty=line.getQuantity();
-    if (lineQty != resQty) {
-      errors.add("Packed amount does not match reserved amount for item (" + line.getProductId() + ") ["+ lineQty+ " / "+ resQty+ "]");
+    double reservedQty=this.getCurrentReservedQuantity(line.getOrderId(),line.getOrderItemSeqId(),line.getShipGroupSeqId());
+    double packedQty=this.getPackedQuantity(line.getOrderId(),line.getOrderItemSeqId(),line.getShipGroupSeqId());
+    if (packedQty != reservedQty) {
+      errors.add("Packed amount does not match reserved amount for item (" + line.getProductId() + ") ["+ packedQty+ " / "+ reservedQty+ "]");
     }
   }
   if (errors.size() > 0) {
     if (!ignore) {
-      throw new GeneralException("Attempt to pack order failed. Click COMPLETE again to force.",errors);
+      throw new GeneralException("Attempt to pack order failed.",errors);
     }
  else {
       Debug.logWarning("Packing warnings: " + errors,module);
