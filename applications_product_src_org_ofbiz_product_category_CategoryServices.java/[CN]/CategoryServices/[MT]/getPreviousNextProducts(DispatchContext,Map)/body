@@ -1,0 +1,60 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String categoryId=(String)context.get("categoryId");
+  String productId=(String)context.get("productId");
+  boolean activeOnly=(context.get("activeOnly") != null ? ((Boolean)context.get("activeOnly")).booleanValue() : true);
+  Integer index=(Integer)context.get("index");
+  if (index == null && productId == null) {
+    return ServiceUtil.returnError("Both Index and ProductID cannot be null.");
+  }
+  List orderByFields=(List)context.get("orderByFields");
+  if (orderByFields == null)   orderByFields=FastList.newInstance();
+  String entityName=getCategoryFindEntityName(delegator,orderByFields);
+  GenericValue productCategory;
+  List productCategoryMembers;
+  try {
+    productCategory=delegator.findByPrimaryKeyCache("ProductCategory",UtilMisc.toMap("productCategoryId",categoryId));
+    productCategoryMembers=delegator.findByAndCache(entityName,UtilMisc.toMap("productCategoryId",categoryId),orderByFields);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error finding previous/next product info: " + e.toString();
+    Debug.logInfo(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (activeOnly) {
+    productCategoryMembers=EntityUtil.filterByDate(productCategoryMembers,true);
+  }
+  if (productId != null && index == null) {
+    Iterator i=productCategoryMembers.iterator();
+    while (i.hasNext()) {
+      GenericValue v=(GenericValue)i.next();
+      if (v.getString("productId").equals(productId)) {
+        index=new Integer(productCategoryMembers.indexOf(v));
+      }
+    }
+  }
+  if (index == null) {
+    return ServiceUtil.returnSuccess("Product not found in the current category.");
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("category",productCategory);
+  String previous=null;
+  String next=null;
+  if (index.intValue() - 1 >= 0 && index.intValue() - 1 < productCategoryMembers.size()) {
+    previous=((GenericValue)productCategoryMembers.get(index.intValue() - 1)).getString("productId");
+    result.put("previousProductId",previous);
+  }
+ else {
+    previous=((GenericValue)productCategoryMembers.get(productCategoryMembers.size() - 1)).getString("productId");
+    result.put("previousProductId",previous);
+  }
+  if (index.intValue() + 1 < productCategoryMembers.size()) {
+    next=((GenericValue)productCategoryMembers.get(index.intValue() + 1)).getString("productId");
+    result.put("nextProductId",next);
+  }
+ else {
+    next=((GenericValue)productCategoryMembers.get(0)).getString("productId");
+    result.put("nextProductId",next);
+  }
+  return result;
+}
