@@ -1,0 +1,45 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  EntityCondition requirementConditions=(EntityCondition)context.get("requirementConditions");
+  String partyId=(String)context.get("partyId");
+  String unassignedRequirements=(String)context.get("unassignedRequirements");
+  String currencyUomId=(String)context.get("currencyUomId");
+  try {
+    List orderBy=UtilMisc.toList("partyId","requirementId");
+    List conditions=UtilMisc.toList(new EntityExpr("requirementTypeId",EntityOperator.EQUALS,"PRODUCT_REQUIREMENT"),new EntityExpr("statusId",EntityOperator.EQUALS,"REQ_APPROVED"),EntityUtil.getFilterByDateExpr());
+    if (requirementConditions != null)     conditions.add(requirementConditions);
+    if (UtilValidate.isNotEmpty(partyId)) {
+      conditions.add(new EntityExpr("partyId",EntityOperator.EQUALS,partyId));
+      conditions.add(new EntityExpr("roleTypeId",EntityOperator.EQUALS,"SUPPLIER"));
+    }
+ else     if (UtilValidate.isNotEmpty(unassignedRequirements)) {
+      conditions.add(new EntityExpr("partyId",EntityOperator.EQUALS,null));
+    }
+ else {
+      conditions.add(new EntityExpr("roleTypeId",EntityOperator.EQUALS,"SUPPLIER"));
+    }
+    List requirementAndRoles=delegator.findByAnd("RequirementAndRole",conditions,orderBy);
+    List requirements=FastList.newInstance();
+    for (Iterator iter=requirementAndRoles.iterator(); iter.hasNext(); ) {
+      GenericValue requirement=(GenericValue)iter.next();
+      Map union=FastMap.newInstance();
+      conditions=UtilMisc.toList(new EntityExpr("partyId",EntityOperator.EQUALS,requirement.get("partyId")),new EntityExpr("productId",EntityOperator.EQUALS,requirement.get("productId")),EntityUtil.getFilterByDateExpr("availableFromDate","availableThruDate"));
+      GenericValue supplierProduct=EntityUtil.getFirst(delegator.findByAnd("SupplierProduct",conditions));
+      if (supplierProduct != null) {
+        union.putAll(supplierProduct.getAllFields());
+      }
+      GenericValue gid=delegator.findByPrimaryKey("GoodIdentification",UtilMisc.toMap("goodIdentificationTypeId","UPCA","productId",requirement.get("productId")));
+      if (gid != null)       union.put("idValue",gid.get("idValue"));
+      union.putAll(requirement.getAllFields());
+      requirements.add(union);
+    }
+    Map results=ServiceUtil.returnSuccess();
+    results.put("requirementsForSupplier",requirements);
+    return results;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderEntityExceptionSeeLogs",locale));
+  }
+}
