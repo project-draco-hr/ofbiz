@@ -24,8 +24,10 @@
     Map suppliers=FastMap.newInstance();
     Map gids=FastMap.newInstance();
     Map inventories=FastMap.newInstance();
+    Map productsSold=FastMap.newInstance();
     double quantity=0.0;
     Set products=new HashSet();
+    Timestamp timePeriodStart=UtilDateTime.getMonthStart(UtilDateTime.nowTimestamp(),0,-6);
     List requirements=FastList.newInstance();
     for (Iterator iter=requirementAndRoles.iterator(); iter.hasNext(); ) {
       Map union=FastMap.newInstance();
@@ -61,6 +63,18 @@
           union.put("qoh",inventory.get("quantityOnHandTotal"));
           union.put("atp",inventory.get("availableToPromiseTotal"));
         }
+      }
+      Double sold=(Double)productsSold.get(productId);
+      if (sold == null) {
+        EntityCondition prodConditions=new EntityConditionList(UtilMisc.toList(new EntityExpr("productId",EntityOperator.EQUALS,productId),new EntityExpr("orderTypeId",EntityOperator.EQUALS,"SALES_ORDER"),new EntityExpr("orderStatusId",EntityOperator.NOT_IN,UtilMisc.toList("ORDER_REJECTED","ORDER_CANCELLED")),new EntityExpr("orderItemStatusId",EntityOperator.NOT_IN,UtilMisc.toList("ITEM_REJECTED","ITEM_CANCELLED")),new EntityExpr("orderDate",EntityOperator.GREATER_THAN_EQUAL_TO,timePeriodStart)),EntityOperator.AND);
+        GenericValue count=EntityUtil.getFirst(delegator.findByCondition("OrderItemQuantityReportGroupByProduct",prodConditions,UtilMisc.toList("quantityOrdered"),null));
+        if (count != null) {
+          sold=count.getDouble("quantityOrdered");
+          if (sold != null)           productsSold.put(productId,sold);
+        }
+      }
+      if (sold != null) {
+        union.put("qtySold",sold);
       }
       quantity+=requirement.getDouble("quantity").doubleValue();
       products.add(productId);
