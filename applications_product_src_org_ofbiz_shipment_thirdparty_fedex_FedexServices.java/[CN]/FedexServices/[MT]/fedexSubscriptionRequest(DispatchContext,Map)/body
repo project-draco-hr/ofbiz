@@ -1,0 +1,192 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  List errorList=new ArrayList();
+  Boolean replaceMeterNumber=(Boolean)context.get("replaceMeterNumber");
+  if (!replaceMeterNumber.booleanValue()) {
+    String meterNumber=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.fedex.access.meterNumber");
+    if (UtilValidate.isNotEmpty(meterNumber)) {
+      return ServiceUtil.returnError("MeterNumber already exists: " + shipmentPropertiesFile + ":shipment.fedex.access.meterNumber="+ meterNumber);
+    }
+  }
+  String companyPartyId=(String)context.get("companyPartyId");
+  String contactPartyName=(String)context.get("contactPartyName");
+  Map result=new HashMap();
+  String accountNumber=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.fedex.access.accountNbr");
+  if (UtilValidate.isEmpty(accountNumber)) {
+    return ServiceUtil.returnError("accountNbr not found for Fedex subscription request.");
+  }
+  if (UtilValidate.isEmpty(contactPartyName)) {
+    return ServiceUtil.returnError("Contact name can't be empty.");
+  }
+  String companyName=null;
+  GenericValue postalAddress=null;
+  String phoneNumber=null;
+  String faxNumber=null;
+  String emailAddress=null;
+  try {
+    GenericValue companyParty=delegator.findByPrimaryKeyCache("Party",UtilMisc.toMap("partyId",companyPartyId));
+    if (companyParty == null) {
+      String errorMessage="Party with partyId " + companyPartyId + " does not exist";
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    companyName=PartyHelper.getPartyName(companyParty);
+    if (UtilValidate.isEmpty(companyName)) {
+      String errorMessage="Party with partyId " + companyPartyId + " has no name";
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    List partyContactDetails=delegator.findByAnd("PartyContactDetailByPurpose",UtilMisc.toMap("partyId",companyPartyId));
+    partyContactDetails=EntityUtil.filterByDate(partyContactDetails);
+    partyContactDetails=EntityUtil.filterByDate(partyContactDetails,UtilDateTime.nowTimestamp(),"purposeFromDate","purposeThruDate",true);
+    List postalAddressConditions=new ArrayList();
+    postalAddressConditions.add(new EntityExpr("contactMechTypeId",EntityOperator.EQUALS,"POSTAL_ADDRESS"));
+    postalAddressConditions.add(new EntityExpr("address1",EntityOperator.NOT_EQUAL,null));
+    postalAddressConditions.add(new EntityExpr("address1",EntityOperator.NOT_EQUAL,""));
+    postalAddressConditions.add(new EntityExpr("city",EntityOperator.NOT_EQUAL,null));
+    postalAddressConditions.add(new EntityExpr("city",EntityOperator.NOT_EQUAL,""));
+    postalAddressConditions.add(new EntityExpr("postalCode",EntityOperator.NOT_EQUAL,null));
+    postalAddressConditions.add(new EntityExpr("postalCode",EntityOperator.NOT_EQUAL,""));
+    postalAddressConditions.add(new EntityExpr("countryGeoId",EntityOperator.NOT_EQUAL,null));
+    postalAddressConditions.add(new EntityExpr("countryGeoId",EntityOperator.NOT_EQUAL,""));
+    List postalAddresses=EntityUtil.filterByCondition(partyContactDetails,new EntityConditionList(postalAddressConditions,EntityOperator.AND));
+    postalAddressConditions.clear();
+    postalAddressConditions.add(new EntityExpr("countryGeoId",EntityOperator.IN,UtilMisc.toList("CAN","USA")));
+    postalAddressConditions.add(new EntityExpr("stateProvinceGeoId",EntityOperator.EQUALS,null));
+    postalAddresses=EntityUtil.filterOutByCondition(postalAddresses,new EntityConditionList(postalAddressConditions,EntityOperator.AND));
+    postalAddressConditions.clear();
+    postalAddressConditions.add(new EntityExpr("countryGeoId",EntityOperator.IN,UtilMisc.toList("CAN","USA")));
+    postalAddressConditions.add(new EntityExpr("stateProvinceGeoId",EntityOperator.EQUALS,""));
+    postalAddresses=EntityUtil.filterOutByCondition(postalAddresses,new EntityConditionList(postalAddressConditions,EntityOperator.AND));
+    postalAddress=EntityUtil.getFirst(postalAddresses);
+    if (UtilValidate.isEmpty(postalAddress)) {
+      String errorMessage="Party with partyId " + companyPartyId + " does not have a current, fully populated postal address";
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    GenericValue countryGeo=delegator.findByPrimaryKeyCache("Geo",UtilMisc.toMap("geoId",postalAddress.getString("countryGeoId")));
+    String countryCode=countryGeo.getString("geoCode");
+    String stateOrProvinceCode=null;
+    if (countryCode.equals("CA") || countryCode.equals("US")) {
+      GenericValue stateProvinceGeo=delegator.findByPrimaryKeyCache("Geo",UtilMisc.toMap("geoId",postalAddress.getString("stateProvinceGeoId")));
+      stateOrProvinceCode=stateProvinceGeo.getString("geoCode");
+    }
+    List phoneNumberConditions=new ArrayList();
+    phoneNumberConditions.add(new EntityExpr("contactMechTypeId",EntityOperator.EQUALS,"TELECOM_NUMBER"));
+    phoneNumberConditions.add(new EntityExpr("contactMechPurposeTypeId",EntityOperator.EQUALS,"PRIMARY_PHONE"));
+    phoneNumberConditions.add(new EntityExpr("areaCode",EntityOperator.NOT_EQUAL,null));
+    phoneNumberConditions.add(new EntityExpr("areaCode",EntityOperator.NOT_EQUAL,""));
+    phoneNumberConditions.add(new EntityExpr("contactNumber",EntityOperator.NOT_EQUAL,null));
+    phoneNumberConditions.add(new EntityExpr("contactNumber",EntityOperator.NOT_EQUAL,""));
+    List phoneNumbers=EntityUtil.filterByCondition(partyContactDetails,new EntityConditionList(phoneNumberConditions,EntityOperator.AND));
+    GenericValue phoneNumberValue=EntityUtil.getFirst(phoneNumbers);
+    if (UtilValidate.isEmpty(phoneNumberValue)) {
+      String errorMessage="Party with partyId " + companyPartyId + " does not have a current, fully populated primary phone number";
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    phoneNumber=phoneNumberValue.getString("areaCode") + phoneNumberValue.getString("contactNumber");
+    if (UtilValidate.isNotEmpty(phoneNumberValue.getString("countryCode")))     phoneNumber=phoneNumberValue.getString("countryCode") + phoneNumber;
+    phoneNumber=phoneNumber.replaceAll("[^+\\d]","");
+    List faxNumberConditions=new ArrayList();
+    faxNumberConditions.add(new EntityExpr("contactMechTypeId",EntityOperator.EQUALS,"TELECOM_NUMBER"));
+    faxNumberConditions.add(new EntityExpr("contactMechPurposeTypeId",EntityOperator.EQUALS,"FAX_NUMBER"));
+    faxNumberConditions.add(new EntityExpr("areaCode",EntityOperator.NOT_EQUAL,null));
+    faxNumberConditions.add(new EntityExpr("areaCode",EntityOperator.NOT_EQUAL,""));
+    faxNumberConditions.add(new EntityExpr("contactNumber",EntityOperator.NOT_EQUAL,null));
+    faxNumberConditions.add(new EntityExpr("contactNumber",EntityOperator.NOT_EQUAL,""));
+    List faxNumbers=EntityUtil.filterByCondition(partyContactDetails,new EntityConditionList(faxNumberConditions,EntityOperator.AND));
+    GenericValue faxNumberValue=EntityUtil.getFirst(faxNumbers);
+    if (!UtilValidate.isEmpty(faxNumberValue)) {
+      faxNumber=faxNumberValue.getString("areaCode") + faxNumberValue.getString("contactNumber");
+      if (UtilValidate.isNotEmpty(faxNumberValue.getString("countryCode")))       faxNumber=faxNumberValue.getString("countryCode") + faxNumber;
+      faxNumber=faxNumber.replaceAll("[^+\\d]","");
+    }
+    List emailConditions=new ArrayList();
+    emailConditions.add(new EntityExpr("contactMechTypeId",EntityOperator.EQUALS,"EMAIL_ADDRESS"));
+    emailConditions.add(new EntityExpr("infoString",EntityOperator.NOT_EQUAL,null));
+    emailConditions.add(new EntityExpr("infoString",EntityOperator.NOT_EQUAL,""));
+    List emailAddresses=EntityUtil.filterByCondition(partyContactDetails,new EntityConditionList(emailConditions,EntityOperator.AND));
+    GenericValue emailAddressValue=EntityUtil.getFirst(emailAddresses);
+    if (!UtilValidate.isEmpty(emailAddressValue)) {
+      emailAddress=emailAddressValue.getString("infoString");
+    }
+    String templateLocation=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.template.fedex.subscription.location");
+    if (UtilValidate.isEmpty(templateLocation)) {
+      return ServiceUtil.returnError("Can't find location for FDXSubscriptionRequest template - should be in " + shipmentPropertiesFile + ":shipment.template.fedex.subscription.location");
+    }
+    Map subscriptionRequestContext=new HashMap();
+    subscriptionRequestContext.put("AccountNumber",accountNumber);
+    subscriptionRequestContext.put("PersonName",contactPartyName);
+    subscriptionRequestContext.put("CompanyName",companyName);
+    subscriptionRequestContext.put("PhoneNumber",phoneNumber);
+    if (UtilValidate.isNotEmpty(faxNumber)) {
+      subscriptionRequestContext.put("FaxNumber",faxNumber);
+    }
+    if (UtilValidate.isNotEmpty(emailAddress)) {
+      subscriptionRequestContext.put("EMailAddress",emailAddress);
+    }
+    subscriptionRequestContext.put("Line1",postalAddress.getString("address1"));
+    if (UtilValidate.isNotEmpty(postalAddress.getString("address2"))) {
+      subscriptionRequestContext.put("Line2",postalAddress.getString("address2"));
+    }
+    subscriptionRequestContext.put("City",postalAddress.getString("city"));
+    if (UtilValidate.isNotEmpty(stateOrProvinceCode)) {
+      subscriptionRequestContext.put("StateOrProvinceCode",stateOrProvinceCode);
+    }
+    subscriptionRequestContext.put("PostalCode",postalAddress.getString("postalCode"));
+    subscriptionRequestContext.put("CountryCode",countryCode);
+    StringWriter outWriter=new StringWriter();
+    try {
+      FreeMarkerWorker.renderTemplateAtLocation(templateLocation,subscriptionRequestContext,outWriter);
+    }
+ catch (    Exception e) {
+      String errorMessage="Cannot send Fedex subscription request: Failed to render Fedex XML Subscription Request Template [" + templateLocation + "].";
+      Debug.logError(e,errorMessage,module);
+      return ServiceUtil.returnError(errorMessage + ": " + e.getMessage());
+    }
+    String fDXSubscriptionRequestString=outWriter.toString();
+    String fDXSubscriptionReplyString=null;
+    try {
+      fDXSubscriptionReplyString=sendFedexRequest(fDXSubscriptionRequestString);
+      Debug.log("Fedex response for FDXSubscriptionRequest:" + fDXSubscriptionReplyString);
+    }
+ catch (    FedexConnectException e) {
+      String errorMessage="Error sending Fedex request for FDXSubscriptionRequest: " + e.toString();
+      Debug.logError(e,errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    Document fDXSubscriptionReplyDocument=null;
+    try {
+      fDXSubscriptionReplyDocument=UtilXml.readXmlDocument(fDXSubscriptionReplyString,false);
+      Debug.log("Fedex response for FDXSubscriptionRequest:" + fDXSubscriptionReplyString);
+    }
+ catch (    SAXException se) {
+      String errorMessage="Error parsing the FDXSubscriptionRequest response: " + se.toString();
+      Debug.logError(se,errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+catch (    ParserConfigurationException pce) {
+      String errorMessage="Error parsing the FDXSubscriptionRequest response: " + pce.toString();
+      Debug.logError(pce,errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+catch (    IOException ioe) {
+      String errorMessage="Error parsing the FDXSubscriptionRequest response: " + ioe.toString();
+      Debug.logError(ioe,errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    Element fedexSubscriptionReplyElement=fDXSubscriptionReplyDocument.getDocumentElement();
+    handleErrors(fedexSubscriptionReplyElement,errorList);
+    if (UtilValidate.isNotEmpty(errorList)) {
+      return ServiceUtil.returnError(errorList);
+    }
+    String meterNumber=UtilXml.childElementValue(fedexSubscriptionReplyElement,"MeterNumber");
+    result.put("meterNumber",meterNumber);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
