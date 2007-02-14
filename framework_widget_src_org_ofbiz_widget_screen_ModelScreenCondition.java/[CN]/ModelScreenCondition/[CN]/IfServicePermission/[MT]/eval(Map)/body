@@ -1,0 +1,49 @@
+{
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (userLogin != null) {
+    String serviceName=serviceExdr.expandString(context);
+    String mainAction=actionExdr.expandString(context);
+    String resource=resExdr.expandString(context);
+    if (resource == null) {
+      resource=serviceName;
+    }
+    if (serviceName == null) {
+      Debug.logWarning("No permission service-name specified!",module);
+      return false;
+    }
+    LocalDispatcher dispatcher=this.modelScreen.getDispatcher(context);
+    DispatchContext dctx=dispatcher.getDispatchContext();
+    ModelService permService;
+    try {
+      permService=dctx.getModelService(serviceName);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return false;
+    }
+    if (permService != null) {
+      Map svcCtx=permService.makeValid(context,ModelService.IN_PARAM);
+      svcCtx.put("resourceDescription",resource);
+      if (UtilValidate.isNotEmpty(mainAction)) {
+        svcCtx.put("mainAction",mainAction);
+      }
+      Map resp;
+      try {
+        resp=dispatcher.runSync(permService.name,svcCtx,300,true);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return false;
+      }
+      if (ServiceUtil.isError(resp) || ServiceUtil.isFailure(resp)) {
+        Debug.logError(ServiceUtil.getErrorMessage(resp),module);
+        return false;
+      }
+      Boolean hasPermission=(Boolean)resp.get("hasPermission");
+      if (hasPermission != null) {
+        return hasPermission.booleanValue();
+      }
+    }
+  }
+  return false;
+}
