@@ -1,7 +1,7 @@
 {
-  String eventType=null;
-  String eventPath=null;
-  String eventMethod=null;
+  String eventType;
+  String eventPath;
+  String eventMethod;
   String cname=UtilHttp.getApplicationName(request);
   String requestUri=RequestHandler.getRequestUri(request.getPathInfo());
   String nextView=RequestHandler.getNextPageUri(request.getPathInfo());
@@ -25,7 +25,12 @@
   }
  else {
     if (!requestManager.allowDirectRequest(requestUri)) {
-      throw new RequestHandlerException("Unknown request [" + requestUri + "]; this request does not exist or cannot be called directly.");
+      if (!requestManager.allowDirectRequest(requestManager.getDefaultRequest())) {
+        throw new RequestHandlerException("Unknown request [" + requestUri + "]; this request does not exist or cannot be called directly.");
+      }
+ else {
+        requestUri=requestManager.getDefaultRequest();
+      }
     }
     if (!request.isSecure() && requestManager.requiresHttps(requestUri) && !request.getMethod().equalsIgnoreCase("POST")) {
       StringBuffer urlBuf=new StringBuffer();
@@ -99,7 +104,7 @@
     String checkLoginType=requestManager.getEventType("checkLogin");
     String checkLoginPath=requestManager.getEventPath("checkLogin");
     String checkLoginMethod=requestManager.getEventMethod("checkLogin");
-    String checkLoginReturnString=null;
+    String checkLoginReturnString;
     try {
       checkLoginReturnString=this.runEvent(request,response,checkLoginType,checkLoginPath,checkLoginMethod);
     }
@@ -108,9 +113,6 @@
     }
     if (!"success".equalsIgnoreCase(checkLoginReturnString)) {
       eventReturnString=checkLoginReturnString;
-      eventType=checkLoginType;
-      eventPath=checkLoginPath;
-      eventMethod=checkLoginMethod;
       requestUri="checkLogin";
     }
   }
@@ -159,7 +161,7 @@
   String previousRequest=(String)request.getSession().getAttribute("_PREVIOUS_REQUEST_");
   String loginPass=(String)request.getAttribute("_LOGIN_PASSED_");
   String preReqAttStr=(String)request.getSession().getAttribute("_REQ_ATTR_MAP_");
-  Map preRequestMap=null;
+  Map preRequestMap;
   if (preReqAttStr != null) {
     request.getSession().removeAttribute("_REQ_ATTR_MAP_");
     byte[] reqAttrMapBytes=StringUtil.fromHexString(preReqAttStr);
@@ -193,7 +195,6 @@
     Debug.logInfo("[RequestHandler.doRequest]: Response is a chained request." + " sessionId=" + UtilHttp.getSessionId(request),module);
     nextView=nextView.substring(8);
     doRequest(request,response,nextView,userLogin,delegator);
-    return;
   }
  else {
     Collection postProcEvents=requestManager.getPostProcessor();
