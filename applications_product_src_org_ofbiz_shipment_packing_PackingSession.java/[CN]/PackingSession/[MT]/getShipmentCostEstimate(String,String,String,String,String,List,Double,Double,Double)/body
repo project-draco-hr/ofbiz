@@ -1,0 +1,52 @@
+{
+  Double shipmentCostEstimate=null;
+  Map serviceResult=null;
+  try {
+    Map serviceContext=FastMap.newInstance();
+    serviceContext.put("shippingContactMechId",shippingContactMechId);
+    serviceContext.put("shipmentMethodTypeId",shipmentMethodTypeId);
+    serviceContext.put("carrierPartyId",carrierPartyId);
+    serviceContext.put("carrierRoleTypeId",carrierRoleTypeId);
+    serviceContext.put("productStoreId",productStoreId);
+    if (UtilValidate.isEmpty(shippableItemInfo)) {
+      shippableItemInfo=FastList.newInstance();
+      Iterator lit=getLines().iterator();
+      while (lit.hasNext()) {
+        PackingSessionLine line=(PackingSessionLine)lit.next();
+        List oiasgas=getDelegator().findByAnd("OrderItemAndShipGroupAssoc",UtilMisc.toMap("orderId",line.getOrderId(),"orderItemSeqId",line.getOrderItemSeqId(),"shipGroupSeqId",line.getShipGroupSeqId()));
+        shippableItemInfo.addAll(oiasgas);
+      }
+    }
+    serviceContext.put("shippableItemInfo",shippableItemInfo);
+    if (UtilValidate.isEmpty(shippableWeight)) {
+      shippableWeight=new Double(getTotalWeight(-1));
+    }
+    serviceContext.put("shippableWeight",shippableWeight);
+    if (UtilValidate.isEmpty(shippableQuantity)) {
+      shippableQuantity=new Double(getPackedQuantity(-1));
+    }
+    serviceContext.put("shippableQuantity",shippableQuantity);
+    if (UtilValidate.isEmpty(shippableTotal)) {
+      shippableTotal=new Double(0);
+      Iterator lit=getLines().iterator();
+      while (lit.hasNext()) {
+        PackingSessionLine line=(PackingSessionLine)lit.next();
+        GenericValue orderItem=getDelegator().findByPrimaryKey("OrderItem",UtilMisc.toMap("orderId",line.getOrderId(),"orderItemSeqId",line.getOrderItemSeqId()));
+        BigDecimal orderItemTotal=OrderReadHelper.getOrderItemSubTotalBd(orderItem,null,false,false);
+        shippableTotal=new Double(shippableTotal.doubleValue() + orderItemTotal.doubleValue());
+      }
+    }
+    serviceContext.put("shippableTotal",shippableTotal);
+    serviceResult=getDispatcher().runSync("calcShipmentCostEstimate",serviceContext);
+  }
+ catch (  GenericEntityException e) {
+    e.printStackTrace();
+  }
+catch (  GenericServiceException e) {
+    e.printStackTrace();
+  }
+  if (!UtilValidate.isEmpty(serviceResult.get("shippingEstimateAmount"))) {
+    shipmentCostEstimate=(Double)serviceResult.get("shippingEstimateAmount");
+  }
+  return shipmentCostEstimate;
+}
