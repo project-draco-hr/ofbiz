@@ -1,0 +1,65 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  HttpSession session=request.getSession();
+  String webSiteId=(String)session.getAttribute("webSiteId");
+  if (webSiteId == null) {
+    request.setAttribute("_ERROR_MESSAGE_","Not able to run CMS application; no webSiteId defined for WebApp!");
+    return "error";
+  }
+  String targetRequest=(String)request.getAttribute("targetRequestUri");
+  String actualRequest=(String)request.getAttribute("thisRequestUri");
+  if (targetRequest != null) {
+    targetRequest=targetRequest.replaceAll("\\W","");
+  }
+ else {
+    targetRequest="";
+  }
+  if (actualRequest != null) {
+    actualRequest=actualRequest.replaceAll("\\W","");
+  }
+ else {
+    actualRequest="";
+  }
+  String pathInfo=request.getPathInfo();
+  if (targetRequest.equals(actualRequest)) {
+    String[] pathParsed=pathInfo.split("/",3);
+    if (pathParsed != null && pathParsed.length > 2) {
+      pathInfo="/" + pathParsed[2];
+    }
+ else {
+      pathInfo=null;
+    }
+  }
+  if (pathInfo != null) {
+    Debug.log("Path INFO for Alias: " + pathInfo,module);
+    GenericValue pathAlias=null;
+    try {
+      pathAlias=delegator.findByPrimaryKeyCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"pathAlias",pathInfo));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (pathAlias != null) {
+      String alias=pathAlias.getString("aliasTo");
+      if (UtilValidate.isNotEmpty(alias)) {
+        if (!alias.startsWith("/")) {
+          alias="/" + alias;
+        }
+        RequestDispatcher rd=request.getRequestDispatcher(request.getServletPath() + alias);
+        try {
+          rd.forward(request,response);
+        }
+ catch (        ServletException e) {
+          Debug.logError(e,module);
+          return "error";
+        }
+catch (        IOException e) {
+          Debug.logError(e,module);
+          return "error";
+        }
+        return null;
+      }
+    }
+  }
+  throw new RuntimeException("Unknown request; this request does not exist or cannot be called directly.");
+}
