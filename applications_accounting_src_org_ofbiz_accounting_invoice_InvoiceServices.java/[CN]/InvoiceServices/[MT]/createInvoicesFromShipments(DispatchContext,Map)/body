@@ -3,8 +3,11 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   List shipmentIds=(List)context.get("shipmentIds");
   Locale locale=(Locale)context.get("locale");
+  Boolean createSalesInvoicesForDropShipments=(Boolean)context.get("createSalesInvoicesForDropShipments");
+  if (UtilValidate.isEmpty(createSalesInvoicesForDropShipments))   createSalesInvoicesForDropShipments=Boolean.FALSE;
   boolean salesShipmentFound=false;
   boolean purchaseShipmentFound=false;
+  boolean dropShipmentFound=false;
   List invoicesCreated=new ArrayList();
   for (int i=0; i < shipmentIds.size(); i++) {
     String tmpShipmentId=(String)shipmentIds.get(i);
@@ -13,10 +16,13 @@
       if ((shipment.getString("shipmentTypeId") != null) && (shipment.getString("shipmentTypeId").equals("PURCHASE_SHIPMENT"))) {
         purchaseShipmentFound=true;
       }
+ else       if ((shipment.getString("shipmentTypeId") != null) && (shipment.getString("shipmentTypeId").equals("DROP_SHIPMENT"))) {
+        dropShipmentFound=true;
+      }
  else {
         salesShipmentFound=true;
       }
-      if (purchaseShipmentFound && salesShipmentFound) {
+      if (purchaseShipmentFound && salesShipmentFound && dropShipmentFound) {
         return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingShipmentsOfDifferentTypes",UtilMisc.toMap("tmpShipmentId",tmpShipmentId,"shipmentTypeId",shipment.getString("shipmentTypeId")),locale));
       }
     }
@@ -28,9 +34,21 @@
   }
   EntityCondition shipmentIdsCond=new EntityExpr("shipmentId",EntityOperator.IN,shipmentIds);
   List items=null;
+  List orderItemAssocs=null;
   try {
     if (purchaseShipmentFound) {
       items=delegator.findByCondition("ShipmentReceipt",shipmentIdsCond,null,UtilMisc.toList("shipmentId"));
+    }
+ else     if (dropShipmentFound) {
+      List shipments=delegator.findByCondition("Shipment",shipmentIdsCond,null,null);
+      List purchaseOrderIds=EntityUtil.getFieldListFromEntityList(shipments,"primaryOrderId",true);
+      if (createSalesInvoicesForDropShipments.booleanValue()) {
+        orderItemAssocs=delegator.findByCondition("OrderItemAssoc",new EntityExpr("toOrderId",EntityOperator.IN,purchaseOrderIds),null,null);
+        items=EntityUtil.getRelated("FromOrderItem",orderItemAssocs);
+      }
+ else {
+        items=delegator.findByCondition("OrderItem",new EntityExpr("orderId",EntityOperator.IN,purchaseOrderIds),null,null);
+      }
     }
  else {
       items=delegator.findByCondition("ItemIssuance",shipmentIdsCond,null,UtilMisc.toList("shipmentId"));
@@ -56,7 +74,12 @@
       itemsByOrder=new ArrayList();
     }
     Map billFields=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId);
-    if (item.getEntityName().equals("ItemIssuance")) {
+    if (dropShipmentFound) {
+      itemsByOrder.add(item);
+      shippedOrderItems.put(orderId,itemsByOrder);
+      continue;
+    }
+ else     if (item.getEntityName().equals("ItemIssuance")) {
       billFields.put("itemIssuanceId",item.get("itemIssuanceId"));
     }
  else     if (item.getEntityName().equals("ShipmentReceipt")) {
@@ -98,8 +121,16 @@
         Map lookup=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",issue.get("orderItemSeqId"));
         GenericValue orderItem=null;
         List billed=null;
+        BigDecimal orderedQty=null;
         try {
-          orderItem=issue.getRelatedOne("OrderItem");
+          orderItem=issue.getEntityName().equals("OrderItem") ? issue : issue.getRelatedOne("OrderItem");
+          orderedQty=orderItem.getBigDecimal("quantity");
+          if (dropShipmentFound && createSalesInvoicesForDropShipments.booleanValue()) {
+            GenericValue orderItemAssoc=EntityUtil.getFirst(EntityUtil.filterByAnd(orderItemAssocs,UtilMisc.toMap("orderId",issue.getString("orderId"),"orderItemSeqId",issue.getString("orderItemSeqId"))));
+            GenericValue purchaseOrderItem=orderItemAssoc.getRelatedOne("ToOrderItem");
+            orderItem.set("quantity",purchaseOrderItem.getDouble("quantity"));
+            issueQty=purchaseOrderItem.getBigDecimal("quantity");
+          }
           billed=delegator.findByAnd("OrderItemBilling",lookup);
         }
  catch (        GenericEntityException e) {
@@ -107,7 +138,6 @@
           Debug.logError(e,errMsg,module);
           return ServiceUtil.returnError(errMsg);
         }
-        BigDecimal orderedQty=orderItem.getBigDecimal("quantity");
         if (billed != null && billed.size() > 0) {
           BigDecimal billedQuantity=ZERO;
           Iterator bi=billed.iterator();
@@ -140,10 +170,29 @@
     OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
     GenericValue productStore=orh.getProductStore();
     if (productStore.getString("prorateShipping").equals("N")) {
-      List invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
       List invoiceableShipments=null;
       try {
-        invoiceableShipments=delegator.findByCondition("Shipment",new EntityExpr("shipmentId",EntityOperator.IN,invoiceableShipmentIds),null,null);
+        if (dropShipmentFound) {
+          List invoiceablePrimaryOrderIds=null;
+          if (createSalesInvoicesForDropShipments.booleanValue()) {
+            List invoiceableLinkedOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
+            List reverseOrderItemAssocs=EntityUtil.filterByCondition(orderItemAssocs,new EntityExpr("orderId",EntityOperator.IN,invoiceableLinkedOrderIds));
+            invoiceablePrimaryOrderIds=EntityUtil.getFieldListFromEntityList(reverseOrderItemAssocs,"toOrderId",true);
+          }
+ else {
+            invoiceablePrimaryOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
+          }
+          if (!UtilValidate.isEmpty(invoiceablePrimaryOrderIds)) {
+            List invoiceableShipmentConds=UtilMisc.toList(new EntityExpr("primaryOrderId",EntityOperator.IN,invoiceablePrimaryOrderIds),new EntityExpr("shipmentId",EntityOperator.IN,shipmentIds));
+            invoiceableShipments=delegator.findByCondition("Shipment",new EntityConditionList(invoiceableShipmentConds,EntityOperator.AND),null,null);
+          }
+        }
+ else {
+          List invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
+          if (!UtilValidate.isEmpty(invoiceableShipmentIds)) {
+            invoiceableShipments=delegator.findByCondition("Shipment",new EntityExpr("shipmentId",EntityOperator.IN,invoiceableShipmentIds),null,null);
+          }
+        }
       }
  catch (      GenericEntityException e) {
         String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateInvoicesFromShipmentsService",locale);
@@ -152,13 +201,15 @@
       }
       Map additionalShippingCharges=new HashMap();
       BigDecimal totalAdditionalShippingCharges=ZERO;
-      Iterator isit=invoiceableShipments.iterator();
-      while (isit.hasNext()) {
-        GenericValue shipment=(GenericValue)isit.next();
-        if (shipment.get("additionalShippingCharge") == null)         continue;
-        BigDecimal shipmentAdditionalShippingCharges=shipment.getBigDecimal("additionalShippingCharge").setScale(decimals,rounding);
-        additionalShippingCharges.put(shipment,shipmentAdditionalShippingCharges);
-        totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(shipmentAdditionalShippingCharges);
+      if (!UtilValidate.isEmpty(invoiceableShipments)) {
+        Iterator isit=invoiceableShipments.iterator();
+        while (isit.hasNext()) {
+          GenericValue shipment=(GenericValue)isit.next();
+          if (shipment.get("additionalShippingCharge") == null)           continue;
+          BigDecimal shipmentAdditionalShippingCharges=shipment.getBigDecimal("additionalShippingCharge").setScale(decimals,rounding);
+          additionalShippingCharges.put(shipment,shipmentAdditionalShippingCharges);
+          totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(shipmentAdditionalShippingCharges);
+        }
       }
       if (totalAdditionalShippingCharges.signum() == 1) {
         Iterator ascit=additionalShippingCharges.keySet().iterator();
