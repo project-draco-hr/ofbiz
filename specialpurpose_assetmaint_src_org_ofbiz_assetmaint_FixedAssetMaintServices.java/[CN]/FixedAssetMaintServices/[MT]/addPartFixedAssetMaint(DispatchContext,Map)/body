@@ -1,0 +1,66 @@
+{
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericDelegator delegator=ctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String fixedAssetId=(String)context.get("fixedAssetId");
+  String maintHistSeqId=(String)context.get("maintHistSeqId");
+  String productId=(String)context.get("productId");
+  String facilityId=(String)context.get("facilityId");
+  Double quantity=(Double)context.get("quantity");
+  double requestedQty=quantity.doubleValue();
+  try {
+    GenericValue product=ProductWorker.findProduct(delegator,productId);
+    if (product == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage("AssetMaintUiLabels","AssetMaintInvalidPartProductIdError",UtilMisc.toMap("productId",productId),locale));
+    }
+    Map findCurrInventoryParams=UtilMisc.toMap("productId",productId,"facilityId",facilityId);
+    GenericValue userLogin=(GenericValue)context.get("userLogin");
+    Map result=dispatcher.runSync("getInventoryAvailableByFacility",findCurrInventoryParams);
+    if (ServiceUtil.isError(result)) {
+      return ServiceUtil.returnError("Problem in getting Inventory level for " + productId,null,null,result);
+    }
+    Object atpObj=result.get("availableToPromiseTotal");
+    double atp=0.0;
+    if (atpObj != null) {
+      atp=Double.parseDouble(atpObj.toString());
+    }
+    if (requestedQty > atp) {
+      return ServiceUtil.returnError(UtilProperties.getMessage("AssetMaintUiLabels","AssetMaintLowPartInventoryError",UtilMisc.toMap("productId",productId,"quantity",Double.toString(atp)),locale));
+    }
+    List inventoryItems=delegator.findByAnd("InventoryItem",UtilMisc.toList(new EntityExpr("productId",EntityOperator.EQUALS,productId),new EntityExpr("facilityId",EntityOperator.EQUALS,facilityId),new EntityExpr("availableToPromiseTotal",EntityOperator.GREATER_THAN,"0")));
+    Iterator itr=inventoryItems.iterator();
+    while (requestedQty > 0 && itr.hasNext()) {
+      GenericValue inventoryItem=(GenericValue)itr.next();
+      String inventoryItemId=inventoryItem.getString("inventoryItemId");
+      atp=inventoryItem.getDouble("availableToPromiseTotal").doubleValue();
+      findCurrInventoryParams=UtilMisc.toMap("inventoryItemId",inventoryItemId);
+      Double issueQuantity=null;
+      if (requestedQty > atp) {
+        issueQuantity=new Double(atp);
+      }
+ else {
+        issueQuantity=new Double(requestedQty);
+      }
+      Map itemIssuanceCtx=new HashMap();
+      itemIssuanceCtx.put("userLogin",userLogin);
+      itemIssuanceCtx.put("inventoryItemId",inventoryItemId);
+      itemIssuanceCtx.put("fixedAssetId",fixedAssetId);
+      itemIssuanceCtx.put("maintHistSeqId",maintHistSeqId);
+      itemIssuanceCtx.put("quantity",issueQuantity);
+      result=dispatcher.runSync("issueInventoryItemToFixedAssetMaint",itemIssuanceCtx);
+      if (ServiceUtil.isError(result)) {
+        return ServiceUtil.returnError("Problem in calling service issueInventoryItemToFixedAssetMaint",null,null,result);
+      }
+      requestedQty=requestedQty - issueQuantity.doubleValue();
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Problem in retriving data from database",module);
+  }
+catch (  GenericServiceException e) {
+    String msg="Problem in calling service issueInventoryItemToFixedAssetMaint";
+    Debug.logError(msg,module);
+    return ServiceUtil.returnError(msg);
+  }
+  return ServiceUtil.returnSuccess();
+}
