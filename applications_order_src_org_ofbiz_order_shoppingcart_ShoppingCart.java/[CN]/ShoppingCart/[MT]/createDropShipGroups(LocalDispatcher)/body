@@ -1,0 +1,101 @@
+{
+  String facilityId=null;
+  if (UtilValidate.isNotEmpty(this.getProductStoreId())) {
+    try {
+      GenericValue productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",this.getProductStoreId()));
+      facilityId=productStore.getString("inventoryFacilityId");
+    }
+ catch (    Exception e) {
+      Debug.logError(UtilProperties.getMessage(resource_error,"OrderProblemGettingProductStoreRecords",locale) + e.getMessage(),module);
+      return;
+    }
+  }
+  List shipGroups=getShipGroups();
+  if (shipGroups == null)   return;
+  Map dropShipItems=new HashMap();
+  for (int shipGroupIndex=0; shipGroupIndex < shipGroups.size(); shipGroupIndex++) {
+    CartShipInfo shipInfo=(CartShipInfo)shipGroups.get(shipGroupIndex);
+    String shipGroupSupplierPartyId=shipInfo.getSupplierPartyId();
+    if (UtilValidate.isNotEmpty(shipGroupSupplierPartyId))     continue;
+    Set shipItems=shipInfo.getShipItems();
+    if (UtilValidate.isEmpty(shipItems))     continue;
+    Iterator siit=shipItems.iterator();
+    while (siit.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)siit.next();
+      double itemQuantity=cartItem.getQuantity();
+      double dropShipQuantity=0;
+      GenericValue product=cartItem.getProduct();
+      String productId=product.getString("productId");
+      String requirementMethodEnumId=product.getString("requirementMethodEnumId");
+      if ("PRODRQM_DS".equals(requirementMethodEnumId)) {
+        dropShipQuantity=itemQuantity;
+      }
+ else       if ("PRODRQM_DSATP".equals(requirementMethodEnumId)) {
+        try {
+          Map getProductInventoryAvailableResult=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facilityId));
+          double availableToPromise=((Double)getProductInventoryAvailableResult.get("availableToPromiseTotal")).doubleValue();
+          if (itemQuantity <= availableToPromise) {
+            dropShipQuantity=0;
+          }
+ else {
+            dropShipQuantity=itemQuantity - availableToPromise;
+          }
+        }
+ catch (        Exception e) {
+          Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderRunServiceGetInventoryAvailableByFacilityError",locale) + e.getMessage(),module);
+        }
+      }
+ else {
+        dropShipQuantity=0;
+      }
+      if (dropShipQuantity <= 0)       continue;
+      String supplierPartyId=null;
+      try {
+        Map getSuppliersForProductResult=dispatcher.runSync("getSuppliersForProduct",UtilMisc.toMap("productId",productId,"quantity",new Double(dropShipQuantity),"canDropShip","Y","currencyUomId",getCurrency()));
+        List supplierProducts=(List)getSuppliersForProductResult.get("supplierProducts");
+        supplierProducts=EntityUtil.orderBy(supplierProducts,UtilMisc.toList("supplierPrefOrderId"));
+        GenericValue supplierProduct=EntityUtil.getFirst(supplierProducts);
+        if (!UtilValidate.isEmpty(supplierProduct)) {
+          supplierPartyId=supplierProduct.getString("partyId");
+        }
+      }
+ catch (      Exception e) {
+        Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderRunServiceGetSuppliersForProductError",locale) + e.getMessage(),module);
+      }
+      if (UtilValidate.isEmpty(supplierPartyId))       continue;
+      if (!dropShipItems.containsKey(supplierPartyId))       dropShipItems.put(supplierPartyId,new HashMap());
+      Map supplierCartItems=(Map)dropShipItems.get(supplierPartyId);
+      if (!supplierCartItems.containsKey(cartItem))       supplierCartItems.put(cartItem,new HashMap());
+      Map cartItemGroupQuantities=(Map)supplierCartItems.get(cartItem);
+      cartItemGroupQuantities.put(new Integer(shipGroupIndex),new Double(dropShipQuantity));
+    }
+  }
+  Iterator dsit=dropShipItems.keySet().iterator();
+  while (dsit.hasNext()) {
+    String supplierPartyId=(String)dsit.next();
+    CartShipInfo shipInfo=null;
+    int newShipGroupIndex=-1;
+    TreeMap supplierShipGroups=(TreeMap)this.getShipGroupsBySupplier(supplierPartyId);
+    if (!UtilValidate.isEmpty(supplierShipGroups)) {
+      newShipGroupIndex=((Integer)supplierShipGroups.firstKey()).intValue();
+      shipInfo=(CartShipInfo)supplierShipGroups.get(supplierShipGroups.firstKey());
+    }
+    if (newShipGroupIndex == -1) {
+      newShipGroupIndex=addShipInfo();
+      shipInfo=(CartShipInfo)this.shipInfo.get(newShipGroupIndex);
+    }
+    shipInfo.supplierPartyId=supplierPartyId;
+    Map supplierCartItems=(Map)dropShipItems.get(supplierPartyId);
+    Iterator itit=supplierCartItems.keySet().iterator();
+    while (itit.hasNext()) {
+      ShoppingCartItem cartItem=(ShoppingCartItem)itit.next();
+      Map cartItemGroupQuantities=(Map)supplierCartItems.get(cartItem);
+      Iterator cigit=cartItemGroupQuantities.keySet().iterator();
+      while (cigit.hasNext()) {
+        Integer previousShipGroupIndex=(Integer)cigit.next();
+        double dropShipQuantity=((Double)cartItemGroupQuantities.get(previousShipGroupIndex)).doubleValue();
+        positionItemToGroup(cartItem,dropShipQuantity,previousShipGroupIndex.intValue(),newShipGroupIndex,true);
+      }
+    }
+  }
+}
