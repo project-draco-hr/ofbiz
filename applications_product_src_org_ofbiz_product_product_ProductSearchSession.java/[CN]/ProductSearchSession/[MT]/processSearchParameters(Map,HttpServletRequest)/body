@@ -9,6 +9,7 @@
   }
   HttpSession session=request.getSession();
   boolean constraintsChanged=false;
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
   String clearSearchString=(String)parameters.get("clearSearch");
   if (!"N".equals(clearSearchString)) {
     searchClear(session);
@@ -79,7 +80,29 @@
     searchAddConstraint(new ProductSearch.SupplierConstraint(supplierPartyId),session);
     constraintsChanged=true;
   }
-  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (UtilValidate.isNotEmpty((String)parameters.get("LIST_PRICE_LOW")) || UtilValidate.isNotEmpty((String)parameters.get("LIST_PRICE_HIGH"))) {
+    Double listPriceLow=null;
+    Double listPriceHigh=null;
+    String listPriceCurrency=UtilHttp.getCurrencyUom(request);
+    if (UtilValidate.isNotEmpty((String)parameters.get("LIST_PRICE_LOW"))) {
+      try {
+        listPriceLow=Double.valueOf((String)parameters.get("LIST_PRICE_LOW"));
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError("Error parsing LIST_PRICE_LOW parameter [" + (String)parameters.get("LIST_PRICE_LOW") + "]: "+ e.toString(),module);
+      }
+    }
+    if (UtilValidate.isNotEmpty((String)parameters.get("LIST_PRICE_HIGH"))) {
+      try {
+        listPriceHigh=Double.valueOf((String)parameters.get("LIST_PRICE_HIGH"));
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError("Error parsing LIST_PRICE_HIGH parameter [" + (String)parameters.get("LIST_PRICE_HIGH") + "]: "+ e.toString(),module);
+      }
+    }
+    searchAddConstraint(new ProductSearch.ListPriceRangeConstraint(listPriceLow,listPriceHigh,listPriceCurrency),session);
+    constraintsChanged=true;
+  }
   if (productStore != null && !"N".equals(productStore.getString("prodSearchExcludeVariants"))) {
     searchAddConstraint(new ProductSearch.ExcludeVariantsConstraint(),session);
   }
