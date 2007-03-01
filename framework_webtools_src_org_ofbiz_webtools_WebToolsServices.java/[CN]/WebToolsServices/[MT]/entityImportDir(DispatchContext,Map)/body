@@ -5,7 +5,7 @@
     return ServiceUtil.returnError(UtilProperties.getMessage("WebtoolsUiLabels","WebtoolsPermissionError",(Locale)context.get("locale")));
   }
   LocalDispatcher dispatcher=dctx.getDispatcher();
-  List messages=new ArrayList();
+  List messages=FastList.newInstance();
   String path=(String)context.get("path");
   String mostlyInserts=(String)context.get("mostlyInserts");
   String maintainTimeStamps=(String)context.get("maintainTimeStamps");
@@ -22,57 +22,65 @@
   if (path != null && path.length() > 0) {
     long pauseLong=filePause != null ? filePause.longValue() : 0;
     File baseDir=new File(path);
+    Map parseEntityXmlFileArgs=UtilMisc.toMap("mostlyInserts",mostlyInserts,"createDummyFks",createDummyFks,"maintainTimeStamps",maintainTimeStamps,"txTimeout",txTimeout,"userLogin",userLogin);
     if (baseDir.isDirectory() && baseDir.canRead()) {
       File[] fileArray=baseDir.listFiles();
-      ArrayList files=new ArrayList(fileArray.length);
+      FastList files=FastList.newInstance();
       for (int a=0; a < fileArray.length; a++) {
         if (fileArray[a].getName().toUpperCase().endsWith("XML")) {
           files.add(fileArray[a]);
         }
       }
-      boolean importedOne=false;
-      int fileListMarkedSize=files.size();
       int passes=0;
-      for (int a=0; a < files.size(); a++) {
-        if (a == fileListMarkedSize) {
-          passes++;
-          fileListMarkedSize=files.size();
-          messages.add("Pass " + passes + " complete");
-          if (false == importedOne) {
-            messages.add("Dropping out as we failed to make any imports on the last pass");
-            a=files.size();
-            continue;
-          }
-          importedOne=false;
-        }
-        File curFile=(File)files.get(a);
-        try {
-          URL url=curFile.toURI().toURL();
-          Map inputMap=UtilMisc.toMap("url",url,"mostlyInserts",mostlyInserts,"createDummyFks",createDummyFks,"maintainTimeStamps",maintainTimeStamps,"txTimeout",txTimeout,"userLogin",userLogin);
-          Map outputMap=dispatcher.runSync("parseEntityXmlFile",inputMap);
-          Long numberRead=(Long)outputMap.get("rowProcessed");
-          messages.add("Got " + numberRead.longValue() + " entities from "+ curFile);
-          importedOne=true;
-          if (deleteFiles) {
-            curFile.delete();
-          }
-        }
- catch (        Exception ex) {
-          messages.add("Error trying to read from " + curFile + ": "+ ex);
-          if (ex.toString().indexOf("referential integrity violation") > -1 || ex.toString().indexOf("Integrity constraint violation") > -1) {
-            messages.add("Looks like referential integrity violation, will retry");
-            files.add(curFile);
-          }
-        }
-        if (pauseLong > 0) {
-          Debug.log("Pausing for [" + pauseLong + "] seconds - "+ UtilDateTime.nowTimestamp());
+      int initialListSize=files.size();
+      int lastUnprocessedFilesCount=0;
+      FastList unprocessedFiles=FastList.newInstance();
+      while (files.size() > 0 && files.size() != lastUnprocessedFilesCount) {
+        lastUnprocessedFilesCount=files.size();
+        unprocessedFiles=FastList.newInstance();
+        Iterator filesItr=files.iterator();
+        while (filesItr.hasNext()) {
+          File f=(File)filesItr.next();
           try {
-            Thread.sleep((pauseLong * 1000));
+            URL furl=f.toURI().toURL();
+            parseEntityXmlFileArgs.put("url",furl);
+            Map outputMap=dispatcher.runSync("parseEntityXmlFile",parseEntityXmlFileArgs);
+            Long numberRead=(Long)outputMap.get("rowProcessed");
+            messages.add("Got " + numberRead.longValue() + " entities from "+ f);
+            if (deleteFiles) {
+              messages.add("Deleting " + f);
+              f.delete();
+            }
           }
- catch (          InterruptedException ie) {
-            Debug.log("Pause finished - " + UtilDateTime.nowTimestamp());
+ catch (          Exception e) {
+            unprocessedFiles.add(f);
+            messages.add("Failed " + f + " adding to retry list for next pass");
+          }
+          if (pauseLong > 0) {
+            Debug.log("Pausing for [" + pauseLong + "] seconds - "+ UtilDateTime.nowTimestamp());
+            try {
+              Thread.sleep((pauseLong * 1000));
+            }
+ catch (            InterruptedException ie) {
+              Debug.log("Pause finished - " + UtilDateTime.nowTimestamp());
+            }
           }
         }
+        files=unprocessedFiles;
+        passes++;
+        messages.add("Pass " + passes + " complete");
+        Debug.logInfo("Pass " + passes + " complete",module);
+      }
+      lastUnprocessedFilesCount=unprocessedFiles.size();
+      messages.add("---------------------------------------");
+      messages.add("Succeeded: " + (initialListSize - lastUnprocessedFilesCount) + " of "+ initialListSize);
+      messages.add("Failed:    " + lastUnprocessedFilesCount + " of "+ initialListSize);
+      messages.add("---------------------------------------");
+      messages.add("Failed Files:");
+      Iterator unprocessedFilesItr=unprocessedFiles.iterator();
+      while (unprocessedFilesItr.hasNext()) {
+        File file=(File)unprocessedFilesItr.next();
+        messages.add("" + file);
       }
     }
  else {
