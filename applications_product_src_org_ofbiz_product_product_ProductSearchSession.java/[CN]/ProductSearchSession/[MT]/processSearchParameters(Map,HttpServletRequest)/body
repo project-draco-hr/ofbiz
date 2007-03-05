@@ -30,14 +30,18 @@
   if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_CATEGORY_ID"))) {
     String searchCategoryId=(String)parameters.get("SEARCH_CATEGORY_ID");
     String searchSubCategories=(String)parameters.get("SEARCH_SUB_CATEGORIES");
-    searchAddConstraint(new ProductSearch.CategoryConstraint(searchCategoryId,!"N".equals(searchSubCategories)),session);
+    String searchCategoryExc=(String)parameters.get("SEARCH_CATEGORY_EXC");
+    Boolean exclude=UtilValidate.isEmpty(searchCategoryExc) ? null : new Boolean(!"N".equals(searchCategoryExc));
+    searchAddConstraint(new ProductSearch.CategoryConstraint(searchCategoryId,!"N".equals(searchSubCategories),exclude),session);
     constraintsChanged=true;
   }
   for (int catNum=1; catNum < 10; catNum++) {
     if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_CATEGORY_ID" + catNum))) {
       String searchCategoryId=(String)parameters.get("SEARCH_CATEGORY_ID" + catNum);
       String searchSubCategories=(String)parameters.get("SEARCH_SUB_CATEGORIES" + catNum);
-      searchAddConstraint(new ProductSearch.CategoryConstraint(searchCategoryId,!"N".equals(searchSubCategories)),session);
+      String searchCategoryExc=(String)parameters.get("SEARCH_CATEGORY_EXC" + catNum);
+      Boolean exclude=UtilValidate.isEmpty(searchCategoryExc) ? null : new Boolean(!"N".equals(searchCategoryExc));
+      searchAddConstraint(new ProductSearch.CategoryConstraint(searchCategoryId,!"N".equals(searchSubCategories),exclude),session);
       constraintsChanged=true;
     }
   }
@@ -65,15 +69,23 @@
       constraintsChanged=true;
     }
   }
-  List featureIdList=ParametricSearch.makeFeatureIdListFromPrefixed(parameters);
-  if (featureIdList.size() > 0) {
-    constraintsChanged=true;
-    searchAddFeatureIdConstraints(featureIdList,request);
+  Iterator parameterNameIter=parameters.keySet().iterator();
+  while (parameterNameIter.hasNext()) {
+    String parameterName=(String)parameterNameIter.next();
+    if (parameterName.startsWith("SEARCH_FEAT")) {
+      String productFeatureId=(String)parameters.get(parameterName);
+      if (productFeatureId != null && productFeatureId.length() > 0) {
+        String paramNameExt=parameterName.substring("SEARCH_FEAT".length() + 1);
+        String searchCategoryExc=(String)parameters.get("SEARCH_FEAT_EXC" + paramNameExt);
+        Boolean exclude=UtilValidate.isEmpty(searchCategoryExc) ? null : new Boolean(!"N".equals(searchCategoryExc));
+        searchAddConstraint(new ProductSearch.FeatureConstraint(productFeatureId,exclude),session);
+      }
+    }
   }
   Map featureIdByType=ParametricSearch.makeFeatureIdByTypeMap(parameters);
   if (featureIdByType.size() > 0) {
     constraintsChanged=true;
-    searchAddFeatureIdConstraints(featureIdByType.values(),request);
+    searchAddFeatureIdConstraints(featureIdByType.values(),null,request);
   }
   if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_SUPPLIER_ID"))) {
     String supplierPartyId=(String)parameters.get("SEARCH_SUPPLIER_ID");
@@ -139,7 +151,7 @@
   String prodCatalogId=CatalogWorker.getCurrentCatalogId(request);
   String viewProductCategoryId=CatalogWorker.getCatalogViewAllowCategoryId(delegator,prodCatalogId);
   if (UtilValidate.isNotEmpty(viewProductCategoryId)) {
-    ProductSearchConstraint viewAllowConstraint=new CategoryConstraint(viewProductCategoryId,true);
+    ProductSearchConstraint viewAllowConstraint=new CategoryConstraint(viewProductCategoryId,true,null);
     searchAddConstraint(viewAllowConstraint,session);
   }
   String sortOrder=(String)parameters.get("sortOrder");
