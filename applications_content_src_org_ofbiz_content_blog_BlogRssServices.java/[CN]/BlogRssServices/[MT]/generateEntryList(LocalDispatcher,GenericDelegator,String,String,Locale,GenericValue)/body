@@ -1,0 +1,44 @@
+{
+  List entries=FastList.newInstance();
+  List exprs=FastList.newInstance();
+  exprs.add(new EntityExpr("contentIdStart",EntityOperator.EQUALS,contentId));
+  exprs.add(new EntityExpr("caContentAssocTypeId",EntityOperator.EQUALS,"PUBLISH_LINK"));
+  exprs.add(new EntityExpr("statusId",EntityOperator.EQUALS,"CTNT_PUBLISHED"));
+  List contentRecs=null;
+  try {
+    contentRecs=delegator.findByCondition("ContentAssocViewTo",new EntityConditionList(exprs,EntityOperator.AND),null,UtilMisc.toList("-caFromDate"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (contentRecs != null) {
+    Iterator i=contentRecs.iterator();
+    while (i.hasNext()) {
+      GenericValue v=(GenericValue)i.next();
+      String sub=null;
+      try {
+        sub=ContentWorker.renderSubContentAsText(dispatcher,delegator,v.getString("contentId"),mapKey,new HashMap(),locale,mimeTypeId,true);
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,module);
+      }
+catch (      IOException e) {
+        Debug.logError(e,module);
+      }
+      if (sub != null) {
+        String thisLink=entryLink + "?articleContentId=" + v.getString("contentId")+ "&blogContentId="+ contentId;
+        SyndContent desc=new SyndContentImpl();
+        desc.setType("text/plain");
+        desc.setValue(sub);
+        SyndEntry entry=new SyndEntryImpl();
+        entry.setTitle(v.getString("contentName"));
+        entry.setPublishedDate(v.getTimestamp("createdDate"));
+        entry.setDescription(desc);
+        entry.setLink(thisLink);
+        entry.setAuthor((v.getString("createdByUserLogin")));
+        entries.add(entry);
+      }
+    }
+  }
+  return entries;
+}
