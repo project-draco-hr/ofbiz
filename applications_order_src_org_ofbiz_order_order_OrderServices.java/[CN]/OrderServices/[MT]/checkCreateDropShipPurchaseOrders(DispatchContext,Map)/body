@@ -16,25 +16,35 @@
           cart.setBillToCustomerPartyId(cart.getBillFromVendorPartyId());
           cart.setBillFromVendorPartyId(supplierPartyId);
           cart.setOrderPartyId(supplierPartyId);
-          Iterator items=orh.getValidOrderItems(shipGroup.getString("shipGroupSeqId")).iterator();
-          while (items.hasNext()) {
-            GenericValue item=(GenericValue)items.next();
-            try {
-              int itemIndex=cart.addOrIncreaseItem(item.getString("productId"),null,item.getDouble("quantity").doubleValue(),null,null,null,item.getTimestamp("shipBeforeDate"),item.getTimestamp("shipAfterDate"),null,null,null,null,null,null,null,dispatcher);
-              ShoppingCartItem sci=cart.findCartItem(itemIndex);
-              sci.setAssociatedOrderId(orderId);
-              sci.setAssociatedOrderItemSeqId(item.getString("orderItemSeqId"));
-              sci.setOrderItemAssocTypeId("DROP_SHIPMENT");
-            }
- catch (            Exception e) {
-              ServiceUtil.returnError("The following error occurred creating drop shipments for order [" + orderId + "]: "+ e.getMessage());
+          List items=orh.getValidOrderItems(shipGroup.getString("shipGroupSeqId"));
+          if (!UtilValidate.isEmpty(items)) {
+            Iterator itemsIt=items.iterator();
+            while (itemsIt.hasNext()) {
+              GenericValue item=(GenericValue)itemsIt.next();
+              try {
+                int itemIndex=cart.addOrIncreaseItem(item.getString("productId"),null,item.getDouble("quantity").doubleValue(),null,null,null,item.getTimestamp("shipBeforeDate"),item.getTimestamp("shipAfterDate"),null,null,null,null,null,null,null,dispatcher);
+                ShoppingCartItem sci=cart.findCartItem(itemIndex);
+                sci.setAssociatedOrderId(orderId);
+                sci.setAssociatedOrderItemSeqId(item.getString("orderItemSeqId"));
+                sci.setOrderItemAssocTypeId("DROP_SHIPMENT");
+              }
+ catch (              Exception e) {
+                ServiceUtil.returnError("The following error occurred creating drop shipments for order [" + orderId + "]: "+ e.getMessage());
+              }
             }
           }
-          cart.setDefaultCheckoutOptions(dispatcher);
-          cart.setShippingContactMechId(shipGroup.getString("contactMechId"));
-          CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
-          Map resultOrderMap=coh.createOrder(userLogin);
-          String purchaseOrderId=(String)resultOrderMap.get("orderId");
+          if (!UtilValidate.isEmpty(cart.items())) {
+            cart.setDefaultCheckoutOptions(dispatcher);
+            cart.setShippingContactMechId(shipGroup.getString("contactMechId"));
+            CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
+            Map resultOrderMap=coh.createOrder(userLogin);
+            String purchaseOrderId=(String)resultOrderMap.get("orderId");
+          }
+ else {
+            Debug.logWarning("No drop ship items found for order [" + shipGroup.getString("orderId") + "] and ship group ["+ shipGroup.getString("shipGroupSeqId")+ "] and supplier party ["+ shipGroup.getString("supplierPartyId")+ "].  Supplier party information will be cleared for this ship group",module);
+            shipGroup.set("supplierPartyId",null);
+            shipGroup.store();
+          }
         }
       }
     }
