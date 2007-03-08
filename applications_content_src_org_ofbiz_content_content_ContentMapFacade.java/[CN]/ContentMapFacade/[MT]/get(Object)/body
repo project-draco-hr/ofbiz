@@ -1,0 +1,63 @@
+{
+  if (!(obj instanceof String)) {
+    throw new IllegalArgumentException("Key parameters must be a string");
+  }
+  String name=(String)obj;
+  if ("fields".equals(name)) {
+    GenericValue value=null;
+    try {
+      value=delegator.findByPrimaryKeyCache("Content",UtilMisc.toMap("contentId",contentId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    return value;
+  }
+  if ("subcontent_all".equals(name)) {
+    List subContent=FastList.newInstance();
+    List subs=null;
+    try {
+      subs=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",contentId),UtilMisc.toList("-fromDate"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (subs != null) {
+      subs=EntityUtil.filterByDate(subs);
+      Iterator i=subs.iterator();
+      while (i.hasNext()) {
+        GenericValue v=(GenericValue)i.next();
+        subContent.add(new ContentMapFacade(dispatcher,delegator,v.getString("contentIdTo"),context,locale,mimeType,cache));
+      }
+    }
+    return subContent;
+  }
+  if ("subcontent".equals(name)) {
+    return this.subContent;
+  }
+  if ("metadata".equals(name)) {
+    return this.metaData;
+  }
+  if ("content".equals(name)) {
+    return content;
+  }
+  if ("render".equals("name")) {
+    Map renderCtx=FastMap.newInstance();
+    renderCtx.putAll(context);
+    if (isTop) {
+      throw new IllegalArgumentException("Cannot render content being rendered! (No Looping!)");
+    }
+    try {
+      return ContentWorker.renderContentAsText(dispatcher,delegator,contentId,renderCtx,locale,mimeType,cache);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return e.toString();
+    }
+catch (    IOException e) {
+      Debug.logError(e,module);
+      return e.toString();
+    }
+  }
+  throw new IllegalArgumentException("Not a valid field of ContentMapFacade [" + name + "]");
+}
