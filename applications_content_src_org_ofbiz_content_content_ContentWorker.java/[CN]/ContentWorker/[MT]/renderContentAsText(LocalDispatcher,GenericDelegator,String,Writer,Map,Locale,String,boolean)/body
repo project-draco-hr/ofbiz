@@ -59,60 +59,65 @@
     templateContext=FastMap.newInstance();
   }
   ContentMapFacade facade=new ContentMapFacade(dispatcher,content,templateContext,locale,mimeTypeId,cache);
-  templateContext.put("thisContent",facade);
-  templateContext.put("contentId",contentId);
-  List subContent=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",contentId,"contentAssocTypeId","SUB_CONTENT"),UtilMisc.toList("-fromDate"));
-  subContent=EntityUtil.filterByDate(subContent);
-  if (subContent != null && subContent.size() > 0) {
-    Iterator i=subContent.iterator();
-    while (i.hasNext()) {
-      GenericValue contentAssoc=(GenericValue)i.next();
-      String contentIdTo=contentAssoc.getString("contentIdTo");
-      String key=contentAssoc.getString("mapKey");
-      String textData=ContentWorker.renderContentAsText(dispatcher,delegator,contentIdTo,FastMap.newInstance(),locale,mimeTypeId,cache);
-      if (UtilValidate.isNotEmpty(textData)) {
-        templateContext.put(key,textData);
-      }
+  String contentDecoratorId=content.getString("decoratorContentId");
+  if (UtilValidate.isNotEmpty(contentDecoratorId)) {
+    GenericValue decorator;
+    if (cache) {
+      decorator=delegator.findByPrimaryKeyCache("Content",UtilMisc.toMap("contentId",contentDecoratorId));
     }
-  }
-  if (UtilValidate.isEmpty(templateDataResourceId) || templateContext.containsKey("ignoreTemplate")) {
-    DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,out,templateContext,locale,mimeTypeId,cache);
+ else {
+      decorator=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentDecoratorId));
+    }
+    if (decorator == null) {
+      throw new GeneralException("No decorator content found for decorator contentId [" + contentDecoratorId + "]");
+    }
+    ContentMapFacade decFacade=new ContentMapFacade(dispatcher,decorator,templateContext,locale,mimeTypeId,cache);
+    templateContext.put("decoratedContent",facade);
+    templateContext.put("thisContent",decFacade);
+    ContentWorker.renderContentAsText(dispatcher,delegator,contentDecoratorId,out,templateContext,locale,mimeTypeId,cache);
   }
  else {
-    Writer dataWriter=new StringWriter();
-    DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,dataWriter,templateContext,locale,mimeTypeId,cache);
-    String textData=dataWriter.toString();
-    if (textData != null) {
-      textData=textData.trim();
+    templateContext.put("thisContent",facade);
+    templateContext.put("contentId",contentId);
+    if (UtilValidate.isEmpty(templateDataResourceId) || templateContext.containsKey("ignoreTemplate")) {
+      DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,out,templateContext,locale,mimeTypeId,cache);
     }
-    String mimeType;
-    try {
-      mimeType=DataResourceWorker.getDataResourceMimeType(delegator,dataResourceId,null);
-    }
- catch (    GenericEntityException e) {
-      throw new GeneralException(e.getMessage());
-    }
-    if (UtilValidate.isNotEmpty(mimeType)) {
-      if (mimeType.toLowerCase().indexOf("xml") >= 0) {
-        StringReader sr=new StringReader(textData);
-        try {
-          NodeModel nodeModel=NodeModel.parse(new InputSource(sr));
-          templateContext.put("doc",nodeModel);
+ else {
+      Writer dataWriter=new StringWriter();
+      DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,dataWriter,templateContext,locale,mimeTypeId,cache);
+      String textData=dataWriter.toString();
+      if (textData != null) {
+        textData=textData.trim();
+      }
+      String mimeType;
+      try {
+        mimeType=DataResourceWorker.getDataResourceMimeType(delegator,dataResourceId,null);
+      }
+ catch (      GenericEntityException e) {
+        throw new GeneralException(e.getMessage());
+      }
+      if (UtilValidate.isNotEmpty(mimeType)) {
+        if (mimeType.toLowerCase().indexOf("xml") >= 0) {
+          StringReader sr=new StringReader(textData);
+          try {
+            NodeModel nodeModel=NodeModel.parse(new InputSource(sr));
+            templateContext.put("doc",nodeModel);
+          }
+ catch (          SAXException e) {
+            throw new GeneralException(e.getMessage());
+          }
+catch (          ParserConfigurationException e2) {
+            throw new GeneralException(e2.getMessage());
+          }
         }
- catch (        SAXException e) {
-          throw new GeneralException(e.getMessage());
-        }
-catch (        ParserConfigurationException e2) {
-          throw new GeneralException(e2.getMessage());
+ else {
+          templateContext.put("textData",textData);
         }
       }
  else {
         templateContext.put("textData",textData);
       }
+      DataResourceWorker.renderDataResourceAsText(delegator,templateDataResourceId,out,templateContext,locale,mimeTypeId,cache);
     }
- else {
-      templateContext.put("textData",textData);
-    }
-    DataResourceWorker.renderDataResourceAsText(delegator,templateDataResourceId,out,templateContext,locale,mimeTypeId,cache);
   }
 }
