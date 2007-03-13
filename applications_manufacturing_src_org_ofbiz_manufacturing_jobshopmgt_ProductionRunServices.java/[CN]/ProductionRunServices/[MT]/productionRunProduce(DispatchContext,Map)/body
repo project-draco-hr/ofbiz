@@ -6,12 +6,12 @@
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String productionRunId=(String)context.get("workEffortId");
   Double quantity=(Double)context.get("quantity");
-  Boolean createSerializedInventory=(Boolean)context.get("createSerializedInventory");
+  String inventoryItemTypeId=(String)context.get("inventoryItemTypeId");
   String lotId=(String)context.get("lotId");
   Boolean createLotIfNeeded=(Boolean)context.get("createLotIfNeeded");
   Boolean autoCreateLot=(Boolean)context.get("autoCreateLot");
-  if (createSerializedInventory == null) {
-    createSerializedInventory=Boolean.FALSE;
+  if (UtilValidate.isEmpty(inventoryItemTypeId)) {
+    inventoryItemTypeId="NON_SERIAL_INV_ITEM";
   }
   if (createLotIfNeeded == null) {
     createLotIfNeeded=Boolean.TRUE;
@@ -81,19 +81,19 @@
   try {
     Map outputMap=dispatcher.runSync("getProductionRunCost",UtilMisc.toMap("userLogin",userLogin,"workEffortId",productionRunId));
     BigDecimal totalCost=(BigDecimal)outputMap.get("totalCost");
-    unitCost=totalCost.divide(new BigDecimal(quantity.intValue()),decimals,rounding);
+    unitCost=totalCost.divide(new BigDecimal(quantity.doubleValue()),decimals,rounding);
   }
  catch (  GenericServiceException e) {
     Debug.logWarning(e.getMessage(),module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  if (createSerializedInventory.booleanValue()) {
+  if ("SERIALIZED_INV_ITEM".equals(inventoryItemTypeId)) {
     try {
       int numOfItems=quantity.intValue();
       for (int i=0; i < numOfItems; i++) {
         Map serviceContext=UtilMisc.toMap("productId",productionRun.getProductProduced().getString("productId"),"inventoryItemTypeId","SERIALIZED_INV_ITEM","statusId","INV_AVAILABLE");
         serviceContext.put("facilityId",productionRun.getGenericValue().getString("facilityId"));
-        serviceContext.put("datetimeReceived",UtilDateTime.nowDate());
+        serviceContext.put("datetimeReceived",UtilDateTime.nowTimestamp());
         serviceContext.put("comments","Created by production run " + productionRunId);
         if (unitCost.compareTo(ZERO) != 0) {
           serviceContext.put("unitCost",new Double(unitCost.doubleValue()));
