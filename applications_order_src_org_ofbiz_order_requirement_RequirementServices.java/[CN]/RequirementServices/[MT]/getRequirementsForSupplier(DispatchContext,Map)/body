@@ -26,6 +26,7 @@
     Map inventories=FastMap.newInstance();
     Map productsSold=FastMap.newInstance();
     double quantity=0.0;
+    double amountTotal=0.0;
     Set products=new HashSet();
     Timestamp timePeriodStart=UtilDateTime.getMonthStart(UtilDateTime.nowTimestamp(),0,-6);
     List requirements=FastList.newInstance();
@@ -35,14 +36,19 @@
       String productId=requirement.getString("productId");
       partyId=requirement.getString("partyId");
       String facilityId=requirement.getString("facilityId");
+      double requiredQuantity=requirement.getDouble("quantity").doubleValue();
       String supplierKey=partyId + "^" + productId;
       GenericValue supplierProduct=(GenericValue)suppliers.get(supplierKey);
       if (supplierProduct == null) {
         conditions=UtilMisc.toList(new EntityExpr("partyId",EntityOperator.EQUALS,partyId),new EntityExpr("productId",EntityOperator.EQUALS,productId),EntityUtil.getFilterByDateExpr("availableFromDate","availableThruDate"));
-        supplierProduct=EntityUtil.getFirst(delegator.findByAnd("SupplierProduct",conditions));
+        supplierProduct=EntityUtil.getFirst(delegator.findByAnd("SupplierProduct",conditions,UtilMisc.toList("minimumOrderQuantity","lastPrice")));
         suppliers.put(supplierKey,supplierProduct);
       }
-      if (supplierProduct != null)       union.putAll(supplierProduct.getAllFields());
+      if (supplierProduct != null) {
+        union.putAll(supplierProduct.getAllFields());
+        double lastPrice=supplierProduct.getDouble("lastPrice").doubleValue();
+        amountTotal+=lastPrice * requiredQuantity;
+      }
       GenericValue gid=(GenericValue)gids.get(productId);
       if (gid == null) {
         gid=delegator.findByPrimaryKey("GoodIdentification",UtilMisc.toMap("goodIdentificationTypeId","UPCA","productId",requirement.get("productId")));
@@ -77,7 +83,7 @@
         union.put("qtySold",sold);
       }
       if (requirement.getDouble("quantity") == null)       requirement.put("quantity",new Double("1"));
-      quantity+=requirement.getDouble("quantity").doubleValue();
+      quantity+=requiredQuantity;
       products.add(productId);
       union.putAll(requirement.getAllFields());
       requirements.add(union);
@@ -86,6 +92,7 @@
     results.put("requirementsForSupplier",requirements);
     results.put("distinctProductCount",new Integer(products.size()));
     results.put("quantityTotal",new Double(quantity));
+    results.put("amountTotal",new Double(amountTotal));
     return results;
   }
  catch (  GenericServiceException e) {
