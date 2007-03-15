@@ -1,0 +1,29 @@
+{
+  GenericDelegator delegator=orderHeader.getDelegator();
+  double total=getOrderGrandTotal();
+  double openAmount=0;
+  List prefs=getPaymentPreferences();
+  for (Iterator iter=prefs.iterator(); iter.hasNext(); ) {
+    GenericValue pref=(GenericValue)iter.next();
+    if ("PAYMENT_CANCELLED".equals(pref.get("statusId")) || "PAYMENT_DECLINED".equals(pref.get("statusId"))) {
+      continue;
+    }
+ else     if ("PAYMENT_SETTLED".equals(pref.get("statusId"))) {
+      List responses=pref.getRelatedByAnd("PaymentGatewayResponse",UtilMisc.toMap("transCodeEnumId","PGT_CAPTURE"));
+      for (Iterator respIter=responses.iterator(); respIter.hasNext(); ) {
+        GenericValue response=(GenericValue)respIter.next();
+        Double amount=response.getDouble("amount");
+        if (amount != null) {
+          openAmount+=amount.doubleValue();
+        }
+      }
+    }
+ else {
+      Double maxAmount=pref.getDouble("maxAmount");
+      if (maxAmount != null) {
+        openAmount+=maxAmount.doubleValue();
+      }
+    }
+  }
+  return total - openAmount;
+}
