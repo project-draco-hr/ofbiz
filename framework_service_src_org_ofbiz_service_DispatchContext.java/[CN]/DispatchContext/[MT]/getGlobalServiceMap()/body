@@ -1,0 +1,43 @@
+{
+  Map serviceMap=(Map)modelServiceMapByDispatcher.get(GLOBAL_KEY);
+  if (serviceMap == null) {
+synchronized (this) {
+      serviceMap=(Map)modelServiceMapByDispatcher.get(GLOBAL_KEY);
+      if (serviceMap == null) {
+        serviceMap=FastMap.newInstance();
+        Element rootElement=null;
+        try {
+          rootElement=ServiceConfigUtil.getXmlRootElement();
+        }
+ catch (        GenericConfigException e) {
+          Debug.logError(e,"Error getting Service Engine XML root element",module);
+          return null;
+        }
+        List globalServicesElements=UtilXml.childElementList(rootElement,"global-services");
+        Iterator gseIter=globalServicesElements.iterator();
+        while (gseIter.hasNext()) {
+          Element globalServicesElement=(Element)gseIter.next();
+          ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServicesElement);
+          Map servicesMap=ModelServiceReader.getModelServiceMap(handler,this);
+          if (servicesMap != null) {
+            serviceMap.putAll(servicesMap);
+          }
+        }
+        List componentResourceInfos=ComponentConfig.getAllServiceResourceInfos("model");
+        Iterator componentResourceInfoIter=componentResourceInfos.iterator();
+        while (componentResourceInfoIter.hasNext()) {
+          ComponentConfig.ServiceResourceInfo componentResourceInfo=(ComponentConfig.ServiceResourceInfo)componentResourceInfoIter.next();
+          Map servicesMap=ModelServiceReader.getModelServiceMap(componentResourceInfo.createResourceHandler(),this);
+          if (servicesMap != null) {
+            serviceMap.putAll(servicesMap);
+          }
+        }
+        if (serviceMap != null) {
+          modelServiceMapByDispatcher.put(GLOBAL_KEY,serviceMap);
+          ServiceEcaUtil.reloadConfig();
+        }
+      }
+    }
+  }
+  return serviceMap;
+}
