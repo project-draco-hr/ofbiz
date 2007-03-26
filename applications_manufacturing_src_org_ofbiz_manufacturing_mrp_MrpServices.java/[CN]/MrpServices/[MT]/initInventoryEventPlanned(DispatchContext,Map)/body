@@ -60,11 +60,12 @@
   Map parameters=null;
   List resultList=null;
   Iterator iteratorResult=null;
+  Timestamp notAssignedDate=UtilDateTime.getYearStart(now,0,0,100);
   resultList=null;
   iteratorResult=null;
-  parameters=UtilMisc.toMap("orderTypeId","SALES_ORDER","itemStatusId","ITEM_APPROVED");
+  parameters=UtilMisc.toMap("orderTypeId","SALES_ORDER","oiStatusId","ITEM_APPROVED");
   try {
-    resultList=delegator.findByAnd("OrderHeaderAndItems",parameters,UtilMisc.toList("orderId"));
+    resultList=delegator.findByAnd("OrderHeaderItemAndShipGroup",parameters,UtilMisc.toList("orderId"));
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Error : delegator.findByAnd(\"OrderItem\", parameters\")",module);
@@ -76,11 +77,23 @@
     genericResult=(GenericValue)iteratorResult.next();
     String productId=genericResult.getString("productId");
     Double eventQuantityTmp=new Double(-1.0 * genericResult.getDouble("quantity").doubleValue());
-    Timestamp estimatedShipDate=genericResult.getTimestamp("estimatedDeliveryDate");
-    if (estimatedShipDate == null) {
-      estimatedShipDate=now;
+    Timestamp requiredByDate=genericResult.getTimestamp("shipByDate");
+    if (UtilValidate.isEmpty(requiredByDate)) {
+      requiredByDate=genericResult.getTimestamp("shipAfterDate");
+      if (UtilValidate.isEmpty(requiredByDate)) {
+        requiredByDate=genericResult.getTimestamp("oiShipBeforeDate");
+        if (UtilValidate.isEmpty(requiredByDate)) {
+          requiredByDate=genericResult.getTimestamp("oiShipAfterDate");
+          if (UtilValidate.isEmpty(requiredByDate)) {
+            requiredByDate=genericResult.getTimestamp("oiEstimatedDeliveryDate");
+            if (requiredByDate == null) {
+              requiredByDate=notAssignedDate;
+            }
+          }
+        }
+      }
     }
-    parameters=UtilMisc.toMap("productId",productId,"eventDate",estimatedShipDate,"inventoryEventPlanTypeId","SALE_ORDER_SHIP");
+    parameters=UtilMisc.toMap("productId",productId,"eventDate",requiredByDate,"inventoryEventPlanTypeId","SALE_ORDER_SHIP");
     try {
       InventoryEventPlannedServices.createOrUpdateInventoryEventPlanned(parameters,eventQuantityTmp,null,genericResult.getString("orderId") + "-" + genericResult.getString("orderItemSeqId"),false,delegator);
     }
