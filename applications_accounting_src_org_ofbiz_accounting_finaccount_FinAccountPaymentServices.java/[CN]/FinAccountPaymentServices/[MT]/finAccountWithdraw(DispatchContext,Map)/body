@@ -1,0 +1,68 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String finAccountId=(String)context.get("finAccountId");
+  Double amount=(Double)context.get("amount");
+  final String WITHDRAWAL="WITHDRAWAL";
+  String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId="_NA_";
+  }
+  String currencyUom=(String)context.get("currency");
+  if (UtilValidate.isEmpty(currencyUom)) {
+    currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  if (amount.doubleValue() < 0.00) {
+    return ServiceUtil.returnError("Amount should be a positive number.");
+  }
+  GenericValue finAccount;
+  try {
+    finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (finAccount == null) {
+    return ServiceUtil.returnError("Unable to find Financial account for this transaction");
+  }
+  if ((finAccount.getTimestamp("thruDate") != null) && (finAccount.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
+    return ServiceUtil.returnError("Financial account has expired as of " + finAccount.getTimestamp("thruDate"));
+  }
+  BigDecimal previousBalance;
+  try {
+    previousBalance=FinAccountHelper.getBalance(finAccountId,currencyUom,delegator);
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  BigDecimal balance;
+  String refNum;
+  Boolean procResult;
+  if (previousBalance.doubleValue() >= amount.doubleValue()) {
+    try {
+      refNum=FinAccountPaymentServices.createFinAcctPaymentTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,WITHDRAWAL,finAccountId);
+      balance=FinAccountHelper.getAvailableBalance(finAccountId,currencyUom,delegator);
+      procResult=Boolean.TRUE;
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+ else {
+    procResult=Boolean.FALSE;
+    balance=previousBalance;
+    refNum="N/A";
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("previousBalance",new Double(previousBalance.doubleValue()));
+  result.put("balance",new Double(balance.doubleValue()));
+  result.put("amount",amount);
+  result.put("processResult",procResult);
+  result.put("referenceNum",refNum);
+  return result;
+}

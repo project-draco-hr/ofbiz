@@ -1,0 +1,90 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue authTrans=(GenericValue)context.get("authTrans");
+  Double amount=(Double)context.get("captureAmount");
+  String currency=(String)context.get("currency");
+  if (authTrans == null) {
+    authTrans=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTrans == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot capture");
+  }
+  String finAccountAuthId=authTrans.getString("referenceNum");
+  GenericValue finAccountAuth;
+  try {
+    finAccountAuth=delegator.findByPrimaryKey("FinAccountAuth",UtilMisc.toMap("finAccountAuthId",finAccountAuthId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  GenericValue finAccount;
+  try {
+    finAccount=finAccountAuth.getRelatedOne("FinAccount");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Timestamp authExpiration=finAccountAuth.getTimestamp("thruDate");
+  if ((authExpiration != null) && (authExpiration.before(UtilDateTime.nowTimestamp()))) {
+    return ServiceUtil.returnError("Authorization transaction [" + authTrans.getString("paymentGatewayResponseId") + "] has expired as of "+ authExpiration);
+  }
+  if ((finAccount.getTimestamp("thruDate") != null) && (finAccount.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
+    return ServiceUtil.returnError("Financial account has expired as of " + finAccount.getTimestamp("thruDate"));
+  }
+  String finAccountId=finAccount.getString("finAccountId");
+  String orderId=orderPaymentPreference.getString("orderId");
+  String productStoreId=null;
+  String partyId=null;
+  if (orderId != null) {
+    OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+    productStoreId=orh.getProductStoreId();
+    GenericValue billToParty=orh.getBillToParty();
+    if (billToParty != null) {
+      partyId=billToParty.getString("partyId");
+    }
+  }
+  Map withdrawCtx=FastMap.newInstance();
+  withdrawCtx.put("finAccountId",finAccountId);
+  withdrawCtx.put("productStoreId",productStoreId);
+  withdrawCtx.put("currency",currency);
+  withdrawCtx.put("partyId",partyId);
+  withdrawCtx.put("amount",amount);
+  withdrawCtx.put("userLogin",userLogin);
+  Map withdrawResp;
+  try {
+    withdrawResp=dispatcher.runSync("finAccountWithdraw",withdrawCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(withdrawResp)) {
+    return withdrawResp;
+  }
+  Map releaseResult;
+  try {
+    releaseResult=dispatcher.runSync("expireFinAccountAuth",UtilMisc.toMap("userLogin",userLogin,"finAccountAuthId",finAccountAuthId));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(releaseResult)) {
+    return releaseResult;
+  }
+  Map result=ServiceUtil.returnSuccess();
+  Boolean processResult=(Boolean)withdrawResp.get("processResult");
+  Double withdrawAmount=(Double)withdrawResp.get("amount");
+  String referenceNum=(String)withdrawResp.get("referenceNum");
+  result.put("captureResult",processResult);
+  result.put("captureRefNum",referenceNum);
+  result.put("captureCode","C");
+  result.put("captureFlag","1");
+  result.put("captureAmount",withdrawAmount);
+  return result;
+}

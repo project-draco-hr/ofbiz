@@ -1,0 +1,51 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Double amount=(Double)context.get("refundAmount");
+  String currency=(String)context.get("currency");
+  String finAccountId=(String)context.get("finAccountId");
+  String productStoreId=null;
+  String partyId=null;
+  if (orderPaymentPreference != null) {
+    String orderId=orderPaymentPreference.getString("orderId");
+    if (orderId != null) {
+      OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+      productStoreId=orh.getProductStoreId();
+      GenericValue billToParty=orh.getBillToParty();
+      if (billToParty != null) {
+        partyId=billToParty.getString("partyId");
+      }
+    }
+  }
+  Map depositCtx=FastMap.newInstance();
+  depositCtx.put("finAccountId",finAccountId);
+  depositCtx.put("productStoreId",productStoreId);
+  depositCtx.put("isRefund",Boolean.TRUE);
+  depositCtx.put("currency",currency);
+  depositCtx.put("partyId",partyId);
+  depositCtx.put("amount",amount);
+  depositCtx.put("userLogin",userLogin);
+  Map depositResp;
+  try {
+    depositResp=dispatcher.runSync("finAccountDeposit",depositCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(depositResp)) {
+    return depositResp;
+  }
+  Map result=ServiceUtil.returnSuccess();
+  Boolean processResult=(Boolean)depositResp.get("processResult");
+  Double depositAmount=(Double)depositResp.get("amount");
+  String referenceNum=(String)depositResp.get("referenceNum");
+  result.put("refundResult",processResult);
+  result.put("refundRefNum",referenceNum);
+  result.put("refundCode","R");
+  result.put("refundFlag","1");
+  result.put("refundAmount",depositAmount);
+  return result;
+}

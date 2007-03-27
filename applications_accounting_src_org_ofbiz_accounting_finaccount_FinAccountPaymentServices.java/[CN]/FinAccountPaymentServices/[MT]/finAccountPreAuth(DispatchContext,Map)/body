@@ -1,0 +1,130 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  String finAccountCode=(String)context.get("finAccountCode");
+  String finAccountPin=(String)context.get("finAccountPin");
+  String finAccountId=(String)context.get("finAccountId");
+  String currency=(String)context.get("currency");
+  String orderId=(String)context.get("orderId");
+  Double amount=(Double)context.get("processAmount");
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  GenericValue authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  if (authTrans != null) {
+    Map input=UtilMisc.toMap("userLogin",userLogin,"finAccountAuthId",authTrans.get("referenceNum"));
+    try {
+      dispatcher.runSync("expireFinAccountAuth",input);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+  String productStoreId=orh.getProductStoreId();
+  GenericValue finAccount;
+  if (finAccountId != null) {
+    try {
+      finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+ else {
+    if (finAccountCode != null) {
+      try {
+        finAccount=FinAccountHelper.getFinAccountFromCode(finAccountCode,delegator);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError("Unable to locate financial account from account code");
+      }
+    }
+ else {
+      return ServiceUtil.returnError("Both finAccountId and finAccountCode cannot be null; at least one is required");
+    }
+  }
+  if (finAccount == null) {
+    return ServiceUtil.returnError("Invalid financial account; cannot locate account");
+  }
+  String finAccountTypeId=finAccount.getString("finAccountTypeId");
+  finAccountId=finAccount.getString("finAccountId");
+  try {
+    GenericValue finAccountSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",finAccountTypeId));
+    String allowAuthToNegative="N";
+    if (finAccountSettings != null) {
+      allowAuthToNegative=finAccountSettings.getString("allowAuthToNegative");
+      if ("Y".equals(finAccountSettings.getString("requirePinCode"))) {
+        if (!FinAccountHelper.validatePin(delegator,finAccountCode,finAccountPin)) {
+          return ServiceUtil.returnError("Financial account PIN/CODE combination not found");
+        }
+      }
+    }
+    String isFrozen=finAccount.getString("isFrozen");
+    if (isFrozen != null && "Y".equals(isFrozen)) {
+      return ServiceUtil.returnError("Financial account is currently frozen");
+    }
+    if ((finAccount.getTimestamp("thruDate") != null) && (finAccount.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
+      return ServiceUtil.returnError("Financial account has expired as of " + finAccount.getTimestamp("thruDate"));
+    }
+    BigDecimal availableBalance=FinAccountHelper.getAvailableBalance(finAccountId,currency,delegator);
+    Map result=ServiceUtil.returnSuccess();
+    Boolean processResult;
+    String refNum;
+    BigDecimal amountBd=(new BigDecimal(amount.doubleValue())).setScale(FinAccountHelper.decimals,FinAccountHelper.rounding);
+    Debug.log("Allow auth to negative: " + allowAuthToNegative + " :: available: "+ availableBalance+ " comp: "+ FinAccountHelper.ZERO+ " = "+ availableBalance.compareTo(FinAccountHelper.ZERO)+ " :: req: "+ amountBd,module);
+    if (("Y".equals(allowAuthToNegative) && availableBalance.compareTo(FinAccountHelper.ZERO) > -1) || (availableBalance.compareTo(amountBd) > -1)) {
+      Timestamp thruDate;
+      if (finAccountSettings != null && finAccountSettings.getLong("authValidDays") != null) {
+        thruDate=UtilDateTime.getDayEnd(UtilDateTime.nowTimestamp(),finAccountSettings.getLong("authValidDays").intValue());
+      }
+ else {
+        thruDate=UtilDateTime.getDayEnd(UtilDateTime.nowTimestamp(),30);
+      }
+      Map tmpResult=dispatcher.runSync("createFinAccountAuth",UtilMisc.toMap("finAccountId",finAccountId,"amount",amount,"currencyUomId",currency,"thruDate",thruDate,"userLogin",userLogin));
+      if (ServiceUtil.isError(tmpResult)) {
+        return tmpResult;
+      }
+ else {
+        refNum=(String)tmpResult.get("finAccountAuthId");
+        processResult=Boolean.TRUE;
+      }
+      BigDecimal newBalance=FinAccountHelper.getAvailableBalance(finAccountId,currency,delegator);
+      if (newBalance.compareTo(FinAccountHelper.ZERO) == -1) {
+        finAccount.set("isFrozen","Y");
+        try {
+          finAccount.store();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+      }
+    }
+ else {
+      Debug.logError("Attempted to authorize [" + amount + "] against a balance of only ["+ availableBalance+ "]",module);
+      refNum="0";
+      processResult=Boolean.FALSE;
+    }
+    result.put("processAmount",amount);
+    result.put("authResult",processResult);
+    result.put("processAmount",amount);
+    result.put("authFlag","1");
+    result.put("authCode","A");
+    result.put("authRefNum",refNum);
+    return result;
+  }
+ catch (  GenericEntityException ex) {
+    Debug.logError(ex,"Cannot authorize financial account",module);
+    return ServiceUtil.returnError("Cannot authorize financial account due to " + ex.getMessage());
+  }
+catch (  GenericServiceException ex) {
+    Debug.logError(ex,"Cannot authorize gift certificate",module);
+    return ServiceUtil.returnError("Cannot authorize financial account due to " + ex.getMessage());
+  }
+}

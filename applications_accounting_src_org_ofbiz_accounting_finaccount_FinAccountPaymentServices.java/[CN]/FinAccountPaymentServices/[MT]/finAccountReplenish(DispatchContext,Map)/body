@@ -1,0 +1,119 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String finAccountId=(String)context.get("finAccountId");
+  GenericValue finAccount;
+  try {
+    finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (finAccount == null) {
+    return ServiceUtil.returnError("Invalid financial account [" + finAccountId + "]");
+  }
+  String currency=finAccount.getString("currencyUomId");
+  GenericValue finAccountType;
+  try {
+    finAccountType=finAccount.getRelatedOne("FinAccountType");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String replenishEnumId=finAccountType.getString("replenishEnumId");
+  if (!"FARP_AUTOMATIC".equals(replenishEnumId)) {
+    return ServiceUtil.returnSuccess();
+  }
+  BigDecimal replenishLevel=finAccount.getBigDecimal("replenishLevel");
+  if (replenishLevel == null) {
+    return ServiceUtil.returnSuccess();
+  }
+  BigDecimal balance;
+  try {
+    balance=FinAccountHelper.getBalance(finAccountId,currency,delegator);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  BigDecimal depositAmount=replenishLevel.subtract(balance);
+  List finAcctOwners;
+  try {
+    finAcctOwners=delegator.findByAnd("FinAccountRole",UtilMisc.toMap("finAccountId",finAccountId,"roleTypeId","OWNER"),UtilMisc.toList("-fromDate"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  finAcctOwners=EntityUtil.filterByDate(finAcctOwners);
+  GenericValue finAccountOwner=EntityUtil.getFirst(finAcctOwners);
+  if (finAccountOwner == null) {
+    Debug.logWarning("No owner attached to financial account [" + finAccountId + "] cannot auto-replenish",module);
+    return ServiceUtil.returnSuccess();
+  }
+  String partyId=finAccountOwner.getString("partyId");
+  List paymentMethods;
+  try {
+    paymentMethods=delegator.findByAnd("PaymentMethod",UtilMisc.toMap("partyId",partyId),UtilMisc.toList("-fromDate"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  paymentMethods=EntityUtil.filterByDate(paymentMethods);
+  GenericValue paymentMethod=EntityUtil.getFirst(paymentMethods);
+  if (paymentMethod == null) {
+    Debug.logWarning("No payment methods attached to party [" + partyId + "] cannot auto-replenish",module);
+    return ServiceUtil.returnSuccess();
+  }
+  finAccount.set("isFrozen","N");
+  try {
+    finAccount.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map orderItemMap=UtilMisc.toMap("Auto-Replenishment",new Double(depositAmount.doubleValue()));
+  Map replOrderCtx=FastMap.newInstance();
+  replOrderCtx.put("productStoreId",productStoreId);
+  replOrderCtx.put("paymentMethodId",paymentMethod.getString("paymentMethodId"));
+  replOrderCtx.put("currency",currency);
+  replOrderCtx.put("partyId",partyId);
+  replOrderCtx.put("itemMap",orderItemMap);
+  replOrderCtx.put("userLogin",userLogin);
+  Map replResp;
+  try {
+    replResp=dispatcher.runSync("createSimpleNonProductSalesOrder",replOrderCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(replResp)) {
+    return replResp;
+  }
+  Map depositCtx=FastMap.newInstance();
+  depositCtx.put("productStoreId",productStoreId);
+  depositCtx.put("finAccountId",finAccountId);
+  depositCtx.put("currency",currency);
+  depositCtx.put("partyId",partyId);
+  depositCtx.put("amount",new Double(depositAmount.doubleValue()));
+  depositCtx.put("userLogin",userLogin);
+  Map depositResp;
+  try {
+    depositResp=dispatcher.runSync("finAccountDeposit",depositCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(depositResp)) {
+    return depositResp;
+  }
+  return ServiceUtil.returnSuccess();
+}
