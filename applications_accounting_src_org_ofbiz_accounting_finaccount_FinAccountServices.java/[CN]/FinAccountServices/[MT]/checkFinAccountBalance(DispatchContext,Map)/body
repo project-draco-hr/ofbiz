@@ -1,0 +1,46 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String finAccountId=(String)context.get("finAccountId");
+  String finAccountCode=(String)context.get("finAccountCode");
+  GenericValue finAccount;
+  if (finAccountId == null) {
+    try {
+      finAccount=FinAccountHelper.getFinAccountFromCode(finAccountCode,delegator);
+      finAccountId=finAccount.getString("finAccountId");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+ else {
+    try {
+      finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  if (finAccount == null) {
+    return ServiceUtil.returnError("Unable to locate financial account");
+  }
+  String currencyUom=finAccount.getString("currencyUomId");
+  if (currencyUom != null) {
+    currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  BigDecimal availableBalance;
+  BigDecimal balance;
+  try {
+    availableBalance=FinAccountHelper.getAvailableBalance(finAccountId,currencyUom,delegator);
+    balance=FinAccountHelper.getBalance(finAccountId,currencyUom,delegator);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Debug.log("FinAccount Balance [" + balance + "] Available ["+ availableBalance+ "]",module);
+  Map result=ServiceUtil.returnSuccess();
+  result.put("availableBalance",new Double(availableBalance.doubleValue()));
+  result.put("balance",new Double(balance.doubleValue()));
+  return result;
+}

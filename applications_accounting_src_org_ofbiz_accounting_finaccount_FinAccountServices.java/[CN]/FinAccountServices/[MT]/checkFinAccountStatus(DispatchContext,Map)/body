@@ -1,0 +1,38 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String finAccountId=(String)context.get("finAccountId");
+  GenericValue finAccount;
+  try {
+    finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  if (finAccount != null) {
+    String currency=finAccount.getString("currencyUomId");
+    String frozen=finAccount.getString("isFrozen");
+    if (frozen == null)     frozen="N";
+    BigDecimal balance;
+    try {
+      balance=FinAccountHelper.getAvailableBalance(finAccountId,currency,delegator);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if ("N".equals(frozen) && balance.compareTo(FinAccountHelper.ZERO) == -1) {
+      finAccount.set("isFrozen","Y");
+      Debug.logInfo("Financial account [" + finAccountId + "] has passed its threshold [Frozen]",module);
+    }
+ else     if ("Y".equals(frozen) && balance.compareTo(FinAccountHelper.ZERO) > 0) {
+      finAccount.set("isFrozen","N");
+      Debug.logInfo("Financial account [" + finAccountId + "] has been make current [Un-Frozen]",module);
+    }
+    try {
+      finAccount.store();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
