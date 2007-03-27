@@ -28,6 +28,22 @@
   if (!"FARP_AUTOMATIC".equals(replenishEnumId)) {
     return ServiceUtil.returnSuccess();
   }
+  GenericValue finAccountSettings;
+  try {
+    finAccountSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",finAccount.getString("finAccountTypeId")));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (finAccountSettings == null) {
+    return ServiceUtil.returnSuccess();
+  }
+  Double replThres=finAccountSettings.getDouble("replenishThreshold");
+  if (replThres == null) {
+    return ServiceUtil.returnSuccess();
+  }
+  BigDecimal replenishThreshold=new BigDecimal(replThres.doubleValue());
   BigDecimal replenishLevel=finAccount.getBigDecimal("replenishLevel");
   if (replenishLevel == null || replenishLevel.compareTo(FinAccountHelper.ZERO) == 0) {
     return ServiceUtil.returnSuccess();
@@ -40,25 +56,18 @@
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
+  if (balance.compareTo(replenishThreshold) > -1) {
+    return ServiceUtil.returnSuccess();
+  }
   BigDecimal depositAmount=replenishLevel.subtract(balance);
-  List finAcctOwners;
-  try {
-    finAcctOwners=delegator.findByAnd("FinAccountRole",UtilMisc.toMap("finAccountId",finAccountId,"roleTypeId","OWNER"),UtilMisc.toList("-fromDate"));
-  }
- catch (  GenericEntityException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
-  }
-  finAcctOwners=EntityUtil.filterByDate(finAcctOwners);
-  GenericValue finAccountOwner=EntityUtil.getFirst(finAcctOwners);
-  if (finAccountOwner == null) {
+  String ownerPartyId=finAccount.getString("ownerPartyId");
+  if (ownerPartyId == null) {
     Debug.logWarning("No owner attached to financial account [" + finAccountId + "] cannot auto-replenish",module);
     return ServiceUtil.returnSuccess();
   }
-  String partyId=finAccountOwner.getString("partyId");
   List paymentMethods;
   try {
-    paymentMethods=delegator.findByAnd("PaymentMethod",UtilMisc.toMap("partyId",partyId),UtilMisc.toList("-fromDate"));
+    paymentMethods=delegator.findByAnd("PaymentMethod",UtilMisc.toMap("partyId",ownerPartyId),UtilMisc.toList("-fromDate"));
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
@@ -67,7 +76,7 @@
   paymentMethods=EntityUtil.filterByDate(paymentMethods);
   GenericValue paymentMethod=EntityUtil.getFirst(paymentMethods);
   if (paymentMethod == null) {
-    Debug.logWarning("No payment methods attached to party [" + partyId + "] cannot auto-replenish",module);
+    Debug.logWarning("No payment methods attached to party [" + ownerPartyId + "] cannot auto-replenish",module);
     return ServiceUtil.returnSuccess();
   }
   finAccount.set("isFrozen","N");
@@ -78,12 +87,12 @@
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  Map orderItemMap=UtilMisc.toMap("Auto-Replenishment",new Double(depositAmount.doubleValue()));
+  Map orderItemMap=UtilMisc.toMap("Auto-Replenishment FA #" + finAccountId,new Double(depositAmount.doubleValue()));
   Map replOrderCtx=FastMap.newInstance();
   replOrderCtx.put("productStoreId",productStoreId);
   replOrderCtx.put("paymentMethodId",paymentMethod.getString("paymentMethodId"));
   replOrderCtx.put("currency",currency);
-  replOrderCtx.put("partyId",partyId);
+  replOrderCtx.put("partyId",ownerPartyId);
   replOrderCtx.put("itemMap",orderItemMap);
   replOrderCtx.put("userLogin",userLogin);
   Map replResp;
@@ -101,7 +110,7 @@
   depositCtx.put("productStoreId",productStoreId);
   depositCtx.put("finAccountId",finAccountId);
   depositCtx.put("currency",currency);
-  depositCtx.put("partyId",partyId);
+  depositCtx.put("partyId",ownerPartyId);
   depositCtx.put("amount",new Double(depositAmount.doubleValue()));
   depositCtx.put("userLogin",userLogin);
   Map depositResp;

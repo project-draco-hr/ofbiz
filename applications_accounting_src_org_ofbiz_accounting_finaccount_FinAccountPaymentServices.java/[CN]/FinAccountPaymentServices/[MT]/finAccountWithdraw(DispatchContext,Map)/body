@@ -4,7 +4,9 @@
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String productStoreId=(String)context.get("productStoreId");
   String finAccountId=(String)context.get("finAccountId");
+  Boolean requireBalance=(Boolean)context.get("requireBalance");
   Double amount=(Double)context.get("amount");
+  if (requireBalance == null)   requireBalance=Boolean.TRUE;
   final String WITHDRAWAL="WITHDRAWAL";
   String partyId=(String)context.get("partyId");
   if (UtilValidate.isEmpty(partyId)) {
@@ -42,7 +44,12 @@
   BigDecimal balance;
   String refNum;
   Boolean procResult;
-  if (previousBalance.doubleValue() >= amount.doubleValue()) {
+  if (requireBalance.booleanValue() && previousBalance.doubleValue() < amount.doubleValue()) {
+    procResult=Boolean.FALSE;
+    balance=previousBalance;
+    refNum="N/A";
+  }
+ else {
     try {
       refNum=FinAccountPaymentServices.createFinAcctPaymentTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,WITHDRAWAL,finAccountId);
       balance=FinAccountHelper.getAvailableBalance(finAccountId,delegator);
@@ -52,11 +59,6 @@
       Debug.logError(e,module);
       return ServiceUtil.returnError(e.getMessage());
     }
-  }
- else {
-    procResult=Boolean.FALSE;
-    balance=previousBalance;
-    refNum="N/A";
   }
   Map result=ServiceUtil.returnSuccess();
   result.put("previousBalance",new Double(previousBalance.doubleValue()));
