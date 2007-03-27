@@ -1,0 +1,128 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue orderItem=(GenericValue)context.get("orderItem");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=orderItem.getString("orderId");
+  GenericValue orderHeader;
+  try {
+    orderHeader=orderItem.getRelatedOne("OrderHeader");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to get OrderHeader from OrderItem",module);
+    return ServiceUtil.returnError("Unable to get OrderHeader from OrderItem");
+  }
+  String productId=orderItem.getString("productId");
+  GenericValue featureAndAppl;
+  try {
+    List featureAndAppls=delegator.findByAnd("ProductFeatureAndAppl",UtilMisc.toMap("productId",productId,"productFeatureTypeId","TYPE","productFeatureApplTypeId","STANDARD_FEATURE"));
+    featureAndAppls=EntityUtil.filterByDate(featureAndAppls);
+    featureAndAppl=EntityUtil.getFirst(featureAndAppls);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String finAccountTypeId="BALANCE_ACCOUNT";
+  String finAccountName="Customer Financial Account";
+  if (featureAndAppl != null) {
+    if (UtilValidate.isNotEmpty(featureAndAppl.getString("idCode"))) {
+      finAccountTypeId=featureAndAppl.getString("idCode");
+    }
+    if (UtilValidate.isNotEmpty(featureAndAppl.getString("description"))) {
+      finAccountName=featureAndAppl.getString("description");
+    }
+  }
+  GenericValue finAccountType;
+  try {
+    finAccountType=delegator.findByPrimaryKey("FinAccountType",UtilMisc.toMap("finAccountTypeId",finAccountTypeId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String replenishEnumId=finAccountType.getString("replenishEnumId");
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  String currency=orh.getCurrency();
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  String productStoreId=null;
+  if (orderHeader != null) {
+    productStoreId=orh.getProductStoreId();
+  }
+  if (productStoreId == null) {
+    return ServiceUtil.returnError("Unable to create financial account; no productStoreId on OrderHeader : " + orderId);
+  }
+  GenericValue billToParty=orh.getBillToParty();
+  String partyId=null;
+  if (billToParty != null) {
+    partyId=billToParty.getString("partyId");
+  }
+  BigDecimal quantity=orderItem.getBigDecimal("quantity");
+  BigDecimal price=orderItem.getBigDecimal("unitPrice");
+  BigDecimal deposit=price.multiply(quantity).setScale(FinAccountHelper.decimals,FinAccountHelper.rounding);
+  Map createCtx=FastMap.newInstance();
+  String finAccountId;
+  createCtx.put("finAccountTypeId",finAccountTypeId);
+  createCtx.put("finAccountName",finAccountName);
+  createCtx.put("productStoreId",productStoreId);
+  createCtx.put("ownerPartyId",partyId);
+  createCtx.put("currencyUomId",currency);
+  createCtx.put("userLogin",userLogin);
+  if (replenishEnumId != null && "FARP_AUTOMATIC".equals(replenishEnumId)) {
+    createCtx.put("replenishLevel",deposit);
+  }
+  Map createResp;
+  try {
+    createResp=dispatcher.runSync("createFinAccountForStore",createCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(createResp)) {
+    return createResp;
+  }
+ else {
+    finAccountId=(String)createResp.get("finAccountId");
+  }
+  Map roleCtx=FastMap.newInstance();
+  roleCtx.put("partyId",partyId);
+  roleCtx.put("roleTypeId","OWNER");
+  roleCtx.put("finAccountId",finAccountId);
+  roleCtx.put("userLogin",userLogin);
+  roleCtx.put("fromDate",UtilDateTime.nowTimestamp());
+  Map roleResp;
+  try {
+    roleResp=dispatcher.runSync("createFinAccountRole",roleCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(roleResp)) {
+    return roleResp;
+  }
+  Map depositCtx=FastMap.newInstance();
+  depositCtx.put("finAccountId",finAccountId);
+  depositCtx.put("productStoreId",productStoreId);
+  depositCtx.put("currency",currency);
+  depositCtx.put("partyId",partyId);
+  depositCtx.put("amount",new Double(deposit.doubleValue()));
+  depositCtx.put("userLogin",userLogin);
+  Map depositResp;
+  try {
+    depositResp=dispatcher.runSync("finAccountDeposit",depositCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(depositResp)) {
+    return depositResp;
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("finAccountId",finAccountId);
+  return result;
+}
