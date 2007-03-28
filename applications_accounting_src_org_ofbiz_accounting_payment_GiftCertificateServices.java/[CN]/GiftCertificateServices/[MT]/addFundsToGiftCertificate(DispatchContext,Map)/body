@@ -16,6 +16,7 @@
     currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
   }
   String finAccountId=null;
+  GenericValue finAccount=null;
   try {
     GenericValue giftCertSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId));
     if ("Y".equals(giftCertSettings.getString("requirePinCode"))) {
@@ -25,31 +26,36 @@
       finAccountId=cardNumber;
     }
  else {
-      GenericValue finAccount=FinAccountHelper.getFinAccountFromCode(cardNumber,delegator);
+      finAccount=FinAccountHelper.getFinAccountFromCode(cardNumber,delegator);
       if (finAccount != null) {
         finAccountId=finAccount.getString("finAccountId");
       }
     }
   }
- catch (  GenericEntityException ex) {
-    return ServiceUtil.returnError("Cannot get store fin account settings " + ex.getMessage());
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Cannot get store financial account settings " + e.getMessage());
   }
   if (finAccountId == null) {
     return ServiceUtil.returnError("Cannot get fin account for adding to balance");
   }
-  BigDecimal previousBalance=ZERO;
-  try {
-    previousBalance=FinAccountHelper.getAvailableBalance(cardNumber,delegator);
+  if (finAccount == null) {
+    try {
+      finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError("Cannot get financial account settings " + e.getMessage());
+    }
   }
- catch (  GeneralException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
+  BigDecimal previousBalance=ZERO;
+  if (finAccount.get("availableBalance") != null) {
+    previousBalance=finAccount.getBigDecimal("availableBalance");
   }
   BigDecimal balance=ZERO;
   String refNum=null;
   try {
     refNum=GiftCertificateServices.createTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,deposit,finAccountId);
-    balance=FinAccountHelper.getAvailableBalance(cardNumber,delegator);
+    finAccount.refresh();
+    balance=finAccount.getBigDecimal("availableBalance");
   }
  catch (  GeneralException e) {
     Debug.logError(e,module);

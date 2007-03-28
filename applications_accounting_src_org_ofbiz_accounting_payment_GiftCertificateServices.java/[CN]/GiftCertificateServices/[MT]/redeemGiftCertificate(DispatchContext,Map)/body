@@ -28,21 +28,22 @@
     return ServiceUtil.returnError("Cannot get store fin account settings " + ex.getMessage());
   }
   Debug.logInfo("Attempting to redeem GC for " + amount,module);
-  double previousBalance=0.00;
+  GenericValue finAccount=null;
   try {
-    previousBalance=FinAccountHelper.getBalance(cardNumber,delegator).doubleValue();
+    finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",cardNumber));
   }
- catch (  GeneralException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Cannot get financial account settings " + e.getMessage());
   }
+  double previousBalance=finAccount.get("actualBalance") == null ? 0.0 : finAccount.getDouble("actualBalance").doubleValue();
   double balance=0.00;
   String refNum=null;
   Boolean procResult;
   if (previousBalance >= amount.doubleValue()) {
     try {
       refNum=GiftCertificateServices.createTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,withdrawl,cardNumber);
-      balance=FinAccountHelper.getAvailableBalance(cardNumber,delegator).doubleValue();
+      finAccount.refresh();
+      balance=finAccount.get("availableBalance") == null ? 0.0 : finAccount.getDouble("availableBalance").doubleValue();
       procResult=Boolean.TRUE;
     }
  catch (    GeneralException e) {
