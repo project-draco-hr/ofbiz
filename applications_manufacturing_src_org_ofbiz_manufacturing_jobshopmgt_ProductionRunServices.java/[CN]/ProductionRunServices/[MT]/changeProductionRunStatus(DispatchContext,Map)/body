@@ -16,7 +16,41 @@
     result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusChanged",UtilMisc.toMap("newStatusId",currentStatusId),locale));
     return result;
   }
-  if (currentStatusId.equals("PRUN_CREATED") && (statusId == null || statusId.equals("PRUN_DOC_PRINTED"))) {
+  if (currentStatusId.equals("PRUN_CREATED") && statusId.equals("PRUN_SCHEDULED")) {
+    Map serviceContext=new HashMap();
+    serviceContext.clear();
+    serviceContext.put("workEffortId",productionRunId);
+    serviceContext.put("currentStatusId",statusId);
+    serviceContext.put("userLogin",userLogin);
+    Map resultService=null;
+    try {
+      resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+    }
+    Iterator tasks=productionRun.getProductionRunRoutingTasks().iterator();
+    while (tasks.hasNext()) {
+      GenericValue task=(GenericValue)tasks.next();
+      serviceContext.clear();
+      serviceContext.put("workEffortId",task.getString("workEffortId"));
+      serviceContext.put("currentStatusId",statusId);
+      serviceContext.put("userLogin",userLogin);
+      resultService=null;
+      try {
+        resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+      }
+    }
+    result.put("newStatusId",statusId);
+    result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusChanged",UtilMisc.toMap("newStatusId","PRUN_CLOSED"),locale));
+    return result;
+  }
+  if ((currentStatusId.equals("PRUN_CREATED") || currentStatusId.equals("PRUN_SCHEDULED")) && (statusId == null || statusId.equals("PRUN_DOC_PRINTED"))) {
     Map serviceContext=new HashMap();
     serviceContext.clear();
     serviceContext.put("workEffortId",productionRunId);
