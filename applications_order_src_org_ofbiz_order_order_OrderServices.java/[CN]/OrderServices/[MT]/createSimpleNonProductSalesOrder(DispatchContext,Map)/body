@@ -31,25 +31,29 @@
     }
   }
   cart.addPayment(paymentMethodId);
-  CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
-  Map createResp=coh.createOrder(userLogin);
-  if (ServiceUtil.isError(createResp)) {
-    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(createResp));
-  }
-  Map procCtx=FastMap.newInstance();
-  procCtx.put("shoppingCart",cart);
-  procCtx.put("userLogin",userLogin);
-  Map procResp;
+  Map createResp;
   try {
-    procResp=dispatcher.runSync("callProcessOrderPayments",procCtx);
+    createResp=dispatcher.runSync("createOrderFromShoppingCart",UtilMisc.toMap("shoppingCart",cart),90,true);
   }
  catch (  GenericServiceException e) {
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  if (ServiceUtil.isError(procResp)) {
-    return procResp;
+  if (ServiceUtil.isError(createResp)) {
+    return createResp;
+  }
+  Map authResp;
+  try {
+    authResp=dispatcher.runSync("callProcessOrderPayments",UtilMisc.toMap("shoppingCart",cart),180,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(authResp)) {
+    return authResp;
   }
   Map result=ServiceUtil.returnSuccess();
+  result.put("orderId",createResp.get("orderId"));
   return result;
 }
