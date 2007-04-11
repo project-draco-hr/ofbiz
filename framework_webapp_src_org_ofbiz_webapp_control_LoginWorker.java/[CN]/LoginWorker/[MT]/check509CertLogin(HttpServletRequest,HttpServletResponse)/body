@@ -1,0 +1,42 @@
+{
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  HttpSession session=request.getSession();
+  GenericValue currentUserLogin=(GenericValue)session.getAttribute("userLogin");
+  if (currentUserLogin != null) {
+    if (LoginWorker.isFlaggedLoggedOut(currentUserLogin)) {
+      currentUserLogin=null;
+    }
+  }
+  if (currentUserLogin == null) {
+    X509Certificate[] clientCerts=(X509Certificate[])request.getAttribute("javax.servlet.request.X509Certificate");
+    if (clientCerts == null) {
+      clientCerts=(X509Certificate[])request.getAttribute("javax.net.ssl.peer_certificates");
+    }
+    if (clientCerts != null) {
+      for (int i=0; i < clientCerts.length; i++) {
+        String certHex=StringUtil.toHexString(clientCerts[i].getPublicKey().getEncoded());
+        List userLogins=null;
+        try {
+          userLogins=delegator.findByAnd("UserLogin",UtilMisc.toMap("x509Cert",certHex));
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+        }
+        if (userLogins != null && userLogins.size() > 0) {
+          Debug.log("Found [" + userLogins.size() + "] possible UserLogin records.",module);
+          Iterator it=userLogins.iterator();
+          while (it.hasNext()) {
+            GenericValue ul=(GenericValue)it.next();
+            String enabled=ul.getString("enabled");
+            if (enabled == null || "Y".equals(enabled)) {
+              Debug.log("Found x.509 cert for login; logging in as [" + ul.getString("userLoginId") + "]",module);
+              doBasicLogin(ul,request);
+              return "success";
+            }
+          }
+        }
+      }
+    }
+  }
+  return "success";
+}
