@@ -3,7 +3,8 @@
   HttpSession session=request.getSession();
   GenericValue currentUserLogin=(GenericValue)session.getAttribute("userLogin");
   if (currentUserLogin != null) {
-    if (LoginWorker.isFlaggedLoggedOut(currentUserLogin)) {
+    String hasLoggedOut=currentUserLogin.getString("hasLoggedOut");
+    if (hasLoggedOut != null && "Y".equals(hasLoggedOut)) {
       currentUserLogin=null;
     }
   }
@@ -23,15 +24,20 @@
           Debug.logError(e,module);
         }
         if (userLogins != null && userLogins.size() > 0) {
-          Debug.log("Found [" + userLogins.size() + "] possible UserLogin records.",module);
           Iterator it=userLogins.iterator();
           while (it.hasNext()) {
             GenericValue ul=(GenericValue)it.next();
             String enabled=ul.getString("enabled");
             if (enabled == null || "Y".equals(enabled)) {
-              Debug.log("Found x.509 cert for login; logging in as [" + ul.getString("userLoginId") + "]",module);
-              doBasicLogin(ul,request);
-              return "success";
+              ul.set("hasLoggedOut","N");
+              try {
+                ul.store();
+              }
+ catch (              GenericEntityException e) {
+                Debug.logWarning(e,module);
+              }
+              Map ulSessionMap=LoginServices.getUserLoginSession(ul);
+              return doMainLogin(request,response,ul,ulSessionMap);
             }
           }
         }
