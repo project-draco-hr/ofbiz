@@ -48,6 +48,16 @@
       constraintsChanged=true;
     }
   }
+  for (int catNum=1; catNum < 10; catNum++) {
+    if (UtilValidate.isNotEmpty((String)parameters.get("S_CAT" + catNum))) {
+      String searchCategoryId=(String)parameters.get("S_CAT" + catNum);
+      String searchSubCategories=(String)parameters.get("S_CSB" + catNum);
+      String searchCategoryExc=(String)parameters.get("S_CEX" + catNum);
+      Boolean exclude=UtilValidate.isEmpty(searchCategoryExc) ? null : new Boolean(!"N".equals(searchCategoryExc));
+      searchAddConstraint(new ProductSearch.CategoryConstraint(searchCategoryId,!"N".equals(searchSubCategories),exclude),session);
+      constraintsChanged=true;
+    }
+  }
   if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_CATALOG_ID"))) {
     String searchCatalogId=(String)parameters.get("SEARCH_CATALOG_ID");
     if (searchCatalogId != null && !searchCatalogId.equalsIgnoreCase("")) {
@@ -84,15 +94,15 @@
         searchAddConstraint(new ProductSearch.FeatureConstraint(productFeatureId,exclude),session);
       }
     }
-  }
-  Map featureIdByType=ParametricSearch.makeFeatureIdByTypeMap(parameters);
-  if (featureIdByType.size() > 0) {
-    constraintsChanged=true;
-    searchAddFeatureIdConstraints(featureIdByType.values(),null,request);
-  }
-  Iterator parameterProdFeatureCatNameIter=parameters.keySet().iterator();
-  while (parameterProdFeatureCatNameIter.hasNext()) {
-    String parameterName=(String)parameterProdFeatureCatNameIter.next();
+    if (parameterName.startsWith("S_PFI")) {
+      String productFeatureId=(String)parameters.get(parameterName);
+      if (productFeatureId != null && productFeatureId.length() > 0) {
+        String paramNameExt=parameterName.substring("S_PFI".length());
+        String searchCategoryExc=(String)parameters.get("S_PFX" + paramNameExt);
+        Boolean exclude=UtilValidate.isEmpty(searchCategoryExc) ? null : new Boolean(!"N".equals(searchCategoryExc));
+        searchAddConstraint(new ProductSearch.FeatureConstraint(productFeatureId,exclude),session);
+      }
+    }
     if (parameterName.startsWith("SEARCH_PROD_FEAT_CAT") && !parameterName.startsWith("SEARCH_PROD_FEAT_CAT_EXC")) {
       String productFeatureCategoryId=(String)parameters.get(parameterName);
       if (productFeatureCategoryId != null && productFeatureCategoryId.length() > 0) {
@@ -102,9 +112,24 @@
         searchAddConstraint(new ProductSearch.ProductFeatureCategoryConstraint(productFeatureCategoryId,exclude),session);
       }
     }
+    if (parameterName.startsWith("S_FCI")) {
+      String productFeatureCategoryId=(String)parameters.get(parameterName);
+      if (productFeatureCategoryId != null && productFeatureCategoryId.length() > 0) {
+        String paramNameExt=parameterName.substring("S_FCI".length());
+        String searchProdFeatureCategoryExc=(String)parameters.get("S_FCX" + paramNameExt);
+        Boolean exclude=UtilValidate.isEmpty(searchProdFeatureCategoryExc) ? null : new Boolean(!"N".equals(searchProdFeatureCategoryExc));
+        searchAddConstraint(new ProductSearch.ProductFeatureCategoryConstraint(productFeatureCategoryId,exclude),session);
+      }
+    }
   }
-  if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_SUPPLIER_ID"))) {
+  Map featureIdByType=ParametricSearch.makeFeatureIdByTypeMap(parameters);
+  if (featureIdByType.size() > 0) {
+    constraintsChanged=true;
+    searchAddFeatureIdConstraints(featureIdByType.values(),null,request);
+  }
+  if (UtilValidate.isNotEmpty((String)parameters.get("SEARCH_SUPPLIER_ID")) || UtilValidate.isNotEmpty((String)parameters.get("S_SUP"))) {
     String supplierPartyId=(String)parameters.get("SEARCH_SUPPLIER_ID");
+    if (UtilValidate.isEmpty(supplierPartyId))     supplierPartyId=(String)parameters.get("S_SUP");
     searchAddConstraint(new ProductSearch.SupplierConstraint(supplierPartyId),session);
     constraintsChanged=true;
   }
@@ -131,8 +156,9 @@
     searchAddConstraint(new ProductSearch.ListPriceRangeConstraint(listPriceLow,listPriceHigh,listPriceCurrency),session);
     constraintsChanged=true;
   }
-  if (UtilValidate.isNotEmpty((String)parameters.get("LIST_PRICE_RANGE"))) {
+  if (UtilValidate.isNotEmpty((String)parameters.get("LIST_PRICE_RANGE")) || UtilValidate.isNotEmpty((String)parameters.get("S_LPR"))) {
     String listPriceRangeStr=(String)parameters.get("LIST_PRICE_RANGE");
+    if (UtilValidate.isEmpty(listPriceRangeStr))     listPriceRangeStr=(String)parameters.get("S_LPR");
     String listPriceLowStr=listPriceRangeStr.substring(0,listPriceRangeStr.indexOf("_"));
     String listPriceHighStr=listPriceRangeStr.substring(listPriceRangeStr.indexOf("_") + 1);
     Double listPriceLow=null;
@@ -171,18 +197,28 @@
     searchAddConstraint(viewAllowConstraint,session);
   }
   String sortOrder=(String)parameters.get("sortOrder");
+  if (UtilValidate.isEmpty(sortOrder))   sortOrder=(String)parameters.get("S_O");
   String sortAscending=(String)parameters.get("sortAscending");
+  if (UtilValidate.isEmpty(sortAscending))   sortAscending=(String)parameters.get("S_A");
   boolean ascending=!"N".equals(sortAscending);
   if (sortOrder != null) {
-    if (sortOrder.equals("SortKeywordRelevancy")) {
+    if (sortOrder.equals("SortKeywordRelevancy") || sortOrder.equals("SKR")) {
       searchSetSortOrder(new ProductSearch.SortKeywordRelevancy(),session);
     }
  else     if (sortOrder.startsWith("SortProductField:")) {
       String fieldName=sortOrder.substring("SortProductField:".length());
       searchSetSortOrder(new ProductSearch.SortProductField(fieldName,ascending),session);
     }
+ else     if (sortOrder.startsWith("SPF:")) {
+      String fieldName=sortOrder.substring("SPF:".length());
+      searchSetSortOrder(new ProductSearch.SortProductField(fieldName,ascending),session);
+    }
  else     if (sortOrder.startsWith("SortProductPrice:")) {
       String priceTypeId=sortOrder.substring("SortProductPrice:".length());
+      searchSetSortOrder(new ProductSearch.SortProductPrice(priceTypeId,ascending),session);
+    }
+ else     if (sortOrder.startsWith("SPP:")) {
+      String priceTypeId=sortOrder.substring("SPP:".length());
       searchSetSortOrder(new ProductSearch.SortProductPrice(priceTypeId,ascending),session);
     }
   }
