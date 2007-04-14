@@ -52,10 +52,10 @@
         }
         if (billingAccountCaptureAmount.compareTo(captureAmountBd) == -1) {
           BigDecimal outstandingAmount=captureAmountBd.subtract(billingAccountCaptureAmount).setScale(decimals,rounding);
-          captureAmount=new Double(outstandingAmount.doubleValue());
+          captureAmountBd=outstandingAmount;
         }
  else {
-          Debug.logInfo("Amount to capture [" + captureAmount + "] was fully captured in Payment ["+ tmpResult.get("paymentId")+ "].",module);
+          Debug.logInfo("Amount to capture [" + captureAmountBd + "] was fully captured in Payment ["+ tmpResult.get("paymentId")+ "].",module);
           Map result=ServiceUtil.returnSuccess();
           result.put("processResult","COMPLETE");
           return result;
@@ -74,27 +74,17 @@
   }
   BigDecimal orderGrandTotal=orh.getOrderGrandTotalBd();
   orderGrandTotal=orderGrandTotal.setScale(2,BigDecimal.ROUND_HALF_UP);
-  double orderTotal=orderGrandTotal.doubleValue();
-  double totalPayments=PaymentWorker.getPaymentsTotal(orh.getOrderPayments());
-  double remainingTotal=orderTotal - totalPayments;
-  if (Debug.infoOn())   Debug.logInfo("Capture Remaining Total: " + remainingTotal,module);
-  String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
-  DecimalFormat formatter=new DecimalFormat(currencyFormat);
-  String remainingTotalString=formatter.format(remainingTotal);
-  try {
-    Number remaining=formatter.parse(remainingTotalString);
-    if (remaining != null) {
-      remainingTotal=remaining.doubleValue();
-    }
+  BigDecimal totalPayments=PaymentWorker.getPaymentsTotal(orh.getOrderPayments());
+  totalPayments=totalPayments.setScale(2,BigDecimal.ROUND_HALF_UP);
+  BigDecimal remainingTotalBd=orderGrandTotal.subtract(totalPayments);
+  if (Debug.infoOn())   Debug.logInfo("Capture Remaining Total: " + remainingTotalBd,module);
+  double amountToCapture=0.0;
+  if (captureAmountBd == null) {
+    amountToCapture=remainingTotalBd.doubleValue();
   }
- catch (  ParseException e) {
-    Debug.logError(e,"Problem getting parsed remaining total",module);
-    return ServiceUtil.returnError("ERROR: Cannot parse grand total from formatted string; see logs");
+ else {
+    amountToCapture=captureAmountBd.doubleValue();
   }
-  if (captureAmount == null) {
-    captureAmount=new Double(remainingTotal);
-  }
-  double amountToCapture=captureAmount.doubleValue();
   if (Debug.infoOn())   Debug.logInfo("Actual Expected Capture Amount : " + amountToCapture,module);
   List finished=new ArrayList();
   Iterator payments=paymentPrefs.iterator();
@@ -110,8 +100,8 @@
       Debug.logInfo("Nothing to capture; authAmount = 0",module);
       continue;
     }
-    if (authAmount.doubleValue() > remainingTotal) {
-      authAmount=new Double(remainingTotal);
+    if (authAmount.doubleValue() > remainingTotalBd.doubleValue()) {
+      authAmount=new Double(remainingTotalBd.doubleValue());
     }
     double amountToBillAccount=0.00;
     if (billingAccountAvail != null) {
