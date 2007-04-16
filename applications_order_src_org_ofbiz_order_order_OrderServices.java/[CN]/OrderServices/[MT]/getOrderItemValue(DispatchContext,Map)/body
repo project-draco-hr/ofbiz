@@ -1,0 +1,37 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  GenericValue orderHeader=null;
+  GenericValue orderItem=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (UtilValidate.isEmpty(orderHeader)) {
+      String errorMessage=UtilProperties.getMessage(resource_error,"OrderErrorOrderIdNotFound",context,locale);
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    orderItem=delegator.findByPrimaryKey("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId));
+    if (UtilValidate.isEmpty(orderItem)) {
+      String errorMessage=UtilProperties.getMessage(resource_error,"OrderErrorOrderItemNotFound",context,locale);
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  BigDecimal orderItemTotal=orh.getOrderItemTotalBd(orderItem);
+  BigDecimal orderItemsTotal=orh.getOrderItemsTotalBd();
+  BigDecimal proportionOfOrderItemsTotal=orderItemTotal.divide(orderItemsTotal,orderRounding);
+  BigDecimal portionOfOrderItemsTotal=proportionOfOrderItemsTotal.multiply(orderItemsTotal).setScale(orderDecimals,orderRounding);
+  BigDecimal orderAdjustmentsTotal=orh.getOrderAdjustmentsTotalBd();
+  BigDecimal portionOfOrderAdjustmentsTotal=proportionOfOrderItemsTotal.multiply(orderAdjustmentsTotal).setScale(orderDecimals,orderRounding);
+  BigDecimal orderItemTotalValue=portionOfOrderItemsTotal.add(portionOfOrderAdjustmentsTotal);
+  Map result=ServiceUtil.returnSuccess();
+  result.put("orderItemValue",orderItemTotalValue);
+  return result;
+}
