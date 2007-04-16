@@ -1,0 +1,58 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String shipmentId=(String)context.get("shipmentId");
+  String shipmentPackageSeqId=(String)context.get("shipmentPackageSeqId");
+  String currencyUomId=(String)context.get("currencyUomId");
+  BigDecimal packageTotalValue=ZERO;
+  GenericValue shipment=null;
+  GenericValue shipmentPackage=null;
+  try {
+    shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+    if (UtilValidate.isEmpty(shipment)) {
+      String errorMessage=UtilProperties.getMessage(resource,"ProductShipmentNotFoundId",locale);
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    shipmentPackage=delegator.findByPrimaryKey("ShipmentPackage",UtilMisc.toMap("shipmentId",shipmentId,"shipmentPackageSeqId",shipmentPackageSeqId));
+    if (UtilValidate.isEmpty(shipmentPackage)) {
+      String errorMessage=UtilProperties.getMessage(resource,"ProductShipmentPackageNotFound",context,locale);
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    List packageContents=delegator.findByAnd("PackedQtyVsOrderItemQuantity",UtilMisc.toMap("shipmentId",shipmentId,"shipmentPackageSeqId",shipmentPackageSeqId));
+    Iterator packageContentsIt=packageContents.iterator();
+    while (packageContentsIt.hasNext()) {
+      GenericValue packageContent=(GenericValue)packageContentsIt.next();
+      String orderId=packageContent.getString("orderId");
+      String orderItemSeqId=packageContent.getString("orderItemSeqId");
+      Map getOrderItemValueResult=dispatcher.runSync("getOrderItemValue",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"userLogin",userLogin,"locale",locale));
+      if (ServiceUtil.isError(getOrderItemValueResult))       return getOrderItemValueResult;
+      BigDecimal orderItemTotalValue=(BigDecimal)getOrderItemValueResult.get("orderItemValue");
+      BigDecimal packedQuantity=packageContent.getBigDecimal("packedQuantity");
+      BigDecimal orderedQuantity=packageContent.getBigDecimal("orderedQuantity");
+      BigDecimal proportionOfOrderedQuantity=packedQuantity.divide(orderedQuantity,10,rounding);
+      BigDecimal packageContentValue=proportionOfOrderedQuantity.multiply(orderItemTotalValue).setScale(decimals,rounding);
+      GenericValue orderHeader=packageContent.getRelatedOne("OrderHeader");
+      Map convertUomResult=dispatcher.runSync("convertUom",UtilMisc.toMap("uomId",orderHeader.getString("currencyUom"),"uomIdTo",currencyUomId,"originalValue",new Double(packageContentValue.doubleValue())));
+      if (ServiceUtil.isError(convertUomResult))       return convertUomResult;
+      if (convertUomResult.containsKey("convertedValue")) {
+        packageContentValue=new BigDecimal(((Double)convertUomResult.get("convertedValue")).doubleValue()).setScale(decimals,rounding);
+      }
+      packageTotalValue=packageTotalValue.add(packageContentValue);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("packageValue",packageTotalValue);
+  return result;
+}
