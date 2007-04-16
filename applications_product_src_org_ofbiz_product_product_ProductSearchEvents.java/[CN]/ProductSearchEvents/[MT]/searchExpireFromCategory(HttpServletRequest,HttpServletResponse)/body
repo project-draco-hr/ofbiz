@@ -14,19 +14,19 @@
     request.setAttribute("_ERROR_MESSAGE_",errMsg);
     return "error";
   }
-  EntityListIterator eli=getProductSearchResults(request);
-  if (eli == null) {
-    errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
-    request.setAttribute("_ERROR_MESSAGE_",errMsg);
-    return "error";
-  }
   try {
-    boolean beganTransaction=TransactionUtil.begin();
+    boolean beganTransaction=TransactionUtil.begin(DEFAULT_TX_TIMEOUT);
     try {
+      EntityListIterator eli=getProductSearchResults(request);
+      if (eli == null) {
+        errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
       GenericValue searchResultView=null;
       int numExpired=0;
       while ((searchResultView=(GenericValue)eli.next()) != null) {
-        String productId=searchResultView.getString("productId");
+        String productId=searchResultView.getString("mainProductId");
         List pcmList=delegator.findByAnd("ProductCategoryMember",UtilMisc.toMap("productCategoryId",productCategoryId,"productId",productId));
         Iterator pcmListIter=pcmList.iterator();
         while (pcmListIter.hasNext()) {
@@ -42,7 +42,6 @@
       errMsg=UtilProperties.getMessage(resource,"productsearchevents.expired_x_items",messageMap,UtilHttp.getLocale(request));
       request.setAttribute("_EVENT_MESSAGE_",errMsg);
       eli.close();
-      TransactionUtil.commit(beganTransaction);
     }
  catch (    GenericEntityException e) {
       Map messageMap=UtilMisc.toMap("errSearchResult",e.toString());
@@ -51,6 +50,9 @@
       request.setAttribute("_ERROR_MESSAGE_",errMsg);
       TransactionUtil.rollback(beganTransaction,errMsg,e);
       return "error";
+    }
+ finally {
+      TransactionUtil.commit(beganTransaction);
     }
   }
  catch (  GenericTransactionException e) {

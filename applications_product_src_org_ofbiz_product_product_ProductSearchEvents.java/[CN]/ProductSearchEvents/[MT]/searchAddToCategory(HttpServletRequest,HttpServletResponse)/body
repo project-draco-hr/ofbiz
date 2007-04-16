@@ -13,20 +13,20 @@
     request.setAttribute("_ERROR_MESSAGE_",errMsg);
     return "error";
   }
-  EntityListIterator eli=getProductSearchResults(request);
-  if (eli == null) {
-    errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
-    request.setAttribute("_ERROR_MESSAGE_",errMsg);
-    return "error";
-  }
   try {
-    boolean beganTransaction=TransactionUtil.begin();
+    boolean beganTransaction=TransactionUtil.begin(DEFAULT_TX_TIMEOUT);
     try {
+      EntityListIterator eli=getProductSearchResults(request);
+      if (eli == null) {
+        errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
       GenericValue searchResultView=null;
       List searchResultList=new ArrayList();
       int numAdded=0;
       while ((searchResultView=(GenericValue)eli.next()) != null) {
-        String productId=searchResultView.getString("productId");
+        String productId=searchResultView.getString("mainProductId");
         GenericValue pcm=delegator.makeValue("ProductCategoryMember",null);
         pcm.set("productCategoryId",productCategoryId);
         pcm.set("productId",productId);
@@ -38,7 +38,6 @@
       errMsg=UtilProperties.getMessage(resource,"productsearchevents.added_x_product_category_members",messageMap,UtilHttp.getLocale(request));
       request.setAttribute("_EVENT_MESSAGE_",errMsg);
       eli.close();
-      TransactionUtil.commit(beganTransaction);
     }
  catch (    GenericEntityException e) {
       Map messageMap=UtilMisc.toMap("errSearchResult",e.toString());
@@ -47,6 +46,9 @@
       request.setAttribute("_ERROR_MESSAGE_",errMsg);
       TransactionUtil.rollback(beganTransaction,errMsg,e);
       return "error";
+    }
+ finally {
+      TransactionUtil.commit(beganTransaction);
     }
   }
  catch (  GenericTransactionException e) {

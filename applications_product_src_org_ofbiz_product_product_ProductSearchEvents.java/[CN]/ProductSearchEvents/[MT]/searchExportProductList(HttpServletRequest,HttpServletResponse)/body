@@ -2,19 +2,19 @@
   GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
   String errMsg=null;
   List productExportList=new ArrayList();
-  EntityListIterator eli=getProductSearchResults(request);
-  if (eli == null) {
-    errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
-    request.setAttribute("_ERROR_MESSAGE_",errMsg);
-    return "error";
-  }
   try {
-    boolean beganTransaction=TransactionUtil.begin();
+    boolean beganTransaction=TransactionUtil.begin(DEFAULT_TX_TIMEOUT);
     try {
+      EntityListIterator eli=getProductSearchResults(request);
+      if (eli == null) {
+        errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
       GenericValue searchResultView=null;
       while ((searchResultView=(GenericValue)eli.next()) != null) {
         Map productMap=new HashMap();
-        String productId=searchResultView.getString("productId");
+        String productId=searchResultView.getString("mainProductId");
         productMap.put("productId",productId);
         List productFeaturesCustomRaw=delegator.findByAnd("ProductFeatureAndAppl",UtilMisc.toMap("productId",productId,"productFeatureTypeId","HAZMAT"));
         List productFeaturesCustom=EntityUtil.filterByDate(productFeaturesCustomRaw);
@@ -28,7 +28,6 @@
         productExportList.add(productMap);
       }
       eli.close();
-      TransactionUtil.commit(beganTransaction);
     }
  catch (    GenericEntityException e) {
       Map messageMap=UtilMisc.toMap("errSearchResult",e.toString());
@@ -37,6 +36,9 @@
       request.setAttribute("_ERROR_MESSAGE_",errMsg);
       TransactionUtil.rollback(beganTransaction,errMsg,e);
       return "error";
+    }
+ finally {
+      TransactionUtil.commit(beganTransaction);
     }
   }
  catch (  GenericTransactionException e) {

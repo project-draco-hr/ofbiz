@@ -2,23 +2,22 @@
   GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
   String productCategoryId=request.getParameter("SE_SEARCH_CATEGORY_ID");
   String errMsg=null;
-  EntityListIterator eli=getProductSearchResults(request);
-  if (eli == null) {
-    errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
-    request.setAttribute("_ERROR_MESSAGE_",errMsg);
-    return "error";
-  }
   try {
-    boolean beganTransaction=TransactionUtil.begin();
+    boolean beganTransaction=TransactionUtil.begin(DEFAULT_TX_TIMEOUT);
     try {
+      EntityListIterator eli=getProductSearchResults(request);
+      if (eli == null) {
+        errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
       int numRemoved=0;
       GenericValue searchResultView=null;
       while ((searchResultView=(GenericValue)eli.next()) != null) {
-        String productId=searchResultView.getString("productId");
+        String productId=searchResultView.getString("mainProductId");
         numRemoved+=delegator.removeByAnd("ProductCategoryMember",UtilMisc.toMap("productCategoryId",productCategoryId,"productId",productId));
       }
       eli.close();
-      TransactionUtil.commit(beganTransaction);
       Map messageMap=UtilMisc.toMap("numRemoved",Integer.toString(numRemoved));
       errMsg=UtilProperties.getMessage(resource,"productsearchevents.removed_x_items",messageMap,UtilHttp.getLocale(request));
       request.setAttribute("_EVENT_MESSAGE_",errMsg);
@@ -30,6 +29,9 @@
       request.setAttribute("_ERROR_MESSAGE_",errMsg);
       TransactionUtil.rollback(beganTransaction,errMsg,e);
       return "error";
+    }
+ finally {
+      TransactionUtil.commit(beganTransaction);
     }
   }
  catch (  GenericTransactionException e) {

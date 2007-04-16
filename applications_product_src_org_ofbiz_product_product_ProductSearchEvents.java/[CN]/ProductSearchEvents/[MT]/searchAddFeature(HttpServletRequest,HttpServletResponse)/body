@@ -31,19 +31,19 @@
     Debug.logError(e,errorMsg,module);
     return "error";
   }
-  EntityListIterator eli=getProductSearchResults(request);
-  if (eli == null) {
-    String errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
-    request.setAttribute("_ERROR_MESSAGE_",errMsg);
-    return "error";
-  }
   try {
-    boolean beganTransaction=TransactionUtil.begin();
+    boolean beganTransaction=TransactionUtil.begin(DEFAULT_TX_TIMEOUT);
     try {
+      EntityListIterator eli=getProductSearchResults(request);
+      if (eli == null) {
+        String errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
       GenericValue searchResultView=null;
       int numAdded=0;
       while ((searchResultView=(GenericValue)eli.next()) != null) {
-        String productId=searchResultView.getString("productId");
+        String productId=searchResultView.getString("mainProductId");
         GenericValue pfa=delegator.makeValue("ProductFeatureAppl",null);
         pfa.set("productId",productId);
         pfa.set("productFeatureId",productFeatureId);
@@ -59,7 +59,6 @@
       String eventMsg=UtilProperties.getMessage(resource,"productSearchEvents.added_param_features",messageMap,locale) + ".";
       request.setAttribute("_EVENT_MESSAGE_",eventMsg);
       eli.close();
-      TransactionUtil.commit(beganTransaction);
     }
  catch (    GenericEntityException e) {
       String errorMsg=UtilProperties.getMessage(resource,"productSearchEvents.error_getting_results",locale) + " : " + e.toString();
@@ -67,6 +66,9 @@
       Debug.logError(e,errorMsg,module);
       TransactionUtil.rollback(beganTransaction,errorMsg,e);
       return "error";
+    }
+ finally {
+      TransactionUtil.commit(beganTransaction);
     }
   }
  catch (  GenericTransactionException e) {
