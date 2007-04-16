@@ -1,0 +1,48 @@
+{
+switch (level) {
+case HOSTCERT_MIN_CHECK:
+    return new HostnameVerifier(){
+      public boolean verify(      String hostname,      SSLSession session){
+        Debug.log("Checking: " + hostname + " :: "+ session.getPeerHost(),module);
+        javax.security.cert.X509Certificate[] peerCerts;
+        try {
+          peerCerts=session.getPeerCertificateChain();
+        }
+ catch (        SSLPeerUnverifiedException e) {
+          Debug.logWarning(e.getMessage(),module);
+          return false;
+        }
+        for (int i=0; i < peerCerts.length; i++) {
+          Map certMap=new HashMap();
+          String name=peerCerts[i].getSubjectDN().getName();
+          String[] sections=name.split("\\,");
+          for (int si=0; si < sections.length; si++) {
+            String[] nv=sections[si].split("\\=");
+            for (int nvi=0; nvi < nv.length; nvi++) {
+              certMap.put(nv[0],nv[1]);
+            }
+          }
+          Debug.log(peerCerts[i].getSerialNumber().toString(16) + " :: " + certMap.get("CN"),module);
+          try {
+            peerCerts[i].checkValidity();
+          }
+ catch (          Exception e) {
+            Debug.logWarning("Certificate is not valid!",module);
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+;
+case HOSTCERT_NO_CHECK:
+  return new HostnameVerifier(){
+    public boolean verify(    String hostname,    SSLSession session){
+      return true;
+    }
+  }
+;
+default :
+return null;
+}
+}
