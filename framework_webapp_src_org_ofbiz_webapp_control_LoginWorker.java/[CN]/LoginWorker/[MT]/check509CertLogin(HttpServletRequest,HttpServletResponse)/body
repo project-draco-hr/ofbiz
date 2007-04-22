@@ -14,34 +14,36 @@
       clientCerts=(X509Certificate[])request.getAttribute("javax.net.ssl.peer_certificates");
     }
     if (clientCerts != null) {
+      String userLoginId=null;
       for (int i=0; i < clientCerts.length; i++) {
-        String certKeyHex=StringUtil.toHexString(clientCerts[i].getPublicKey().getEncoded());
-        String certSn=clientCerts[i].getSerialNumber().toString(16);
-        List userLogins=null;
+        X500Principal x500=clientCerts[i].getSubjectX500Principal();
+        Debug.log("Checking client certification for authentication: " + x500.getName(),module);
+        Map x500Map=FastMap.newInstance();
+        String[] x500Opts=x500.getName().split("\\,");
+        for (int x=0; x < x500Opts.length; x++) {
+          String[] nv=x500Opts[x].split("\\=");
+          x500Map.put(nv[0],nv[1]);
+        }
+        if (i == 0) {
+          userLoginId=(String)x500Map.get("CN");
+        }
         try {
-          userLogins=delegator.findByAnd("UserLogin",UtilMisc.toMap("x509CertSn",certSn));
-        }
- catch (        GenericEntityException e) {
-          Debug.logError(e,module);
-        }
-        if (userLogins != null && userLogins.size() > 0) {
-          Iterator it=userLogins.iterator();
-          while (it.hasNext()) {
-            GenericValue ul=(GenericValue)it.next();
-            String certKey=ul.getString("x509CertKey");
-            String enabled=ul.getString("enabled");
-            if ((enabled == null || "Y".equals(enabled)) && certKey.equals(certKeyHex)) {
-              ul.set("hasLoggedOut","N");
-              try {
-                ul.store();
+          if (LoginWorker.checkValidIssuer(delegator,x500Map)) {
+            Debug.log("Looking up userLogin from CN: " + userLoginId,module);
+            GenericValue userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+            if (userLogin != null) {
+              String enabled=userLogin.getString("enabled");
+              if (enabled == null || "Y".equals(enabled)) {
+                userLogin.set("hasLoggedOut","N");
+                userLogin.store();
+                Map ulSessionMap=LoginServices.getUserLoginSession(userLogin);
+                return doMainLogin(request,response,userLogin,ulSessionMap);
               }
- catch (              GenericEntityException e) {
-                Debug.logWarning(e,module);
-              }
-              Map ulSessionMap=LoginServices.getUserLoginSession(ul);
-              return doMainLogin(request,response,ul,ulSessionMap);
             }
           }
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,module);
         }
       }
     }
