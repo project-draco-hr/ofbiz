@@ -1,0 +1,65 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String finAccountId=(String)context.get("finAccountId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  try {
+    String partyId=(String)context.get("partyId");
+    Map lookupMap=UtilMisc.toMap("finAccountTypeId","SVCCRED_ACCOUNT","ownerPartyId",partyId);
+    String productStoreId=(String)context.get("productStoreId");
+    if (UtilValidate.isNotEmpty(productStoreId)) {
+      String payToPartyId=ProductStoreWorker.getProductStorePayToPartyId(productStoreId,delegator);
+      if (UtilValidate.isNotEmpty(payToPartyId)) {
+        lookupMap.put("organizationPartyId",payToPartyId);
+      }
+    }
+    String currencyUomId=(String)context.get("currencyUomId");
+    if (UtilValidate.isNotEmpty(currencyUomId)) {
+      lookupMap.put("currencyUomId",currencyUomId);
+    }
+    GenericValue creditAccount;
+    if (finAccountId != null) {
+      creditAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccoutId",finAccountId));
+    }
+ else {
+      List creditAccounts=delegator.findByAnd("FinAccount",lookupMap,UtilMisc.toList("-fromDate"));
+      creditAccount=EntityUtil.getFirst(EntityUtil.filterByDate(creditAccounts));
+    }
+    if (creditAccount == null) {
+      String createAccountServiceName="createFinAccount";
+      if (UtilValidate.isNotEmpty(productStoreId)) {
+        createAccountServiceName="createFinAccountForStore";
+      }
+      ModelService createAccountService=dctx.getModelService(createAccountServiceName);
+      Map createAccountContext=createAccountService.makeValid(context,ModelService.IN_PARAM);
+      createAccountContext.put("finAccountTypeId","SVCCRED_ACCOUNT");
+      createAccountContext.put("finAccountName","Customer Service Credit Account");
+      createAccountContext.put("ownerPartyId",partyId);
+      createAccountContext.put("userLogin",userLogin);
+      Map createAccountResult=dispatcher.runSync(createAccountServiceName,createAccountContext);
+      if (ServiceUtil.isError(createAccountResult) || ServiceUtil.isFailure(createAccountResult)) {
+        return createAccountResult;
+      }
+      if (createAccountResult != null) {
+        String creditAccountId=(String)createAccountResult.get("finAccountId");
+        if (UtilValidate.isNotEmpty(creditAccountId)) {
+          creditAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",creditAccountId));
+        }
+      }
+      if (creditAccount == null) {
+        return ServiceUtil.returnError("Could not find or create a service credit account");
+      }
+    }
+    Map creditTransResult=dispatcher.runSync("createFinAccountTrans",UtilMisc.toMap("finAccountTransTypeId","ADJUSTMENT","finAccountId",creditAccount.getString("finAccountId"),"partyId",partyId,"amount",context.get("amount"),"userLogin",userLogin));
+    if (ServiceUtil.isError(creditTransResult) || ServiceUtil.isFailure(creditTransResult)) {
+      return creditTransResult;
+    }
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(gee.getMessage());
+  }
+catch (  GenericServiceException gse) {
+    return ServiceUtil.returnError(gse.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}
