@@ -40,6 +40,55 @@
       remainingQty=new Double(remainingQty.doubleValue() + qtyDiff);
       dateMap.put("remainingQty",remainingQty);
     }
+    resultList=delegator.findByAnd("OrderHeaderAndItems",UtilMisc.toMap("orderTypeId","PURCHASE_ORDER","itemStatusId","ITEM_APPROVED"),UtilMisc.toList("orderId"));
+    iteratorResult=resultList.iterator();
+    String orderId=null;
+    GenericValue orderDeliverySchedule=null;
+    while (iteratorResult.hasNext()) {
+      GenericValue genericResult=(GenericValue)iteratorResult.next();
+      String newOrderId=genericResult.getString("orderId");
+      if (!newOrderId.equals(orderId)) {
+        orderDeliverySchedule=null;
+        orderId=newOrderId;
+        try {
+          orderDeliverySchedule=delegator.findByPrimaryKey("OrderDeliverySchedule",UtilMisc.toMap("orderId",orderId,"orderItemSeqId","_NA_"));
+        }
+ catch (        GenericEntityException e) {
+        }
+      }
+      String productId=genericResult.getString("productId");
+      double orderQuantity=genericResult.getDouble("quantity").doubleValue();
+      GenericValue orderItemDeliverySchedule=null;
+      try {
+        orderItemDeliverySchedule=delegator.findByPrimaryKey("OrderDeliverySchedule",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",genericResult.getString("orderItemSeqId")));
+      }
+ catch (      GenericEntityException e) {
+      }
+      Timestamp estimatedShipDate=null;
+      if (orderItemDeliverySchedule != null && orderItemDeliverySchedule.get("estimatedReadyDate") != null) {
+        estimatedShipDate=orderItemDeliverySchedule.getTimestamp("estimatedReadyDate");
+      }
+ else       if (orderDeliverySchedule != null && orderDeliverySchedule.get("estimatedReadyDate") != null) {
+        estimatedShipDate=orderDeliverySchedule.getTimestamp("estimatedReadyDate");
+      }
+ else {
+        estimatedShipDate=genericResult.getTimestamp("estimatedDeliveryDate");
+      }
+      if (estimatedShipDate == null) {
+        estimatedShipDate=now;
+      }
+      if (!products.containsKey(productId)) {
+        products.put(productId,new TreeMap());
+      }
+      TreeMap productMap=(TreeMap)products.get(productId);
+      if (!productMap.containsKey(estimatedShipDate)) {
+        productMap.put(estimatedShipDate,UtilMisc.toMap("remainingQty",new Double(0.0),"reservations",FastList.newInstance()));
+      }
+      Map dateMap=(Map)productMap.get(estimatedShipDate);
+      Double remainingQty=(Double)dateMap.get("remainingQty");
+      remainingQty=new Double(remainingQty.doubleValue() + orderQuantity);
+      dateMap.put("remainingQty",remainingQty);
+    }
     List backordersCondList=FastList.newInstance();
     backordersCondList.add(new EntityExpr("quantityNotAvailable",EntityOperator.NOT_EQUAL,null));
     backordersCondList.add(new EntityExpr("quantityNotAvailable",EntityOperator.GREATER_THAN,new Double(0.0)));
