@@ -1,0 +1,56 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String certString=(String)context.get("certString");
+  String componentName=(String)context.get("componentName");
+  String keystoreName=(String)context.get("keystoreName");
+  String alias=(String)context.get("alias");
+  String importIssuer=(String)context.get("importIssuer");
+  KeyStore ks;
+  try {
+    ks=KeyStoreUtil.getComponentKeyStore(componentName,keystoreName);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  X509Certificate cert;
+  try {
+    cert=(X509Certificate)KeyStoreUtil.pemToCert(certString);
+  }
+ catch (  CertificateException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  IOException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  try {
+    ks.setCertificateEntry(alias,cert);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  try {
+    KeyStoreUtil.storeComponentKeyStore(componentName,keystoreName,ks);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map x500Map=KeyStoreUtil.getCertX500Map(cert);
+  if (importIssuer != null && "Y".equalsIgnoreCase(importIssuer)) {
+    GenericValue provision=delegator.makeValue("X509IssuerProvision",null);
+    provision.set("certProvisionId",delegator.getNextSeqId("X509IssuerProvision"));
+    provision.set("commonName",x500Map.get("CN"));
+    provision.set("organizationalUnit",x500Map.get("OU"));
+    provision.set("organizationName",x500Map.get("O"));
+    provision.set("cityLocality",x500Map.get("L"));
+    provision.set("stateProvince",x500Map.get("ST"));
+    provision.set("country",x500Map.get("C"));
+    provision.set("serialNumber",cert.getSerialNumber().toString(16));
+    try {
+      delegator.create(provision);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
