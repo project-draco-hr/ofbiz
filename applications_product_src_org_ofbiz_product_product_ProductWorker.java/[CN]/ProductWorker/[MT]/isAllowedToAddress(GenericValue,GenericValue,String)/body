@@ -1,0 +1,38 @@
+{
+  if (UtilValidate.isNotEmpty(product) && UtilValidate.isNotEmpty(postalAddress)) {
+    GenericDelegator delegator=product.getDelegator();
+    List productGeos=null;
+    try {
+      productGeos=product.getRelated("ProductGeo");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (UtilValidate.isEmpty(productGeos)) {
+      return true;
+    }
+    List excludeGeos=EntityUtil.filterByAnd(productGeos,UtilMisc.toMap("productGeoEnumId",productGeoPrefix + "EXCLUDE"));
+    List includeGeos=EntityUtil.filterByAnd(productGeos,UtilMisc.toMap("productGeoEnumId",productGeoPrefix + "INCLUDE"));
+    Iterator productGeosIt=null;
+    productGeosIt=excludeGeos.iterator();
+    while (productGeosIt.hasNext()) {
+      GenericValue productGeo=(GenericValue)productGeosIt.next();
+      List includeGeoGroup=GeoWorker.expandGeoGroup(productGeo.getString("geoId"),delegator);
+      if (GeoWorker.containsGeo(includeGeoGroup,postalAddress.getString("countryGeoId"),delegator) || GeoWorker.containsGeo(includeGeoGroup,postalAddress.getString("stateProvinceGeoId"),delegator) || GeoWorker.containsGeo(includeGeoGroup,postalAddress.getString("postalCodeGeoId"),delegator)) {
+        return false;
+      }
+    }
+    productGeosIt=includeGeos.iterator();
+    while (productGeosIt.hasNext()) {
+      GenericValue productGeo=(GenericValue)productGeosIt.next();
+      List includeGeoGroup=GeoWorker.expandGeoGroup(productGeo.getString("geoId"),delegator);
+      if (GeoWorker.containsGeo(includeGeoGroup,postalAddress.getString("countryGeoId"),delegator) || GeoWorker.containsGeo(includeGeoGroup,postalAddress.getString("stateProvinceGeoId"),delegator) || GeoWorker.containsGeo(includeGeoGroup,postalAddress.getString("postalCodeGeoId"),delegator)) {
+        return true;
+      }
+    }
+  }
+ else {
+    throw new IllegalArgumentException("product and postalAddress cannot be null.");
+  }
+  return false;
+}
