@@ -1,0 +1,77 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  String currencyUomId=(String)context.get("currencyUomId");
+  String payToPartyId=(String)context.get("payToPartyId");
+  String payFromPartyId=(String)context.get("payFromPartyId");
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue response=delegator.makeValue("PaymentGatewayResponse",null);
+  response.set("paymentGatewayResponseId",responseId);
+  response.set("paymentServiceTypeEnumId",REFUND_SERVICE_TYPE);
+  response.set("orderPaymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+  response.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+  response.set("paymentMethodId",paymentPref.get("paymentMethodId"));
+  response.set("transCodeEnumId","PGT_REFUND");
+  response.set("amount",context.get("refundAmount"));
+  response.set("referenceNum",context.get("refundRefNum"));
+  response.set("altReference",context.get("refundAltRefNum"));
+  response.set("gatewayCode",context.get("refundCode"));
+  response.set("gatewayFlag",context.get("refundFlag"));
+  response.set("gatewayMessage",context.get("refundMessage"));
+  response.set("transactionDate",UtilDateTime.nowTimestamp());
+  savePgr(dctx,response);
+  List messages=(List)context.get("internalRespMsgs");
+  if (messages != null && messages.size() > 0) {
+    Iterator i=messages.iterator();
+    while (i.hasNext()) {
+      GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
+      String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
+      String message=(String)i.next();
+      respMsg.set("paymentGatewayRespMsgId",respMsgId);
+      respMsg.set("paymentGatewayResponseId",responseId);
+      respMsg.set("pgrMessage",message);
+      savePgr(dctx,respMsg);
+    }
+  }
+  Boolean refundResult=(Boolean)context.get("refundResult");
+  if (refundResult != null && refundResult.booleanValue()) {
+    Map paymentCtx=UtilMisc.toMap("paymentTypeId","CUSTOMER_REFUND");
+    paymentCtx.put("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+    paymentCtx.put("paymentMethodId",paymentPref.get("paymentMethodId"));
+    paymentCtx.put("paymentGatewayResponseId",responseId);
+    paymentCtx.put("partyIdTo",payToPartyId);
+    paymentCtx.put("partyIdFrom",payFromPartyId);
+    paymentCtx.put("statusId","PMNT_SENT");
+    paymentCtx.put("paymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+    paymentCtx.put("currencyUomId",currencyUomId);
+    paymentCtx.put("amount",context.get("refundAmount"));
+    paymentCtx.put("userLogin",userLogin);
+    paymentCtx.put("paymentRefNum",context.get("refundRefNum"));
+    paymentCtx.put("comments","Refund");
+    String paymentId=null;
+    try {
+      Map payRes=dispatcher.runSync("createPayment",paymentCtx);
+      if (ModelService.RESPOND_ERROR.equals(payRes.get(ModelService.RESPONSE_MESSAGE))) {
+        return ServiceUtil.returnError((String)payRes.get(ModelService.ERROR_MESSAGE));
+      }
+ else {
+        paymentId=(String)payRes.get("paymentId");
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problem creating Payment",module);
+      return ServiceUtil.returnError("Problem creating Payment");
+    }
+    if (paymentId == null) {
+      return ServiceUtil.returnError("Create payment failed");
+    }
+    Map result=ServiceUtil.returnSuccess();
+    result.put("paymentId",paymentId);
+    return result;
+  }
+ else {
+    return ServiceUtil.returnFailure("The refund failed");
+  }
+}

@@ -1,0 +1,48 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  BigDecimal splitAmount=(BigDecimal)context.get("splitAmount");
+  String orderId=paymentPref.getString("orderId");
+  OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+  Debug.logInfo("Creating payment preference split",module);
+  String newPrefId=delegator.getNextSeqId("OrderPaymentPreference");
+  GenericValue newPref=delegator.makeValue("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",newPrefId));
+  newPref.set("orderId",paymentPref.get("orderId"));
+  newPref.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+  newPref.set("paymentMethodId",paymentPref.get("paymentMethodId"));
+  newPref.set("maxAmount",paymentPref.get("maxAmount"));
+  newPref.set("statusId","PAYMENT_NOT_AUTH");
+  newPref.set("createdDate",UtilDateTime.nowTimestamp());
+  if (userLogin != null) {
+    newPref.set("createdByUserLogin",userLogin.getString("userLoginId"));
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("New preference : " + newPref,module);
+  Map processorResult=null;
+  try {
+    delegator.create(newPref);
+    processorResult=authPayment(dispatcher,userLogin,orh,newPref,splitAmount.doubleValue(),false,null);
+    if (processorResult != null) {
+      boolean authResult=processResult(dctx,processorResult,userLogin,newPref);
+      if (!authResult) {
+        Debug.logError("Authorization failed : " + newPref + " : "+ processorResult,module);
+      }
+    }
+ else {
+      Debug.logError("Payment not authorized : " + newPref + " : "+ processorResult,module);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"ERROR: cannot create new payment preference : " + newPref,module);
+  }
+catch (  GeneralException e) {
+    if (processorResult != null) {
+      Debug.logError(e,"Trouble processing the auth result: " + newPref + " : "+ processorResult,module);
+    }
+ else {
+      Debug.logError(e,"Trouble authorizing the payment: " + newPref,module);
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

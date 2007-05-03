@@ -1,0 +1,68 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  Boolean releaseResponse=(Boolean)context.get("releaseResult");
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue pgResponse=delegator.makeValue("PaymentGatewayResponse",null);
+  pgResponse.set("paymentGatewayResponseId",responseId);
+  pgResponse.set("paymentServiceTypeEnumId",RELEASE_SERVICE_TYPE);
+  pgResponse.set("orderPaymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+  pgResponse.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+  pgResponse.set("paymentMethodId",paymentPref.get("paymentMethodId"));
+  pgResponse.set("transCodeEnumId","PGT_RELEASE");
+  pgResponse.set("referenceNum",context.get("releaseRefNum"));
+  pgResponse.set("altReference",context.get("releaseAltRefNum"));
+  pgResponse.set("gatewayCode",context.get("releaseCode"));
+  pgResponse.set("gatewayFlag",context.get("releaseFlag"));
+  pgResponse.set("gatewayMessage",context.get("releaseMessage"));
+  pgResponse.set("transactionDate",UtilDateTime.nowTimestamp());
+  savePgr(dctx,pgResponse);
+  List messages=(List)context.get("internalRespMsgs");
+  if (messages != null && messages.size() > 0) {
+    Iterator i=messages.iterator();
+    while (i.hasNext()) {
+      GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
+      String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
+      String message=(String)i.next();
+      respMsg.set("paymentGatewayRespMsgId",respMsgId);
+      respMsg.set("paymentGatewayResponseId",responseId);
+      respMsg.set("pgrMessage",message);
+      savePgr(dctx,respMsg);
+    }
+  }
+  if (releaseResponse != null && releaseResponse.booleanValue()) {
+    paymentPref.set("statusId","PAYMENT_CANCELLED");
+    try {
+      paymentPref.store();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problem storing updated payment preference; authorization was released!",module);
+    }
+    List paymentList=null;
+    try {
+      paymentList=paymentPref.getRelated("Payment");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Unable to get Payment records from OrderPaymentPreference : " + paymentPref,module);
+    }
+    if (paymentList != null) {
+      Iterator pi=paymentList.iterator();
+      while (pi.hasNext()) {
+        GenericValue pay=(GenericValue)pi.next();
+        pay.set("statusId","PMNT_CANCELLED");
+        try {
+          pay.store();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Unable to store Payment : " + pay,module);
+        }
+      }
+    }
+  }
+ else {
+    String errMsg="Release failed for pref : " + paymentPref;
+    Debug.logError(errMsg,module);
+    return ServiceUtil.returnFailure(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

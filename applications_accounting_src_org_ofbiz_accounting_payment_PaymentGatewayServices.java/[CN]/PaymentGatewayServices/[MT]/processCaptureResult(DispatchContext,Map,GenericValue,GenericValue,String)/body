@@ -1,4 +1,7 @@
 {
+  if (result == null) {
+    throw new GeneralException("Null capture result sent to processCaptureResult; fatal error");
+  }
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Boolean captureResult=(Boolean)result.get("captureResult");
   Double amount=null;
@@ -12,13 +15,15 @@
   if (amount == null) {
     throw new GeneralException("Unable to process null capture amount");
   }
-  if (result != null && captureResult.booleanValue()) {
+  BigDecimal amtBd=new BigDecimal(amount.doubleValue());
+  amtBd=amtBd.setScale(2,BigDecimal.ROUND_HALF_UP);
+  if (captureResult.booleanValue()) {
     result.put("orderPaymentPreference",paymentPreference);
     result.put("userLogin",userLogin);
     result.put("serviceTypeEnum",authServiceType);
     ModelService model=dctx.getModelService("processCaptureResult");
     Map context=model.makeValid(result,ModelService.IN_PARAM);
-    Map capRes=null;
+    Map capRes;
     try {
       capRes=dispatcher.runSync("processCaptureResult",context);
     }
@@ -30,65 +35,12 @@
       throw new GeneralException(ServiceUtil.getErrorMessage(capRes));
     }
   }
- else   if (result != null && !captureResult.booleanValue()) {
-    OrderReadHelper orh=null;
+ else {
     try {
-      GenericValue orderHeader=paymentPreference.getRelatedOne("OrderHeader");
-      if (orderHeader != null)       orh=new OrderReadHelper(orderHeader);
+      processReAuthFromCaptureFailure(dctx,result,amtBd,userLogin,paymentPreference);
     }
- catch (    GenericEntityException e) {
-      Debug.logError(e,"Problems getting OrderHeader; cannot re-auth the payment",module);
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
     }
-    if (amount != null && amount.doubleValue() == new Double(0.00).doubleValue()) {
-      amount=paymentPreference.getDouble("maxAmount");
-      Debug.log("resetting payment amount from 0.00 to correctMax amount",module);
-    }
-    Debug.log("reauth with amount: " + amount,module);
-    if (orh != null) {
-      Map authPayRes=authPayment(dispatcher,userLogin,orh,paymentPreference,amount.doubleValue(),true,null);
-      Debug.log("authPayRes: " + authPayRes,module);
-      if (authPayRes != null) {
-        Boolean authResp=(Boolean)authPayRes.get("authResult");
-        Boolean capResp=(Boolean)authPayRes.get("captureResult");
-        if (authResp != null) {
-          GenericValue authTrans=processAuthRetryResult(dctx,authPayRes,userLogin,paymentPreference);
-          if (authResp.booleanValue()) {
-            if (capResp != null && capResp.booleanValue()) {
-              processCaptureResult(dctx,result,userLogin,paymentPreference);
-            }
- else {
-              Map capPayRes=capturePayment(dctx,userLogin,orh,paymentPreference,amount.doubleValue(),authTrans);
-              if (capPayRes != null) {
-                Boolean capPayResp=(Boolean)capPayRes.get("captureResult");
-                if (capPayResp != null && capPayResp.booleanValue()) {
-                  processCaptureResult(dctx,capPayRes,userLogin,paymentPreference);
-                }
- else {
-                  Debug.logError("Capture of authorized payment failed: " + paymentPreference,module);
-                }
-              }
- else {
-                Debug.logError("Problems trying to capture payment (null result): " + paymentPreference,module);
-              }
-            }
-          }
- else {
-            Debug.logError("Payment authorization failed:  " + paymentPreference,module);
-          }
-        }
- else {
-          Debug.logError("Payment authorization failed (null result):  " + paymentPreference,module);
-        }
-      }
- else {
-        Debug.logError("Problems trying to re-authorize the payment (null result): " + paymentPreference,module);
-      }
-    }
- else {
-      Debug.logError("Null OrderReadHelper cannot process",module);
-    }
-  }
- else {
-    Debug.logError("Result pass is null, no capture available",module);
   }
 }

@@ -71,80 +71,18 @@
     return ServiceUtil.returnError(errMsg);
   }
   if (releaseResult != null && !ServiceUtil.isError(releaseResult)) {
-    Boolean releaseResponse=(Boolean)releaseResult.get("releaseResult");
-    String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
-    GenericValue pgResponse=delegator.makeValue("PaymentGatewayResponse",null);
-    pgResponse.set("paymentGatewayResponseId",responseId);
-    pgResponse.set("paymentServiceTypeEnumId",RELEASE_SERVICE_TYPE);
-    pgResponse.set("orderPaymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
-    pgResponse.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
-    pgResponse.set("paymentMethodId",paymentPref.get("paymentMethodId"));
-    pgResponse.set("transCodeEnumId","PGT_RELEASE");
-    pgResponse.set("referenceNum",releaseResult.get("releaseRefNum"));
-    pgResponse.set("altReference",releaseResult.get("releaseAltRefNum"));
-    pgResponse.set("gatewayCode",releaseResult.get("releaseCode"));
-    pgResponse.set("gatewayFlag",releaseResult.get("releaseFlag"));
-    pgResponse.set("gatewayMessage",releaseResult.get("releaseMessage"));
-    pgResponse.set("transactionDate",UtilDateTime.nowTimestamp());
+    Map releaseResRes;
     try {
-      pgResponse.create();
+      ModelService model=dctx.getModelService("processReleaseResult");
+      Map resCtx=model.makeValid(result,ModelService.IN_PARAM);
+      releaseResRes=dispatcher.runSync(model.name,resCtx);
     }
- catch (    GenericEntityException e) {
-      Debug.logError(e,"Problem storing PaymentGatewayResponse entity; authorization was released! : " + pgResponse,module);
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError("Trouble processing the release results: " + e.getMessage());
     }
-    List messages=(List)releaseResult.get("internalRespMsgs");
-    if (messages != null && messages.size() > 0) {
-      Iterator i=messages.iterator();
-      while (i.hasNext()) {
-        GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
-        String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
-        String message=(String)i.next();
-        respMsg.set("paymentGatewayRespMsgId",respMsgId);
-        respMsg.set("paymentGatewayResponseId",responseId);
-        respMsg.set("pgrMessage",message);
-        try {
-          delegator.create(respMsg);
-        }
- catch (        GenericEntityException e) {
-          String errMsg="Unable to create PaymentGatewayRespMsg record";
-          Debug.logError(e,errMsg,module);
-          return ServiceUtil.returnError(errMsg);
-        }
-      }
-    }
-    if (releaseResponse != null && releaseResponse.booleanValue()) {
-      paymentPref.set("statusId","PAYMENT_CANCELLED");
-      try {
-        paymentPref.store();
-      }
- catch (      GenericEntityException e) {
-        Debug.logError(e,"Problem storing updated payment preference; authorization was released!",module);
-      }
-      List paymentList=null;
-      try {
-        paymentList=paymentPref.getRelated("Payment");
-      }
- catch (      GenericEntityException e) {
-        Debug.logError(e,"Unable to get Payment records from OrderPaymentPreference : " + paymentPref,module);
-      }
-      if (paymentList != null) {
-        Iterator pi=paymentList.iterator();
-        while (pi.hasNext()) {
-          GenericValue pay=(GenericValue)pi.next();
-          pay.set("statusId","PMNT_CANCELLED");
-          try {
-            pay.store();
-          }
- catch (          GenericEntityException e) {
-            Debug.logError(e,"Unable to store Payment : " + pay,module);
-          }
-        }
-      }
-    }
- else {
-      String errMsg="Release failed for pref : " + paymentPref;
-      Debug.logError(errMsg,module);
-      result=ServiceUtil.returnFailure(errMsg);
+    if (releaseResRes != null && ServiceUtil.isError(releaseResRes)) {
+      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(releaseResRes));
     }
   }
  else   if (ServiceUtil.isError(releaseResult)) {
