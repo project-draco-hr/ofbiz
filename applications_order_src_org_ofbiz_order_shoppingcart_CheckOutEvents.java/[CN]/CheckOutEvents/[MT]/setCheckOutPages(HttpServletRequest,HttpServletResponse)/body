@@ -8,14 +8,35 @@
   ShoppingCart cart=(ShoppingCart)session.getAttribute("shoppingCart");
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
   GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
-  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
   GenericValue userLogin=cart.getUserLogin();
   if (userLogin == null)   userLogin=(GenericValue)session.getAttribute("userLogin");
+  if (curPage == null) {
+    try {
+      cart.createDropShipGroups(dispatcher);
+    }
+ catch (    CartItemModifyException e) {
+      Debug.logError(e,module);
+    }
+  }
+ else   if ("shippingoptions".equals(curPage) == true) {
+    cart.cleanUpShipGroups();
+  }
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
   if ("shippingaddress".equals(curPage) == true) {
     String shippingContactMechId=request.getParameter("shipping_contact_mech_id");
     String taxAuthPartyGeoIds=request.getParameter("taxAuthPartyGeoIds");
     String partyTaxId=request.getParameter("partyTaxId");
     String isExempt=request.getParameter("isExempt");
+    List errorMessages=new ArrayList();
+    Map errorMaps=new HashMap();
+    for (int shipGroupIndex=0; shipGroupIndex < cart.getShipGroupSize(); shipGroupIndex++) {
+      if (shippingContactMechId == null) {
+        shippingContactMechId=(String)request.getAttribute("contactMechId");
+      }
+      String supplierPartyId=(String)request.getAttribute(shipGroupIndex + "_supplierPartyId");
+      Map callResult=checkOutHelper.finalizeOrderEntryShip(shipGroupIndex,shippingContactMechId,supplierPartyId);
+      ServiceUtil.addErrors(errorMessages,errorMaps,callResult);
+    }
     if (UtilValidate.isNotEmpty(taxAuthPartyGeoIds)) {
       try {
         Map createCustomerTaxAuthInfoResult=dispatcher.runSync("createCustomerTaxAuthInfo",UtilMisc.toMap("partyId",cart.getPartyId(),"taxAuthPartyGeoIds",taxAuthPartyGeoIds,"partyTaxId",partyTaxId,"isExempt",isExempt,"userLogin",userLogin));
@@ -46,8 +67,11 @@
     String internalCode=request.getParameter("internalCode");
     String shipBeforeDate=request.getParameter("shipBeforeDate");
     String shipAfterDate=request.getParameter("shipAfterDate");
-    Map callResult=checkOutHelper.setCheckOutShippingOptions(shippingMethod,shippingInstructions,orderAdditionalEmails,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate);
-    ServiceUtil.getMessages(request,callResult,null);
+    Map callResult=ServiceUtil.returnSuccess();
+    for (int shipGroupIndex=0; shipGroupIndex < cart.getShipGroupSize(); shipGroupIndex++) {
+      callResult=checkOutHelper.finalizeOrderEntryOptions(shipGroupIndex,shippingMethod,shippingInstructions,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate,orderAdditionalEmails);
+      ServiceUtil.getMessages(request,callResult,null);
+    }
     if (!(callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
       curPage="payment";
     }
