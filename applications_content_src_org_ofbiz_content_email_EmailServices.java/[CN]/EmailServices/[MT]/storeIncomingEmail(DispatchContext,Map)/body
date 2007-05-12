@@ -4,7 +4,6 @@
   MimeMessageWrapper wrapper=(MimeMessageWrapper)context.get("messageWrapper");
   MimeMessage message=wrapper.getMessage();
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
-  GenericValue userLogin=(GenericValue)context.get("userLogin");
   String partyIdTo=null;
   String partyIdFrom=null;
   String contentType=null;
@@ -13,6 +12,7 @@
   String contactMechIdTo=null;
   Map result=null;
   try {
+    GenericValue userLogin=(GenericValue)delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
     String contentTypeRaw=message.getContentType();
     int idx=contentTypeRaw.indexOf(";");
     if (idx == -1)     idx=contentTypeRaw.length();
@@ -22,6 +22,10 @@
     Address[] addressesTo=message.getRecipients(MimeMessage.RecipientType.TO);
     Address[] addressesCC=message.getRecipients(MimeMessage.RecipientType.CC);
     Address[] addressesBCC=message.getRecipients(MimeMessage.RecipientType.BCC);
+    if (addressesFrom == null) {
+      Debug.logInfo("Incoming Email message ignored, had not 'from' email address",module);
+      return ServiceUtil.returnSuccess(" Message Ignored: no 'From' address specified");
+    }
     Debug.logInfo("Processing Incoming Email message from: " + (addressesFrom[0] == null ? "not found" : addressesFrom[0].toString()) + " to: "+ (addressesTo[0] == null ? "not found" : addressesTo[0].toString()),module);
     String spamHeaderName=UtilProperties.getPropertyValue("general.properties","mail.spam.name","N");
     String configHeaderValue=UtilProperties.getPropertyValue("general.properties","mail.spam.value");
@@ -32,27 +36,31 @@
         return ServiceUtil.returnSuccess(" Message Ignored: detected by external spam checker");
       }
     }
-    if (addressesFrom == null) {
-      Debug.logInfo("Incoming Email message ignored, had not 'from' email address",module);
-      return ServiceUtil.returnSuccess(" Message Ignored: no 'From' address specified");
-    }
     List allResults=getListOfParyInfoFromEmailAddresses(addressesTo,addressesCC,addressesBCC,userLogin,dispatcher);
     Iterator itr=allResults.iterator();
+    Debug.logInfo("====before userloginId: " + userLogin.get("userLoginId") + " party: "+ userLogin.get("partyId"),module);
+    if (userLogin.get("userLoginId").equals("system"))     userLogin.remove("partyId");
+    Debug.logInfo("====after userloginId: " + userLogin.get("userLoginId") + " party: "+ userLogin.get("partyId"),module);
     if ((allResults != null) && (allResults.size() > 0)) {
-      Map firstAddressTo=(Map)itr.next();
-      partyIdTo=(String)firstAddressTo.get("partyId");
-      contactMechIdTo=(String)firstAddressTo.get("contactMechId");
+      while (itr.hasNext()) {
+        Map addressTo=(Map)itr.next();
+        partyIdTo=(String)addressTo.get("partyId");
+        contactMechIdTo=(String)addressTo.get("contactMechId");
+        Debug.logInfo("====try to find:" + partyIdTo,module);
+        if (delegator.findByPrimaryKey("PartyAcctgPreference",UtilMisc.toMap("partyId",partyIdTo)) != null)         break;
+      }
     }
     String deliveredTo=null;
-    if (message.getHeader("Delivered-To") != null) {
-      deliveredTo=message.getHeader("Delivered-To")[0];
+    if (message.getHeader("Delivered-To") != null && message.getHeader("Delivered-To").length > 0) {
+      if (message.getHeader("Delivered-To").length > 1)       deliveredTo=message.getHeader("Delivered-To")[1];
+ else       deliveredTo=message.getHeader("Delivered-To")[0];
       String dn=deliveredTo.substring(deliveredTo.indexOf("@") + 1,deliveredTo.length());
       if (deliveredTo.startsWith(dn)) {
         deliveredTo=deliveredTo.substring(dn.length() + 1,deliveredTo.length());
       }
     }
     if ((partyIdTo == null) && (deliveredTo != null)) {
-      result=dispatcher.runSync("findPartyFromEmailAddress",UtilMisc.toMap("address",deliveredTo,"userLogin",userLogin));
+      result=dispatcher.runSync("findPartyFromEmailAddressCompany",UtilMisc.toMap("address",deliveredTo,"userLogin",userLogin));
       partyIdTo=(String)result.get("partyId");
       contactMechIdTo=(String)result.get("contactMechId");
     }
@@ -80,34 +88,6 @@
       contentIndex="";
       commEventMap=addMessageBody(commEventMap,(Multipart)message.getContent());
     }
-    Set emailAddressesFrom=new TreeSet();
-    Set emailAddressesTo=new TreeSet();
-    Set emailAddressesCC=new TreeSet();
-    Set emailAddressesBCC=new TreeSet();
-    for (int x=0; x < addressesFrom.length; x++) {
-      emailAddressesFrom.add(((InternetAddress)addressesFrom[x]).getAddress());
-    }
-    for (int x=0; x < addressesTo.length; x++) {
-      emailAddressesTo.add(((InternetAddress)addressesTo[x]).getAddress());
-    }
-    if (addressesCC != null) {
-      for (int x=0; x < addressesCC.length; x++) {
-        emailAddressesCC.add(((InternetAddress)addressesCC[x]).getAddress());
-      }
-    }
-    if (addressesBCC != null) {
-      for (int x=0; x < addressesBCC.length; x++) {
-        emailAddressesBCC.add(((InternetAddress)addressesBCC[x]).getAddress());
-      }
-    }
-    String fromString=StringUtil.join(UtilMisc.toList(emailAddressesFrom),",");
-    String toString=StringUtil.join(UtilMisc.toList(emailAddressesTo),",");
-    String ccString=StringUtil.join(UtilMisc.toList(emailAddressesCC),",");
-    String bccString=StringUtil.join(UtilMisc.toList(emailAddressesBCC),",");
-    if (UtilValidate.isNotEmpty(toString))     commEventMap.put("toString",toString);
-    if (UtilValidate.isNotEmpty(ccString))     commEventMap.put("ccString",ccString);
-    if (UtilValidate.isNotEmpty(ccString))     commEventMap.put("fromString",fromString);
-    if (UtilValidate.isNotEmpty(bccString))     commEventMap.put("bccString",bccString);
     String commNote="";
     if (partyIdFrom != null) {
       commEventMap.put("partyIdFrom",partyIdFrom);
@@ -121,11 +101,9 @@
       commEventMap.put("partyIdTo",partyIdTo);
       commEventMap.put("contactMechIdTo",contactMechIdTo);
     }
- else {
-      commNote+="Sent to: " + ((InternetAddress)addressesTo[0]).getAddress() + "; ";
-      if (deliveredTo != null) {
-        commNote+="Delivered-To: " + deliveredTo + "; ";
-      }
+    commNote+="Sent to: " + ((InternetAddress)addressesTo[0]).getAddress() + "; ";
+    if (deliveredTo != null) {
+      commNote+="Delivered-To: " + deliveredTo + "; ";
     }
     commNote+="Sent to: " + ((InternetAddress)addressesTo[0]).getAddress() + "; ";
     commNote+="Delivered-To: " + deliveredTo + "; ";
@@ -139,13 +117,6 @@
       commEventMap.put("note",commNote);
     }
     commEventMap.put("userLogin",userLogin);
-    String headerString="";
-    Enumeration headerLines=message.getAllHeaderLines();
-    while (headerLines.hasMoreElements()) {
-      headerString+=System.getProperty("line.separator");
-      headerString+=headerLines.nextElement();
-    }
-    commEventMap.put("headerString",headerString);
     result=dispatcher.runSync("createCommunicationEvent",commEventMap);
     communicationEventId=(String)result.get("communicationEventId");
     if (contentType.startsWith("multipart") || contentType.startsWith("Multipart")) {

@@ -21,9 +21,29 @@
       return ServiceUtil.returnError(errMsg + " " + communicationEventId);
     }
     Map sendMailParams=new HashMap();
+    List bodyParts=FastList.newInstance();
+    List commEventContentAssocs=communicationEvent.getRelated("CommEventContentAssoc");
+    Iterator contentItr=commEventContentAssocs.iterator();
+    ByteWrapper byteWrapper=null;
+    while (contentItr.hasNext()) {
+      GenericValue content=(GenericValue)contentItr.next();
+      GenericValue fromContent=content.getRelatedOne("FromContent");
+      GenericValue dataResources=fromContent.getRelatedOne("DataResource");
+      try {
+        byteWrapper=DataResourceWorker.getContentAsByteWrapper(delegator,dataResources.getString("dataResourceId"),null,null,locale,null);
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+      }
+catch (      GeneralException e) {
+        e.printStackTrace();
+      }
+      bodyParts.add(UtilMisc.toMap("content",byteWrapper.getBytes(),"type",dataResources.getString("mimeTypeId"),"filename",dataResources.getString("dataResourceName")));
+    }
     sendMailParams.put("sendFrom",communicationEvent.getRelatedOne("FromContactMech").getString("infoString"));
     sendMailParams.put("subject",communicationEvent.getString("subject"));
     sendMailParams.put("body",communicationEvent.getString("content"));
+    if (bodyParts != null)     sendMailParams.put("bodyParts",bodyParts);
     sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
     sendMailParams.put("userLogin",userLogin);
     if ((communicationEvent.getString("contactListId") == null) || (communicationEvent.getString("contactListId").equals(""))) {
