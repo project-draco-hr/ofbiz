@@ -52,9 +52,14 @@
   finAccountId=finAccount.getString("finAccountId");
   try {
     GenericValue finAccountSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",finAccountTypeId));
+    BigDecimal minBalance=FinAccountHelper.ZERO;
     String allowAuthToNegative="N";
     if (finAccountSettings != null) {
       allowAuthToNegative=finAccountSettings.getString("allowAuthToNegative");
+      minBalance=finAccountSettings.getBigDecimal("minBalance");
+      if (minBalance == null) {
+        minBalance=FinAccountHelper.ZERO;
+      }
       if ("Y".equals(finAccountSettings.getString("requirePinCode"))) {
         if (!FinAccountHelper.validatePin(delegator,finAccountCode,finAccountPin)) {
           Map result=ServiceUtil.returnSuccess();
@@ -112,7 +117,7 @@
     String refNum;
     BigDecimal amountBd=(new BigDecimal(amount.doubleValue())).setScale(FinAccountHelper.decimals,FinAccountHelper.rounding);
     Debug.log("Allow auth to negative: " + allowAuthToNegative + " :: available: "+ availableBalance+ " comp: "+ FinAccountHelper.ZERO+ " = "+ availableBalance.compareTo(FinAccountHelper.ZERO)+ " :: req: "+ amountBd,module);
-    if (("Y".equals(allowAuthToNegative) && availableBalance.compareTo(FinAccountHelper.ZERO) > -1) || (availableBalance.compareTo(amountBd) > -1)) {
+    if (("Y".equals(allowAuthToNegative) && availableBalance.compareTo(minBalance) > -1) || (availableBalance.compareTo(amountBd) > -1)) {
       Timestamp thruDate;
       if (finAccountSettings != null && finAccountSettings.getLong("authValidDays") != null) {
         thruDate=UtilDateTime.getDayEnd(UtilDateTime.nowTimestamp(),finAccountSettings.getLong("authValidDays").intValue());
