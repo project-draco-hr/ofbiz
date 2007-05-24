@@ -1,4 +1,22 @@
 {
+  Map loadCartResp=null;
+  try {
+    loadCartResp=dispatcher.runSync("loadCartFromOrder",UtilMisc.toMap("orderId",orderId,"skipInventoryChecks",Boolean.TRUE,"skipProductChecks",Boolean.TRUE,"userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (ServiceUtil.isError(loadCartResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(loadCartResp));
+  }
+  ShoppingCart cart=(ShoppingCart)loadCartResp.get("shoppingCart");
+  if (cart == null) {
+    throw new GeneralException("Error loading shopping cart from order [" + orderId + "]");
+  }
+ else {
+    cart.setOrderId(orderId);
+  }
   List shipGroupAssocs=null;
   try {
     shipGroupAssocs=delegator.findByAnd("OrderItemShipGroupAssoc",UtilMisc.toMap("orderId",orderId));
@@ -29,23 +47,90 @@
       }
     }
   }
-  Map loadCartResp=null;
+  List promoItems=null;
   try {
-    loadCartResp=dispatcher.runSync("loadCartFromOrder",UtilMisc.toMap("orderId",orderId,"skipInventoryChecks",Boolean.TRUE,"skipProductChecks",Boolean.TRUE,"userLogin",userLogin));
+    promoItems=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId,"isPromo","Y"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (promoItems != null) {
+    Iterator pii=promoItems.iterator();
+    while (pii.hasNext()) {
+      GenericValue promoItem=(GenericValue)pii.next();
+      if ("ITEM_CANCELLED".equals(promoItem.get("statusId"))) {
+        continue;
+      }
+      Map cancelPromoCtx=UtilMisc.toMap("orderId",orderId);
+      cancelPromoCtx.put("orderItemSeqId",promoItem.getString("orderItemSeqId"));
+      cancelPromoCtx.put("userLogin",userLogin);
+      Map cancelResp=null;
+      try {
+        cancelResp=dispatcher.runSync("cancelOrderItemNoActions",cancelPromoCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+      if (ServiceUtil.isError(cancelResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(cancelResp));
+      }
+    }
+  }
+  Map releaseResp=null;
+  try {
+    releaseResp=dispatcher.runSync("releaseOrderPayments",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
   }
  catch (  GenericServiceException e) {
     Debug.logError(e,module);
     throw new GeneralException(e.getMessage());
   }
-  if (ServiceUtil.isError(loadCartResp)) {
-    throw new GeneralException(ServiceUtil.getErrorMessage(loadCartResp));
+  if (ServiceUtil.isError(releaseResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(releaseResp));
   }
-  ShoppingCart cart=(ShoppingCart)loadCartResp.get("shoppingCart");
-  if (cart == null) {
-    throw new GeneralException("Error loading shopping cart from order [" + orderId + "]");
+  List paymentPrefsToCancel=null;
+  try {
+    List exprs=UtilMisc.toList(new EntityExpr("orderId",EntityOperator.EQUALS,orderId));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_RECEIVED"));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_DECLINED"));
+    exprs.add(new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_SETTLED"));
+    EntityCondition cond=new EntityConditionList(exprs,EntityOperator.AND);
+    paymentPrefsToCancel=delegator.findByCondition("OrderPaymentPreference",cond,null,null);
   }
- else {
-    cart.setOrderId(orderId);
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (paymentPrefsToCancel != null) {
+    Iterator oppi=paymentPrefsToCancel.iterator();
+    while (oppi.hasNext()) {
+      GenericValue opp=(GenericValue)oppi.next();
+      try {
+        opp.set("statusId","PAYMENT_CANCELLED");
+        opp.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+    }
+  }
+  try {
+    List adjExprs=new LinkedList();
+    adjExprs.add(new EntityExpr("orderId",EntityOperator.EQUALS,orderId));
+    List exprs=new LinkedList();
+    exprs.add(new EntityExpr("orderAdjustmentTypeId",EntityOperator.EQUALS,"PROMOTION_ADJUSTMENT"));
+    exprs.add(new EntityExpr("orderAdjustmentTypeId",EntityOperator.EQUALS,"SHIPPING_CHARGES"));
+    exprs.add(new EntityExpr("orderAdjustmentTypeId",EntityOperator.EQUALS,"SALES_TAX"));
+    adjExprs.add(new EntityConditionList(exprs,EntityOperator.OR));
+    EntityCondition cond=new EntityConditionList(adjExprs,EntityOperator.AND);
+    delegator.removeByCondition("OrderAdjustment",cond);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
   }
   return cart;
 }
