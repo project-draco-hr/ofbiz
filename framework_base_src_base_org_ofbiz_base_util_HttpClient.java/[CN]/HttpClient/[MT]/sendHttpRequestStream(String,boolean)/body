@@ -1,0 +1,77 @@
+{
+  SSLUtil.loadJsseProperties();
+  String arguments=null;
+  InputStream in=null;
+  if (url == null) {
+    throw new HttpClientException("Cannot process a null URL.");
+  }
+  if (rawStream != null) {
+    arguments=rawStream;
+  }
+ else   if (parameters != null && parameters.size() > 0) {
+    arguments=UtilHttp.urlEncodeArgs(parameters,false);
+  }
+  if (method.equalsIgnoreCase("get") && arguments != null) {
+    url=url + "?" + arguments;
+  }
+  try {
+    requestUrl=new URL(url);
+    if (overrideTrust) {
+      con=URLConnector.openUntrustedConnection(requestUrl,timeout,clientCertAlias,SSLUtil.HOSTCERT_NORMAL_CHECK);
+    }
+ else {
+      con=URLConnector.openConnection(requestUrl,timeout,clientCertAlias,SSLUtil.HOSTCERT_NORMAL_CHECK);
+    }
+    if (Debug.verboseOn() || debug)     Debug.log("Connection opened to : " + requestUrl.toExternalForm(),module);
+    if ((con instanceof HttpURLConnection)) {
+      ((HttpURLConnection)con).setInstanceFollowRedirects(followRedirects);
+      if (Debug.verboseOn() || debug)       Debug.log("Connection is of type HttpURLConnection",module);
+    }
+    con.setDoOutput(true);
+    con.setUseCaches(false);
+    if (Debug.verboseOn() || debug)     Debug.log("Do Input = true / Use Caches = false",module);
+    if (method.equalsIgnoreCase("post")) {
+      con.setRequestProperty("Content-type","application/x-www-form-urlencoded");
+      con.setDoInput(true);
+      if (Debug.verboseOn() || debug)       Debug.log("Set content type to : application/x-www-form-urlencoded",module);
+    }
+    if (headers != null && headers.size() > 0) {
+      Set headerSet=headers.keySet();
+      Iterator i=headerSet.iterator();
+      while (i.hasNext()) {
+        String headerName=(String)i.next();
+        String headerValue=(String)headers.get(headerName);
+        con.setRequestProperty(headerName,headerValue);
+        if (Debug.verboseOn() || debug)         Debug.log("Header : " + headerName + " -> "+ headerValue,module);
+      }
+    }
+ else {
+      if (Debug.verboseOn() || debug)       Debug.log("No headers to set",module);
+    }
+    if (method.equalsIgnoreCase("post")) {
+      DataOutputStream out=new DataOutputStream(con.getOutputStream());
+      if (Debug.verboseOn() || debug)       Debug.log("Opened output stream",module);
+      out.writeBytes(arguments);
+      if (Debug.verboseOn() || debug)       Debug.log("Wrote arguements (parameters) : " + arguments,module);
+      out.flush();
+      out.close();
+      if (Debug.verboseOn() || debug)       Debug.log("Flushed and closed buffer",module);
+    }
+    if (Debug.verboseOn() || debug) {
+      Map headerFields=con.getHeaderFields();
+      Debug.log("Header Fields : " + headerFields,module);
+    }
+    in=con.getInputStream();
+  }
+ catch (  IOException ioe) {
+    if ((trustAny && !overrideTrust) && (ioe.getCause() instanceof CertificateException)) {
+      Debug.logWarning(ioe.getCause(),module);
+      return sendHttpRequestStream(method,true);
+    }
+    throw new HttpClientException("IO Error processing request",ioe);
+  }
+catch (  Exception e) {
+    throw new HttpClientException("Error processing request",e);
+  }
+  return in;
+}
