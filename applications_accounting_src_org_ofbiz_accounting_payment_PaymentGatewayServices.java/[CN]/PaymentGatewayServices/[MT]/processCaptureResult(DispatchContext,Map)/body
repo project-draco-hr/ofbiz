@@ -8,6 +8,7 @@
   Double amount=(Double)context.get("captureAmount");
   String serviceType=(String)context.get("serviceTypeEnum");
   String currencyUomId=(String)context.get("currencyUomId");
+  String paymentMethodTypeId=paymentPreference.getString("paymentMethodTypeId");
   if (UtilValidate.isEmpty(serviceType)) {
     serviceType=CAPTURE_SERVICE_TYPE;
   }
@@ -18,7 +19,8 @@
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  paymentPreference.set("statusId","PAYMENT_SETTLED");
+  paymentPreference.set("statusId",("EXT_BILLACT".equals(paymentMethodTypeId) ? "PAYMENT_RECEIVED" : "PAYMENT_SETTLED"));
+  paymentPreference.set("maxAmount",amount);
   try {
     paymentPreference.store();
   }
@@ -26,121 +28,123 @@
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
-  GenericValue response=delegator.makeValue("PaymentGatewayResponse",null);
-  response.set("paymentGatewayResponseId",responseId);
-  response.set("paymentServiceTypeEnumId",serviceType);
-  response.set("orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
-  response.set("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
-  response.set("paymentMethodId",paymentPreference.get("paymentMethodId"));
-  response.set("transCodeEnumId","PGT_CAPTURE");
-  response.set("currencyUomId",currencyUomId);
-  if (context.get("authRefNum") != null) {
-    response.set("subReference",context.get("authRefNum"));
-    response.set("altReference",context.get("authAltRefNum"));
-  }
+  if (!"EXT_BILLACT".equals(paymentMethodTypeId)) {
+    String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+    GenericValue response=delegator.makeValue("PaymentGatewayResponse",null);
+    response.set("paymentGatewayResponseId",responseId);
+    response.set("paymentServiceTypeEnumId",serviceType);
+    response.set("orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
+    response.set("paymentMethodTypeId",paymentMethodTypeId);
+    response.set("paymentMethodId",paymentPreference.get("paymentMethodId"));
+    response.set("transCodeEnumId","PGT_CAPTURE");
+    response.set("currencyUomId",currencyUomId);
+    if (context.get("authRefNum") != null) {
+      response.set("subReference",context.get("authRefNum"));
+      response.set("altReference",context.get("authAltRefNum"));
+    }
  else {
-    response.set("altReference",context.get("captureAltRefNum"));
-  }
-  response.set("amount",amount);
-  response.set("referenceNum",context.get("captureRefNum"));
-  response.set("gatewayCode",context.get("captureCode"));
-  response.set("gatewayFlag",context.get("captureFlag"));
-  response.set("gatewayMessage",context.get("captureMessage"));
-  response.set("transactionDate",UtilDateTime.nowTimestamp());
-  savePgr(dctx,response);
-  List messages=(List)context.get("internalRespMsgs");
-  if (messages != null && messages.size() > 0) {
-    Iterator i=messages.iterator();
-    while (i.hasNext()) {
-      GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
-      String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
-      String message=(String)i.next();
-      respMsg.set("paymentGatewayRespMsgId",respMsgId);
-      respMsg.set("paymentGatewayResponseId",responseId);
-      respMsg.set("pgrMessage",message);
-      savePgr(dctx,respMsg);
+      response.set("altReference",context.get("captureAltRefNum"));
     }
-  }
-  GenericValue invoice=null;
-  if (invoiceId != null) {
-    try {
-      invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+    response.set("amount",amount);
+    response.set("referenceNum",context.get("captureRefNum"));
+    response.set("gatewayCode",context.get("captureCode"));
+    response.set("gatewayFlag",context.get("captureFlag"));
+    response.set("gatewayMessage",context.get("captureMessage"));
+    response.set("transactionDate",UtilDateTime.nowTimestamp());
+    savePgr(dctx,response);
+    List messages=(List)context.get("internalRespMsgs");
+    if (messages != null && messages.size() > 0) {
+      Iterator i=messages.iterator();
+      while (i.hasNext()) {
+        GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg",null);
+        String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
+        String message=(String)i.next();
+        respMsg.set("paymentGatewayRespMsgId",respMsgId);
+        respMsg.set("paymentGatewayResponseId",responseId);
+        respMsg.set("pgrMessage",message);
+        savePgr(dctx,respMsg);
+      }
     }
- catch (    GenericEntityException e) {
-      String message="Failed to process capture result:  Could not find invoice [" + invoiceId + "] due to entity error: "+ e.getMessage();
-      Debug.logError(e,message,module);
-      return ServiceUtil.returnError(message);
+    GenericValue invoice=null;
+    if (invoiceId != null) {
+      try {
+        invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+      }
+ catch (      GenericEntityException e) {
+        String message="Failed to process capture result:  Could not find invoice [" + invoiceId + "] due to entity error: "+ e.getMessage();
+        Debug.logError(e,message,module);
+        return ServiceUtil.returnError(message);
+      }
     }
-  }
-  String partyIdFrom=null;
-  if (invoice != null) {
-    partyIdFrom=invoice.getString("partyId");
-  }
+    String partyIdFrom=null;
+    if (invoice != null) {
+      partyIdFrom=invoice.getString("partyId");
+    }
  else {
-    String orderId=paymentPreference.getString("orderId");
-    List orl=null;
-    try {
-      orl=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","BILL_TO_CUSTOMER"));
+      String orderId=paymentPreference.getString("orderId");
+      List orl=null;
+      try {
+        orl=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","BILL_TO_CUSTOMER"));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (orl != null && orl.size() > 0) {
+        GenericValue orderRole=EntityUtil.getFirst(orl);
+        partyIdFrom=orderRole.getString("partyId");
+      }
     }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
+    String partyIdTo=null;
+    if (!UtilValidate.isEmpty(payTo)) {
+      partyIdTo=payTo;
     }
-    if (orl != null && orl.size() > 0) {
-      GenericValue orderRole=EntityUtil.getFirst(orl);
-      partyIdFrom=orderRole.getString("partyId");
+ else     if (invoice != null) {
+      partyIdTo=invoice.getString("partyIdFrom");
     }
-  }
-  String partyIdTo=null;
-  if (!UtilValidate.isEmpty(payTo)) {
-    partyIdTo=payTo;
-  }
- else   if (invoice != null) {
-    partyIdTo=invoice.getString("partyIdFrom");
-  }
  else {
-    partyIdTo="Company";
-    Debug.logWarning("Using default value of [" + partyIdTo + "] for payTo on invoice ["+ invoiceId+ "] and orderPaymentPreference ["+ paymentPreference.getString("orderPaymentPreferenceId")+ "]",module);
-  }
-  Map paymentCtx=UtilMisc.toMap("paymentTypeId","CUSTOMER_PAYMENT");
-  paymentCtx.put("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
-  paymentCtx.put("paymentMethodId",paymentPreference.get("paymentMethodId"));
-  paymentCtx.put("paymentGatewayResponseId",responseId);
-  paymentCtx.put("partyIdTo",partyIdTo);
-  paymentCtx.put("partyIdFrom",partyIdFrom);
-  paymentCtx.put("statusId","PMNT_RECEIVED");
-  paymentCtx.put("paymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
-  paymentCtx.put("amount",amount);
-  paymentCtx.put("currencyUomId",currencyUomId);
-  paymentCtx.put("userLogin",userLogin);
-  paymentCtx.put("paymentRefNum",context.get("captureRefNum"));
-  Map payRes;
-  try {
-    payRes=dispatcher.runSync("createPayment",paymentCtx);
-  }
- catch (  GenericServiceException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError("Error creating payment record");
-  }
-  if (ServiceUtil.isError(payRes)) {
-    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(payRes));
-  }
-  String paymentId=(String)payRes.get("paymentId");
-  if (invoiceId != null) {
-    Debug.logInfo("Processing Invoice #" + invoiceId,module);
-    Map paCtx=UtilMisc.toMap("paymentId",paymentId,"invoiceId",invoiceId);
-    paCtx.put("amountApplied",context.get("captureAmount"));
-    paCtx.put("userLogin",userLogin);
-    Map paRes;
+      partyIdTo="Company";
+      Debug.logWarning("Using default value of [" + partyIdTo + "] for payTo on invoice ["+ invoiceId+ "] and orderPaymentPreference ["+ paymentPreference.getString("orderPaymentPreferenceId")+ "]",module);
+    }
+    Map paymentCtx=UtilMisc.toMap("paymentTypeId","CUSTOMER_PAYMENT");
+    paymentCtx.put("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
+    paymentCtx.put("paymentMethodId",paymentPreference.get("paymentMethodId"));
+    paymentCtx.put("paymentGatewayResponseId",responseId);
+    paymentCtx.put("partyIdTo",partyIdTo);
+    paymentCtx.put("partyIdFrom",partyIdFrom);
+    paymentCtx.put("statusId","PMNT_RECEIVED");
+    paymentCtx.put("paymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
+    paymentCtx.put("amount",amount);
+    paymentCtx.put("currencyUomId",currencyUomId);
+    paymentCtx.put("userLogin",userLogin);
+    paymentCtx.put("paymentRefNum",context.get("captureRefNum"));
+    Map payRes;
     try {
-      paRes=dispatcher.runSync("createPaymentApplication",paCtx);
+      payRes=dispatcher.runSync("createPayment",paymentCtx);
     }
  catch (    GenericServiceException e) {
       Debug.logError(e,module);
-      return ServiceUtil.returnError("Error creating invoice application");
+      return ServiceUtil.returnError("Error creating payment record");
     }
-    if (paRes != null && ServiceUtil.isError(paRes)) {
-      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(paRes));
+    if (ServiceUtil.isError(payRes)) {
+      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(payRes));
+    }
+    String paymentId=(String)payRes.get("paymentId");
+    if (invoiceId != null) {
+      Debug.logInfo("Processing Invoice #" + invoiceId,module);
+      Map paCtx=UtilMisc.toMap("paymentId",paymentId,"invoiceId",invoiceId);
+      paCtx.put("amountApplied",context.get("captureAmount"));
+      paCtx.put("userLogin",userLogin);
+      Map paRes;
+      try {
+        paRes=dispatcher.runSync("createPaymentApplication",paCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError("Error creating invoice application");
+      }
+      if (paRes != null && ServiceUtil.isError(paRes)) {
+        return ServiceUtil.returnError(ServiceUtil.getErrorMessage(paRes));
+      }
     }
   }
   return ServiceUtil.returnSuccess();

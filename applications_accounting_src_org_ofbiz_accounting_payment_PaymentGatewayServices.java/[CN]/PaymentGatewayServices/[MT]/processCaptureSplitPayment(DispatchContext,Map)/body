@@ -6,14 +6,15 @@
   BigDecimal splitAmount=(BigDecimal)context.get("splitAmount");
   String orderId=paymentPref.getString("orderId");
   OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+  String statusId=("EXT_BILLACT".equals(paymentPref.getString("paymentMethodTypeId")) ? "PAYMENT_NOT_RECEIVED" : "PAYMENT_NOT_AUTH");
   Debug.logInfo("Creating payment preference split",module);
   String newPrefId=delegator.getNextSeqId("OrderPaymentPreference");
   GenericValue newPref=delegator.makeValue("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",newPrefId));
   newPref.set("orderId",paymentPref.get("orderId"));
   newPref.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
   newPref.set("paymentMethodId",paymentPref.get("paymentMethodId"));
-  newPref.set("maxAmount",paymentPref.get("maxAmount"));
-  newPref.set("statusId","PAYMENT_NOT_AUTH");
+  newPref.set("maxAmount",splitAmount);
+  newPref.set("statusId",statusId);
   newPref.set("createdDate",UtilDateTime.nowTimestamp());
   if (userLogin != null) {
     newPref.set("createdByUserLogin",userLogin.getString("userLoginId"));
@@ -22,15 +23,17 @@
   Map processorResult=null;
   try {
     delegator.create(newPref);
-    processorResult=authPayment(dispatcher,userLogin,orh,newPref,splitAmount.doubleValue(),false,null);
-    if (processorResult != null) {
-      boolean authResult=processResult(dctx,processorResult,userLogin,newPref);
-      if (!authResult) {
-        Debug.logError("Authorization failed : " + newPref + " : "+ processorResult,module);
+    if ("PAYMENT_NOT_AUTH".equals(statusId)) {
+      processorResult=authPayment(dispatcher,userLogin,orh,newPref,splitAmount.doubleValue(),false,null);
+      if (processorResult != null) {
+        boolean authResult=processResult(dctx,processorResult,userLogin,newPref);
+        if (!authResult) {
+          Debug.logError("Authorization failed : " + newPref + " : "+ processorResult,module);
+        }
       }
-    }
  else {
-      Debug.logError("Payment not authorized : " + newPref + " : "+ processorResult,module);
+        Debug.logError("Payment not authorized : " + newPref + " : "+ processorResult,module);
+      }
     }
   }
  catch (  GenericEntityException e) {
