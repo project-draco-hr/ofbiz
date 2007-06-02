@@ -6,7 +6,7 @@
   String invoiceId=(String)context.get("invoiceId");
   String billingAccountId=(String)context.get("billingAccountId");
   Double captureAmount=(Double)context.get("captureAmount");
-  BigDecimal captureAmountBd=new BigDecimal(captureAmount.doubleValue());
+  BigDecimal amountToCapture=new BigDecimal(captureAmount.doubleValue());
   GenericValue orderHeader=null;
   List paymentPrefs=null;
   try {
@@ -49,19 +49,19 @@
   if (billingAccount != null && billingAccountAvail != null) {
     try {
       BigDecimal billingAccountMaxAmount=new BigDecimal(orh.getBillingAccountMaxAmount());
-      billingAccountCaptureAmount=billingAccountMaxAmount.min(billingAccountAvail).min(captureAmountBd);
+      billingAccountCaptureAmount=billingAccountMaxAmount.min(billingAccountAvail).min(amountToCapture);
       Debug.logInfo("billing account avail = [" + billingAccountAvail + "] capture amount = ["+ billingAccountCaptureAmount+ "] maxAmount = ["+ billingAccountMaxAmount+ "]",module);
       if (billingAccountCaptureAmount.compareTo(ZERO) == 1) {
         Map tmpResult=dispatcher.runSync("captureBillingAccountPayment",UtilMisc.toMap("invoiceId",invoiceId,"billingAccountId",billingAccountId,"captureAmount",new Double(billingAccountCaptureAmount.doubleValue()),"orderId",orderId,"userLogin",userLogin));
         if (ServiceUtil.isError(tmpResult)) {
           return tmpResult;
         }
-        if (billingAccountCaptureAmount.compareTo(captureAmountBd) == -1) {
-          BigDecimal outstandingAmount=captureAmountBd.subtract(billingAccountCaptureAmount).setScale(decimals,rounding);
-          captureAmountBd=outstandingAmount;
+        if (billingAccountCaptureAmount.compareTo(amountToCapture) == -1) {
+          BigDecimal outstandingAmount=amountToCapture.subtract(billingAccountCaptureAmount).setScale(decimals,rounding);
+          amountToCapture=outstandingAmount;
         }
  else {
-          Debug.logInfo("Amount to capture [" + captureAmountBd + "] was fully captured in Payment ["+ tmpResult.get("paymentId")+ "].",module);
+          Debug.logInfo("Amount to capture [" + amountToCapture + "] was fully captured in Payment ["+ tmpResult.get("paymentId")+ "].",module);
           Map result=ServiceUtil.returnSuccess();
           result.put("processResult","COMPLETE");
           return result;
@@ -78,8 +78,6 @@
     result.put("processResult","COMPLETE");
     return result;
   }
-  BigDecimal amountToCapture=ZERO;
-  amountToCapture=captureAmountBd;
   if (Debug.infoOn())   Debug.logInfo("Actual Expected Capture Amount : " + amountToCapture,module);
   Iterator payments=paymentPrefs.iterator();
   while (payments.hasNext()) {
