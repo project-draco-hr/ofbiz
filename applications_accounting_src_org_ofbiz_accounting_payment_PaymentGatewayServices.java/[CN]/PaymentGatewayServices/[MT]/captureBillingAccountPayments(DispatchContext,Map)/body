@@ -1,0 +1,50 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String invoiceId=(String)context.get("invoiceId");
+  String billingAccountId=(String)context.get("billingAccountId");
+  Double captureAmountDbl=(Double)context.get("captureAmount");
+  BigDecimal captureAmount=new BigDecimal(captureAmountDbl.doubleValue());
+  String orderId=(String)context.get("orderId");
+  BigDecimal capturedAmount=BigDecimal.ZERO;
+  try {
+    List conditionList=UtilMisc.toList(new EntityExpr("billingAccountId",EntityOperator.EQUALS,billingAccountId),new EntityExpr("invoiceId",EntityOperator.EQUALS,GenericEntity.NULL_FIELD));
+    EntityCondition conditions=new EntityConditionList(conditionList,EntityOperator.AND);
+    List paymentApplications=delegator.findByCondition("PaymentApplication",conditions,null,UtilMisc.toList("-amountApplied"));
+    if (UtilValidate.isNotEmpty(paymentApplications)) {
+      Iterator paymentApplicationsIt=paymentApplications.iterator();
+      while (paymentApplicationsIt.hasNext()) {
+        if (capturedAmount.compareTo(captureAmount) >= 0) {
+          break;
+        }
+        GenericValue paymentApplication=(GenericValue)paymentApplicationsIt.next();
+        GenericValue payment=paymentApplication.getRelatedOne("Payment");
+        if (payment.getString("paymentPreferenceId") != null) {
+          continue;
+        }
+        BigDecimal paymentApplicationAmount=paymentApplication.getBigDecimal("amountApplied");
+        BigDecimal amountToCapture=paymentApplicationAmount.min(captureAmount.subtract(capturedAmount));
+        if (amountToCapture.compareTo(paymentApplicationAmount) == 0) {
+          paymentApplication.set("invoiceId",invoiceId);
+          paymentApplication.store();
+        }
+ else {
+          GenericValue newPaymentApplication=delegator.makeValue("PaymentApplication",paymentApplication);
+          paymentApplication.set("invoiceId",invoiceId);
+          paymentApplication.set("amountApplied",amountToCapture);
+          paymentApplication.store();
+          newPaymentApplication.set("amountApplied",paymentApplicationAmount.subtract(amountToCapture));
+          newPaymentApplication.store();
+        }
+        capturedAmount=capturedAmount.add(amountToCapture);
+      }
+    }
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  Map results=ServiceUtil.returnSuccess();
+  results.put("captureAmount",new Double(capturedAmount.doubleValue()));
+  return results;
+}
