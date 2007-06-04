@@ -140,22 +140,24 @@
     List errorMessages=new ArrayList();
     Map errorMaps=new HashMap();
     Map selectedPaymentMethods=getSelectedPaymentMethods(request);
-    if (selectedPaymentMethods == null) {
+    String billingAccountId=request.getParameter("billingAccountId");
+    if (UtilValidate.isNotEmpty(billingAccountId)) {
+      Double billingAccountAmt=null;
+      billingAccountAmt=determineBillingAccountAmount(billingAccountId,request.getParameter("billingAccountAmount"),dispatcher);
+      if (billingAccountAmt == null) {
+        request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderInvalidAmountSetForBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),(cart != null ? cart.getLocale() : Locale.getDefault())));
+        return "error";
+      }
+      selectedPaymentMethods.put("EXT_BILLACT",billingAccountAmt);
+    }
+    if (UtilValidate.isEmpty(selectedPaymentMethods)) {
       return "error";
     }
     String newPaymentMethodId=(String)request.getAttribute("paymentMethodId");
     if (!UtilValidate.isEmpty(newPaymentMethodId)) {
       selectedPaymentMethods.put(newPaymentMethodId,null);
     }
-    String billingAccountId=request.getParameter("billingAccountId");
-    String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
-    DecimalFormat formatter=new DecimalFormat(currencyFormat);
-    Double billingAccountAmt=determineBillingAccountAmount(request,checkOutHelper,formatter);
-    if ((billingAccountId != null) && !"_NA_".equals(billingAccountId) && (billingAccountAmt == null)) {
-      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderInvalidAmountSetForBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),(cart != null ? cart.getLocale() : Locale.getDefault())));
-      return "error";
-    }
-    errorMessages.addAll(checkOutHelper.setCheckOutPaymentInternal(selectedPaymentMethods,null,billingAccountId,billingAccountAmt));
+    errorMessages.addAll(checkOutHelper.setCheckOutPaymentInternal(selectedPaymentMethods,null,billingAccountId));
     callResult=checkOutHelper.checkGiftCard(paramMap,selectedPaymentMethods);
     ServiceUtil.addErrors(errorMessages,errorMaps,callResult);
     if (errorMessages.size() == 0 && errorMaps.size() == 0) {

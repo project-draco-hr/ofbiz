@@ -77,18 +77,18 @@
     }
   }
  else   if ("payment".equals(curPage) == true) {
-    String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
-    DecimalFormat formatter=new DecimalFormat(currencyFormat);
     Map selectedPaymentMethods=getSelectedPaymentMethods(request);
-    if (selectedPaymentMethods == null) {
-      return "error";
-    }
     String billingAccountId=request.getParameter("billingAccountId");
-    Double billingAccountAmt=determineBillingAccountAmount(request,checkOutHelper,formatter);
-    if ((billingAccountId != null) && !"_NA_".equals(billingAccountId) && (billingAccountAmt == null)) {
-      Map messageMap=UtilMisc.toMap("billingAccountId",billingAccountId);
-      String errMsg=UtilProperties.getMessage(resource,"checkevents.invalid_amount_set_for_billing_account",messageMap,(cart != null ? cart.getLocale() : Locale.getDefault()));
-      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    if (UtilValidate.isNotEmpty(billingAccountId)) {
+      Double billingAccountAmt=null;
+      billingAccountAmt=determineBillingAccountAmount(billingAccountId,request.getParameter("billingAccountAmount"),dispatcher);
+      if ((billingAccountId != null) && !"_NA_".equals(billingAccountId) && (billingAccountAmt == null)) {
+        request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderInvalidAmountSetForBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),(cart != null ? cart.getLocale() : Locale.getDefault())));
+        return "error";
+      }
+      selectedPaymentMethods.put("EXT_BILLACT",billingAccountAmt);
+    }
+    if (UtilValidate.isEmpty(selectedPaymentMethods)) {
       return "error";
     }
     List singleUsePayments=new ArrayList();
@@ -108,7 +108,7 @@
         }
       }
     }
-    Map callResult=checkOutHelper.setCheckOutPayment(selectedPaymentMethods,singleUsePayments,billingAccountId,billingAccountAmt);
+    Map callResult=checkOutHelper.setCheckOutPayment(selectedPaymentMethods,singleUsePayments,billingAccountId);
     ServiceUtil.getMessages(request,callResult,null);
     if (!(callResult.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
       curPage="confirm";

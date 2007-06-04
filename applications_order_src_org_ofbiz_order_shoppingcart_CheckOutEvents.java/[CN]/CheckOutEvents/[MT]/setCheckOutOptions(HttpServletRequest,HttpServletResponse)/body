@@ -2,10 +2,19 @@
   ShoppingCart cart=(ShoppingCart)request.getSession().getAttribute("shoppingCart");
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
   GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
-  String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
-  DecimalFormat formatter=new DecimalFormat(currencyFormat);
   Map selectedPaymentMethods=getSelectedPaymentMethods(request);
-  if (selectedPaymentMethods == null) {
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
+  String billingAccountId=request.getParameter("billingAccountId");
+  if (UtilValidate.isNotEmpty(billingAccountId)) {
+    Double billingAccountAmt=null;
+    billingAccountAmt=determineBillingAccountAmount(billingAccountId,request.getParameter("billingAccountAmount"),dispatcher);
+    if (billingAccountAmt == null) {
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderInvalidAmountSetForBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),(cart != null ? cart.getLocale() : Locale.getDefault())));
+      return "error";
+    }
+    selectedPaymentMethods.put("EXT_BILLACT",billingAccountAmt);
+  }
+  if (UtilValidate.isEmpty(selectedPaymentMethods)) {
     return "error";
   }
   String shippingMethod=request.getParameter("shipping_method");
@@ -23,7 +32,6 @@
   String shipAfterDate=request.getParameter("shipAfterDate");
   List singleUsePayments=new ArrayList();
   Map params=UtilHttp.getParameterMap(request);
-  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
   if (UtilValidate.isNotEmpty(taxAuthPartyGeoIds)) {
     try {
       Map createCustomerTaxAuthInfoResult=dispatcher.runSync("createCustomerTaxAuthInfo",UtilMisc.toMap("partyId",cart.getPartyId(),"taxAuthPartyGeoIds",taxAuthPartyGeoIds,"partyTaxId",partyTaxId,"isExempt",isExempt));
@@ -38,14 +46,6 @@
       return "error";
     }
   }
-  String billingAccountId=request.getParameter("billingAccountId");
-  Double billingAccountAmt=determineBillingAccountAmount(request,checkOutHelper,formatter);
-  if ((billingAccountId != null) && !"_NA_".equals(billingAccountId) && (billingAccountAmt == null)) {
-    Map messageMap=UtilMisc.toMap("billingAccountId",billingAccountId);
-    String errMsg=UtilProperties.getMessage(resource,"checkevents.invalid_amount_set_for_billing_account",messageMap,(cart != null ? cart.getLocale() : Locale.getDefault()));
-    request.setAttribute("_ERROR_MESSAGE_",errMsg);
-    return "error";
-  }
   Map gcResult=checkOutHelper.checkGiftCard(params,selectedPaymentMethods);
   ServiceUtil.getMessages(request,gcResult,null);
   if (ServiceUtil.isError(gcResult)) {
@@ -59,7 +59,7 @@
       singleUsePayments.add(gcPaymentMethodId);
     }
   }
-  Map optResult=checkOutHelper.setCheckOutOptions(shippingMethod,shippingContactMechId,selectedPaymentMethods,singleUsePayments,billingAccountId,billingAccountAmt,shippingInstructions,orderAdditionalEmails,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate);
+  Map optResult=checkOutHelper.setCheckOutOptions(shippingMethod,shippingContactMechId,selectedPaymentMethods,singleUsePayments,billingAccountId,shippingInstructions,orderAdditionalEmails,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate);
   ServiceUtil.getMessages(request,optResult,null);
   if (ServiceUtil.isError(optResult)) {
     return "error";
