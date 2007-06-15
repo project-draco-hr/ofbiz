@@ -43,7 +43,7 @@
   if (replThres == null) {
     return ServiceUtil.returnSuccess();
   }
-  BigDecimal replenishThreshold=new BigDecimal(replThres.doubleValue());
+  BigDecimal replenishThreshold=new BigDecimal(replThres);
   BigDecimal replenishLevel=finAccount.getBigDecimal("replenishLevel");
   if (replenishLevel == null || replenishLevel.compareTo(FinAccountHelper.ZERO) == 0) {
     return ServiceUtil.returnSuccess();
@@ -51,6 +51,14 @@
   BigDecimal balance=finAccount.getBigDecimal("actualBalance");
   if (balance.compareTo(replenishThreshold) > -1) {
     return ServiceUtil.returnSuccess();
+  }
+  Map rollbackCtx=UtilMisc.toMap("userLogin",userLogin,"finAccountId",finAccountId,"inGoodStanding","N");
+  try {
+    dispatcher.addRollbackService("updateFinAccount",rollbackCtx,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
   }
   BigDecimal depositAmount=replenishLevel.subtract(balance);
   String ownerPartyId=finAccount.getString("ownerPartyId");
@@ -60,8 +68,8 @@
   }
   String paymentMethodId=finAccount.getString("replenishPaymentId");
   if (paymentMethodId == null) {
-    Debug.logWarning("No payment method attached to financial account [" + finAccountId + "] cannot auto-replenish",module);
-    return ServiceUtil.returnSuccess();
+    Debug.logError("No payment method attached to financial account [" + finAccountId + "] cannot auto-replenish",module);
+    return ServiceUtil.returnError("No payment method associated with replenish account");
   }
   GenericValue paymentMethod;
   try {
@@ -73,17 +81,9 @@
   }
   if (paymentMethod == null) {
     Debug.logWarning("No payment method found for ID [" + paymentMethodId + "] for party ["+ ownerPartyId+ "] cannot auto-replenish",module);
-    return ServiceUtil.returnSuccess();
+    return ServiceUtil.returnError("Cannot locate payment method ID [" + paymentMethodId + "]");
   }
-  finAccount.set("isFrozen","N");
-  try {
-    finAccount.store();
-  }
- catch (  GenericEntityException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
-  }
-  Map orderItemMap=UtilMisc.toMap("Auto-Replenishment FA #" + finAccountId,new Double(depositAmount.doubleValue()));
+  Map orderItemMap=UtilMisc.toMap("Auto-Replenishment FA #" + finAccountId,depositAmount.doubleValue());
   Map replOrderCtx=FastMap.newInstance();
   replOrderCtx.put("productStoreId",productStoreId);
   replOrderCtx.put("paymentMethodId",paymentMethod.getString("paymentMethodId"));
@@ -110,7 +110,7 @@
   depositCtx.put("partyId",ownerPartyId);
   depositCtx.put("orderId",orderId);
   depositCtx.put("orderItemSeqId","00001");
-  depositCtx.put("amount",new Double(depositAmount.doubleValue()));
+  depositCtx.put("amount",depositAmount);
   depositCtx.put("userLogin",userLogin);
   Map depositResp;
   try {
@@ -122,6 +122,14 @@
   }
   if (ServiceUtil.isError(depositResp)) {
     return depositResp;
+  }
+  finAccount.set("inGoodStanding","Y");
+  try {
+    finAccount.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
   }
   return ServiceUtil.returnSuccess();
 }

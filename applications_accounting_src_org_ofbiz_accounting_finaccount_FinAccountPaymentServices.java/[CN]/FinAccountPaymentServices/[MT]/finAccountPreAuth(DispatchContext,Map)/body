@@ -77,14 +77,35 @@
         }
       }
     }
+    if ((finAccount.getTimestamp("thruDate") != null) && (finAccount.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
+      Map result=ServiceUtil.returnSuccess();
+      result.put("authMessage","Account has expired as of " + finAccount.getTimestamp("thruDate"));
+      result.put("authResult",Boolean.FALSE);
+      result.put("processAmount",amount);
+      result.put("authFlag","0");
+      result.put("authCode","A");
+      result.put("authRefNum","0");
+      Debug.logError("Unable to auth FinAccount: " + result,module);
+      return result;
+    }
+    String inGoodStanding=finAccount.getString("inGoodStanding");
+    if (inGoodStanding != null && "N".equals(inGoodStanding)) {
+      finAccount.refresh();
+      inGoodStanding=finAccount.getString("inGoodStanding");
+      if (inGoodStanding != null && "N".equals(inGoodStanding)) {
+        Map result=ServiceUtil.returnSuccess();
+        result.put("authMessage","Account is currently in bad standing");
+        result.put("authResult",Boolean.FALSE);
+        result.put("processAmount",amount);
+        result.put("authFlag","0");
+        result.put("authCode","A");
+        result.put("authRefNum","0");
+        Debug.logError("Unable to auth FinAccount: " + result,module);
+        return result;
+      }
+    }
     String isFrozen=finAccount.getString("isFrozen");
     if (isFrozen != null && "Y".equals(isFrozen)) {
-      try {
-        dispatcher.runSync("finAccountReplenish",UtilMisc.toMap("finAccountId",finAccountId,"productStoreId",productStoreId,"userLogin",userLogin));
-      }
- catch (      GenericServiceException e) {
-        Debug.logWarning(e.getMessage(),module);
-      }
       finAccount.refresh();
       isFrozen=finAccount.getString("isFrozen");
       if (isFrozen != null && "Y".equals(isFrozen)) {
@@ -99,17 +120,6 @@
         return result;
       }
     }
-    if ((finAccount.getTimestamp("thruDate") != null) && (finAccount.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
-      Map result=ServiceUtil.returnSuccess();
-      result.put("authMessage","Account has expired as of " + finAccount.getTimestamp("thruDate"));
-      result.put("authResult",Boolean.FALSE);
-      result.put("processAmount",amount);
-      result.put("authFlag","0");
-      result.put("authCode","A");
-      result.put("authRefNum","0");
-      Debug.logError("Unable to auth FinAccount: " + result,module);
-      return result;
-    }
     BigDecimal availableBalance=finAccount.getBigDecimal("availableBalance");
     if (availableBalance == null) {
       availableBalance=FinAccountHelper.ZERO;
@@ -118,7 +128,7 @@
     String authMessage=null;
     Boolean processResult;
     String refNum;
-    BigDecimal amountBd=(new BigDecimal(amount.doubleValue())).setScale(FinAccountHelper.decimals,FinAccountHelper.rounding);
+    BigDecimal amountBd=(new BigDecimal(amount)).setScale(FinAccountHelper.decimals,FinAccountHelper.rounding);
     Debug.log("Allow auth to negative: " + allowAuthToNegative + " :: available: "+ availableBalance+ " comp: "+ FinAccountHelper.ZERO+ " = "+ availableBalance.compareTo(FinAccountHelper.ZERO)+ " :: req: "+ amountBd,module);
     if (("Y".equals(allowAuthToNegative) && availableBalance.compareTo(minBalance) > -1) || (availableBalance.compareTo(amountBd) > -1)) {
       Timestamp thruDate;
