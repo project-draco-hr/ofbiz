@@ -1,9 +1,9 @@
 {
   Security security=ctx.getSecurity();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   Timestamp startDay=(Timestamp)context.get("start");
   Integer numPeriodsInteger=(Integer)context.get("numPeriods");
-  Integer periodInteger=(Integer)context.get("periodSeconds");
   String partyId=(String)context.get("partyId");
   Collection partyIds=(Collection)context.get("partyIds");
   String facilityId=(String)context.get("facilityId");
@@ -13,12 +13,18 @@
     filterOutCanceledEvents=Boolean.FALSE;
   }
   int maxConcurrentEntries=0;
-  long period=periodInteger.intValue() * 1000;
+  TimeZone curTz=TimeZone.getDefault();
+  Integer periodTypeObject=(Integer)context.get("periodType");
+  int periodType=0;
+  if (periodTypeObject != null) {
+    periodType=periodTypeObject.intValue();
+  }
   int numPeriods=0;
   if (numPeriodsInteger != null)   numPeriods=numPeriodsInteger.intValue();
-  Timestamp startStamp=UtilDateTime.getDayStart(startDay);
-  Timestamp endStamp=new Timestamp(startStamp.getTime() + (period * (numPeriods + 1)));
-  startStamp.setNanos(0);
+  Timestamp startStamp=UtilDateTime.getDayStart(startDay,curTz,locale);
+  Timestamp endStamp=UtilDateTime.adjustTimestamp(startStamp,periodType,1,curTz,locale);
+  long periodLen=endStamp.getTime() - startStamp.getTime();
+  endStamp=UtilDateTime.adjustTimestamp(startStamp,periodType,numPeriods,curTz,locale);
   List validWorkEfforts=null;
   Collection partyIdsToUse=partyIds;
   if (partyIdsToUse == null)   partyIdsToUse=new HashSet();
@@ -44,8 +50,8 @@
   List periods=new ArrayList();
   if (validWorkEfforts != null) {
     for (int i=0; i < numPeriods; i++) {
-      Timestamp curPeriodStart=new Timestamp(startStamp.getTime() + (i * period));
-      Timestamp curPeriodEnd=new Timestamp(curPeriodStart.getTime() + period);
+      Timestamp curPeriodStart=UtilDateTime.adjustTimestamp(startStamp,periodType,i,curTz,locale);
+      Timestamp curPeriodEnd=UtilDateTime.adjustTimestamp(curPeriodStart,periodType,1,curTz,locale);
       List curWorkEfforts=new ArrayList();
       Map entry=new HashMap();
       for (int j=0; j < validWorkEfforts.size(); j++) {
@@ -57,7 +63,7 @@
           Map calEntry=new HashMap();
           calEntry.put("workEffort",workEffort);
           long length=((estimatedCompletionDate.after(endStamp) ? endStamp.getTime() : estimatedCompletionDate.getTime()) - (estimatedStartDate.before(startStamp) ? startStamp.getTime() : estimatedStartDate.getTime()));
-          int periodSpan=(int)Math.ceil((double)length / period);
+          int periodSpan=(int)Math.ceil((double)length / periodLen);
           calEntry.put("periodSpan",new Integer(periodSpan));
           if (i == 0)           calEntry.put("startOfPeriod",Boolean.TRUE);
  else {
