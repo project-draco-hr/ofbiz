@@ -1,0 +1,155 @@
+{
+  this.rowCount=0;
+  String lookupName=this.getListName();
+  if (UtilValidate.isEmpty(lookupName)) {
+    Debug.logError("No value for list or iterator name found.",module);
+    return;
+  }
+  Object obj=context.get(lookupName);
+  if (obj == null) {
+    Debug.logInfo("No object for list or iterator name:" + lookupName + " found.",module);
+    return;
+  }
+  Iterator iter=null;
+  List items=null;
+  if (obj instanceof Iterator) {
+    iter=(Iterator)obj;
+    setPaginate(true);
+  }
+ else   if (obj instanceof List) {
+    items=(List)obj;
+    iter=items.listIterator();
+    setPaginate(true);
+  }
+  getListLimits(context,obj);
+  int listSize=((Integer)context.get("listSize")).intValue();
+  int lowIndex=((Integer)context.get("lowIndex")).intValue();
+  int highIndex=((Integer)context.get("highIndex")).intValue();
+  if (isOverridenListSize()) {
+    lowIndex=0;
+    highIndex=((Integer)context.get("viewSize")).intValue();
+  }
+  if (iter != null) {
+    int itemIndex=-1;
+    Object item=null;
+    Map previousItem=FastMap.newInstance();
+    while ((item=this.safeNext(iter)) != null) {
+      itemIndex++;
+      if (itemIndex >= highIndex) {
+        break;
+      }
+      if (itemIndex < lowIndex) {
+        continue;
+      }
+      Map localContext=new HashMap(context);
+      if (UtilValidate.isNotEmpty(this.getListEntryName())) {
+        localContext.put(this.getListEntryName(),item);
+      }
+ else {
+        Map itemMap=(Map)item;
+        localContext.putAll(itemMap);
+      }
+      localContext.put("previousItem",previousItem);
+      previousItem=FastMap.newInstance();
+      previousItem.putAll((Map)item);
+      ModelFormAction.runSubActions(this.rowActions,localContext);
+      localContext.put("itemIndex",new Integer(itemIndex - lowIndex));
+      this.resetBshInterpreter(localContext);
+      if (Debug.verboseOn())       Debug.logVerbose("In form got another row, context is: " + localContext,module);
+      List tempFieldList=FastList.newInstance();
+      tempFieldList.addAll(this.fieldList);
+      for (int j=0; j < tempFieldList.size(); j++) {
+        ModelFormField modelFormField=(ModelFormField)tempFieldList.get(j);
+        if (!modelFormField.isUseWhenEmpty()) {
+          boolean shouldUse1=modelFormField.shouldUse(localContext);
+          for (int i=j + 1; i < tempFieldList.size(); i++) {
+            ModelFormField curField=(ModelFormField)tempFieldList.get(i);
+            if (curField.getName() != null && curField.getName().equals(modelFormField.getName())) {
+              boolean shouldUse2=curField.shouldUse(localContext);
+              if (shouldUse1 == shouldUse2) {
+                tempFieldList.remove(i--);
+              }
+            }
+ else {
+              continue;
+            }
+          }
+        }
+      }
+      Collection fieldListsByPosition=this.getFieldListsByPosition(tempFieldList);
+      Iterator fieldListsByPositionIter=fieldListsByPosition.iterator();
+      while (fieldListsByPositionIter.hasNext()) {
+        this.rowCount++;
+        List fieldListByPosition=(List)fieldListsByPositionIter.next();
+        List innerDisplayHyperlinkFieldsBegin=FastList.newInstance();
+        List innerFormFields=FastList.newInstance();
+        List innerDisplayHyperlinkFieldsEnd=FastList.newInstance();
+        Iterator innerDisplayHyperlinkFieldIter=fieldListByPosition.iterator();
+        int currentPosition=1;
+        while (innerDisplayHyperlinkFieldIter.hasNext()) {
+          ModelFormField modelFormField=(ModelFormField)innerDisplayHyperlinkFieldIter.next();
+          ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
+          if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
+            continue;
+          }
+          if (fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY_ENTITY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.HYPERLINK) {
+            break;
+          }
+          if (!modelFormField.shouldUse(localContext)) {
+            continue;
+          }
+          innerDisplayHyperlinkFieldsBegin.add(modelFormField);
+          currentPosition=modelFormField.getPosition();
+        }
+        Iterator innerFormFieldIter=fieldListByPosition.iterator();
+        while (innerFormFieldIter.hasNext()) {
+          ModelFormField modelFormField=(ModelFormField)innerFormFieldIter.next();
+          ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
+          if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
+            continue;
+          }
+          if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.DISPLAY || fieldInfo.getFieldType() == ModelFormField.FieldInfo.DISPLAY_ENTITY || fieldInfo.getFieldType() == ModelFormField.FieldInfo.HYPERLINK) {
+            continue;
+          }
+          if (!modelFormField.shouldUse(localContext)) {
+            continue;
+          }
+          innerFormFields.add(modelFormField);
+          currentPosition=modelFormField.getPosition();
+        }
+        while (innerDisplayHyperlinkFieldIter.hasNext()) {
+          ModelFormField modelFormField=(ModelFormField)innerDisplayHyperlinkFieldIter.next();
+          ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
+          if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
+            continue;
+          }
+          if (fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY_ENTITY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.HYPERLINK) {
+            continue;
+          }
+          if (!modelFormField.shouldUse(localContext)) {
+            continue;
+          }
+          innerDisplayHyperlinkFieldsEnd.add(modelFormField);
+          currentPosition=modelFormField.getPosition();
+        }
+        List hiddenIgnoredFieldList=getHiddenIgnoredFields(localContext,null,tempFieldList,currentPosition);
+        if (innerDisplayHyperlinkFieldsBegin.size() > 0 || innerFormFields.size() > 0 || innerDisplayHyperlinkFieldsEnd.size() > 0) {
+          this.renderItemRow(buffer,localContext,formStringRenderer,formPerItem,hiddenIgnoredFieldList,innerDisplayHyperlinkFieldsBegin,innerFormFields,innerDisplayHyperlinkFieldsEnd,currentPosition,numOfColumns);
+        }
+      }
+    }
+    if ((itemIndex + 1) < highIndex) {
+      highIndex=itemIndex + 1;
+      context.put("highIndex",new Integer(isOverridenListSize() ? listSize : highIndex));
+    }
+    context.put("actualPageSize",new Integer(highIndex - lowIndex));
+    if (iter instanceof EntityListIterator) {
+      try {
+        ((EntityListIterator)iter).close();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error closing list form render EntityListIterator: " + e.toString(),module);
+      }
+    }
+  }
+}

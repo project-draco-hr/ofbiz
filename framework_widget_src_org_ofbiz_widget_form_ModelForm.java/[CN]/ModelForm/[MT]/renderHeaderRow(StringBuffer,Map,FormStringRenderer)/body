@@ -1,67 +1,127 @@
 {
-  formStringRenderer.renderFormatHeaderRowOpen(buffer,context,this);
-  Iterator displayHyperlinkFieldIter=this.fieldList.iterator();
-  ModelFormField previousModelFormField=null;
-  while (displayHyperlinkFieldIter.hasNext()) {
-    ModelFormField modelFormField=(ModelFormField)displayHyperlinkFieldIter.next();
-    ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
-    if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
-      continue;
-    }
-    if (previousModelFormField != null && previousModelFormField.getTitle(context).equals(modelFormField.getTitle(context)) && !(previousModelFormField.isUseWhenEmpty() && modelFormField.isUseWhenEmpty())) {
-      continue;
-    }
-    if (fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY_ENTITY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.HYPERLINK) {
-      break;
-    }
-    formStringRenderer.renderFormatHeaderRowCellOpen(buffer,context,this,modelFormField);
-    formStringRenderer.renderFieldTitle(buffer,context,modelFormField);
-    formStringRenderer.renderFormatHeaderRowCellClose(buffer,context,this,modelFormField);
-    previousModelFormField=modelFormField;
-  }
-  List headerFormFields=new LinkedList();
-  Iterator formFieldIter=this.fieldList.iterator();
-  while (formFieldIter.hasNext()) {
-    ModelFormField modelFormField=(ModelFormField)formFieldIter.next();
-    ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
-    if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
-      continue;
-    }
-    if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.DISPLAY || fieldInfo.getFieldType() == ModelFormField.FieldInfo.DISPLAY_ENTITY || fieldInfo.getFieldType() == ModelFormField.FieldInfo.HYPERLINK) {
-      continue;
-    }
-    if (!modelFormField.shouldUse(context)) {
-      continue;
-    }
-    headerFormFields.add(modelFormField);
-  }
-  formStringRenderer.renderFormatHeaderRowFormCellOpen(buffer,context,this);
-  Iterator headerFormFieldIter=headerFormFields.iterator();
-  while (headerFormFieldIter.hasNext()) {
-    ModelFormField modelFormField=(ModelFormField)headerFormFieldIter.next();
-    if (separateColumns || modelFormField.getSeparateColumn())     formStringRenderer.renderFormatItemRowCellOpen(buffer,context,this,modelFormField);
-    formStringRenderer.renderFieldTitle(buffer,context,modelFormField);
-    if (separateColumns || modelFormField.getSeparateColumn())     formStringRenderer.renderFormatItemRowCellClose(buffer,context,this,modelFormField);
-    if (headerFormFieldIter.hasNext()) {
-      if (!separateColumns && !modelFormField.getSeparateColumn())       formStringRenderer.renderFormatHeaderRowFormCellTitleSeparator(buffer,context,this,modelFormField,false);
+  int maxNumOfColumns=0;
+  List tempFieldList=FastList.newInstance();
+  tempFieldList.addAll(this.fieldList);
+  for (int j=0; j < tempFieldList.size(); j++) {
+    ModelFormField modelFormField=(ModelFormField)tempFieldList.get(j);
+    for (int i=j + 1; i < tempFieldList.size(); i++) {
+      ModelFormField curField=(ModelFormField)tempFieldList.get(i);
+      if (curField.getName() != null && curField.getName().equals(modelFormField.getName())) {
+        tempFieldList.remove(i--);
+      }
     }
   }
-  formStringRenderer.renderFormatHeaderRowFormCellClose(buffer,context,this);
-  while (displayHyperlinkFieldIter.hasNext()) {
-    ModelFormField modelFormField=(ModelFormField)displayHyperlinkFieldIter.next();
-    ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
-    if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
-      continue;
+  Collection fieldListsByPosition=this.getFieldListsByPosition(tempFieldList);
+  Iterator fieldListsByPositionIter=fieldListsByPosition.iterator();
+  List fieldRowsByPosition=FastList.newInstance();
+  while (fieldListsByPositionIter.hasNext()) {
+    int numOfColumns=0;
+    List mainFieldList=(List)fieldListsByPositionIter.next();
+    List innerDisplayHyperlinkFieldsBegin=FastList.newInstance();
+    List innerFormFields=FastList.newInstance();
+    List innerDisplayHyperlinkFieldsEnd=FastList.newInstance();
+    Iterator displayHyperlinkFieldIter=mainFieldList.iterator();
+    boolean inputFieldFound=false;
+    while (displayHyperlinkFieldIter.hasNext()) {
+      ModelFormField modelFormField=(ModelFormField)displayHyperlinkFieldIter.next();
+      ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
+      String modelFormFieldTitle=modelFormField.getTitle(context);
+      if ("".equals(modelFormFieldTitle)) {
+      }
+      if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
+        continue;
+      }
+      if (fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY_ENTITY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.HYPERLINK) {
+        inputFieldFound=true;
+        continue;
+      }
+      if (!inputFieldFound) {
+        innerDisplayHyperlinkFieldsBegin.add(modelFormField);
+      }
+ else {
+        innerDisplayHyperlinkFieldsEnd.add(modelFormField);
+      }
+      numOfColumns++;
     }
-    if (fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.DISPLAY_ENTITY && fieldInfo.getFieldType() != ModelFormField.FieldInfo.HYPERLINK) {
-      continue;
+    Iterator formFieldIter=mainFieldList.iterator();
+    while (formFieldIter.hasNext()) {
+      ModelFormField modelFormField=(ModelFormField)formFieldIter.next();
+      ModelFormField.FieldInfo fieldInfo=modelFormField.getFieldInfo();
+      if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.HIDDEN || fieldInfo.getFieldType() == ModelFormField.FieldInfo.IGNORED) {
+        continue;
+      }
+      if (fieldInfo.getFieldType() == ModelFormField.FieldInfo.DISPLAY || fieldInfo.getFieldType() == ModelFormField.FieldInfo.DISPLAY_ENTITY || fieldInfo.getFieldType() == ModelFormField.FieldInfo.HYPERLINK) {
+        continue;
+      }
+      innerFormFields.add(modelFormField);
     }
-    if (!modelFormField.shouldUse(context)) {
-      continue;
+    if (innerFormFields.size() > 0) {
+      numOfColumns++;
     }
-    formStringRenderer.renderFormatHeaderRowCellOpen(buffer,context,this,modelFormField);
-    formStringRenderer.renderFieldTitle(buffer,context,modelFormField);
-    formStringRenderer.renderFormatHeaderRowCellClose(buffer,context,this,modelFormField);
+    if (maxNumOfColumns < numOfColumns) {
+      maxNumOfColumns=numOfColumns;
+    }
+    fieldRowsByPosition.add(UtilMisc.toMap("displayBefore",innerDisplayHyperlinkFieldsBegin,"inputFields",innerFormFields,"displayAfter",innerDisplayHyperlinkFieldsEnd));
   }
-  formStringRenderer.renderFormatHeaderRowClose(buffer,context,this);
+  Iterator fieldRowsByPositionIt=fieldRowsByPosition.iterator();
+  while (fieldRowsByPositionIt.hasNext()) {
+    Map listsMap=(Map)fieldRowsByPositionIt.next();
+    List innerDisplayHyperlinkFieldsBegin=(List)listsMap.get("displayBefore");
+    List innerFormFields=(List)listsMap.get("inputFields");
+    List innerDisplayHyperlinkFieldsEnd=(List)listsMap.get("displayAfter");
+    int numOfCells=innerDisplayHyperlinkFieldsBegin.size() + innerDisplayHyperlinkFieldsEnd.size() + (innerFormFields.size() > 0 ? 1 : 0);
+    int numOfColumnsToSpan=maxNumOfColumns - numOfCells + 1;
+    if (numOfColumnsToSpan < 1) {
+      numOfColumnsToSpan=1;
+    }
+    if (numOfCells > 0) {
+      formStringRenderer.renderFormatHeaderRowOpen(buffer,context,this);
+      Iterator innerDisplayHyperlinkFieldsBeginIt=innerDisplayHyperlinkFieldsBegin.iterator();
+      while (innerDisplayHyperlinkFieldsBeginIt.hasNext()) {
+        ModelFormField modelFormField=(ModelFormField)innerDisplayHyperlinkFieldsBeginIt.next();
+        if (innerDisplayHyperlinkFieldsBeginIt.hasNext() || numOfCells > innerDisplayHyperlinkFieldsBegin.size()) {
+          formStringRenderer.renderFormatHeaderRowCellOpen(buffer,context,this,modelFormField,1);
+        }
+ else {
+          formStringRenderer.renderFormatHeaderRowCellOpen(buffer,context,this,modelFormField,numOfColumnsToSpan);
+        }
+        formStringRenderer.renderFieldTitle(buffer,context,modelFormField);
+        formStringRenderer.renderFormatHeaderRowCellClose(buffer,context,this,modelFormField);
+      }
+      if (innerFormFields.size() > 0) {
+        formStringRenderer.renderFormatHeaderRowFormCellOpen(buffer,context,this);
+        Iterator innerFormFieldsIt=innerFormFields.iterator();
+        while (innerFormFieldsIt.hasNext()) {
+          ModelFormField modelFormField=(ModelFormField)innerFormFieldsIt.next();
+          if (separateColumns || modelFormField.getSeparateColumn()) {
+            formStringRenderer.renderFormatItemRowCellOpen(buffer,context,this,modelFormField,1);
+          }
+          formStringRenderer.renderFieldTitle(buffer,context,modelFormField);
+          if (separateColumns || modelFormField.getSeparateColumn()) {
+            formStringRenderer.renderFormatItemRowCellClose(buffer,context,this,modelFormField);
+          }
+          if (innerFormFieldsIt.hasNext()) {
+            if (!separateColumns && !modelFormField.getSeparateColumn()) {
+              formStringRenderer.renderFormatHeaderRowFormCellTitleSeparator(buffer,context,this,modelFormField,false);
+            }
+          }
+        }
+        formStringRenderer.renderFormatHeaderRowFormCellClose(buffer,context,this);
+      }
+      Iterator innerDisplayHyperlinkFieldsEndIt=innerDisplayHyperlinkFieldsEnd.iterator();
+      while (innerDisplayHyperlinkFieldsEndIt.hasNext()) {
+        ModelFormField modelFormField=(ModelFormField)innerDisplayHyperlinkFieldsEndIt.next();
+        if (innerDisplayHyperlinkFieldsEndIt.hasNext() || numOfCells > innerDisplayHyperlinkFieldsEnd.size()) {
+          formStringRenderer.renderFormatHeaderRowCellOpen(buffer,context,this,modelFormField,1);
+        }
+ else {
+          formStringRenderer.renderFormatHeaderRowCellOpen(buffer,context,this,modelFormField,numOfColumnsToSpan);
+        }
+        formStringRenderer.renderFieldTitle(buffer,context,modelFormField);
+        formStringRenderer.renderFormatHeaderRowCellClose(buffer,context,this,modelFormField);
+      }
+      formStringRenderer.renderFormatHeaderRowClose(buffer,context,this);
+    }
+  }
+  return maxNumOfColumns;
 }
