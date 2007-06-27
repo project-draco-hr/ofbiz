@@ -1,23 +1,6 @@
 {
   GenericDelegator delegator=ctx.getDelegator();
   LocalDispatcher dispatcher=ctx.getDispatcher();
-  OutputStream out=(OutputStream)context.get("outputStream");
-  Map bodyParameters=new HashMap();
-  Map confirmBodContext=new HashMap();
-  Map oagisMsgInfoContext=new HashMap();
-  Map exportMsgResult=new HashMap();
-  String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ConfirmBod");
-  DateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
-  Date date=new Date();
-  String sentDate=null;
-  sentDate=dateFormat.format(date);
-  try {
-    date=dateFormat.parse(sentDate);
-  }
- catch (  ParseException e) {
-    Debug.logError(e,"Error parsing Date",module);
-  }
-  Timestamp timestamp=new Timestamp(date.getTime());
   GenericValue userLogin=null;
   try {
     userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","admin"));
@@ -27,50 +10,39 @@
   }
   String logicalId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.LOGICALID");
   String authId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.AUTHID");
-  String referenceId=delegator.getNextSeqId("OagisMessageInfo");
-  String errorLogicalId=(String)context.get("logicalId");
-  String errorComponent=(String)context.get("component");
-  String errorTask=(String)context.get("task");
-  String errorReferenceId=(String)context.get("referenceId");
-  String errorDescription=(String)context.get("description");
-  String errorReasonCode=(String)context.get("reasonCode");
+  MapStack bodyParameters=MapStack.create();
   bodyParameters.put("logicalId",logicalId);
-  bodyParameters.put("referenceId",referenceId);
   bodyParameters.put("authId",authId);
+  String referenceId=delegator.getNextSeqId("OagisMessageInfo");
+  bodyParameters.put("referenceId",referenceId);
+  DateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
+  String sentDate=dateFormat.format(UtilDateTime.nowTimestamp());
   bodyParameters.put("sentDate",sentDate);
-  bodyParameters.put("errorLogicalId",errorLogicalId);
-  bodyParameters.put("errorComponent",errorComponent);
-  bodyParameters.put("errorTask",errorTask);
-  bodyParameters.put("errorReferenceId",errorReferenceId);
-  bodyParameters.put("errorDescription",errorDescription);
-  bodyParameters.put("errorReasonCode",errorReasonCode);
-  if (((String)context.get("orderId")) != null) {
-    String origRef=(String)context.get("orderId");
-    bodyParameters.put("origRef",origRef);
-  }
- else   if (((String)context.get("returnId")) != null) {
-    String origRef=(String)context.get("returnId");
-    bodyParameters.put("origRef",origRef);
-  }
- else   if (((String)context.get("shipmentId")) != null) {
-    String origRef=(String)context.get("shipmentId");
-    bodyParameters.put("origRef",origRef);
-  }
-  confirmBodContext.put("bodyParameters",bodyParameters);
-  confirmBodContext.put("bodyScreenUri",bodyScreenUri);
+  bodyParameters.put("errorLogicalId",context.get("logicalId"));
+  bodyParameters.put("errorComponent",context.get("component"));
+  bodyParameters.put("errorTask",context.get("task"));
+  bodyParameters.put("errorReferenceId",context.get("referenceId"));
+  bodyParameters.put("errorDescription",context.get("description"));
+  bodyParameters.put("errorReasonCode",context.get("reasonCode"));
+  bodyParameters.put("origRef",context.get("origRefId"));
+  OutputStream out=(OutputStream)context.get("outputStream");
+  String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ConfirmBod");
+  OagisShipmentServices.writeScreenToOutputStream(out,bodyScreenUri,bodyParameters);
+  Writer writer=new OutputStreamWriter(out);
+  ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,new HtmlScreenRenderer());
   try {
-    exportMsgResult=dispatcher.runSync("exportMsgFromScreen",confirmBodContext);
-    if (ServiceUtil.isError(exportMsgResult))     return exportMsgResult;
+    screens.render(bodyScreenUri);
   }
- catch (  GenericServiceException e) {
-    Debug.logError(e,"Error while generating message",module);
+ catch (  Exception e) {
+    Debug.logError(e,"Error rendering [text/xml]: ",module);
   }
+  Map oagisMsgInfoContext=new HashMap();
   oagisMsgInfoContext.put("logicalId",logicalId);
   oagisMsgInfoContext.put("component","EXCEPTION");
   oagisMsgInfoContext.put("task","RECIEPT");
   oagisMsgInfoContext.put("referenceId",referenceId);
   oagisMsgInfoContext.put("authId",authId);
-  oagisMsgInfoContext.put("sentDate",timestamp);
+  oagisMsgInfoContext.put("sentDate",sentDate);
   oagisMsgInfoContext.put("confirmation","0");
   oagisMsgInfoContext.put("bsrVerb","CONFIRM");
   oagisMsgInfoContext.put("bsrNoun","BOD");
