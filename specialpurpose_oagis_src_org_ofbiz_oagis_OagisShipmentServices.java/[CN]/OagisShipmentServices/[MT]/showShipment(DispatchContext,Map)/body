@@ -81,11 +81,12 @@
     Element invDetail=UtilXml.firstChildElement(invItem,"n:INVDETAIL");
     String invDetailSerialNum=UtilXml.childElementValue(invDetail,"N1:SERIALNUM");
     List orderItemShipGrpInvReservations=FastList.newInstance();
-    Map reserveOrderItemInventoryCtx=FastMap.newInstance();
+    Map iSITSPASTCtx=FastMap.newInstance();
     Map result=null;
     try {
       GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",documentId));
       String shipGroupSeqId=shipment.getString("primaryShipGroupSeqId");
+      String originFacilityId=shipment.getString("originFacilityId");
       List shipmentItems=delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",documentId,"productId",invItemItem));
       GenericValue shipmentItem=EntityUtil.getFirst(shipmentItems);
       String shipmentItemSeqId=shipmentItem.getString("shipmentItemSeqId");
@@ -93,24 +94,38 @@
       GenericValue orderShipment=EntityUtil.getFirst(orderShipments);
       String orderId=orderShipment.getString("orderId");
       String orderItemSeqId=orderShipment.getString("orderItemSeqId");
+      GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",invItemItem));
+      String requireInventory=product.getString("requireInventory");
+      if (requireInventory == null) {
+        requireInventory="N";
+      }
       orderItemShipGrpInvReservations=delegator.findByAnd("OrderItemShipGrpInvRes",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId));
       GenericValue orderItemShipGrpInvReservation=EntityUtil.getFirst(orderItemShipGrpInvReservations);
       GenericValue inventoryItem=delegator.findByPrimaryKey("InventoryItem",UtilMisc.toMap("inventoryItemId",orderItemShipGrpInvReservation.get("inventoryItemId")));
       String serialNumber=inventoryItem.getString("serialNumber");
-      if (invDetailSerialNum != null) {
-        if (!serialNumber.equals(invDetailSerialNum)) {
-          inventoryItem=EntityUtil.getFirst(delegator.findByAnd("InventoryItem",UtilMisc.toMap("productId",invItemItem,"serialNumber",invDetailSerialNum)));
-          Debug.logInfo("======== InventoryItem In Else =========" + inventoryItem,module);
-          reserveOrderItemInventoryCtx.put("inventoryItemId",inventoryItem.getString("inventoryItemId"));
-          result=dispatcher.runSync("reserveAnInventoryItem",reserveOrderItemInventoryCtx);
-          Debug.logInfo("========reserveOrderItemInventory =========" + result,module);
-        }
+      iSITSPASTCtx.put("orderId",orderId);
+      iSITSPASTCtx.put("shipGroupSeqId",shipGroupSeqId);
+      iSITSPASTCtx.put("orderItemSeqId",orderItemSeqId);
+      iSITSPASTCtx.put("quantity",shipmentItem.get("quantity"));
+      iSITSPASTCtx.put("quantityNotReserved",shipmentItem.get("quantity"));
+      iSITSPASTCtx.put("productId",invItemItem);
+      iSITSPASTCtx.put("reservedDatetime",orderItemShipGrpInvReservation.get("reservedDatetime"));
+      iSITSPASTCtx.put("requireInventory",requireInventory);
+      iSITSPASTCtx.put("reserveOrderEnumId",orderItemShipGrpInvReservation.get("reserveOrderEnumId"));
+      iSITSPASTCtx.put("sequenceId",orderItemShipGrpInvReservation.get("sequenceId"));
+      iSITSPASTCtx.put("originFacilityId",originFacilityId);
+      iSITSPASTCtx.put("userLogin",userLogin);
+      iSITSPASTCtx.put("serialNumber",invDetailSerialNum);
+      iSITSPASTCtx.put("trackingNum",shipUnitTrackingId);
+      iSITSPASTCtx.put("inventoryItemId",orderItemShipGrpInvReservation.get("inventoryItemId"));
+      iSITSPASTCtx.put("shipmentId",documentId);
+      try {
+        result=dispatcher.runSync("issueSerializedInvToShipmentPackageAndSetTracking",iSITSPASTCtx);
       }
-      Map orderItemShipGrpInvResCtx=FastMap.newInstance();
-      orderItemShipGrpInvResCtx.put("shipmentId",documentId);
-      orderItemShipGrpInvResCtx.putAll(reserveOrderItemInventoryCtx);
-      result=dispatcher.runSync("issueOrderItemShipGrpInvResToShipment",orderItemShipGrpInvResCtx);
-      Debug.logInfo("==============result for issueOrderItemShipGrpInvResToShipment==========" + result,module);
+ catch (      Exception e) {
+        Debug.logInfo("========In catch =========",module);
+        return ServiceUtil.returnError("return error" + e);
+      }
     }
  catch (    Exception e) {
       return ServiceUtil.returnError("return error" + e);
@@ -119,9 +134,5 @@
  catch (  Exception e) {
     Debug.logError(e,module);
   }
-  PrintWriter writer=new PrintWriter(new OutputStreamWriter(out));
-  writer.println("Service not Implemented");
-  writer.flush();
-  Map result=ServiceUtil.returnError("Service not Implemented");
-  return result;
+  return ServiceUtil.returnError("Service not Implemented");
 }
