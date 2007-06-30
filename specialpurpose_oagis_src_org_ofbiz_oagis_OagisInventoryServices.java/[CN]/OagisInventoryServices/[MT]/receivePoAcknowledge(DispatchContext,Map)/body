@@ -21,8 +21,6 @@
     String task=UtilXml.childElementValue(docSenderElement,"N2:TASK");
     String referenceId=UtilXml.childElementValue(docSenderElement,"N2:REFERENCEID");
     String confirmation=UtilXml.childElementValue(docSenderElement,"N2:CONFIRMATION");
-    String language=UtilXml.childElementValue(docSenderElement,"N2:LANGUAGE");
-    String codePage=UtilXml.childElementValue(docSenderElement,"N2:CODEPAGE");
     String authId=UtilXml.childElementValue(docSenderElement,"N2:AUTHID");
     Element dataAreaElement=UtilXml.firstChildElement(receivePoElement,"n:DATAAREA");
     Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"n:ACKNOWLEDGE_DELIVERY");
@@ -31,26 +29,27 @@
     String itemQty=UtilXml.childElementValue(qtyElement,"N2:VALUE");
     String sign=UtilXml.childElementValue(qtyElement,"N2:SIGN");
     String productId=UtilXml.childElementValue(receiptHdrElement,"N2:ITEM");
-    String receivedDate=UtilXml.childElementValue(receiptHdrElement,"N1:DATETIME");
     Element invDetailElement=UtilXml.firstChildElement(receiptHdrElement,"n:INVDETAIL");
     String serialNumber=UtilXml.childElementValue(invDetailElement,"N2:SERIALNUM");
     Element documentRefElement=UtilXml.firstChildElement(receiptHdrElement,"N1:DOCUMNTREF");
     String orderTypeId=UtilXml.childElementValue(documentRefElement,"N2:DOCTYPE");
     String orderId=UtilXml.childElementValue(documentRefElement,"N2:DOCUMENTID");
-    String lineNum=UtilXml.childElementValue(documentRefElement,"N2:LINENUM");
     Map cipCtx=new HashMap();
     String inventoryItemTypeId=null;
-    if (serialNumber.length() == 0) {
+    if (serialNumber == null) {
       inventoryItemTypeId="NON_SERIAL_INV_ITEM";
+      Debug.logInfo("=========inventoryItemTypeId=======" + inventoryItemTypeId,module);
     }
  else {
       inventoryItemTypeId="SERIALIZED_INV_ITEM";
+      Debug.logInfo("=========inventoryItemTypeId=======" + inventoryItemTypeId,module);
       cipCtx.put("serialNumber",serialNumber);
     }
     double quantityAccepted=0.0;
     double quantityRejected=0.0;
     if (sign.equals("+")) {
       quantityAccepted=Double.parseDouble(itemQty);
+      Debug.logInfo("=========quantityAccepted=======" + quantityAccepted,module);
       quantityRejected=0.0;
     }
  else {
@@ -64,17 +63,17 @@
     cipCtx.put("quantityRejected",new Double(quantityRejected));
     cipCtx.put("userLogin",userLogin);
     cipCtx.put("orderId",orderId);
+    Debug.logInfo("=========cipCtx=======" + cipCtx,module);
     Map riResult=null;
     Map comiResult=null;
     try {
-      Debug.logInfo("==========riResult======",module);
       riResult=dispatcher.runSync("receiveInventoryProduct",cipCtx);
       Debug.logInfo("==========riResult======" + riResult,module);
     }
  catch (    GenericServiceException gse) {
-      if (ServiceUtil.isError(riResult)) {
-        errorList.add("Error running method receiveInventoryProduct");
-      }
+      Debug.logInfo("==========riResult===2===" + riResult,module);
+      Debug.logInfo("==========riResult====3==" + riResult,module);
+      errorList.add("Error running method receiveInventoryProduct");
       String errMessageForreceiveInventoryProduct=gse.getMessage();
       Debug.logError(gse,errMessageForreceiveInventoryProduct,module);
     }
@@ -84,17 +83,10 @@
     sendConfirmBodCtx.put("referenceId",referenceId);
     sendConfirmBodCtx.put("userLogin",userLogin);
     sendConfirmBodCtx.put("confirmation",confirmation);
+    sendConfirmBodCtx.put("orderId",orderId);
     Map comiCtx=new HashMap();
-    Date date=new Date();
-    Timestamp timestamp;
-    DateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
-    try {
-      date=dateFormat.parse(receivedDate);
-    }
- catch (    ParseException e) {
-      Debug.logError(e,"Error parsing Date",module);
-    }
-    timestamp=new Timestamp(date.getTime());
+    Timestamp timestamp=null;
+    timestamp=UtilDateTime.nowTimestamp();
     comiCtx.put("logicalId",logicalId);
     comiCtx.put("authId",authId);
     comiCtx.put("referenceId",referenceId);
@@ -113,9 +105,8 @@
       Debug.logInfo("==========comiResult======" + comiResult,module);
     }
  catch (    GenericServiceException gse) {
-      if (ServiceUtil.isError(riResult)) {
-        errorList.add("Error running method createOagisMessageInfo");
-      }
+      Debug.logInfo("==========comiResult===2===" + comiResult,module);
+      errorList.add("Error running method createOagisMessageInfo");
       String errMessageForcreateOagisMessageInfo=gse.getMessage();
       Debug.logError(gse,errMessageForcreateOagisMessageInfo,module);
     }
@@ -138,8 +129,8 @@
     try {
       if (successString.length() > 0) {
         Map scbCtx=FastMap.newInstance();
+        Debug.logInfo("==========scbCtx======",module);
         scbCtx=dispatcher.runSync("sendConfirmBod",sendConfirmBodCtx);
-        Debug.logInfo("==========scbCtx======" + scbCtx,module);
       }
     }
  catch (    GenericServiceException gse) {
@@ -147,5 +138,7 @@
       Debug.logError(gse,errMessageForsendConfirmBod,module);
     }
   }
-  return ServiceUtil.returnError("Error in Processing");
+  Map result=ServiceUtil.returnSuccess("Action Performed Successfully");
+  result.put("contentType","text/plain");
+  return result;
 }

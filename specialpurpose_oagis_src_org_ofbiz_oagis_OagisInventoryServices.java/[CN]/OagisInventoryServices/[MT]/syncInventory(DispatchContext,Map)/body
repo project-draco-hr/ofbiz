@@ -28,8 +28,6 @@
     String task=UtilXml.childElementValue(docSenderElement,"N2:TASK");
     String referenceId=UtilXml.childElementValue(docSenderElement,"N2:REFERENCEID");
     String confirmation=UtilXml.childElementValue(docSenderElement,"N2:CONFIRMATION");
-    String language=UtilXml.childElementValue(docSenderElement,"N2:LANGUAGE");
-    String codePage=UtilXml.childElementValue(docSenderElement,"N2:CODEPAGE");
     String authId=UtilXml.childElementValue(docSenderElement,"N2:AUTHID");
     Element dataAreaElement=UtilXml.firstChildElement(receiveInventoryElement,"n:DATAAREA");
     Element dataAreaSyncInventoryElement=UtilXml.firstChildElement(dataAreaElement,"n:SYNC_INVENTORY");
@@ -37,7 +35,6 @@
     String receivedDate=UtilXml.childElementValue(dataAreaInventoryElement,"N1:DATETIMEANY");
     Element dataAreaQuantityElement=UtilXml.firstChildElement(dataAreaInventoryElement,"N1:QUANTITY");
     String value=UtilXml.childElementValue(dataAreaQuantityElement,"N2:VALUE");
-    String numOfDec=UtilXml.childElementValue(dataAreaQuantityElement,"N2:NUMOFDEC");
     String sign=UtilXml.childElementValue(dataAreaQuantityElement,"N2:SIGN");
     String uom=UtilXml.childElementValue(dataAreaQuantityElement,"N2:UOM");
     String item=UtilXml.childElementValue(dataAreaQuantityElement,"N2:ITEM");
@@ -53,25 +50,16 @@
       quantityAccepted=0.0;
     }
     Map receiveInventoryCtx=FastMap.newInstance();
+    receiveInventoryCtx.put("userLogin",userLogin);
+    receiveInventoryCtx.put("statusId",itemStatus);
     receiveInventoryCtx.put("productId",item);
     receiveInventoryCtx.put("inventoryItemTypeId","NON_SERIAL_INV_ITEM");
     receiveInventoryCtx.put("facilityId","WebStoreWarehouse");
     receiveInventoryCtx.put("quantityAccepted",new Double(quantityAccepted));
     receiveInventoryCtx.put("quantityRejected",new Double(quantityRejected));
     receiveInventoryCtx.put("userLogin",userLogin);
-    Map gpiaCtx=FastMap.newInstance();
-    gpiaCtx.put("productId",item);
     Timestamp timestamp=null;
     timestamp=UtilDateTime.nowTimestamp();
-    Date date=new Date();
-    DateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
-    try {
-      date=dateFormat.parse(receivedDate);
-    }
- catch (    ParseException e) {
-      Debug.logError(e,"Error parsing Date",module);
-    }
-    timestamp=new Timestamp(date.getTime());
     Map oagisMessageInfoCtx=FastMap.newInstance();
     oagisMessageInfoCtx.put("logicalId",logicalId);
     oagisMessageInfoCtx.put("component",component);
@@ -84,42 +72,46 @@
     oagisMessageInfoCtx.put("bsrNoun",bsrNoun);
     oagisMessageInfoCtx.put("bsrRevision",bsrRevision);
     oagisMessageInfoCtx.put("receivedDate",timestamp);
+    oagisMessageInfoCtx.put("outgoingMessage","N");
     sendConfirmBodCtx.put("logicalId",logicalId);
     sendConfirmBodCtx.put("component",component);
     sendConfirmBodCtx.put("task",task);
     sendConfirmBodCtx.put("referenceId",referenceId);
     sendConfirmBodCtx.put("userLogin",userLogin);
     Map gpiaResult=FastMap.newInstance();
-    gpiaResult=dispatcher.runSync("getProductInventoryAvailable",gpiaCtx);
-    Debug.logInfo("==============gpiaResult===== " + gpiaResult,module);
+    try {
+      gpiaResult=dispatcher.runSync("getProductInventoryAvailable",UtilMisc.toMap("productId",item));
+      Debug.logInfo("==============gpiaResult===== " + gpiaResult,module);
+    }
+ catch (    GenericServiceException gse) {
+      errorList.add("Error Running Service createOagisMessageInfo");
+      String errMessageForgetProductInventoryAvailable=gse.getMessage();
+      Debug.logError(gse,errMessageForgetProductInventoryAvailable,module);
+    }
     String availableToPromiseTotal=gpiaResult.get("availableToPromiseTotal").toString();
+    Map receiveInventoryProductResult=FastMap.newInstance();
     try {
       if (value.equals(availableToPromiseTotal)) {
         Debug.logInfo("==========Both Values are same  =====",module);
       }
  else {
-        Map receiveInventoryProductResult=FastMap.newInstance();
         receiveInventoryProductResult=dispatcher.runSync("receiveInventoryProduct",receiveInventoryCtx);
         Debug.logInfo("==============receiveInventoryProductResult===== " + receiveInventoryProductResult,module);
-        if (ServiceUtil.isError(receiveInventoryProductResult)) {
-          errorList.add("Error Running Service receiveInventoryProduct");
-        }
       }
     }
  catch (    GenericServiceException gse) {
-      String errMessageForcreateOagisMessageInfo="Error Running Service receiveInventoryProduct";
-      Debug.logError(gse,errMessageForcreateOagisMessageInfo,module);
+      errorList.add("Error Running Service receiveInventoryProduct");
+      String errMessageForreceiveInventoryProduct=gse.getMessage();
+      Debug.logError(gse,errMessageForreceiveInventoryProduct,module);
     }
+    Map oagisMessageInfoResult=FastMap.newInstance();
     try {
-      Map oagisMessageInfoResult=FastMap.newInstance();
       oagisMessageInfoResult=dispatcher.runSync("createOagisMessageInfo",oagisMessageInfoCtx);
       Debug.logInfo("==============oagisMessageInfoResult===== " + oagisMessageInfoResult,module);
-      if (ServiceUtil.isError(oagisMessageInfoResult)) {
-        errorList.add("Error Running Service createOagisMessageInfo");
-      }
     }
  catch (    GenericServiceException gse) {
-      String errMessageForcreateOagisMessageInfo="Error Running Service createOagisMessageInfo";
+      errorList.add("Error Running Service createOagisMessageInfo");
+      String errMessageForcreateOagisMessageInfo=gse.getMessage();
       Debug.logError(gse,errMessageForcreateOagisMessageInfo,module);
     }
     List facilityContactMechs=FastList.newInstance();
@@ -186,5 +178,7 @@
       Debug.logError(gse,errMessageForsendConfirmBod,module);
     }
   }
-  return ServiceUtil.returnError("Service not Implemented");
+  Map result=ServiceUtil.returnSuccess("Action Performed Successfully");
+  result.put("contentType","text/plain");
+  return result;
 }
