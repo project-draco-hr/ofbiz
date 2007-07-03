@@ -1,0 +1,80 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  try {
+    GenericDelegator delegator=dctx.getDelegator();
+    LocalDispatcher dispatcher=dctx.getDispatcher();
+    String products=(String)context.get("products");
+    String webSiteUrl=(String)context.get("webSiteUrl");
+    String imageUrl=(String)context.get("imageUrl");
+    String trackingCodeId=(String)context.get("trackingCodeId");
+    List productsList=delegator.findByCondition("Product",new EntityExpr("productId",EntityOperator.IN,StringUtil.split(products,",")),null,null);
+    if (UtilValidate.isEmpty(trackingCodeId) || "_NA_".equals(trackingCodeId)) {
+      trackingCodeId="";
+    }
+ else {
+      trackingCodeId="?atc=" + trackingCodeId;
+    }
+    try {
+      Document feedDocument=UtilXml.makeEmptyXmlDocument("feed");
+      Element feedElem=feedDocument.getDocumentElement();
+      feedElem.setAttribute("xmlns","http://www.w3.org/2005/Atom");
+      feedElem.setAttribute("xmlns:openSearch","http://a9.com/-/spec/opensearchrss/1.0/");
+      feedElem.setAttribute("xmlns:g","http://base.google.com/ns/1.0");
+      feedElem.setAttribute("xmlns:batch","http://schemas.google.com/gdata/batch");
+      dataItemsXml.append(xmlHeader);
+      Iterator productsListItr=productsList.iterator();
+      while (productsListItr.hasNext()) {
+        GenericValue prod=(GenericValue)productsListItr.next();
+        String price=getProductPrice(dispatcher,prod);
+        if (price == null) {
+          Debug.logInfo("Price not found for product [" + prod.getString("productId") + "]; product will not be exported.",module);
+          continue;
+        }
+        String link=webSiteUrl + "/control/product/~product_id=" + prod.getString("productId")+ trackingCodeId;
+        String title=UtilFormatOut.encodeXmlValue(prod.getString("productName"));
+        String description=UtilFormatOut.encodeXmlValue(prod.getString("description"));
+        String image_link="";
+        if (UtilValidate.isNotEmpty(prod.getString("largeImageUrl"))) {
+          image_link=imageUrl + prod.getString("largeImageUrl");
+        }
+        Element entryElem=UtilXml.addChildElement(feedElem,"entry",feedDocument);
+        Element batchElem=UtilXml.addChildElement(entryElem,"batch:operation",feedDocument);
+        batchElem.setAttribute("type","insert");
+        UtilXml.addChildElementValue(entryElem,"title",title,feedDocument);
+        Element contentElem=UtilXml.addChildElementValue(entryElem,"content",description,feedDocument);
+        contentElem.setAttribute("type","xhtml");
+        UtilXml.addChildElementValue(entryElem,"id",link,feedDocument);
+        Element linkElem=UtilXml.addChildElement(entryElem,"link",feedDocument);
+        linkElem.setAttribute("rel","alternate");
+        linkElem.setAttribute("type","text/html");
+        linkElem.setAttribute("href",link);
+        UtilXml.addChildElementValue(entryElem,"g:item_type","products",feedDocument);
+        UtilXml.addChildElementValue(entryElem,"g:price",price,feedDocument);
+        if (UtilValidate.isNotEmpty(image_link)) {
+          UtilXml.addChildElementValue(entryElem,"g:image_link",image_link,feedDocument);
+        }
+        Element appControlElem=UtilXml.addChildElement(entryElem,"app:control",feedDocument);
+        appControlElem.setAttribute("xmlns:app","http://purl.org/atom/app#");
+        UtilXml.addChildElementValue(appControlElem,"app:draft","yes",feedDocument);
+      }
+      OutputStream os=new ByteArrayOutputStream();
+      OutputFormat format=new OutputFormat();
+      format.setOmitDocumentType(true);
+      format.setOmitXMLDeclaration(true);
+      format.setIndenting(false);
+      XMLSerializer serializer=new XMLSerializer(os,format);
+      serializer.asDOMSerializer();
+      serializer.serialize(feedDocument.getDocumentElement());
+      dataItemsXml.append(os.toString());
+    }
+ catch (    Exception e) {
+      Debug.logError("Exception during building data items to Google",module);
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToGoogle.exceptionDuringBuildingDataItemsToGoogle",locale));
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception during building data items to Google",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToGoogle.exceptionDuringBuildingDataItemsToGoogle",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}
