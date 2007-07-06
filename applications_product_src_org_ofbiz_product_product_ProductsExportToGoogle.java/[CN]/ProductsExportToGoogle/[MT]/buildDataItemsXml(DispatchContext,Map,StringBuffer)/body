@@ -3,11 +3,13 @@
   try {
     GenericDelegator delegator=dctx.getDelegator();
     LocalDispatcher dispatcher=dctx.getDispatcher();
-    String products=(String)context.get("products");
+    List selectResult=(List)context.get("selectResult");
     String webSiteUrl=(String)context.get("webSiteUrl");
     String imageUrl=(String)context.get("imageUrl");
+    String actionType=(String)context.get("actionType");
+    String statusId=(String)context.get("statusId");
     String trackingCodeId=(String)context.get("trackingCodeId");
-    List productsList=delegator.findByCondition("Product",new EntityExpr("productId",EntityOperator.IN,StringUtil.split(products,",")),null,null);
+    List productsList=delegator.findByCondition("Product",new EntityExpr("productId",EntityOperator.IN,selectResult),null,null);
     if (UtilValidate.isEmpty(trackingCodeId) || "_NA_".equals(trackingCodeId)) {
       trackingCodeId="";
     }
@@ -21,7 +23,6 @@
       feedElem.setAttribute("xmlns:openSearch","http://a9.com/-/spec/opensearchrss/1.0/");
       feedElem.setAttribute("xmlns:g","http://base.google.com/ns/1.0");
       feedElem.setAttribute("xmlns:batch","http://schemas.google.com/gdata/batch");
-      dataItemsXml.append(xmlHeader);
       Iterator productsListItr=productsList.iterator();
       while (productsListItr.hasNext()) {
         GenericValue prod=(GenericValue)productsListItr.next();
@@ -39,7 +40,7 @@
         }
         Element entryElem=UtilXml.addChildElement(feedElem,"entry",feedDocument);
         Element batchElem=UtilXml.addChildElement(entryElem,"batch:operation",feedDocument);
-        batchElem.setAttribute("type","insert");
+        batchElem.setAttribute("type",actionType);
         UtilXml.addChildElementValue(entryElem,"title",title,feedDocument);
         Element contentElem=UtilXml.addChildElementValue(entryElem,"content",description,feedDocument);
         contentElem.setAttribute("type","xhtml");
@@ -57,15 +58,7 @@
         appControlElem.setAttribute("xmlns:app","http://purl.org/atom/app#");
         UtilXml.addChildElementValue(appControlElem,"app:draft","yes",feedDocument);
       }
-      OutputStream os=new ByteArrayOutputStream();
-      OutputFormat format=new OutputFormat();
-      format.setOmitDocumentType(true);
-      format.setOmitXMLDeclaration(true);
-      format.setIndenting(false);
-      XMLSerializer serializer=new XMLSerializer(os,format);
-      serializer.asDOMSerializer();
-      serializer.serialize(feedDocument.getDocumentElement());
-      dataItemsXml.append(os.toString());
+      dataItemsXml.append(UtilXml.writeXmlDocument(feedDocument));
     }
  catch (    Exception e) {
       Debug.logError("Exception during building data items to Google",module);
