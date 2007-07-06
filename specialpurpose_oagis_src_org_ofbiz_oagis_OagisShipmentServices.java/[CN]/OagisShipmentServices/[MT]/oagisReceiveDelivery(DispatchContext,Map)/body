@@ -2,6 +2,10 @@
   GenericDelegator delegator=dctx.getDelegator();
   String returnId=(String)context.get("returnId");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String sendToUrl=(String)context.get("sendToUrl");
+  String saveToFilename=(String)context.get("saveToFilename");
+  String saveToDirectory=(String)context.get("saveToDirectory");
+  OutputStream out=(OutputStream)context.get("outputStream");
   Map result=ServiceUtil.returnSuccess();
   MapStack bodyParameters=MapStack.create();
   if (userLogin == null) {
@@ -76,14 +80,58 @@
       result.put("sentDate",timestamp);
       bodyParameters.put("returnId",returnId);
       String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ReceiveDelivery");
-      OutputStream out=(OutputStream)context.get("outputStream");
-      Writer writer=new OutputStreamWriter(out);
+      Writer writer=null;
+      if (out != null) {
+        writer=new OutputStreamWriter(out);
+      }
+ else       if (UtilValidate.isNotEmpty(saveToFilename)) {
+        try {
+          File outdir=new File(saveToDirectory);
+          if (!outdir.exists()) {
+            outdir.mkdir();
+          }
+          writer=new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(new File(outdir,saveToFilename)),"UTF-8")));
+        }
+ catch (        Exception e) {
+          String errMsg="Error opening file to save message to [" + saveToFilename + "]: "+ e.toString();
+          Debug.logError(e,errMsg,module);
+          return ServiceUtil.returnError(errMsg);
+        }
+      }
+ else       if (UtilValidate.isNotEmpty(sendToUrl)) {
+        writer=new StringWriter();
+      }
       ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,new HtmlScreenRenderer());
       try {
         screens.render(bodyScreenUri);
+        writer.close();
       }
  catch (      Exception e) {
-        Debug.logError(e,"Error rendering [text/xml]: ",module);
+        String errMsg="Error rendering message: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+      if (UtilValidate.isNotEmpty(sendToUrl)) {
+        HttpClient http=new HttpClient(sendToUrl);
+        http.setHostVerificationLevel(SSLUtil.HOSTCERT_NO_CHECK);
+        http.setAllowUntrusted(true);
+        http.setDebug(true);
+        if (UtilValidate.isNotEmpty(certAlias)) {
+          http.setClientCertificateAlias(certAlias);
+        }
+        if (UtilValidate.isNotEmpty(basicAuthUsername)) {
+          http.setBasicAuthInfo(basicAuthUsername,basicAuthPassword);
+        }
+        http.setContentType("text/xml");
+        http.setKeepAlive(true);
+        try {
+          String resp=http.post(writer.toString());
+        }
+ catch (        Exception e) {
+          String errMsg="Error posting message to server with UTL [" + sendToUrl + "]: "+ e.toString();
+          Debug.logError(e,errMsg,module);
+          return ServiceUtil.returnError(errMsg);
+        }
       }
       result.put("component","INVENTORY");
       result.put("task","RMA");
