@@ -5,15 +5,13 @@
   BigDecimal accountLimit=getAccountLimit(billingAccount);
   balance=balance.add(accountLimit);
   EntityConditionList whereConditions=new EntityConditionList(UtilMisc.toList(new EntityExpr("billingAccountId",EntityOperator.EQUALS,billingAccountId),new EntityExpr("paymentMethodTypeId",EntityOperator.EQUALS,"EXT_BILLACT"),new EntityExpr("statusId",EntityOperator.NOT_IN,UtilMisc.toList("ORDER_CANCELLED","ORDER_REJECTED")),new EntityExpr("preferenceStatusId",EntityOperator.NOT_IN,UtilMisc.toList("PAYMENT_SETTLED","PAYMENT_RECEIVED","PAYMENT_DECLINED","PAYMENT_CANCELLED"))),EntityOperator.AND);
-  GenericValue orderPaymentPreferenceSum=EntityUtil.getFirst(delegator.findByCondition("OrderPurchasePaymentSummary",whereConditions,null,UtilMisc.toList("maxAmount"),null,null));
-  BigDecimal ordersTotal=null;
-  if (UtilValidate.isNotEmpty(orderPaymentPreferenceSum)) {
-    ordersTotal=orderPaymentPreferenceSum.getBigDecimal("maxAmount");
+  List orderPaymentPreferenceSums=delegator.findByCondition("OrderPurchasePaymentSummary",whereConditions,null,UtilMisc.toList("maxAmount"),null,null);
+  if (orderPaymentPreferenceSums != null) {
+    for (Iterator oppsi=orderPaymentPreferenceSums.iterator(); oppsi.hasNext(); ) {
+      GenericValue orderPaymentPreferenceSum=(GenericValue)oppsi.next();
+      balance=balance.subtract(orderPaymentPreferenceSum.getBigDecimal("maxAmount"));
+    }
   }
- else {
-    ordersTotal=ZERO;
-  }
-  balance=balance.subtract(ordersTotal);
   List paymentAppls=delegator.findByAnd("PaymentApplication",UtilMisc.toMap("billingAccountId",billingAccountId));
   if (paymentAppls != null) {
     for (Iterator pAi=paymentAppls.iterator(); pAi.hasNext(); ) {
