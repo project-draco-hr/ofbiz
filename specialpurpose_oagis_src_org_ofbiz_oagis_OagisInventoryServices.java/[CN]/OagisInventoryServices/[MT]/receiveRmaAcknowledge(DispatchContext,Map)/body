@@ -97,12 +97,24 @@ catch (  IOException e) {
   }
   String inventoryItemTypeId=null;
   Map cipCtx=new HashMap();
-  if (serialNumber == null) {
+  if (serialNumber == null || serialNumber.equals("")) {
     inventoryItemTypeId="NON_SERIAL_INV_ITEM";
   }
  else {
     inventoryItemTypeId="SERIALIZED_INV_ITEM";
     cipCtx.put("serialNumber",serialNumber);
+    if (sku == null || sku.equals("")) {
+      try {
+        GenericValue inventoryItem=EntityUtil.getFirst(delegator.findByAnd("InventoryItem",UtilMisc.toMap("serialNumber",serialNumber)));
+        if (inventoryItem != null) {
+          sku=inventoryItem.getString("productId");
+        }
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error Getting Entity InventoryItem";
+        Debug.logError(e,errMsg,module);
+      }
+    }
   }
   double quantityAccepted=0.0;
   double quantityRejected=0.0;
@@ -114,21 +126,6 @@ catch (  IOException e) {
     quantityRejected=Double.parseDouble(itemQty);
     quantityAccepted=0.0;
   }
-  GenericValue inventoryItem=null;
-  try {
-    inventoryItem=EntityUtil.getFirst(delegator.findByAnd("InventoryItem",UtilMisc.toMap("serialNumber",serialNumber)));
-  }
- catch (  GenericEntityException e) {
-    String errMsg="Error Getting Entity InventoryItem";
-    Debug.logError(e,errMsg,module);
-  }
-  String productId=inventoryItem.getString("productId");
-  if (productId.compareTo(sku) != 0) {
-    productId=sku;
-  }
-  if (serialNumber == null) {
-    productId=sku;
-  }
   if (invItemStatus.equals("ReceivedTOAvailable") || invItemStatus.equals("NotAvailableTOAvailable")) {
     cipCtx.put("statusId","INV_AVAILABLE");
   }
@@ -139,7 +136,7 @@ catch (  IOException e) {
   String locationSeqId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.ReturnReceiptLocationSeqId");
   cipCtx.put("facilityId",facilityId);
   cipCtx.put("locationSeqId",locationSeqId);
-  cipCtx.put("productId",productId);
+  cipCtx.put("productId",sku);
   cipCtx.put("inventoryItemTypeId",inventoryItemTypeId);
   cipCtx.put("quantityAccepted",new Double(quantityAccepted));
   cipCtx.put("quantityRejected",new Double(quantityRejected));
