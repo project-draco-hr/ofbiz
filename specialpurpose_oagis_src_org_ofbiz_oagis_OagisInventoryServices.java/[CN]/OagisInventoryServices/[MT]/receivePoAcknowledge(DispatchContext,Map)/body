@@ -9,7 +9,8 @@
       userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
     }
  catch (    GenericEntityException e) {
-      Debug.logError(e,"Error getting userLogin",module);
+      String errMsg="Error Getting UserLogin: " + e.toString();
+      Debug.logError(e,errMsg,module);
     }
   }
   Document doc=null;
@@ -30,6 +31,9 @@ catch (  IOException e) {
     String errMsg="Error parsing the ReceivePoAcknowledge message: " + e.toString();
     errorMapList.add(UtilMisc.toMap("reasonCode","IOException","description",errMsg));
     Debug.logError(e,errMsg,module);
+  }
+  if (errorMapList.size() > 0) {
+    return ServiceUtil.returnError("Unable to parse message: ReceivePoAcknowledge");
   }
   Element receivePoElement=doc.getDocumentElement();
   receivePoElement.normalize();
@@ -170,18 +174,25 @@ catch (  IOException e) {
   comiCtx.put("userLogin",userLogin);
   try {
     Map comiResult=dispatcher.runSync("createOagisMessageInfo",comiCtx);
+    if (ServiceUtil.isError(comiResult)) {
+      String errMsg=ServiceUtil.getErrorMessage(comiResult);
+      errorMapList.add(UtilMisc.toMap("reasonCode","CreateOagisMessageServiceError","description",errMsg));
+    }
   }
  catch (  GenericServiceException e) {
     String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
     errorMapList.add(UtilMisc.toMap("reasonCode","CreateOagisMessageInfoError","description",errMsg));
     Debug.logError(e,errMsg,module);
   }
+  Map result=FastMap.newInstance();
+  result.put("contentType","text/plain");
   if (errorMapList.size() > 0) {
-    Map result=ServiceUtil.returnError("Errors found processing message");
-    result.put("contentType","text/plain");
     result.putAll(comiCtx);
     result.put("errorMapList",errorMapList);
+    String errMsg="Error Processing Received Messages";
+    result.putAll(ServiceUtil.returnError(errMsg));
     return result;
   }
-  return ServiceUtil.returnSuccess();
+  result.putAll(ServiceUtil.returnSuccess("Action Performed Successfully"));
+  return result;
 }
