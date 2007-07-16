@@ -116,10 +116,27 @@
         }
       }
     }
-    if (!payment.getString("partyIdFrom").equals(toPayment.getString("partyIdTo")) && !payment.getString("partyIdFrom").equals(toPayment.getString("partyIdTo"))) {
+    if (!payment.getString("partyIdFrom").equals(toPayment.getString("partyIdTo")) && !payment.getString("partyIdTo").equals(toPayment.getString("partyIdFrom"))) {
       errorMessageList.add(UtilProperties.getMessage(resource,"AccountingFromPartySameToParty",locale));
     }
     if (debug)     Debug.logInfo("toPayment info retrieved and checked...",module);
+  }
+  if (invoiceId != null) {
+    GenericValue invoice=null;
+    try {
+      invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
+    }
+ catch (    GenericEntityException e) {
+      ServiceUtil.returnError(e.getMessage());
+    }
+    if (invoice == null) {
+      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingInvoiceNotFound",UtilMisc.toMap("invoiceId",invoiceId),locale));
+    }
+ else {
+      if (invoice.getString("billingAccountId") != null) {
+        billingAccountId=invoice.getString("billingAccountId");
+      }
+    }
   }
   GenericValue billingAccount=null;
   BigDecimal billingAccountApplyAvailable=ZERO;
@@ -132,25 +149,6 @@
     }
     if (billingAccount == null) {
       errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountNotFound",UtilMisc.toMap("billingAccountId",billingAccountId),locale));
-    }
-    try {
-      billingAccountApplyAvailable=BillingAccountWorker.availableToCapture(billingAccount);
-    }
- catch (    GenericEntityException e) {
-      errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountBalanceNotFound",UtilMisc.toMap("billingAccountId",billingAccountId),locale));
-      ServiceUtil.returnError(e.getMessage());
-    }
-    if (paymentApplicationId == null) {
-      if (invoiceId != null) {
-        if (billingAccountApplyAvailable.signum() <= 0) {
-          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountBalanceProblem",UtilMisc.toMap("billingAccountId",billingAccountId,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
-        }
- else {
-          if (amountApplied.compareTo(billingAccountApplyAvailable) == 1) {
-            errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountLessRequested",UtilMisc.toMap("billingAccountId",billingAccountId,"billingAccountApplyAvailable",billingAccountApplyAvailable,"amountApplied",amountApplied,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
-          }
-        }
-      }
     }
     if (billingAccount.get("accountCurrencyUomId") != null && payment.get("currencyUomId") != null && !billingAccount.getString("accountCurrencyUomId").equals(payment.getString("currencyUomId"))) {
       errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountCurrencyProblem",UtilMisc.toMap("billingAccountId",billingAccountId,"accountCurrencyUomId",billingAccount.getString("accountCurrencyUomId"),"paymentId",paymentId,"paymentCurrencyUomId",payment.getString("currencyUomId")),locale));
@@ -230,7 +228,6 @@
   BigDecimal newInvoiceApplyAvailable=invoiceApplyAvailable;
   BigDecimal newInvoiceItemApplyAvailable=invoiceItemApplyAvailable;
   BigDecimal newToPaymentApplyAvailable=toPaymentApplyAvailable;
-  BigDecimal newBillingAccountApplyAvailable=billingAccountApplyAvailable;
   BigDecimal newPaymentApplyAvailable=paymentApplyAvailable;
   GenericValue paymentApplication=null;
   if (paymentApplicationId == null) {
@@ -333,18 +330,6 @@
           errorMessageList.add(UtilProperties.getMessage(resource,"AccountingPaymentNotEnough",UtilMisc.toMap("paymentId",toPaymentId,"paymentApplyAvailable",newToPaymentApplyAvailable,"amountApplied",amountApplied),locale));
         }
       }
-      if (billingAccountId != null && billingAccountId.equals(paymentApplication.getString("billingAccountId"))) {
-        newBillingAccountApplyAvailable=billingAccountApplyAvailable.subtract(paymentApplication.getBigDecimal("amountApplied")).add(amountApplied).setScale(decimals,rounding);
-        if (newBillingAccountApplyAvailable.compareTo(ZERO) < 0) {
-          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountNotEnough",UtilMisc.toMap("billingAccountId",billingAccountId,"newBillingAccountApplyAvailable",newBillingAccountApplyAvailable,"amountApplied",amountApplied,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
-        }
-      }
- else       if (billingAccountId != null) {
-        newBillingAccountApplyAvailable=billingAccountApplyAvailable.add(amountApplied).setScale(decimals,rounding);
-        if (newBillingAccountApplyAvailable.compareTo(ZERO) < 0) {
-          errorMessageList.add(UtilProperties.getMessage(resource,"AccountingBillingAccountNotEnough",UtilMisc.toMap("billingAccountId",billingAccountId,"newBillingAccountApplyAvailable",newBillingAccountApplyAvailable,"amountApplied",amountApplied,"isoCode",billingAccount.getString("accountCurrencyUomId")),locale));
-        }
-      }
     }
     if (debug)     Debug.logInfo("paymentApplication record info retrieved and checked...",module);
   }
@@ -364,10 +349,6 @@
       Debug.logInfo(" toPayment(" + toPaymentId + ") amount not yet applied: "+ newToPaymentApplyAvailable+ " Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
       toMessage=UtilProperties.getMessage(resource,"AccountingApplicationToPayment",UtilMisc.toMap("paymentId",toPaymentId),locale);
     }
-    if (billingAccountId != null) {
-      Debug.logInfo(" billingAccount(" + billingAccountId + ") amount not yet applied: "+ newBillingAccountApplyAvailable+ " Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
-      toMessage=UtilProperties.getMessage(resource,"AccountingApplicationToBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),locale);
-    }
     if (taxAuthGeoId != null) {
       Debug.logInfo(" taxAuthGeoId(" + taxAuthGeoId + ")  Payment("+ paymentId+ ") amount not yet applied: "+ newPaymentApplyAvailable+ " Requested amount to apply:"+ amountApplied,module);
       toMessage=UtilProperties.getMessage(resource,"AccountingApplicationToTax",UtilMisc.toMap("taxAuthGeoId",taxAuthGeoId),locale);
@@ -379,7 +360,7 @@
       amountApplied=newInvoiceApplyAvailable;
       toMessage=UtilProperties.getMessage(resource,"AccountingApplicationToInvoice",UtilMisc.toMap("invoiceId",invoiceId),locale);
     }
-    if (toPaymentId != null && newToPaymentApplyAvailable.compareTo(amountApplied) == 1) {
+    if (toPaymentId != null && newToPaymentApplyAvailable.compareTo(amountApplied) < 0) {
       amountApplied=newToPaymentApplyAvailable;
       toMessage=UtilProperties.getMessage(resource,"AccountingApplicationToPayment",UtilMisc.toMap("paymentId",toPaymentId),locale);
     }
@@ -413,7 +394,7 @@
       paymentApplication.set("invoiceItemSeqId",null);
       paymentApplication.set("toPaymentId",null);
       paymentApplication.set("amountApplied",new Double(amountApplied.doubleValue()));
-      paymentApplication.set("billingAccountId",null);
+      paymentApplication.set("billingAccountId",billingAccountId);
       paymentApplication.set("taxAuthGeoId",null);
       if (debug)       Debug.logInfo("creating new paymentapplication",module);
       return storePaymentApplication(delegator,paymentApplication,locale);
