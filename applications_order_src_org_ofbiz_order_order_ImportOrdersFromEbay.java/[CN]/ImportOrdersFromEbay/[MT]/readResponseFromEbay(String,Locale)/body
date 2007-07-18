@@ -1,0 +1,139 @@
+{
+  List orders=null;
+  Debug.logInfo(msg,module);
+  try {
+    Document docResponse=UtilXml.readXmlDocument(msg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    String ack=UtilXml.childElementValue(elemResponse,"Ack","Failure");
+    List paginationList=UtilXml.childElementList(elemResponse,"PaginationResult");
+    int totalOrders=0;
+    Iterator paginationElemIter=paginationList.iterator();
+    while (paginationElemIter.hasNext()) {
+      Element paginationElement=(Element)paginationElemIter.next();
+      String totalNumberOfEntries=UtilXml.childElementValue(paginationElement,"TotalNumberOfEntries","0");
+      totalOrders=new Integer(totalNumberOfEntries).intValue();
+    }
+    if (ack != null && ack.equals("Success") && totalOrders > 0) {
+      orders=new ArrayList();
+      List transactions=UtilXml.childElementList(elemResponse,"TransactionArray");
+      Iterator transactionsElemIter=transactions.iterator();
+      while (transactionsElemIter.hasNext()) {
+        Element transactionsElement=(Element)transactionsElemIter.next();
+        List transaction=UtilXml.childElementList(transactionsElement,"Transaction");
+        Iterator transactionElemIter=transaction.iterator();
+        while (transactionElemIter.hasNext()) {
+          Map order=FastMap.newInstance();
+          Element transactionElement=(Element)transactionElemIter.next();
+          order.put("amountPaid",UtilXml.childElementValue(transactionElement,"AmountPaid","0"));
+          List buyer=UtilXml.childElementList(transactionElement,"Buyer");
+          Iterator buyerElemIter=buyer.iterator();
+          while (buyerElemIter.hasNext()) {
+            Element buyerElement=(Element)buyerElemIter.next();
+            order.put("emailBuyer",UtilXml.childElementValue(buyerElement,"Email",""));
+            List buyerInfo=UtilXml.childElementList(buyerElement,"BuyerInfo");
+            Iterator buyerInfoElemIter=buyerInfo.iterator();
+            while (buyerInfoElemIter.hasNext()) {
+              Element buyerInfoElement=(Element)buyerInfoElemIter.next();
+              List shippingAddressInfo=UtilXml.childElementList(buyerInfoElement,"ShippingAddress");
+              Iterator shippingAddressElemIter=shippingAddressInfo.iterator();
+              while (shippingAddressElemIter.hasNext()) {
+                Element shippingAddressElement=(Element)shippingAddressElemIter.next();
+                order.put("buyerName",UtilXml.childElementValue(shippingAddressElement,"Name",""));
+                order.put("shippingAddressStreet1",UtilXml.childElementValue(shippingAddressElement,"Street1",""));
+                order.put("shippingAddressCityName",UtilXml.childElementValue(shippingAddressElement,"CityName",""));
+                order.put("shippingAddressStateOrProvince",UtilXml.childElementValue(shippingAddressElement,"StateOrProvince",""));
+                order.put("shippingAddressCountry",UtilXml.childElementValue(shippingAddressElement,"Country",""));
+                order.put("shippingAddressCountryName",UtilXml.childElementValue(shippingAddressElement,"CountryName",""));
+                order.put("shippingAddressPhone",UtilXml.childElementValue(shippingAddressElement,"Phone",""));
+                order.put("shippingAddressPostalCode",UtilXml.childElementValue(shippingAddressElement,"PostalCode",""));
+              }
+            }
+          }
+          List shippingDetails=UtilXml.childElementList(transactionElement,"ShippingDetails");
+          Iterator shippingDetailsElemIter=shippingDetails.iterator();
+          while (shippingDetailsElemIter.hasNext()) {
+            Element shippingDetailsElement=(Element)shippingDetailsElemIter.next();
+            order.put("insuranceFee",UtilXml.childElementValue(shippingDetailsElement,"InsuranceFee","0"));
+            order.put("insuranceOption",UtilXml.childElementValue(shippingDetailsElement,"InsuranceOption",""));
+            order.put("insuranceWanted",UtilXml.childElementValue(shippingDetailsElement,"InsuranceWanted","false"));
+            List salesTax=UtilXml.childElementList(shippingDetailsElement,"SalesTax");
+            Iterator salesTaxElemIter=salesTax.iterator();
+            while (salesTaxElemIter.hasNext()) {
+              Element salesTaxElement=(Element)salesTaxElemIter.next();
+              order.put("salesTaxAmount",UtilXml.childElementValue(salesTaxElement,"SalesTaxAmount","0"));
+              order.put("salesTaxPercent",UtilXml.childElementValue(salesTaxElement,"SalesTaxPercent","0"));
+              order.put("salesTaxState",UtilXml.childElementValue(salesTaxElement,"SalesTaxState","0"));
+              order.put("shippingIncludedInTax",UtilXml.childElementValue(salesTaxElement,"ShippingIncludedInTax","false"));
+            }
+            List taxTable=UtilXml.childElementList(shippingDetailsElement,"TaxTable");
+            Iterator taxTableElemIter=taxTable.iterator();
+            while (taxTableElemIter.hasNext()) {
+              Element taxTableElement=(Element)taxTableElemIter.next();
+              List taxJurisdiction=UtilXml.childElementList(taxTableElement,"TaxJurisdiction");
+              Iterator taxJurisdictionElemIter=taxJurisdiction.iterator();
+              while (taxJurisdictionElemIter.hasNext()) {
+                Element taxJurisdictionElement=(Element)taxJurisdictionElemIter.next();
+                order.put("jurisdictionID",UtilXml.childElementValue(taxJurisdictionElement,"JurisdictionID",""));
+                order.put("jurisdictionSalesTaxPercent",UtilXml.childElementValue(taxJurisdictionElement,"SalesTaxPercent","0"));
+                order.put("jurisdictionShippingIncludedInTax",UtilXml.childElementValue(taxJurisdictionElement,"ShippingIncludedInTax","0"));
+              }
+            }
+          }
+          order.put("createdDate",UtilXml.childElementValue(transactionElement,"CreatedDate",""));
+          List item=UtilXml.childElementList(transactionElement,"Item");
+          Iterator itemElemIter=item.iterator();
+          while (itemElemIter.hasNext()) {
+            Element itemElement=(Element)itemElemIter.next();
+            order.put("externalId",UtilXml.childElementValue(itemElement,"ItemID",""));
+            order.put("paymentMethods",UtilXml.childElementValue(itemElement,"PaymentMethods",""));
+            order.put("quantity",UtilXml.childElementValue(itemElement,"Quantity","0"));
+            order.put("productId",UtilXml.childElementValue(itemElement,"SKU",""));
+            order.put("startPrice",UtilXml.childElementValue(itemElement,"StartPrice","0"));
+            order.put("title",UtilXml.childElementValue(itemElement,"Title",""));
+            List sellingStatus=UtilXml.childElementList(itemElement,"SellingStatus");
+            Iterator sellingStatusitemElemIter=sellingStatus.iterator();
+            while (sellingStatusitemElemIter.hasNext()) {
+              Element sellingStatusElement=(Element)sellingStatusitemElemIter.next();
+              order.put("amount",UtilXml.childElementValue(sellingStatusElement,"CurrentPrice","0"));
+              order.put("quantitySold",UtilXml.childElementValue(sellingStatusElement,"QuantitySold","0"));
+              order.put("listingStatus",UtilXml.childElementValue(sellingStatusElement,"ListingStatus",""));
+            }
+          }
+          List status=UtilXml.childElementList(transactionElement,"Status");
+          Iterator statusElemIter=status.iterator();
+          while (statusElemIter.hasNext()) {
+            Element statusElement=(Element)statusElemIter.next();
+            order.put("eBayPaymentStatus",UtilXml.childElementValue(statusElement,"eBayPaymentStatus",""));
+            order.put("checkoutStatus",UtilXml.childElementValue(statusElement,"CheckoutStatus",""));
+            order.put("paymentMethodUsed",UtilXml.childElementValue(statusElement,"PaymentMethodUsed",""));
+            order.put("completeStatus",UtilXml.childElementValue(statusElement,"CompleteStatus",""));
+            order.put("buyerSelectedShipping",UtilXml.childElementValue(statusElement,"BuyerSelectedShipping",""));
+          }
+          List externalTransaction=UtilXml.childElementList(transactionElement,"ExternalTransaction");
+          Iterator externalTransactionElemIter=externalTransaction.iterator();
+          while (externalTransactionElemIter.hasNext()) {
+            Element externalTransactionElement=(Element)externalTransactionElemIter.next();
+            order.put("externalTransactionID",UtilXml.childElementValue(externalTransactionElement,"ExternalTransactionID",""));
+            order.put("externalTransactionTime",UtilXml.childElementValue(externalTransactionElement,"ExternalTransactionTime",""));
+            order.put("feeOrCreditAmount",UtilXml.childElementValue(externalTransactionElement,"FeeOrCreditAmount","0"));
+            order.put("paymentOrRefundAmount",UtilXml.childElementValue(externalTransactionElement,"PaymentOrRefundAmount","0"));
+          }
+          List shippingServiceSelected=UtilXml.childElementList(transactionElement,"ShippingServiceSelected");
+          Iterator shippingServiceSelectedElemIter=shippingServiceSelected.iterator();
+          while (shippingServiceSelectedElemIter.hasNext()) {
+            Element shippingServiceSelectedElement=(Element)shippingServiceSelectedElemIter.next();
+            order.put("shippingService",UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingService",""));
+            order.put("shippingServiceCost",UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingServiceCost","0"));
+          }
+          order.put("paidTime",UtilXml.childElementValue(transactionElement,"PaidTime",""));
+          order.put("shippedTime",UtilXml.childElementValue(transactionElement,"ShippedTime",""));
+          orders.add(order);
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    ;
+  }
+  return orders;
+}

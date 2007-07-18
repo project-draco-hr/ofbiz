@@ -1,0 +1,31 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  Map result=FastMap.newInstance();
+  try {
+    String configString="productsExport.properties";
+    String devID=UtilProperties.getPropertyValue(configString,"productsExport.eBay.devID");
+    String appID=UtilProperties.getPropertyValue(configString,"productsExport.eBay.appID");
+    String certID=UtilProperties.getPropertyValue(configString,"productsExport.eBay.certID");
+    String token=UtilProperties.getPropertyValue(configString,"productsExport.eBay.token");
+    String xmlGatewayUri=UtilProperties.getPropertyValue(configString,"productsExport.eBay.xmlGatewayUri");
+    StringBuffer ebayDetailsItemsXml=new StringBuffer();
+    StringBuffer sellerTransactionsItemsXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildGetEbayDetailsRequest(context,ebayDetailsItemsXml,token))) {
+      postItem(xmlGatewayUri,ebayDetailsItemsXml,devID,appID,certID,"GeteBayDetails");
+      if (!ServiceUtil.isFailure(buildGetSellerTransactionsRequest(context,sellerTransactionsItemsXml,token))) {
+        result=postItem(xmlGatewayUri,sellerTransactionsItemsXml,devID,appID,certID,"GetSellerTransactions");
+        String success=(String)result.get("responseMessage");
+        if (success != null && success.equals("success")) {
+          result=createOrders(delegator,dispatcher,locale,context,(String)result.get("successMessage"),true);
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception in importFromEbay " + e,module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.exceptionInImportFromEbay",locale));
+  }
+  return result;
+}
