@@ -4,6 +4,7 @@
   LocalDispatcher dispatcher=ctx.getDispatcher();
   GenericDelegator delegator=ctx.getDelegator();
   List errorMapList=FastList.newInstance();
+  Map comiCtx=FastMap.newInstance();
   if (userLogin == null) {
     try {
       userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
@@ -67,9 +68,21 @@ catch (  IOException e) {
       String productId=UtilXml.childElementValue(receiptLnElement,"N2:ITEM");
       Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"N1:DOCUMNTREF");
       orderId=UtilXml.childElementValue(documentRefElement,"N2:DOCUMENTID");
-      ripCtx.put("orderId",orderId);
       String orderItemSeqId=UtilXml.childElementValue(documentRefElement,"N2:LINENUM");
-      ripCtx.put("orderItemSeqId",orderItemSeqId);
+      GenericValue orderHeader=null;
+      try {
+        orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+        if (orderHeader != null) {
+          ripCtx.put("orderId",orderId);
+          ripCtx.put("orderItemSeqId",orderItemSeqId);
+          comiCtx.put("orderId",orderId);
+        }
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error Getting OrderHeader: " + e.toString();
+        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+        Debug.logError(e,errMsg,module);
+      }
       String invItemStatus=UtilXml.childElementValue(receiptLnElement,"N2:DISPOSITN");
       if (invItemStatus.equals("ReceivedTOAvailable") || invItemStatus.equals("NotAvailableTOAvailable")) {
         ripCtx.put("statusId","INV_AVAILABLE");
@@ -160,7 +173,6 @@ catch (  IOException e) {
   }
   Timestamp timestamp=null;
   timestamp=UtilDateTime.nowTimestamp();
-  Map comiCtx=FastMap.newInstance();
   comiCtx.put("logicalId",logicalId);
   comiCtx.put("authId",authId);
   comiCtx.put("referenceId",referenceId);
@@ -172,7 +184,6 @@ catch (  IOException e) {
   comiCtx.put("bsrVerb",bsrVerb);
   comiCtx.put("bsrNoun",bsrNoun);
   comiCtx.put("bsrRevision",bsrRevision);
-  comiCtx.put("orderId",orderId);
   comiCtx.put("userLogin",userLogin);
   try {
     Map comiResult=dispatcher.runSync("createOagisMessageInfo",comiCtx);
