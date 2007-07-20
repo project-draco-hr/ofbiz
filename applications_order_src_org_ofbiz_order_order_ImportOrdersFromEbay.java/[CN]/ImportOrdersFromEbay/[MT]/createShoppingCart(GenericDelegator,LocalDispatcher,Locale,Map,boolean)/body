@@ -1,0 +1,128 @@
+{
+  try {
+    String productStoreId=(String)parameters.get("productStoreId");
+    GenericValue userLogin=(GenericValue)parameters.get("userLogin");
+    String defaultCurrencyUomId="";
+    String payToPartyId="";
+    String facilityId="";
+    if (productStoreId == null) {
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.productStoreIdIsMandatory",locale));
+    }
+ else {
+      GenericValue productStore=delegator.findByPrimaryKey("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
+      if (productStore != null) {
+        defaultCurrencyUomId=productStore.getString("defaultCurrencyUomId");
+        payToPartyId=productStore.getString("payToPartyId");
+        facilityId=productStore.getString("inventoryFacilityId");
+      }
+ else {
+        return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.productStoreIdIsMandatory",locale));
+      }
+    }
+    ShoppingCart cart=new ShoppingCart(delegator,productStoreId,locale,defaultCurrencyUomId);
+    String externalId=(String)parameters.get("externalId");
+    if (UtilValidate.isNotEmpty(externalId)) {
+      if (externalOrderExists(delegator,externalId) != null && create) {
+        return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.externalIdAlreadyExist",locale));
+      }
+      cart.setExternalId(externalId);
+    }
+ else {
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.externalIdNotAvailable",locale));
+    }
+    cart.setOrderType("SALES_ORDER");
+    cart.setChannelType("EBAY_SALES_CHANNEL");
+    cart.setUserLogin(userLogin,dispatcher);
+    cart.setProductStoreId(productStoreId);
+    if (UtilValidate.isNotEmpty(facilityId)) {
+      cart.setFacilityId(facilityId);
+    }
+    String amountStr=(String)parameters.get("amountPaid");
+    Double amountPaid=new Double(0);
+    if (UtilValidate.isNotEmpty(amountStr)) {
+      amountPaid=new Double(amountStr);
+    }
+    cart.addPaymentAmount("EXT_EBAY",amountPaid,externalId,null,true,false,false);
+    Timestamp orderDate=UtilDateTime.nowTimestamp();
+    if (UtilValidate.isNotEmpty((String)parameters.get("createdDate"))) {
+      SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+      Date createdDate=sdf.parse((String)parameters.get("createdDate"));
+      orderDate=new Timestamp(createdDate.getTime());
+    }
+    cart.setOrderDate(orderDate);
+    cart.addItemGroup("00001",null);
+    String productId=(String)parameters.get("productId");
+    if (UtilValidate.isEmpty(productId)) {
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.productIdNotAvailable",locale));
+    }
+    String paidTime=(String)parameters.get("paidTime");
+    if (UtilValidate.isEmpty(paidTime)) {
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.paymentIsStillNotReceived",locale));
+    }
+    Double unitPrice=new Double((String)parameters.get("transactionPrice"));
+    double quantity=new Double((String)parameters.get("quantityPurchased")).doubleValue();
+    Double amount=new Double(quantity * unitPrice.doubleValue());
+    cart.addItemToEnd(productId,amount,quantity,unitPrice,null,null,null,"PRODUCT_ORDER_ITEM",dispatcher,Boolean.FALSE,Boolean.FALSE);
+    if (UtilValidate.isNotEmpty(payToPartyId)) {
+      cart.setBillFromVendorPartyId(payToPartyId);
+    }
+    String shippingCost=(String)parameters.get("shippingServiceCost");
+    if (UtilValidate.isNotEmpty(shippingCost)) {
+      double shippingAmount=new Double(shippingCost).doubleValue();
+      if (shippingAmount > 0) {
+        GenericValue shippingAdjustment=madeOrderAdjustment(delegator,"SHIPPING_CHARGES",cart.getOrderId(),null,null,shippingAmount);
+        if (shippingAdjustment != null) {
+          cart.addAdjustment(shippingAdjustment);
+        }
+      }
+    }
+    String shippingTotalAdditionalCost=(String)parameters.get("shippingTotalAdditionalCost");
+    if (UtilValidate.isNotEmpty(shippingTotalAdditionalCost)) {
+      double shippingAdditionalCost=new Double(shippingTotalAdditionalCost).doubleValue();
+      if (shippingAdditionalCost > 0) {
+        GenericValue shippingAdjustment=madeOrderAdjustment(delegator,"MISCELLANEOUS_CHARGE",cart.getOrderId(),null,null,shippingAdditionalCost);
+        if (shippingAdjustment != null) {
+          cart.addAdjustment(shippingAdjustment);
+        }
+      }
+    }
+    if (create) {
+      String partyId=createCustomerParty(dispatcher,(String)parameters.get("buyerName"),userLogin);
+      String contactMechId="";
+      if (UtilValidate.isNotEmpty(partyId)) {
+        contactMechId=createAddress(dispatcher,partyId,userLogin,"SHIPPING_LOCATION",parameters);
+        createPartyPhone(dispatcher,partyId,(String)parameters.get("shippingAddressPhone"),userLogin);
+        String emailBuyer=(String)parameters.get("emailBuyer");
+        if (!(emailBuyer.equals("") || emailBuyer.equalsIgnoreCase("Invalid Request"))) {
+          createPartyEmail(dispatcher,partyId,emailBuyer,userLogin);
+        }
+      }
+ else {
+        partyId="admin";
+      }
+      cart.setBillToCustomerPartyId(partyId);
+      cart.setPlacingCustomerPartyId(partyId);
+      cart.setShipToCustomerPartyId(partyId);
+      cart.setEndUserCustomerPartyId(partyId);
+      cart.setCarrierPartyId("_NA_");
+      cart.setShippingContactMechId(contactMechId);
+      cart.setShipmentMethodTypeId("NO_SHIPPING");
+      cart.setMaySplit(false);
+      cart.makeAllShipGroupInfos();
+      CheckOutHelper checkout=new CheckOutHelper(dispatcher,delegator,cart);
+      Map orderCreate=checkout.createOrder(userLogin);
+      String orderId=(String)orderCreate.get("orderId");
+      if (UtilValidate.isNotEmpty(orderId)) {
+        boolean approved=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
+        if (approved) {
+          createPaymentFromPaymentPreferences(delegator,dispatcher,userLogin,orderId,externalId,cart.getOrderDate(),partyId);
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception in createShoppingCart",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.exceptionInCreateShoppingCart",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

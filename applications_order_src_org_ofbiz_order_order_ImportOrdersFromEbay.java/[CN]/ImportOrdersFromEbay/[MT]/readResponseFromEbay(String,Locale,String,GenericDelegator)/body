@@ -1,6 +1,5 @@
 {
   List orders=null;
-  Debug.logInfo(msg,module);
   try {
     Document docResponse=UtilXml.readXmlDocument(msg,true);
     Element elemResponse=docResponse.getDocumentElement();
@@ -23,6 +22,7 @@
         Iterator transactionElemIter=transaction.iterator();
         while (transactionElemIter.hasNext()) {
           Map order=FastMap.newInstance();
+          String itemId="";
           Element transactionElement=(Element)transactionElemIter.next();
           order.put("amountPaid",UtilXml.childElementValue(transactionElement,"AmountPaid","0"));
           List buyer=UtilXml.childElementList(transactionElement,"Buyer");
@@ -84,7 +84,7 @@
           Iterator itemElemIter=item.iterator();
           while (itemElemIter.hasNext()) {
             Element itemElement=(Element)itemElemIter.next();
-            order.put("externalId",UtilXml.childElementValue(itemElement,"ItemID",""));
+            itemId=UtilXml.childElementValue(itemElement,"ItemID","");
             order.put("paymentMethods",UtilXml.childElementValue(itemElement,"PaymentMethods",""));
             order.put("quantity",UtilXml.childElementValue(itemElement,"Quantity","0"));
             order.put("productId",UtilXml.childElementValue(itemElement,"SKU",""));
@@ -99,6 +99,7 @@
               order.put("listingStatus",UtilXml.childElementValue(sellingStatusElement,"ListingStatus",""));
             }
           }
+          order.put("quantityPurchased",UtilXml.childElementValue(transactionElement,"QuantityPurchased","0"));
           List status=UtilXml.childElementList(transactionElement,"Status");
           Iterator statusElemIter=status.iterator();
           while (statusElemIter.hasNext()) {
@@ -109,6 +110,14 @@
             order.put("completeStatus",UtilXml.childElementValue(statusElement,"CompleteStatus",""));
             order.put("buyerSelectedShipping",UtilXml.childElementValue(statusElement,"BuyerSelectedShipping",""));
           }
+          String transactionId=UtilXml.childElementValue(transactionElement,"TransactionID","");
+          String externalId=buildExternalId(itemId,transactionId);
+          order.put("externalId",externalId);
+          GenericValue orderExist=externalOrderExists(delegator,externalId);
+          if (orderExist != null) {
+            order.put("orderId",(String)orderExist.get("orderId"));
+          }
+          order.put("transactionPrice",UtilXml.childElementValue(transactionElement,"TransactionPrice","0"));
           List externalTransaction=UtilXml.childElementList(transactionElement,"ExternalTransaction");
           Iterator externalTransactionElemIter=externalTransaction.iterator();
           while (externalTransactionElemIter.hasNext()) {
@@ -124,16 +133,35 @@
             Element shippingServiceSelectedElement=(Element)shippingServiceSelectedElemIter.next();
             order.put("shippingService",UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingService",""));
             order.put("shippingServiceCost",UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingServiceCost","0"));
+            String incuranceCost=UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingInsuranceCost","0");
+            String additionalCost=UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingServiceAdditionalCost","0");
+            String surchargeCost=UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingSurcharge","0");
+            double shippingInsuranceCost=0;
+            double shippingServiceAdditionalCost=0;
+            double shippingSurcharge=0;
+            if (UtilValidate.isNotEmpty(incuranceCost)) {
+              shippingInsuranceCost=new Double(incuranceCost).doubleValue();
+            }
+            if (UtilValidate.isNotEmpty(additionalCost)) {
+              shippingServiceAdditionalCost=new Double(additionalCost).doubleValue();
+            }
+            if (UtilValidate.isNotEmpty(surchargeCost)) {
+              shippingSurcharge=new Double(surchargeCost).doubleValue();
+            }
+            double shippingTotalAdditionalCost=shippingInsuranceCost + shippingServiceAdditionalCost + shippingSurcharge;
+            String totalAdditionalCost=new Double(shippingTotalAdditionalCost).toString();
+            order.put("shippingTotalAdditionalCost",totalAdditionalCost);
           }
           order.put("paidTime",UtilXml.childElementValue(transactionElement,"PaidTime",""));
           order.put("shippedTime",UtilXml.childElementValue(transactionElement,"ShippedTime",""));
+          order.put("productStoreId",productStoreId);
           orders.add(order);
         }
       }
     }
   }
  catch (  Exception e) {
-    ;
+    Debug.logError("Exception during read response from Ebay",module);
   }
   return orders;
 }
