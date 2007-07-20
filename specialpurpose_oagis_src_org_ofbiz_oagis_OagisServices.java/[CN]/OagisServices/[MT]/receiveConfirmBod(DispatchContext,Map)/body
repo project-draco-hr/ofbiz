@@ -58,9 +58,6 @@ catch (  IOException e) {
   String dataAreaReferenceId=UtilXml.childElementValue(dataAreaSenderElement,"N2:REFERENCEID");
   String dataAreaDate=UtilXml.childElementValue(dataAreaCtrlElement,"N1:DATETIMEANY");
   String origRef=UtilXml.childElementValue(dataAreaConfirmElement,"N2:ORIGREF");
-  Element dataAreaConfirmMsgElement=UtilXml.firstChildElement(dataAreaConfirmElement,"n:CONFIRMMSG");
-  String description=UtilXml.childElementValue(dataAreaConfirmMsgElement,"N2:DESCRIPTN");
-  String reasonCode=UtilXml.childElementValue(dataAreaConfirmMsgElement,"N2:REASONCODE");
   Timestamp timestamp=UtilDateTime.nowTimestamp();
   Map oagisMsgInfoCtx=new HashMap();
   oagisMsgInfoCtx.put("logicalId",logicalId);
@@ -102,22 +99,29 @@ catch (  IOException e) {
     errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericEntityException"));
     Debug.logError(e,errMsg,module);
   }
+  oagisMsgErrorCtx.put("userLogin",userLogin);
+  List dataAreaConfirmMsgList=UtilXml.childElementList(dataAreaConfirmElement,"n:CONFIRMMSG");
+  Iterator dataAreaConfirmMsgListItr=dataAreaConfirmMsgList.iterator();
   if (oagisMsgInfo != null) {
-    oagisMsgErrorCtx.put("reasonCode",reasonCode);
-    oagisMsgErrorCtx.put("description",description);
-    oagisMsgErrorCtx.put("userLogin",userLogin);
-    try {
-      Map oagisMsgErrorInfoResult=dispatcher.runSync("createOagisMessageErrorInfo",oagisMsgErrorCtx);
-      if (ServiceUtil.isError(oagisMsgErrorInfoResult)) {
-        String errMsg="Error creating OagisMessageErrorInfo: " + ServiceUtil.getErrorMessage(oagisMsgErrorInfoResult);
-        errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","CreateOagisMessageErrorInfoServiceError"));
-        Debug.logError(errMsg,module);
+    while (dataAreaConfirmMsgListItr.hasNext()) {
+      Element dataAreaConfirmMsgElement=(Element)dataAreaConfirmMsgListItr.next();
+      String description=UtilXml.childElementValue(dataAreaConfirmMsgElement,"N2:DESCRIPTN");
+      String reasonCode=UtilXml.childElementValue(dataAreaConfirmMsgElement,"N2:REASONCODE");
+      oagisMsgErrorCtx.put("reasonCode",reasonCode);
+      oagisMsgErrorCtx.put("description",description);
+      try {
+        Map oagisMsgErrorInfoResult=dispatcher.runSync("createOagisMessageErrorInfo",oagisMsgErrorCtx);
+        if (ServiceUtil.isError(oagisMsgErrorInfoResult)) {
+          String errMsg="Error creating OagisMessageErrorInfo: " + ServiceUtil.getErrorMessage(oagisMsgErrorInfoResult);
+          errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","CreateOagisMessageErrorInfoServiceError"));
+          Debug.logError(errMsg,module);
+        }
       }
-    }
- catch (    GenericServiceException e) {
-      String errMsg="Error creating OagisMessageErrorInfo: " + e.toString();
-      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
-      Debug.logError(e,errMsg,module);
+ catch (      GenericServiceException e) {
+        String errMsg="Error creating OagisMessageErrorInfo: " + e.toString();
+        errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
+        Debug.logError(e,errMsg,module);
+      }
     }
   }
  else {
