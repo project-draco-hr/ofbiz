@@ -4,7 +4,6 @@
   GenericDelegator delegator=ctx.getDelegator();
   LocalDispatcher dispatcher=ctx.getDispatcher();
   Locale locale=(Locale)context.get("locale");
-  Map receiveInventoryCtx=FastMap.newInstance();
   List errorMapList=FastList.newInstance();
   if (userLogin == null) {
     try {
@@ -57,86 +56,107 @@ catch (  IOException e) {
   Element dataAreaQuantityElement=UtilXml.firstChildElement(dataAreaInventoryElement,"N1:QUANTITY");
   String itemQtyStr=UtilXml.childElementValue(dataAreaQuantityElement,"N2:VALUE");
   double itemQty=Double.parseDouble(itemQtyStr);
-  String sign=UtilXml.childElementValue(dataAreaQuantityElement,"N2:SIGN");
-  String uom=UtilXml.childElementValue(dataAreaQuantityElement,"N2:UOM");
   String productId=UtilXml.childElementValue(dataAreaQuantityElement,"N2:ITEM");
-  String itemStatus=UtilXml.childElementValue(dataAreaQuantityElement,"N2:ITEMSTATUS");
   String datetimeReceived=UtilXml.childElementValue(dataAreaInventoryElement,"N1:DATETIMEANY");
   SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
   Timestamp timestamp=null;
   try {
     timestamp=new Timestamp(sdf.parse(datetimeReceived).getTime());
-    receiveInventoryCtx.put("datetimeReceived",timestamp);
   }
  catch (  ParseException e) {
     String errMsg="Error parsing Date: " + e.toString();
     errorMapList.add(UtilMisc.toMap("reasonCode","ParseException","description",errMsg));
     Debug.logError(e,errMsg,module);
   }
-  String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryFacilityId");
-  receiveInventoryCtx.put("facilityId",facilityId);
-  receiveInventoryCtx.put("productId",productId);
-  receiveInventoryCtx.put("statusId",itemStatus);
-  receiveInventoryCtx.put("currencyUomId",uom);
-  receiveInventoryCtx.put("userLogin",userLogin);
+  double quantityOnHandDiff=0.0;
+  List invItemAndDetails=null;
+  EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("effectiveDate",EntityOperator.LESS_THAN_EQUAL_TO,timestamp),new EntityExpr("productId",EntityOperator.EQUALS,productId)),EntityOperator.AND);
   try {
-    GenericValue inventoryItem=EntityUtil.getFirst(delegator.findByAnd("InventoryItem",UtilMisc.toMap("productId",productId)));
-    String inventoryItemTypeId=inventoryItem.getString("inventoryItemTypeId");
-    if (inventoryItemTypeId.equals("SERIALIZED_INV_ITEM")) {
-      receiveInventoryCtx.put("inventoryItemTypeId","SERIALIZED_INV_ITEM");
-    }
- else {
-      receiveInventoryCtx.put("inventoryItemTypeId","NON_SERIAL_INV_ITEM");
+    invItemAndDetails=delegator.findByCondition("InventoryItemAndDetail",condition,null,UtilMisc.toList("inventoryItemId"));
+    Iterator invItemAndDetailIter=invItemAndDetails.iterator();
+    while (invItemAndDetailIter.hasNext()) {
+      GenericValue InventoryItemAndDetail=(GenericValue)invItemAndDetailIter.next();
+      quantityOnHandDiff=quantityOnHandDiff + Double.parseDouble(InventoryItemAndDetail.getString("quantityOnHandDiff"));
     }
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error Getting Inventory Item: " + e.toString();
+    String errMsg="Error Getting Inventory Item And Detail: " + e.toString();
     errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
     Debug.logError(e,errMsg,module);
   }
-  double quantityOnHandTotal=0.0;
-  List inventoryItems=null;
-  List exprs=FastList.newInstance();
-  try {
-    exprs.add(new EntityExpr("datetimeReceived",EntityOperator.LESS_THAN_EQUAL_TO,timestamp));
-    exprs.add(new EntityExpr("productId",EntityOperator.EQUALS,productId));
-    inventoryItems=delegator.findByCondition("InventoryItem",new EntityConditionList(exprs,EntityOperator.OR),null,UtilMisc.toList("inventoryItemId"));
-    Iterator invItemIter=inventoryItems.iterator();
-    while (invItemIter.hasNext()) {
-      GenericValue inventoryItem=(GenericValue)invItemIter.next();
-      quantityOnHandTotal=quantityOnHandTotal + Double.parseDouble(inventoryItem.getString("quantityOnHandTotal"));
+  if (itemQty != quantityOnHandDiff) {
+    double quantityDiff=Math.abs((itemQty - quantityOnHandDiff));
+    Map sendMap=FastMap.newInstance();
+    List facilityContactMechs=null;
+    GenericValue contactMech=null;
+    String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryFacilityId");
+    try {
+      facilityContactMechs=delegator.findByAnd("FacilityContactMech",UtilMisc.toMap("facilityId",facilityId));
     }
-  }
- catch (  GenericEntityException e) {
-    String errMsg="Error Getting Inventory Item: " + e.toString();
-    errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-    Debug.logError(e,errMsg,module);
-  }
-  double quantityAccepted;
-  double quantityRejected;
-  if (sign.equals("+")) {
-    quantityAccepted=itemQty - quantityOnHandTotal;
-    quantityRejected=0.0;
-  }
- else {
-    quantityRejected=itemQty;
-    quantityAccepted=0.0;
-  }
-  receiveInventoryCtx.put("quantityAccepted",new Double(quantityAccepted));
-  receiveInventoryCtx.put("quantityRejected",new Double(quantityRejected));
-  try {
-    if (itemQty != quantityOnHandTotal) {
-      Map ripResult=dispatcher.runSync("receiveInventoryProduct",receiveInventoryCtx);
-      if (ServiceUtil.isError(ripResult)) {
-        String errMsg=ServiceUtil.getErrorMessage(ripResult);
-        errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
+ catch (    GenericEntityException e) {
+      String errMsg="Error Getting FacilityContactMech: " + e.toString();
+      errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+      Debug.logError(e,errMsg,module);
+    }
+    Iterator fcmIter=facilityContactMechs.iterator();
+    while (fcmIter.hasNext()) {
+      GenericValue facilityContactMech=(GenericValue)fcmIter.next();
+      String contactMechId=facilityContactMech.getString("contactMechId");
+      try {
+        contactMech=delegator.findByPrimaryKey("ContactMech",UtilMisc.toMap("contactMechId",contactMechId));
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error Getting ContactMech: " + e.toString();
+        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+        Debug.logError(e,errMsg,module);
+      }
+      String contactMechTypeId=contactMech.getString("contactMechTypeId");
+      if (contactMechTypeId.equals("EMAIL_ADDRESS")) {
+        String emailString=contactMech.getString("infoString");
+        sendMap.put("sendTo",emailString);
       }
     }
-  }
- catch (  GenericServiceException e) {
-    String errMsg="Error running service receiveInventoryProduct: " + e.toString();
-    errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
-    Debug.logError(e,errMsg,module);
+    GenericValue productStoreEmail=null;
+    String productStoreId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId");
+    try {
+      productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_OAGIS_CONFIRM"));
+    }
+ catch (    GenericEntityException e) {
+      String errMsg="Error Getting Entity ProductStoreEmailSetting: " + e.toString();
+      errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+      Debug.logError(e,errMsg,module);
+    }
+    if (productStoreEmail != null) {
+      String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+      sendMap.put("bodyScreenUri",bodyScreenLocation);
+    }
+ else {
+      sendMap.put("bodyScreenUri","component://oagis/widget/EmailOagisMessageScreens.xml#InventoryMismatchNotice");
+    }
+    if (locale == null) {
+      locale=Locale.getDefault();
+    }
+    sendMap.put("subject",productStoreEmail.getString("subject"));
+    sendMap.put("sendFrom",productStoreEmail.getString("fromAddress"));
+    sendMap.put("sendCc",productStoreEmail.getString("ccAddress"));
+    sendMap.put("sendBcc",productStoreEmail.getString("bccAddress"));
+    sendMap.put("contentType",productStoreEmail.getString("contentType"));
+    Map bodyParameters=UtilMisc.toMap("quantityOnHandDiff",String.valueOf(quantityOnHandDiff),"quantityFromMessage",itemQtyStr,"quantityDiff",String.valueOf(quantityDiff),"productId",productId,"locale",locale);
+    sendMap.put("bodyParameters",bodyParameters);
+    sendMap.put("userLogin",userLogin);
+    Map sendResp=null;
+    try {
+      sendResp=dispatcher.runSync("sendMailFromScreen",sendMap);
+      if (ServiceUtil.isError(sendResp)) {
+        String errMsg=ServiceUtil.getErrorMessage(sendResp);
+        errorMapList.add(UtilMisc.toMap("reasonCode","SendMailServiceError","description",errMsg));
+      }
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error Running Service sendMailFromScreen: " + e.toString();
+      errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
+      Debug.logError(e,errMsg,module);
+    }
   }
   Map comiCtx=FastMap.newInstance();
   comiCtx.put("logicalId",logicalId);
@@ -161,76 +181,6 @@ catch (  IOException e) {
  catch (  GenericServiceException e) {
     String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
     errorMapList.add(UtilMisc.toMap("reasonCode","CreateOagisMessageInfoError","description",errMsg));
-    Debug.logError(e,errMsg,module);
-  }
-  Map sendMap=FastMap.newInstance();
-  List facilityContactMechs=null;
-  GenericValue contactMech=null;
-  try {
-    facilityContactMechs=delegator.findByAnd("FacilityContactMech",UtilMisc.toMap("facilityId",facilityId));
-  }
- catch (  GenericEntityException e) {
-    String errMsg="Error Getting FacilityContactMech: " + e.toString();
-    errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-    Debug.logError(e,errMsg,module);
-  }
-  Iterator fcmIter=facilityContactMechs.iterator();
-  while (fcmIter.hasNext()) {
-    GenericValue facilityContactMech=(GenericValue)fcmIter.next();
-    String contactMechId=facilityContactMech.getString("contactMechId");
-    try {
-      contactMech=delegator.findByPrimaryKey("ContactMech",UtilMisc.toMap("contactMechId",contactMechId));
-    }
- catch (    GenericEntityException e) {
-      String errMsg="Error Getting ContactMech: " + e.toString();
-      errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-      Debug.logError(e,errMsg,module);
-    }
-    String contactMechTypeId=contactMech.getString("contactMechTypeId");
-    if (contactMechTypeId.equals("EMAIL_ADDRESS")) {
-      String emailString=contactMech.getString("infoString");
-      sendMap.put("sendTo",emailString);
-    }
-  }
-  GenericValue productStoreEmail=null;
-  String productStoreId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId");
-  try {
-    productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_OAGIS_CONFIRM"));
-  }
- catch (  GenericEntityException e) {
-    String errMsg="Error Getting Entity ProductStoreEmailSetting: " + e.toString();
-    errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-    Debug.logError(e,errMsg,module);
-  }
-  if (productStoreEmail != null) {
-    String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
-    sendMap.put("bodyScreenUri",bodyScreenLocation);
-  }
- else {
-    sendMap.put("bodyScreenUri","component://oagis/widget/EmailOagisMessageScreens.xml#EmailOagisMessageNotification");
-  }
-  if (locale == null) {
-    locale=Locale.getDefault();
-  }
-  sendMap.put("subject",productStoreEmail.getString("subject"));
-  sendMap.put("sendFrom",productStoreEmail.getString("fromAddress"));
-  sendMap.put("sendCc",productStoreEmail.getString("ccAddress"));
-  sendMap.put("sendBcc",productStoreEmail.getString("bccAddress"));
-  sendMap.put("contentType",productStoreEmail.getString("contentType"));
-  Map bodyParameters=UtilMisc.toMap("quantityOnHandTotal",String.valueOf(quantityOnHandTotal),"itemQtyFrmMessage",String.valueOf(itemQty),"locale",locale);
-  sendMap.put("bodyParameters",bodyParameters);
-  sendMap.put("userLogin",userLogin);
-  Map sendResp=null;
-  try {
-    sendResp=dispatcher.runSync("sendMailFromScreen",sendMap);
-    if (ServiceUtil.isError(sendResp)) {
-      String errMsg=ServiceUtil.getErrorMessage(sendResp);
-      errorMapList.add(UtilMisc.toMap("reasonCode","SendMailServiceError","description",errMsg));
-    }
-  }
- catch (  GenericServiceException e) {
-    String errMsg="Error Running Service sendMailFromScreen: " + e.toString();
-    errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
     Debug.logError(e,errMsg,module);
   }
   Map result=FastMap.newInstance();
