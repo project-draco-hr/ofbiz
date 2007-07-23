@@ -18,6 +18,22 @@
       Debug.logError(e,"Error getting userLogin",module);
     }
   }
+  Map serviceContext=FastMap.newInstance();
+  serviceContext.put("orderId",orderId);
+  serviceContext.put("userLogin",userLogin);
+  serviceContext.put("reAuth",new Boolean("true"));
+  Map authResult=null;
+  try {
+    authResult=dispatcher.runSync("authOrderPayments",serviceContext);
+    if (authResult.get("processResult").equals("APPROVED")) {
+      return ServiceUtil.returnError("No valid payment available, cannot process Shipment");
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error authorizing payment: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
   GenericValue orderHeader=null;
   GenericValue orderItemShipGroup=null;
   try {
@@ -112,18 +128,18 @@ catch (      GenericEntityException e) {
       }
       String logicalId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.LOGICALID");
       bodyParameters.put("logicalId",logicalId);
-      result.put("logicalId",logicalId);
+      Map comiCtx=UtilMisc.toMap("logicalId",logicalId);
       String authId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.AUTHID");
       bodyParameters.put("authId",authId);
-      result.put("authId",authId);
+      comiCtx.put("authId",authId);
       String referenceId=delegator.getNextSeqId("OagisMessageInfo");
       bodyParameters.put("referenceId",referenceId);
-      result.put("referenceId",referenceId);
+      comiCtx.put("referenceId",referenceId);
       DateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
       Timestamp timestamp=UtilDateTime.nowTimestamp();
       String sentDate=dateFormat.format(timestamp);
       bodyParameters.put("sentDate",sentDate);
-      result.put("sentDate",timestamp);
+      comiCtx.put("sentDate",timestamp);
       bodyParameters.put("shipmentId",shipmentId);
       bodyParameters.put("orderId",orderId);
       bodyParameters.put("userLogin",userLogin);
@@ -159,6 +175,24 @@ catch (      GenericEntityException e) {
         Debug.logError(e,errMsg,module);
         return ServiceUtil.returnError(errMsg);
       }
+      comiCtx.put("component","INVENTORY");
+      comiCtx.put("task","SHIPREQUES");
+      comiCtx.put("outgoingMessage","Y");
+      comiCtx.put("confirmation","1");
+      comiCtx.put("bsrVerb","PROCESS");
+      comiCtx.put("bsrNoun","SHIPMENT");
+      comiCtx.put("bsrRevision","001");
+      comiCtx.put("processingStatusId",orderStatusId);
+      comiCtx.put("orderId",orderId);
+      comiCtx.put("shipmentId",shipmentId);
+      comiCtx.put("userLogin",userLogin);
+      try {
+        Map oagisMsgInfoResult=dispatcher.runSync("createOagisMessageInfo",comiCtx);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+        Debug.logError(e,errMsg,module);
+      }
       if (UtilValidate.isNotEmpty(sendToUrl)) {
         HttpClient http=new HttpClient(sendToUrl);
         http.setHostVerificationLevel(SSLUtil.HOSTCERT_NO_CHECK);
@@ -173,7 +207,7 @@ catch (      GenericEntityException e) {
         http.setContentType("text/xml");
         http.setKeepAlive(true);
         try {
-          String resp=http.post(writer.toString());
+          http.post(writer.toString());
         }
  catch (        Exception e) {
           String errMsg="Error posting message to server with UTL [" + sendToUrl + "]: "+ e.toString();
@@ -181,17 +215,6 @@ catch (      GenericEntityException e) {
           return ServiceUtil.returnError(errMsg);
         }
       }
-      result.put("component","INVENTORY");
-      result.put("task","SHIPREQUES");
-      result.put("outgoingMessage","Y");
-      result.put("confirmation","1");
-      result.put("bsrVerb","PROCESS");
-      result.put("bsrNoun","SHIPMENT");
-      result.put("bsrRevision","001");
-      result.put("processingStatusId",orderStatusId);
-      result.put("orderId",orderId);
-      result.put("shipmentId",shipmentId);
-      result.put("userLogin",userLogin);
     }
   }
   return result;
