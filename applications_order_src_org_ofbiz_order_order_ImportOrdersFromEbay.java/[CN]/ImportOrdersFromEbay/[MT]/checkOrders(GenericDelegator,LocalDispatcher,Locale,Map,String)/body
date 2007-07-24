@@ -1,33 +1,32 @@
 {
-  if (response != null && response.length() > 0) {
-    List orders=readResponseFromEbay(response,locale,(String)context.get("productStoreId"),delegator);
-    if (orders != null && orders.size() > 0) {
-      Iterator orderIter=orders.iterator();
-      while (orderIter.hasNext()) {
-        Map order=(Map)orderIter.next();
-        order.put("productStoreId",(String)context.get("productStoreId"));
-        order.put("userLogin",(GenericValue)context.get("userLogin"));
-        Map error=createShoppingCart(delegator,dispatcher,locale,order,false);
-        String errorMsg=ServiceUtil.getErrorMessage(error);
-        if (UtilValidate.isNotEmpty(errorMsg)) {
-          order.put("errorMessage",errorMsg);
-        }
- else {
-          order.put("errorMessage","");
-        }
-      }
-      Map result=FastMap.newInstance();
-      result.put("responseMessage",ModelService.RESPOND_SUCCESS);
-      result.put("orderList",orders);
-      return result;
-    }
- else {
-      Debug.logError("No orders found",module);
-      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.noOrdersFound",locale));
-    }
+  StringBuffer errorMessage=new StringBuffer();
+  List orders=readResponseFromEbay(response,locale,(String)context.get("productStoreId"),delegator,errorMessage);
+  if (orders == null) {
+    Debug.logError("Error :" + errorMessage.toString(),module);
+    return ServiceUtil.returnFailure(errorMessage.toString());
   }
- else {
+ else   if (orders.size() == 0) {
     Debug.logError("No orders found",module);
     return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.noOrdersFound",locale));
+  }
+ else {
+    Iterator orderIter=orders.iterator();
+    while (orderIter.hasNext()) {
+      Map order=(Map)orderIter.next();
+      order.put("productStoreId",(String)context.get("productStoreId"));
+      order.put("userLogin",(GenericValue)context.get("userLogin"));
+      Map error=createShoppingCart(delegator,dispatcher,locale,order,false);
+      String errorMsg=ServiceUtil.getErrorMessage(error);
+      if (UtilValidate.isNotEmpty(errorMsg)) {
+        order.put("errorMessage",errorMsg);
+      }
+ else {
+        order.put("errorMessage","");
+      }
+    }
+    Map result=FastMap.newInstance();
+    result.put("responseMessage",ModelService.RESPOND_SUCCESS);
+    result.put("orderList",orders);
+    return result;
   }
 }
