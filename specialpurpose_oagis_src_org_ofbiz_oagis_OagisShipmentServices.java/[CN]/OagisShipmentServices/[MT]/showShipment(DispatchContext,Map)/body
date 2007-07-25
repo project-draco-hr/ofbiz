@@ -26,6 +26,12 @@
   String referenceId=UtilXml.childElementValue(senderElement,"of:REFERENCEID");
   String confirmation=UtilXml.childElementValue(senderElement,"of:CONFIRMATION");
   String authId=UtilXml.childElementValue(senderElement,"of:AUTHID");
+  Map result=new HashMap();
+  result.put("logicalId",logicalId);
+  result.put("component",component);
+  result.put("task",task);
+  result.put("referenceId",referenceId);
+  result.put("userLogin",userLogin);
   oagisMsgInfoCtx.put("logicalId",logicalId);
   oagisMsgInfoCtx.put("component",component);
   oagisMsgInfoCtx.put("task",task);
@@ -51,6 +57,20 @@
   Element daShowShipmentElement=UtilXml.firstChildElement(dataAreaElement,"n:SHOW_SHIPMENT");
   Element shipmentElement=UtilXml.firstChildElement(daShowShipmentElement,"n:SHIPMENT");
   String shipmentId=UtilXml.childElementValue(shipmentElement,"of:DOCUMENTID");
+  GenericValue shipment=null;
+  try {
+    shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error Shipment from database: " + e.toString();
+    errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericEntityException"));
+    Debug.logInfo(e,module);
+    result.putAll(ServiceUtil.returnError(errMsg));
+    result.put("errorMapList",errorMapList);
+    return result;
+  }
+  String shipGroupSeqId=shipment.getString("primaryShipGroupSeqId");
+  String originFacilityId=shipment.getString("originFacilityId");
   List shipUnitElementList=UtilXml.childElementList(daShowShipmentElement,"n:SHIPUNIT");
   if (UtilValidate.isNotEmpty(shipUnitElementList)) {
     Iterator shipUnitElementItr=shipUnitElementList.iterator();
@@ -65,9 +85,6 @@
           Element invItemElement=(Element)invItemElementItr.next();
           String productId=UtilXml.childElementValue(invItemElement,"of:ITEM");
           try {
-            GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
-            String shipGroupSeqId=shipment.getString("primaryShipGroupSeqId");
-            String originFacilityId=shipment.getString("originFacilityId");
             GenericValue shipmentItem=EntityUtil.getFirst(delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId,"productId",productId)));
             String shipmentItemSeqId=shipmentItem.getString("shipmentItemSeqId");
             GenericValue orderShipment=EntityUtil.getFirst(delegator.findByAnd("OrderShipment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItemSeqId)));
@@ -141,12 +158,6 @@
       }
     }
   }
-  Map result=new HashMap();
-  result.put("logicalId",logicalId);
-  result.put("component",component);
-  result.put("task",task);
-  result.put("referenceId",referenceId);
-  result.put("userLogin",userLogin);
   if (errorMapList.size() > 0) {
     result.put("errorMapList",errorMapList);
     return result;
