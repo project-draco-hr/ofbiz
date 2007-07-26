@@ -50,16 +50,27 @@
         orderTypeId="PURCHASE_ORDER";
       }
       String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
-      SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'");
-      Timestamp timestamp=null;
+      Date dateTimeInvReceived=null;
+      Timestamp timestampItemReceived=null;
       try {
-        timestamp=new Timestamp(sdf.parse(datetimeReceived).getTime());
-        ripCtx.put("datetimeReceived",timestamp);
+        SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'Z");
+        dateTimeInvReceived=sdf.parse(datetimeReceived);
       }
  catch (      ParseException e) {
-        String errMsg="Error parsing Date: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","ParseException","description",errMsg));
-        Debug.logError(e,errMsg,module);
+        Debug.logInfo("Message does not have timezone information in date field",module);
+        try {
+          SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSS'Z'");
+          dateTimeInvReceived=sdf.parse(datetimeReceived);
+        }
+ catch (        ParseException e1) {
+          String errMsg="Error parsing Date: " + e1.toString();
+          errorMapList.add(UtilMisc.toMap("reasonCode","ParseException","description",errMsg));
+          Debug.logError(e,errMsg,module);
+        }
+      }
+      if (dateTimeInvReceived != null) {
+        timestampItemReceived=new Timestamp(dateTimeInvReceived.getTime());
+        ripCtx.put("datetimeReceived",timestampItemReceived);
       }
       GenericValue orderHeader=null;
       if (orderId != null) {
@@ -75,7 +86,7 @@
             ripCtx.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
           }
  else {
-            orderHeader=delegator.makeValue("OrderHeader",UtilMisc.toMap("orderId",orderId,"orderTypeId",orderTypeId,"orderDate",timestamp,"statusId","ORDER_CREATED","entryDate",UtilDateTime.nowTimestamp(),"productStoreId",UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId","9001")));
+            orderHeader=delegator.makeValue("OrderHeader",UtilMisc.toMap("orderId",orderId,"orderTypeId",orderTypeId,"orderDate",timestampItemReceived,"statusId","ORDER_CREATED","entryDate",UtilDateTime.nowTimestamp(),"productStoreId",UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId","9001")));
             toStore.add(orderHeader);
             GenericValue orderItem=delegator.makeValue("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",UtilFormatOut.formatPaddedNumber(1L,5),"productId",productId,"quantity",new Double(itemQtyStr)));
             toStore.add(orderItem);
