@@ -105,74 +105,48 @@
   }
   if (inventoryMapList.size() > 0) {
     Map sendMap=FastMap.newInstance();
-    List facilityContactMechs=null;
-    GenericValue contactMech=null;
-    try {
-      facilityContactMechs=delegator.findByAnd("FacilityContactMech",UtilMisc.toMap("facilityId",facilityId));
-    }
- catch (    GenericEntityException e) {
-      String errMsg="Error Getting FacilityContactMech: " + e.toString();
-      errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-      Debug.logError(e,errMsg,module);
-    }
-    Iterator fcmIter=facilityContactMechs.iterator();
-    while (fcmIter.hasNext()) {
-      GenericValue facilityContactMech=(GenericValue)fcmIter.next();
-      String contactMechId=facilityContactMech.getString("contactMechId");
+    String sendToEmail=UtilProperties.getPropertyValue("oagis.properties","oagis.notification.email.sendTo");
+    if (UtilValidate.isNotEmpty(sendToEmail)) {
+      String productStoreId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId");
+      GenericValue productStoreEmail=null;
       try {
-        contactMech=delegator.findByPrimaryKey("ContactMech",UtilMisc.toMap("contactMechId",contactMechId));
+        productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_OAGIS_CONFIRM"));
       }
  catch (      GenericEntityException e) {
-        String errMsg="Error Getting ContactMech: " + e.toString();
+        String errMsg="Error Getting Entity ProductStoreEmailSetting: " + e.toString();
         errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
         Debug.logError(e,errMsg,module);
       }
-      String contactMechTypeId=contactMech.getString("contactMechTypeId");
-      if (contactMechTypeId.equals("EMAIL_ADDRESS")) {
-        String emailString=contactMech.getString("infoString");
-        sendMap.put("sendTo",emailString);
+      if (productStoreEmail != null) {
+        String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+        sendMap.put("bodyScreenUri",bodyScreenLocation);
       }
-    }
-    GenericValue productStoreEmail=null;
-    String productStoreId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId");
-    try {
-      productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_OAGIS_CONFIRM"));
-    }
- catch (    GenericEntityException e) {
-      String errMsg="Error Getting Entity ProductStoreEmailSetting: " + e.toString();
-      errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-      Debug.logError(e,errMsg,module);
-    }
-    if (productStoreEmail != null) {
-      String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
-      sendMap.put("bodyScreenUri",bodyScreenLocation);
+ else {
+        sendMap.put("bodyScreenUri","component://oagis/widget/EmailOagisMessageScreens.xml#InventoryMismatchNotice");
+      }
+      if (locale == null) {
+        locale=Locale.getDefault();
+      }
+      sendMap.put("sendTo",sendToEmail);
+      sendMap.put("subject",productStoreEmail.getString("subject"));
+      sendMap.put("sendFrom",productStoreEmail.getString("fromAddress"));
+      sendMap.put("sendCc",productStoreEmail.getString("ccAddress"));
+      sendMap.put("sendBcc",productStoreEmail.getString("bccAddress"));
+      sendMap.put("contentType",productStoreEmail.getString("contentType"));
+      Map bodyParameters=UtilMisc.toMap("inventoryMapList",inventoryMapList,"locale",locale);
+      sendMap.put("bodyParameters",bodyParameters);
+      sendMap.put("userLogin",userLogin);
+      try {
+        dispatcher.runAsync("sendMailFromScreen",sendMap,true);
+      }
+ catch (      Exception e) {
+        String errMsg="Error Running Service sendMailFromScreen: " + e.toString();
+        errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
+        Debug.logError(e,errMsg,module);
+      }
     }
  else {
-      sendMap.put("bodyScreenUri","component://oagis/widget/EmailOagisMessageScreens.xml#InventoryMismatchNotice");
-    }
-    if (locale == null) {
-      locale=Locale.getDefault();
-    }
-    sendMap.put("subject",productStoreEmail.getString("subject"));
-    sendMap.put("sendFrom",productStoreEmail.getString("fromAddress"));
-    sendMap.put("sendCc",productStoreEmail.getString("ccAddress"));
-    sendMap.put("sendBcc",productStoreEmail.getString("bccAddress"));
-    sendMap.put("contentType",productStoreEmail.getString("contentType"));
-    Map bodyParameters=UtilMisc.toMap("inventoryMapList",inventoryMapList,"locale",locale);
-    sendMap.put("bodyParameters",bodyParameters);
-    sendMap.put("userLogin",userLogin);
-    Map sendResp=null;
-    try {
-      sendResp=dispatcher.runSync("sendMailFromScreen",sendMap);
-      if (ServiceUtil.isError(sendResp)) {
-        String errMsg=ServiceUtil.getErrorMessage(sendResp);
-        errorMapList.add(UtilMisc.toMap("reasonCode","SendMailServiceError","description",errMsg));
-      }
-    }
- catch (    GenericServiceException e) {
-      String errMsg="Error Running Service sendMailFromScreen: " + e.toString();
-      errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
-      Debug.logError(e,errMsg,module);
+      Debug.logImportant("No sendTo email address found in process syncInventory service: inventoryMapList: " + inventoryMapList,module);
     }
   }
   Map comiCtx=FastMap.newInstance();
@@ -198,11 +172,7 @@
     }
   }
   try {
-    Map comiResult=dispatcher.runSync("createOagisMessageInfo",comiCtx);
-    if (ServiceUtil.isError(comiResult)) {
-      String errMsg=ServiceUtil.getErrorMessage(comiResult);
-      errorMapList.add(UtilMisc.toMap("reasonCode","CreateOagisMessageServiceError","description",errMsg));
-    }
+    dispatcher.runAsync("createOagisMessageInfo",comiCtx,true);
   }
  catch (  GenericServiceException e) {
     String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
