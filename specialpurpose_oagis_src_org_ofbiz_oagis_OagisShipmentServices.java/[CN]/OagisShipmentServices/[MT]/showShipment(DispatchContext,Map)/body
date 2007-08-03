@@ -2,6 +2,7 @@
   Document doc=(Document)context.get("document");
   LocalDispatcher dispatcher=ctx.getDispatcher();
   GenericDelegator delegator=ctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
   List errorMapList=FastList.newInstance();
   GenericValue userLogin=null;
   try {
@@ -39,7 +40,9 @@
   oagisMsgInfoCtx.put("confirmation",confirmation);
   oagisMsgInfoCtx.put("authId",authId);
   oagisMsgInfoCtx.put("outgoingMessage","N");
+  oagisMsgInfoCtx.put("receivedDate",nowTimestamp);
   oagisMsgInfoCtx.put("userLogin",userLogin);
+  oagisMsgInfoCtx.put("processingStatusId","OAGMP_RECEIVED");
   if (OagisServices.debugSaveXmlIn) {
     try {
       oagisMsgInfoCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
@@ -50,11 +53,10 @@
     }
   }
   try {
-    dispatcher.runAsync("createOagisMessageInfo",oagisMsgInfoCtx,true);
+    dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoCtx,60,true);
   }
  catch (  GenericServiceException e) {
     String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
-    errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
     Debug.logError(e,errMsg,module);
   }
   Element dataAreaElement=UtilXml.firstChildElement(showShipmentElement,"ns:DATAAREA");
@@ -180,6 +182,14 @@
       String errMsg="Error executing setShipmentStatusPackedAndShipped Service: " + e.toString();
       errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
     }
+  }
+  oagisMsgInfoCtx.put("processingStatusId","OAGMP_RECEIVED");
+  try {
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
   }
   if (errorMapList.size() > 0) {
     result.put("errorMapList",errorMapList);
