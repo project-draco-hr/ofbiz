@@ -8,7 +8,14 @@
     sendToUrl=UtilProperties.getPropertyValue("oagis.properties","url.send.receiveDelivery");
   }
   String saveToFilename=(String)context.get("saveToFilename");
+  if (UtilValidate.isEmpty(saveToFilename)) {
+    String saveToFilenameBase=UtilProperties.getPropertyValue("oagis.properties","test.save.outgoing.filename.base","");
+    saveToFilename=saveToFilenameBase + "ProcessShipment" + returnId+ ".xml";
+  }
   String saveToDirectory=(String)context.get("saveToDirectory");
+  if (UtilValidate.isEmpty(saveToDirectory)) {
+    saveToDirectory=UtilProperties.getPropertyValue("oagis.properties","test.save.outgoing.directory");
+  }
   OutputStream out=(OutputStream)context.get("outputStream");
   Map result=ServiceUtil.returnSuccess();
   MapStack bodyParameters=MapStack.create();
@@ -93,34 +100,13 @@
       bodyParameters.put("entryDate",entryDate);
       bodyParameters.put("returnId",returnId);
       String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ReceiveDelivery");
-      Writer writer=null;
-      if (out != null) {
-        writer=new OutputStreamWriter(out);
-      }
- else       if (UtilValidate.isNotEmpty(saveToFilename)) {
-        try {
-          File outdir=new File(saveToDirectory);
-          if (!outdir.exists()) {
-            outdir.mkdir();
-          }
-          writer=new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(new File(outdir,saveToFilename)),"UTF-8")));
-        }
- catch (        Exception e) {
-          String errMsg="Error opening file to save message to [" + saveToFilename + "]: "+ e.toString();
-          Debug.logError(e,errMsg,module);
-          return ServiceUtil.returnError(errMsg);
-        }
-      }
- else       if (UtilValidate.isNotEmpty(sendToUrl)) {
-        writer=new StringWriter();
-      }
- else {
-        return ServiceUtil.returnError("No send to information pass (url, file, or out stream)");
-      }
-      ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,new HtmlScreenRenderer());
+      String outText=null;
       try {
+        Writer writer=new StringWriter();
+        ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,htmlScreenRenderer);
         screens.render(bodyScreenUri);
         writer.close();
+        outText=writer.toString();
       }
  catch (      Exception e) {
         String errMsg="Error rendering message: " + e.toString();
@@ -138,36 +124,18 @@
       comiCtx.put("returnId",returnId);
       comiCtx.put("userLogin",userLogin);
       if (OagisServices.debugSaveXmlOut) {
-        comiCtx.put("fullMessageXml",writer.toString());
+        comiCtx.put("fullMessageXml",outText);
       }
       try {
-        dispatcher.runAsync("createOagisMessageInfo",comiCtx,true);
+        dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
       }
  catch (      GenericServiceException e) {
         String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
         Debug.logError(e,errMsg,module);
       }
-      if (UtilValidate.isNotEmpty(sendToUrl)) {
-        HttpClient http=new HttpClient(sendToUrl);
-        http.setHostVerificationLevel(SSLUtil.HOSTCERT_NO_CHECK);
-        http.setAllowUntrusted(true);
-        http.setDebug(true);
-        if (UtilValidate.isNotEmpty(certAlias)) {
-          http.setClientCertificateAlias(certAlias);
-        }
-        if (UtilValidate.isNotEmpty(basicAuthUsername)) {
-          http.setBasicAuthInfo(basicAuthUsername,basicAuthPassword);
-        }
-        http.setContentType("text/xml");
-        http.setKeepAlive(true);
-        try {
-          http.post(writer.toString());
-        }
- catch (        Exception e) {
-          String errMsg="Error posting message to server with UTL [" + sendToUrl + "]: "+ e.toString();
-          Debug.logError(e,errMsg,module);
-          return ServiceUtil.returnError(errMsg);
-        }
+      Map sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
+      if (sendMessageReturn != null) {
+        return sendMessageReturn;
       }
     }
   }
