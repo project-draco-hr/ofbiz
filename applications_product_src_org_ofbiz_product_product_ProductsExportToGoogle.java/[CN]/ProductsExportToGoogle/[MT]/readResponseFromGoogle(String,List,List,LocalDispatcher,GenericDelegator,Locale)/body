@@ -1,0 +1,58 @@
+{
+  List message=FastList.newInstance();
+  try {
+    Document docResponse=UtilXml.readXmlDocument(msg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    List atomEntryList=UtilXml.childElementList(elemResponse,"atom:entry");
+    Iterator atomEntryElemIter=atomEntryList.iterator();
+    int index=0;
+    while (atomEntryElemIter.hasNext()) {
+      Element atomEntryElement=(Element)atomEntryElemIter.next();
+      String id=UtilXml.childElementValue(atomEntryElement,"atom:id","");
+      if (UtilValidate.isNotEmpty(id) && newProductsInGoogle.get(index) != null) {
+        String productId=(String)newProductsInGoogle.get(index);
+        try {
+          GenericValue googleProductId=delegator.makeValue("GoodIdentification",null);
+          googleProductId.set("goodIdentificationTypeId","GOOGLE_ID");
+          googleProductId.set("productId",productId);
+          googleProductId.set("idValue",id);
+          delegator.createOrStore(googleProductId);
+        }
+ catch (        GenericEntityException gee) {
+          Debug.logError("Unable to create or update Google id for product [" + productId + "]: "+ gee.getMessage(),module);
+        }
+      }
+      if (UtilValidate.isNotEmpty(id) && productsRemovedFromGoogle.get(index) != null) {
+        String productId=(String)productsRemovedFromGoogle.get(index);
+        try {
+          int count=delegator.removeByAnd("GoodIdentification",UtilMisc.toMap("goodIdentificationTypeId","GOOGLE_ID","productId",productId));
+        }
+ catch (        GenericEntityException gee) {
+          Debug.logError("Unable to remove Google id for product [" + productId + "]: "+ gee.getMessage(),module);
+        }
+      }
+      String title=UtilXml.childElementValue(atomEntryElement,"atom:title","");
+      List batchStatusList=UtilXml.childElementList(atomEntryElement,"batch:status");
+      Iterator batchStatusEntryElemIter=batchStatusList.iterator();
+      while (batchStatusEntryElemIter.hasNext()) {
+        Element batchStatusEntryElement=(Element)batchStatusEntryElemIter.next();
+        if (UtilValidate.isNotEmpty(batchStatusEntryElement.getAttribute("reason"))) {
+          message.add(title + " " + batchStatusEntryElement.getAttribute("reason"));
+        }
+      }
+      String errors=UtilXml.childElementValue(atomEntryElement,"batch:status","");
+      if (UtilValidate.isNotEmpty(errors)) {
+        message.add(title + " " + errors);
+      }
+      index++;
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception reading response from Google: " + e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"productsExportToGoogle.exceptionReadingResponseFromGoogle",locale));
+  }
+  if (message.size() > 0) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"productsExportToGoogle.errorInTheResponseFromGoogle",locale),message);
+  }
+  return ServiceUtil.returnSuccess();
+}
