@@ -37,6 +37,7 @@
     Debug.logError(e,"Cannot get OrderItem records",module);
     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemGettingOrderItemRecords",locale));
   }
+  String orderHeaderStatusId=orderHeader.getString("statusId");
   boolean allCanceled=true;
   boolean allComplete=true;
   boolean allApproved=true;
@@ -64,7 +65,33 @@
       newStatus="ORDER_COMPLETED";
     }
  else     if (allApproved) {
-      if (!"ORDER_SENT".equals(orderHeader.getString("statusId"))) {
+      boolean changeToApprove=true;
+      if (UtilValidate.isNotEmpty(orderHeader.getString("productStoreId"))) {
+        try {
+          GenericValue productStore=delegator.findByPrimaryKey("ProductStore",UtilMisc.toMap("productStoreId",orderHeader.getString("productStoreId")));
+          if (productStore != null) {
+            String headerApprovedStatus=productStore.getString("headerApprovedStatus");
+            if (UtilValidate.isNotEmpty(headerApprovedStatus)) {
+              if (headerApprovedStatus.equals(orderHeaderStatusId)) {
+                Map orderStatusCheckMap=UtilMisc.toMap("orderId",orderId,"statusId",headerApprovedStatus,"orderItemSeqId",null);
+                List orderStatusList=delegator.findByAnd("OrderStatus",orderStatusCheckMap);
+                if (orderStatusList.size() <= 1) {
+                  changeToApprove=false;
+                }
+              }
+            }
+          }
+        }
+ catch (        GenericEntityException e) {
+          String errMsg="Database error checking if we should change order header status to approved: " + e.toString();
+          Debug.logError(e,errMsg,module);
+          return ServiceUtil.returnError(errMsg);
+        }
+      }
+      if ("ORDER_SENT".equals(orderHeaderStatusId))       changeToApprove=false;
+      if ("ORDER_COMPLETED".equals(orderHeaderStatusId))       changeToApprove=false;
+      if ("ORDER_CANCELLED".equals(orderHeaderStatusId))       changeToApprove=false;
+      if (changeToApprove) {
         newStatus="ORDER_APPROVED";
       }
     }

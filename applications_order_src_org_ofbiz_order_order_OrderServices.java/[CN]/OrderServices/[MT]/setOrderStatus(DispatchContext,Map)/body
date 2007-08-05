@@ -1,4 +1,5 @@
 {
+  LocalDispatcher dispatcher=ctx.getDispatcher();
   GenericDelegator delegator=ctx.getDelegator();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String orderId=(String)context.get("orderId");
@@ -15,7 +16,34 @@
  catch (    GenericEntityException e) {
       return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderRoleEntity",locale) + e.getMessage());
     }
-    if (placingCustomer == null)     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+    if (placingCustomer == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+    }
+  }
+  if ("Y".equals(context.get("setItemStatus"))) {
+    String newItemStatusId=null;
+    if ("ORDER_APPROVED".equals(statusId)) {
+      newItemStatusId="ITEM_APPROVED";
+    }
+ else     if ("ORDER_COMPLETE".equals(statusId)) {
+      newItemStatusId="ITEM_COMPLETE";
+    }
+ else     if ("ORDER_CANCELLED".equals(statusId)) {
+      newItemStatusId="ITEM_CANCELLED";
+    }
+    if (newItemStatusId != null) {
+      try {
+        Map resp=dispatcher.runSync("changeOrderItemStatus",UtilMisc.toMap("orderId",orderId,"statusId",newItemStatusId,"userLogin",userLogin));
+        if (ServiceUtil.isError(resp)) {
+          return ServiceUtil.returnError("Error changing item status to " + newItemStatusId,null,null,resp);
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error changing item status to " + newItemStatusId + ": "+ e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
   }
   try {
     GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
