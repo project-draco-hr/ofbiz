@@ -35,6 +35,26 @@
   Timestamp timestamp=UtilDateTime.nowTimestamp();
   String sentDate=isoDateFormat.format(timestamp);
   bodyParameters.put("sentDate",sentDate);
+  Map oagisMsgInfoContext=FastMap.newInstance();
+  oagisMsgInfoContext.put("logicalId",logicalId);
+  oagisMsgInfoContext.put("component","EXCEPTION");
+  oagisMsgInfoContext.put("task","RECIEPT");
+  oagisMsgInfoContext.put("referenceId",referenceId);
+  oagisMsgInfoContext.put("authId",authId);
+  oagisMsgInfoContext.put("sentDate",timestamp);
+  oagisMsgInfoContext.put("confirmation","0");
+  oagisMsgInfoContext.put("bsrVerb","CONFIRM");
+  oagisMsgInfoContext.put("bsrNoun","BOD");
+  oagisMsgInfoContext.put("bsrRevision","004");
+  oagisMsgInfoContext.put("outgoingMessage","Y");
+  oagisMsgInfoContext.put("processingStatusId","OAGMP_TRIGGERED");
+  oagisMsgInfoContext.put("userLogin",userLogin);
+  try {
+    dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Saving message to database failed",module);
+  }
   bodyParameters.put("errorLogicalId",context.get("logicalId"));
   bodyParameters.put("errorComponent",context.get("component"));
   bodyParameters.put("errorTask",context.get("task"));
@@ -55,31 +75,30 @@
     Debug.logError(e,errMsg,module);
     return ServiceUtil.returnError(errMsg);
   }
-  Map oagisMsgInfoContext=FastMap.newInstance();
-  oagisMsgInfoContext.put("logicalId",logicalId);
-  oagisMsgInfoContext.put("component","EXCEPTION");
-  oagisMsgInfoContext.put("task","RECIEPT");
-  oagisMsgInfoContext.put("referenceId",referenceId);
-  oagisMsgInfoContext.put("authId",authId);
-  oagisMsgInfoContext.put("sentDate",timestamp);
-  oagisMsgInfoContext.put("confirmation","0");
-  oagisMsgInfoContext.put("bsrVerb","CONFIRM");
-  oagisMsgInfoContext.put("bsrNoun","BOD");
-  oagisMsgInfoContext.put("bsrRevision","004");
-  oagisMsgInfoContext.put("outgoingMessage","Y");
-  oagisMsgInfoContext.put("userLogin",userLogin);
+  if (Debug.infoOn())   Debug.logInfo("Finished rendering oagisSendConfirmBod message for errorReferenceId [" + errorReferenceId + "]",module);
+  oagisMsgInfoContext.put("processingStatusId","OAGMP_OGEN_SUCCESS");
   if (OagisServices.debugSaveXmlOut) {
     oagisMsgInfoContext.put("fullMessageXml",outText);
   }
   try {
-    dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoContext,60,true);
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoContext,60,true);
   }
  catch (  GenericServiceException e) {
-    Debug.logError(e,"Saving message to database failed",module);
+    String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+    Debug.logError(e,errMsg,module);
   }
   Map sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
   if (sendMessageReturn != null) {
     return sendMessageReturn;
+  }
+  if (Debug.infoOn())   Debug.logInfo("Message send done for oagisSendConfirmBod for errorReferenceId [" + errorReferenceId + "], sendToUrl=["+ sendToUrl+ "], saveToDirectory=["+ saveToDirectory+ "], saveToFilename=["+ saveToFilename+ "]",module);
+  oagisMsgInfoContext.put("processingStatusId","OAGMP_SENT");
+  try {
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+    Debug.logError(e,errMsg,module);
   }
   return ServiceUtil.returnSuccess("Service Completed Successfully");
 }

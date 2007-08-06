@@ -1,4 +1,5 @@
 {
+  GenericDelegator delegator=ctx.getDelegator();
   LocalDispatcher dispatcher=ctx.getDispatcher();
   InputStream in=(InputStream)context.get("inputStream");
   List errorList=FastList.newInstance();
@@ -41,72 +42,92 @@ catch (  IOException e) {
   Element bsrElement=UtilXml.firstChildElement(controlAreaElement,"os:BSR");
   String bsrVerb=UtilXml.childElementValue(bsrElement,"of:VERB");
   String bsrNoun=UtilXml.childElementValue(bsrElement,"of:NOUN");
+  Element senderElement=UtilXml.firstChildElement(controlAreaElement,"os:SENDER");
+  String logicalId=UtilXml.childElementValue(senderElement,"of:LOGICALID");
+  String component=UtilXml.childElementValue(senderElement,"of:COMPONENT");
+  String task=UtilXml.childElementValue(senderElement,"of:TASK");
+  String referenceId=UtilXml.childElementValue(senderElement,"of:REFERENCEID");
   if (UtilValidate.isEmpty(bsrVerb) || UtilValidate.isEmpty(bsrNoun)) {
     return ServiceUtil.returnError("Was able to receive and parse the XML message, but BSR->NOUN [" + bsrNoun + "] and/or BSR->VERB ["+ bsrVerb+ "] are empty");
   }
+  GenericValue oagisMessageInfo=null;
+  try {
+    oagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error Getting Entity OagisMessageInfo: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
   Map subServiceResult=FastMap.newInstance();
-  if (bsrVerb.equalsIgnoreCase("CONFIRM") && bsrNoun.equalsIgnoreCase("BOD")) {
-    try {
-      subServiceResult=dispatcher.runSync("receiveConfirmBod",UtilMisc.toMap("document",doc));
-    }
- catch (    GenericServiceException e) {
-      String errMsg="Error running service receiveConfirmBod: " + e.toString();
-      errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
-      Debug.logError(e,errMsg,module);
-    }
-  }
- else   if (bsrVerb.equalsIgnoreCase("SHOW") && bsrNoun.equalsIgnoreCase("SHIPMENT")) {
-    try {
-      subServiceResult=dispatcher.runSync("showShipment",UtilMisc.toMap("document",doc));
-    }
- catch (    GenericServiceException e) {
-      String errMsg="Error running service showShipment: " + e.toString();
-      errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
-      Debug.logError(e,errMsg,module);
-    }
-  }
- else   if (bsrVerb.equalsIgnoreCase("SYNC") && bsrNoun.equalsIgnoreCase("INVENTORY")) {
-    try {
-      subServiceResult=dispatcher.runSync("syncInventory",UtilMisc.toMap("document",doc));
-    }
- catch (    GenericServiceException e) {
-      String errMsg="Error running service syncInventory: " + e.toString();
-      errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
-      Debug.logError(e,errMsg,module);
-    }
-  }
- else   if (bsrVerb.equalsIgnoreCase("ACKNOWLEDGE") && bsrNoun.equalsIgnoreCase("DELIVERY")) {
-    Element dataAreaElement=UtilXml.firstChildElement(rootElement,"ns:DATAAREA");
-    Element ackDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
-    Element receiptlnElement=UtilXml.firstChildElement(ackDeliveryElement,"ns:RECEIPTLN");
-    Element docRefElement=UtilXml.firstChildElement(receiptlnElement,"os:DOCUMNTREF");
-    String docType=UtilXml.childElementValue(docRefElement,"of:DOCTYPE");
-    if ("PO".equals(docType)) {
+  if (UtilValidate.isEmpty(oagisMessageInfo)) {
+    if (bsrVerb.equalsIgnoreCase("CONFIRM") && bsrNoun.equalsIgnoreCase("BOD")) {
       try {
-        subServiceResult=dispatcher.runSync("receivePoAcknowledge",UtilMisc.toMap("document",doc));
+        subServiceResult=dispatcher.runSync("receiveConfirmBod",UtilMisc.toMap("document",doc));
       }
  catch (      GenericServiceException e) {
-        String errMsg="Error running service receivePoAcknowledge: " + e.toString();
+        String errMsg="Error running service receiveConfirmBod: " + e.toString();
         errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
         Debug.logError(e,errMsg,module);
       }
     }
- else     if ("RMA".equals(docType)) {
+ else     if (bsrVerb.equalsIgnoreCase("SHOW") && bsrNoun.equalsIgnoreCase("SHIPMENT")) {
       try {
-        subServiceResult=dispatcher.runSync("receiveRmaAcknowledge",UtilMisc.toMap("document",doc));
+        subServiceResult=dispatcher.runSync("showShipment",UtilMisc.toMap("document",doc));
       }
  catch (      GenericServiceException e) {
-        String errMsg="Error running service receiveRmaAcknowledge: " + e.toString();
+        String errMsg="Error running service showShipment: " + e.toString();
         errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
         Debug.logError(e,errMsg,module);
       }
     }
+ else     if (bsrVerb.equalsIgnoreCase("SYNC") && bsrNoun.equalsIgnoreCase("INVENTORY")) {
+      try {
+        subServiceResult=dispatcher.runSync("syncInventory",UtilMisc.toMap("document",doc));
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error running service syncInventory: " + e.toString();
+        errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
+        Debug.logError(e,errMsg,module);
+      }
+    }
+ else     if (bsrVerb.equalsIgnoreCase("ACKNOWLEDGE") && bsrNoun.equalsIgnoreCase("DELIVERY")) {
+      Element dataAreaElement=UtilXml.firstChildElement(rootElement,"ns:DATAAREA");
+      Element ackDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
+      Element receiptlnElement=UtilXml.firstChildElement(ackDeliveryElement,"ns:RECEIPTLN");
+      Element docRefElement=UtilXml.firstChildElement(receiptlnElement,"os:DOCUMNTREF");
+      String docType=UtilXml.childElementValue(docRefElement,"of:DOCTYPE");
+      if ("PO".equals(docType)) {
+        try {
+          subServiceResult=dispatcher.runSync("receivePoAcknowledge",UtilMisc.toMap("document",doc));
+        }
+ catch (        GenericServiceException e) {
+          String errMsg="Error running service receivePoAcknowledge: " + e.toString();
+          errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
+          Debug.logError(e,errMsg,module);
+        }
+      }
+ else       if ("RMA".equals(docType)) {
+        try {
+          subServiceResult=dispatcher.runSync("receiveRmaAcknowledge",UtilMisc.toMap("document",doc));
+        }
+ catch (        GenericServiceException e) {
+          String errMsg="Error running service receiveRmaAcknowledge: " + e.toString();
+          errorList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
+          Debug.logError(e,errMsg,module);
+        }
+      }
  else {
-      return ServiceUtil.returnError("For Acknowledge Delivery message could not determine if it is for a PO or RMA. DOCTYPE from message is " + docType);
+        return ServiceUtil.returnError("For Acknowledge Delivery message could not determine if it is for a PO or RMA. DOCTYPE from message is " + docType);
+      }
+    }
+ else {
+      String errMsg="Unknown Message Received";
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
     }
   }
  else {
-    String errMsg="Unknown Message Received";
+    String errMsg="Message has been already received";
     Debug.logError(errMsg,module);
     return ServiceUtil.returnError(errMsg);
   }
