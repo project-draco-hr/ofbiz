@@ -29,122 +29,14 @@
   String authId=UtilXml.childElementValue(docSenderElement,"of:AUTHID");
   String sentDate=UtilXml.childElementValue(docCtrlAreaElement,"os:DATETIMEISO");
   Timestamp sentTimestamp=OagisServices.parseIsoDateString(sentDate,errorMapList);
-  Element dataAreaElement=UtilXml.firstChildElement(receiveRmaElement,"n:DATAAREA");
-  Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"n:ACKNOWLEDGE_DELIVERY");
+  Element dataAreaElement=UtilXml.firstChildElement(receiveRmaElement,"ns:DATAAREA");
+  Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
   String inventoryItemTypeId=null;
   String returnId=null;
   String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.PoReceiptFacilityId");
   String locationSeqId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.ReturnReceiptLocationSeqId");
-  List acknowledgeElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"n:RECEIPTLN");
-  if (UtilValidate.isNotEmpty(acknowledgeElementList)) {
-    Iterator acknowledgeElementIter=acknowledgeElementList.iterator();
-    while (acknowledgeElementIter.hasNext()) {
-      Map ripCtx=FastMap.newInstance();
-      Element receiptLnElement=(Element)acknowledgeElementIter.next();
-      Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
-      String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
-      double itemQty=Double.parseDouble(itemQtyStr);
-      String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
-      String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
-      Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
-      returnId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
-      ripCtx.put("returnId",returnId);
-      String returnItemSeqId=UtilXml.childElementValue(documentRefElement,"of:LINENUM");
-      ripCtx.put("returnItemSeqId",returnItemSeqId);
-      String invItemStatus=UtilXml.childElementValue(receiptLnElement,"of:DISPOSITN");
-      if (invItemStatus.equals("ReceivedTOAvailable") || invItemStatus.equals("NotAvailableTOAvailable")) {
-        ripCtx.put("statusId","INV_AVAILABLE");
-      }
- else       if (invItemStatus.equals("ReceivedTONotAvailable") || invItemStatus.equals("AvailableTONotAvailable")) {
-        ripCtx.put("statusId","INV_ON_HOLD");
-      }
-      List serialNumsList=FastList.newInstance();
-      List invDetailList=UtilXml.childElementList(receiptLnElement,"n:INVDETAIL");
-      if (UtilValidate.isNotEmpty(invDetailList)) {
-        inventoryItemTypeId="SERIALIZED_INV_ITEM";
-        ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
-        for (Iterator j=invDetailList.iterator(); j.hasNext(); ) {
-          Element invDetailElement=(Element)j.next();
-          String serialNumber=UtilXml.childElementValue(invDetailElement,"of:SERIALNUM");
-          if (UtilValidate.isNotEmpty(serialNumber)) {
-            serialNumsList.add(serialNumber);
-          }
-        }
-      }
- else {
-        inventoryItemTypeId="NON_SERIAL_INV_ITEM";
-        ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
-      }
-      inventoryItemTypeId="NON_SERIAL_INV_ITEM";
-      ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
-      ripCtx.put("productId",productId);
-      ripCtx.put("facilityId",facilityId);
-      ripCtx.put("locationSeqId",locationSeqId);
-      ripCtx.put("userLogin",userLogin);
-      double quantityAccepted=0.0;
-      double quantityRejected=0.0;
-      if (sign.equals("+")) {
-        quantityAccepted=itemQty;
-        quantityRejected=0.0;
-      }
- else {
-        quantityRejected=itemQty;
-        quantityAccepted=0.0;
-      }
-      if (quantityAccepted > 0) {
-        if (serialNumsList.size() > 0) {
-          if (serialNumsList.size() != quantityAccepted) {
-            String errMsg="Error: the quantity [" + quantityAccepted + "] did not match the number of serial numbers passed ["+ serialNumsList.size()+ "].";
-            errorMapList.add(UtilMisc.toMap("reasonCode","QuantitySerialMismatch","description",errMsg));
-          }
-          Iterator serialNumIter=serialNumsList.iterator();
-          while (serialNumIter.hasNext()) {
-            String serialNum=(String)serialNumIter.next();
-            Map localRipCtx=FastMap.newInstance();
-            localRipCtx.putAll(ripCtx);
-            localRipCtx.put("quantityAccepted",new Double(1.0));
-            localRipCtx.put("quantityRejected",new Double(0.0));
-            localRipCtx.put("serialNumber",serialNum);
-            try {
-              Map ripResult=dispatcher.runSync("receiveInventoryProduct",localRipCtx);
-              if (ServiceUtil.isError(ripResult)) {
-                String errMsg=ServiceUtil.getErrorMessage(ripResult);
-                errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
-              }
-            }
- catch (            GenericServiceException e) {
-              String errMsg="Error running service receiveInventoryProduct: " + e.toString();
-              errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
-              Debug.logError(e,errMsg,module);
-            }
-          }
-        }
- else {
-          Map localRipCtx=FastMap.newInstance();
-          localRipCtx.putAll(ripCtx);
-          localRipCtx.put("quantityAccepted",new Double(quantityAccepted));
-          localRipCtx.put("quantityRejected",new Double(0.0));
-          try {
-            Map ripResult=dispatcher.runSync("receiveInventoryProduct",localRipCtx);
-            if (ServiceUtil.isError(ripResult)) {
-              String errMsg=ServiceUtil.getErrorMessage(ripResult);
-              errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
-            }
-          }
- catch (          GenericServiceException e) {
-            String errMsg="Error running service receiveInventoryProduct: " + e.toString();
-            errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
-            Debug.logError(e,errMsg,module);
-          }
-        }
-      }
- else {
-      }
-    }
-  }
-  Timestamp timestamp=null;
-  timestamp=UtilDateTime.nowTimestamp();
-  Map comiCtx=new HashMap();
+  Timestamp timestamp=UtilDateTime.nowTimestamp();
+  Map comiCtx=FastMap.newInstance();
   comiCtx.put("logicalId",logicalId);
   comiCtx.put("authId",authId);
   comiCtx.put("referenceId",referenceId);
@@ -157,22 +49,164 @@
   comiCtx.put("bsrVerb",bsrVerb);
   comiCtx.put("bsrNoun",bsrNoun);
   comiCtx.put("bsrRevision",bsrRevision);
+  comiCtx.put("processingStatusId","OAGMP_RECEIVED");
   comiCtx.put("userLogin",userLogin);
-  if (OagisServices.debugSaveXmlIn) {
+  String statusId=null;
+  List acknowledgeElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
+  if (UtilValidate.isNotEmpty(acknowledgeElementList)) {
+    Iterator acknowledgeElementIter=acknowledgeElementList.iterator();
+    while (acknowledgeElementIter.hasNext()) {
+      Map ripCtx=FastMap.newInstance();
+      Element receiptLnElement=(Element)acknowledgeElementIter.next();
+      Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
+      String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
+      double itemQty=Double.parseDouble(itemQtyStr);
+      String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
+      String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
+      if (productId == null) {
+        String errMsg="productId not available in Message";
+        errorMapList.add(UtilMisc.toMap("reasonCode","ParseException","description",errMsg));
+        Debug.logError(errMsg,module);
+      }
+      Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
+      returnId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
+      ripCtx.put("returnId",returnId);
+      String returnHeaderTypeId=UtilXml.childElementValue(documentRefElement,"of:DOCTYPE");
+      if (returnHeaderTypeId.equals("RMA")) {
+        returnHeaderTypeId="CUSTOMER_RETURN";
+      }
+      String returnItemSeqId=UtilXml.childElementValue(documentRefElement,"of:LINENUM");
+      String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
+      Timestamp timestampItemReceived=OagisServices.parseIsoDateString(datetimeReceived,errorMapList);
+      ripCtx.put("datetimeReceived",timestampItemReceived);
+      GenericValue returnHeader=null;
+      try {
+        returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error Getting ReturnHeader: " + e.toString();
+        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+        Debug.logError(e,errMsg,module);
+      }
+      if (UtilValidate.isNotEmpty(returnHeader)) {
+        statusId=returnHeader.get("statusId").toString();
+        if (statusId.equals("RETURN_ACCEPTED")) {
+          String invItemStatus=UtilXml.childElementValue(receiptLnElement,"of:DISPOSITN");
+          if (invItemStatus.equals("ReceivedTOAvailable") || invItemStatus.equals("NotAvailableTOAvailable")) {
+            ripCtx.put("statusId","INV_AVAILABLE");
+          }
+ else           if (invItemStatus.equals("ReceivedTONotAvailable") || invItemStatus.equals("AvailableTONotAvailable")) {
+            ripCtx.put("statusId","INV_ON_HOLD");
+          }
+          String serialNumber=null;
+          List serialNumsList=FastList.newInstance();
+          List invDetailList=UtilXml.childElementList(receiptLnElement,"ns:INVDETAIL");
+          if (UtilValidate.isNotEmpty(invDetailList)) {
+            inventoryItemTypeId="SERIALIZED_INV_ITEM";
+            ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
+            for (Iterator j=invDetailList.iterator(); j.hasNext(); ) {
+              Element invDetailElement=(Element)j.next();
+              serialNumber=UtilXml.childElementValue(invDetailElement,"of:SERIALNUM");
+              if (UtilValidate.isNotEmpty(serialNumber)) {
+                serialNumsList.add(serialNumber);
+              }
+            }
+          }
+ else {
+            inventoryItemTypeId="NON_SERIAL_INV_ITEM";
+            ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
+          }
+          ripCtx.put("facilityId",facilityId);
+          ripCtx.put("locationSeqId",locationSeqId);
+          ripCtx.put("userLogin",userLogin);
+          double quantityAccepted=0.0;
+          double quantityRejected=0.0;
+          if (sign.equals("+")) {
+            quantityAccepted=itemQty;
+            quantityRejected=0.0;
+          }
+ else {
+            quantityRejected=itemQty;
+            quantityAccepted=0.0;
+          }
+          if (quantityAccepted > 0) {
+            if (serialNumsList.size() > 0) {
+              if (serialNumsList.size() != quantityAccepted) {
+                String errMsg="Error: the quantity [" + quantityAccepted + "] did not match the number of serial numbers passed ["+ serialNumsList.size()+ "].";
+                errorMapList.add(UtilMisc.toMap("reasonCode","QuantitySerialMismatch","description",errMsg));
+              }
+              Iterator serialNumIter=serialNumsList.iterator();
+              while (serialNumIter.hasNext()) {
+                String serialNum=(String)serialNumIter.next();
+                try {
+                  GenericValue inventoryItem=EntityUtil.getFirst(delegator.findByAnd("InventoryItem",UtilMisc.toMap("serialNumber",serialNum)));
+                  if (inventoryItem != null) {
+                    String inventoryItemProductId=inventoryItem.getString("productId");
+                    if (inventoryItemProductId.equals(productId)) {
+                      Map updateInvItmMap=FastMap.newInstance();
+                      updateInvItmMap.put("inventoryItemId",inventoryItem.get("inventoryItemId").toString());
+                      updateInvItmMap.put("userLogin",userLogin);
+                      updateInvItmMap.put("productId",productId);
+                      updateInvItmMap.put("statusId","INV_ON_HOLD");
+                      try {
+                        Map test=dispatcher.runSync("updateInventoryItem",updateInvItmMap);
+                      }
+ catch (                      GenericServiceException e) {
+                        String errMsg="Error running service updateInventoryItem: " + e.toString();
+                        errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
+                        Debug.logError(e,errMsg,module);
+                      }
+                    }
+                  }
+                }
+ catch (                GenericEntityException e) {
+                  String errMsg="Error Getting Entity InventoryItem";
+                  Debug.logError(e,errMsg,module);
+                }
+                Map localRipCtx=FastMap.newInstance();
+                localRipCtx.putAll(ripCtx);
+                localRipCtx.put("quantityAccepted",new Double(1.0));
+                localRipCtx.put("quantityRejected",new Double(0.0));
+                localRipCtx.put("serialNumber",serialNum);
+                localRipCtx.put("productId",productId);
+                localRipCtx.put("returnItemSeqId",returnItemSeqId);
+                runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher);
+              }
+            }
+ else {
+              Map localRipCtx=FastMap.newInstance();
+              localRipCtx.putAll(ripCtx);
+              localRipCtx.put("quantityAccepted",new Double(quantityAccepted));
+              localRipCtx.put("quantityRejected",new Double(0.0));
+              localRipCtx.put("productId",productId);
+              localRipCtx.put("returnItemSeqId",returnItemSeqId);
+              runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher);
+            }
+          }
+ else {
+          }
+        }
+ else {
+          String errMsg="Return status is not RETURN_ACCEPTED";
+          Debug.logError(errMsg,module);
+          errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+        }
+      }
+ else {
+        String errMsg="ReturnId Not Valid: Id not present in Database";
+        Debug.logError(errMsg,module);
+        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+      }
+    }
+    statusId="RETURN_COMPLETED";
     try {
-      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
+      dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId",statusId,"returnId",returnId,"userLogin",userLogin));
     }
- catch (    IOException e) {
-      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
-      Debug.logWarning(errMsg,module);
+ catch (    GenericServiceException e) {
+      String errMsg="Error Storing the value: " + e.toString();
+      errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+      Debug.logError(e,errMsg,module);
     }
-  }
-  try {
-    dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
-  }
- catch (  GenericServiceException e) {
-    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
-    Debug.logError(e,errMsg,module);
   }
   Map result=FastMap.newInstance();
   result.put("logicalId",logicalId);
@@ -185,6 +219,15 @@
     String errMsg="Error Processing Received Messages";
     result.putAll(ServiceUtil.returnError(errMsg));
     return result;
+  }
+  comiCtx.put("returnId",returnId);
+  comiCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
+  try {
+    dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
   }
   result.putAll(ServiceUtil.returnSuccess("Action Performed Successfully"));
   return result;
