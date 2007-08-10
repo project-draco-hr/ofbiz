@@ -28,6 +28,37 @@
   String authId=UtilXml.childElementValue(docSenderElement,"of:AUTHID");
   String sentDate=UtilXml.childElementValue(docCtrlAreaElement,"os:DATETIMEISO");
   Timestamp sentTimestamp=OagisServices.parseIsoDateString(sentDate,errorMapList);
+  Timestamp timestamp=UtilDateTime.nowTimestamp();
+  comiCtx.put("logicalId",logicalId);
+  comiCtx.put("authId",authId);
+  comiCtx.put("referenceId",referenceId);
+  comiCtx.put("receivedDate",timestamp);
+  comiCtx.put("sentDate",sentTimestamp);
+  comiCtx.put("component",component);
+  comiCtx.put("task",task);
+  comiCtx.put("outgoingMessage","N");
+  comiCtx.put("confirmation",confirmation);
+  comiCtx.put("bsrVerb",bsrVerb);
+  comiCtx.put("bsrNoun",bsrNoun);
+  comiCtx.put("bsrRevision",bsrRevision);
+  comiCtx.put("statusId","OAGMP_RECEIVED");
+  comiCtx.put("userLogin",userLogin);
+  if (OagisServices.debugSaveXmlIn) {
+    try {
+      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
+    }
+ catch (    IOException e) {
+      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
+      Debug.logWarning(errMsg,module);
+    }
+  }
+  try {
+    dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
   Element dataAreaElement=UtilXml.firstChildElement(receivePoElement,"ns:DATAAREA");
   Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
   String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.PoReceiptFacilityId");
@@ -116,35 +147,12 @@
       }
     }
   }
-  Timestamp timestamp=null;
-  timestamp=UtilDateTime.nowTimestamp();
-  comiCtx.put("logicalId",logicalId);
-  comiCtx.put("authId",authId);
-  comiCtx.put("referenceId",referenceId);
-  comiCtx.put("receivedDate",timestamp);
-  comiCtx.put("sentDate",sentTimestamp);
-  comiCtx.put("component",component);
-  comiCtx.put("task",task);
-  comiCtx.put("outgoingMessage","N");
-  comiCtx.put("confirmation",confirmation);
-  comiCtx.put("bsrVerb",bsrVerb);
-  comiCtx.put("bsrNoun",bsrNoun);
-  comiCtx.put("bsrRevision",bsrRevision);
-  comiCtx.put("userLogin",userLogin);
-  if (OagisServices.debugSaveXmlIn) {
-    try {
-      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
-    }
- catch (    IOException e) {
-      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
-      Debug.logWarning(errMsg,module);
-    }
-  }
+  comiCtx.put("statusId","OAGMP_PROC_SUCCESS");
   try {
-    dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+    dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
   }
  catch (  GenericServiceException e) {
-    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
+    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
     Debug.logError(e,errMsg,module);
   }
   Map result=FastMap.newInstance();

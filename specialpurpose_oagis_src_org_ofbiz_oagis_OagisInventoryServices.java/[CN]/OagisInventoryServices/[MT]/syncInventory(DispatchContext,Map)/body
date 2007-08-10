@@ -28,6 +28,36 @@
   String referenceId=UtilXml.childElementValue(docSenderElement,"of:REFERENCEID");
   String confirmation=UtilXml.childElementValue(docSenderElement,"of:CONFIRMATION");
   String authId=UtilXml.childElementValue(docSenderElement,"of:AUTHID");
+  Map comiCtx=FastMap.newInstance();
+  comiCtx.put("logicalId",logicalId);
+  comiCtx.put("component",component);
+  comiCtx.put("task",task);
+  comiCtx.put("referenceId",referenceId);
+  comiCtx.put("confirmation",confirmation);
+  comiCtx.put("authId",authId);
+  comiCtx.put("bsrVerb",bsrVerb);
+  comiCtx.put("bsrNoun",bsrNoun);
+  comiCtx.put("bsrRevision",bsrRevision);
+  comiCtx.put("receivedDate",UtilDateTime.nowTimestamp());
+  comiCtx.put("outgoingMessage","N");
+  comiCtx.put("statusId","OAGMP_RECEIVED");
+  comiCtx.put("userLogin",userLogin);
+  if (OagisServices.debugSaveXmlIn) {
+    try {
+      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
+    }
+ catch (    IOException e) {
+      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
+      Debug.logWarning(errMsg,module);
+    }
+  }
+  try {
+    dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
   List dataAreaList=UtilXml.childElementList(syncInventoryRootElement,"ns:DATAAREA");
   if (UtilValidate.isNotEmpty(dataAreaList)) {
     Iterator dataAreaIter=dataAreaList.iterator();
@@ -127,33 +157,12 @@
       Debug.logImportant("No sendTo email address found in process syncInventory service: inventoryMapList: " + inventoryMapList,module);
     }
   }
-  Map comiCtx=FastMap.newInstance();
-  comiCtx.put("logicalId",logicalId);
-  comiCtx.put("component",component);
-  comiCtx.put("task",task);
-  comiCtx.put("referenceId",referenceId);
-  comiCtx.put("confirmation",confirmation);
-  comiCtx.put("authId",authId);
-  comiCtx.put("bsrVerb",bsrVerb);
-  comiCtx.put("bsrNoun",bsrNoun);
-  comiCtx.put("bsrRevision",bsrRevision);
-  comiCtx.put("receivedDate",UtilDateTime.nowTimestamp());
-  comiCtx.put("outgoingMessage","N");
-  comiCtx.put("userLogin",userLogin);
-  if (OagisServices.debugSaveXmlIn) {
-    try {
-      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
-    }
- catch (    IOException e) {
-      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
-      Debug.logWarning(errMsg,module);
-    }
-  }
+  comiCtx.put("statusId","OAGMP_PROC_SUCCESS");
   try {
-    dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+    dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
   }
  catch (  GenericServiceException e) {
-    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
+    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
     Debug.logError(e,errMsg,module);
   }
   Map result=FastMap.newInstance();
