@@ -66,6 +66,7 @@
     Debug.logError(e,errMsg,module);
   }
   String statusId=null;
+  List invItemIds=FastList.newInstance();
   List acknowledgeElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
   if (UtilValidate.isNotEmpty(acknowledgeElementList)) {
     Iterator acknowledgeElementIter=acknowledgeElementList.iterator();
@@ -159,10 +160,6 @@
         }
         if (quantityAccepted > 0) {
           if (serialNumsList.size() > 0) {
-            if (serialNumsList.size() != quantityAccepted) {
-              String errMsg="Error: the quantity [" + quantityAccepted + "] did not match the number of serial numbers passed ["+ serialNumsList.size()+ "].";
-              errorMapList.add(UtilMisc.toMap("reasonCode","QuantitySerialMismatch","description",errMsg));
-            }
             Iterator serialNumIter=serialNumsList.iterator();
             while (serialNumIter.hasNext()) {
               String serialNum=(String)serialNumIter.next();
@@ -176,7 +173,7 @@
               }
               if (inventoryItem != null) {
                 Map updateInvItmMap=FastMap.newInstance();
-                updateInvItmMap.put("inventoryItemId",inventoryItem.get("inventoryItemId").toString());
+                updateInvItmMap.put("inventoryItemId",inventoryItem.getString("inventoryItemId"));
                 updateInvItmMap.put("userLogin",userLogin);
                 updateInvItmMap.put("statusId",invItemStatusId);
                 String inventoryItemProductId=inventoryItem.getString("productId");
@@ -191,6 +188,7 @@
                   errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
                   Debug.logError(e,errMsg,module);
                 }
+                invItemIds.add(UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId")));
               }
  else {
                 Map localRipCtx=FastMap.newInstance();
@@ -200,7 +198,7 @@
                 localRipCtx.put("serialNumber",serialNum);
                 localRipCtx.put("productId",productId);
                 localRipCtx.put("returnItemSeqId",returnItemSeqId);
-                runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher);
+                runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher,invItemIds);
               }
             }
           }
@@ -211,7 +209,7 @@
             localRipCtx.put("quantityRejected",new Double(0.0));
             localRipCtx.put("productId",productId);
             localRipCtx.put("returnItemSeqId",returnItemSeqId);
-            runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher);
+            runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher,invItemIds);
           }
         }
  else {
@@ -223,7 +221,7 @@
         errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
       }
     }
-    if (statusId.equals("RETURN_ACCEPTED")) {
+    if (UtilValidate.isNotEmpty(statusId) && statusId.equals("RETURN_ACCEPTED")) {
       statusId="RETURN_COMPLETED";
       try {
         dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId",statusId,"returnId",returnId,"userLogin",userLogin));
@@ -259,5 +257,6 @@
     }
   }
   result.putAll(ServiceUtil.returnSuccess("Action Performed Successfully"));
+  result.put("inventoryItemIdList",invItemIds);
   return result;
 }
