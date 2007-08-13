@@ -33,12 +33,6 @@
   Element daShowShipmentElement=UtilXml.firstChildElement(dataAreaElement,"ns:SHOW_SHIPMENT");
   Element shipmentElement=UtilXml.firstChildElement(daShowShipmentElement,"ns:SHIPMENT");
   String shipmentId=UtilXml.childElementValue(shipmentElement,"of:DOCUMENTID");
-  Map result=FastMap.newInstance();
-  result.put("logicalId",logicalId);
-  result.put("component",component);
-  result.put("task",task);
-  result.put("referenceId",referenceId);
-  result.put("userLogin",userLogin);
   oagisMsgInfoCtx.put("logicalId",logicalId);
   oagisMsgInfoCtx.put("component",component);
   oagisMsgInfoCtx.put("task",task);
@@ -80,15 +74,10 @@
     String errMsg="Could not find Shipment id ID [" + shipmentId + "]";
     errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","ShipmentIdNotValid"));
   }
-  if (errorMapList.size() > 0) {
-    result.putAll(ServiceUtil.returnError("Errors found getting shipment information for incoming Show Shipment message; here is the first: " + errorMapList.get(0)));
-    result.put("errorMapList",errorMapList);
-    return result;
-  }
   String shipGroupSeqId=shipment.getString("primaryShipGroupSeqId");
   String originFacilityId=shipment.getString("originFacilityId");
   List shipUnitElementList=UtilXml.childElementList(daShowShipmentElement,"ns:SHIPUNIT");
-  if (UtilValidate.isNotEmpty(shipUnitElementList)) {
+  if (errorMapList.size() == 0 && UtilValidate.isNotEmpty(shipUnitElementList)) {
     Element shipUnitElement=(Element)shipUnitElementList.get(0);
     String trackingNum=UtilXml.childElementValue(shipUnitElement,"of:TRACKINGID");
     String carrierCode=UtilXml.childElementValue(shipUnitElement,"of:CARRIER");
@@ -272,9 +261,37 @@ catch (          GenericEntityException e) {
       errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericServiceException"));
     }
   }
+  Map result=FastMap.newInstance();
+  result.put("logicalId",logicalId);
+  result.put("component",component);
+  result.put("task",task);
+  result.put("referenceId",referenceId);
+  result.put("userLogin",userLogin);
   if (errorMapList.size() > 0) {
-    result.putAll(ServiceUtil.returnError("Errors found processing message"));
-    result.put("errorMapList",errorMapList);
+    Map saveErrorMapListCtx=FastMap.newInstance();
+    saveErrorMapListCtx.put("logicalId",logicalId);
+    saveErrorMapListCtx.put("component",component);
+    saveErrorMapListCtx.put("task",task);
+    saveErrorMapListCtx.put("referenceId",referenceId);
+    saveErrorMapListCtx.put("errorMapList",errorMapList);
+    try {
+      dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    try {
+      Map sendConfirmBodCtx=FastMap.newInstance();
+      sendConfirmBodCtx.putAll(saveErrorMapListCtx);
+      sendConfirmBodCtx.put("origRefId",shipmentId);
+      dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    result.putAll(ServiceUtil.returnError("Errors found processing message; information saved and return error sent back"));
     return result;
   }
  else {

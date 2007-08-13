@@ -123,17 +123,40 @@
   result.put("referenceId",referenceId);
   result.put("userLogin",userLogin);
   if (errorMapList.size() > 0) {
-    String errMsg="Error Processing Received Message";
-    result.put("errorMapList",errorMapList);
+    Map saveErrorMapListCtx=FastMap.newInstance();
+    saveErrorMapListCtx.put("logicalId",logicalId);
+    saveErrorMapListCtx.put("component",component);
+    saveErrorMapListCtx.put("task",task);
+    saveErrorMapListCtx.put("referenceId",referenceId);
+    saveErrorMapListCtx.put("errorMapList",errorMapList);
+    try {
+      dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    try {
+      Map sendConfirmBodCtx=FastMap.newInstance();
+      sendConfirmBodCtx.putAll(saveErrorMapListCtx);
+      dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    result.putAll(ServiceUtil.returnError("Errors found processing message; information saved and return error sent back"));
     return result;
   }
-  oagisMsgInfoCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
-  try {
-    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
-  }
- catch (  GenericServiceException e) {
-    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
-    Debug.logError(e,errMsg,module);
+ else {
+    oagisMsgInfoCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
+    try {
+      dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
   }
   result.putAll(ServiceUtil.returnSuccess("Service Completed Successfully"));
   return result;
