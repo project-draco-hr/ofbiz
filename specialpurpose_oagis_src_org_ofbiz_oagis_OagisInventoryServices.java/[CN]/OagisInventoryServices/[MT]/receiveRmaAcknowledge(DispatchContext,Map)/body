@@ -181,7 +181,7 @@
                   updateInvItmMap.put("productId",productId);
                 }
                 try {
-                  Map test=dispatcher.runSync("updateInventoryItem",updateInvItmMap);
+                  dispatcher.runSync("updateInventoryItem",updateInvItmMap);
                 }
  catch (                GenericServiceException e) {
                   String errMsg="Error running service updateInventoryItem: " + e.toString();
@@ -198,7 +198,7 @@
                 localRipCtx.put("serialNumber",serialNum);
                 localRipCtx.put("productId",productId);
                 localRipCtx.put("returnItemSeqId",returnItemSeqId);
-                runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher,invItemIds);
+                invItemIds.add(UtilMisc.toMap("inventoryItemId",runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher)));
               }
             }
           }
@@ -209,7 +209,30 @@
             localRipCtx.put("quantityRejected",new Double(0.0));
             localRipCtx.put("productId",productId);
             localRipCtx.put("returnItemSeqId",returnItemSeqId);
-            runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher,invItemIds);
+            String inventoryItemId=runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher);
+            invItemIds.add(UtilMisc.toMap("inventoryItemId",inventoryItemId));
+            if (("INV_ON_HOLD").equals(invItemStatusId)) {
+              Map createPhysicalInvAndVarCtx=FastMap.newInstance();
+              createPhysicalInvAndVarCtx.put("inventoryItemId",inventoryItemId);
+              createPhysicalInvAndVarCtx.put("physicalInventoryDate",UtilDateTime.nowTimestamp());
+              createPhysicalInvAndVarCtx.put("generalComments","Damaged, in repair");
+              createPhysicalInvAndVarCtx.put("varianceReasonId","VAR_DAMAGED");
+              createPhysicalInvAndVarCtx.put("availableToPromiseVar",new Double(-quantityAccepted));
+              createPhysicalInvAndVarCtx.put("quantityOnHandVar",new Double(0.0));
+              createPhysicalInvAndVarCtx.put("userLogin",userLogin);
+              try {
+                Map cpivResult=dispatcher.runSync("createPhysicalInventoryAndVariance",createPhysicalInvAndVarCtx);
+                if (ServiceUtil.isError(cpivResult)) {
+                  String errMsg=ServiceUtil.getErrorMessage(cpivResult);
+                  errorMapList.add(UtilMisc.toMap("reasonCode","CreatePhysicalInventoryAndVarianceServiceError","description",errMsg));
+                }
+              }
+ catch (              GenericServiceException e) {
+                String errMsg="Error running service createPhysicalInventoryAndVariance: " + e.toString();
+                errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
+                Debug.logError(e,errMsg,module);
+              }
+            }
           }
         }
  else {
