@@ -30,8 +30,6 @@
   Timestamp sentTimestamp=OagisServices.parseIsoDateString(sentDate,errorMapList);
   Element dataAreaElement=UtilXml.firstChildElement(receiveRmaElement,"ns:DATAAREA");
   Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
-  String inventoryItemTypeId=null;
-  String returnId=null;
   String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.PoReceiptFacilityId");
   String locationSeqId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.ReturnReceiptLocationSeqId");
   Timestamp timestamp=UtilDateTime.nowTimestamp();
@@ -71,14 +69,14 @@
     String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
     Debug.logError(e,errMsg,module);
   }
-  String statusId=null;
+  String lastReturnId=null;
   List invItemIds=FastList.newInstance();
-  List acknowledgeElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
-  if (UtilValidate.isNotEmpty(acknowledgeElementList)) {
-    Iterator acknowledgeElementIter=acknowledgeElementList.iterator();
-    while (acknowledgeElementIter.hasNext()) {
+  List receiptLineElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
+  if (UtilValidate.isNotEmpty(receiptLineElementList)) {
+    Iterator receiptLineElementIter=receiptLineElementList.iterator();
+    while (receiptLineElementIter.hasNext()) {
       Map ripCtx=FastMap.newInstance();
-      Element receiptLnElement=(Element)acknowledgeElementIter.next();
+      Element receiptLnElement=(Element)receiptLineElementIter.next();
       Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
       String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
       double itemQty=Double.parseDouble(itemQtyStr);
@@ -90,7 +88,8 @@
         Debug.logError(errMsg,module);
       }
       Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
-      returnId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
+      String returnId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
+      lastReturnId=returnId;
       ripCtx.put("returnId",returnId);
       String returnHeaderTypeId=UtilXml.childElementValue(documentRefElement,"of:DOCTYPE");
       if (returnHeaderTypeId.equals("RMA")) {
@@ -109,6 +108,7 @@
         errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
         Debug.logError(e,errMsg,module);
       }
+      String statusId=null;
       if (returnHeader != null) {
         statusId=returnHeader.get("statusId").toString();
         String invItemStatusId=null;
@@ -124,7 +124,7 @@
         List serialNumsList=FastList.newInstance();
         List invDetailList=UtilXml.childElementList(receiptLnElement,"ns:INVDETAIL");
         if (UtilValidate.isNotEmpty(invDetailList)) {
-          inventoryItemTypeId="SERIALIZED_INV_ITEM";
+          String inventoryItemTypeId="SERIALIZED_INV_ITEM";
           ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
           for (Iterator j=invDetailList.iterator(); j.hasNext(); ) {
             Element invDetailElement=(Element)j.next();
@@ -135,7 +135,7 @@
           }
         }
  else {
-          inventoryItemTypeId="NON_SERIAL_INV_ITEM";
+          String inventoryItemTypeId="NON_SERIAL_INV_ITEM";
           ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
         }
         boolean continueLoop=false;
@@ -249,16 +249,16 @@
         Debug.logError(errMsg,module);
         errorMapList.add(UtilMisc.toMap("reasonCode","ReturnIdNotFound","description",errMsg));
       }
-    }
-    if (UtilValidate.isNotEmpty(statusId) && statusId.equals("RETURN_ACCEPTED")) {
-      try {
-        dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_RECEIVED","returnId",returnId,"userLogin",userLogin));
-        dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_COMPLETED","returnId",returnId,"userLogin",userLogin));
-      }
- catch (      GenericServiceException e) {
-        String errMsg="Error Storing the value: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-        Debug.logError(e,errMsg,module);
+      if (UtilValidate.isNotEmpty(statusId) && statusId.equals("RETURN_ACCEPTED")) {
+        try {
+          dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_RECEIVED","returnId",returnId,"userLogin",userLogin));
+          dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_COMPLETED","returnId",returnId,"userLogin",userLogin));
+        }
+ catch (        GenericServiceException e) {
+          String errMsg="Error Storing the value: " + e.toString();
+          errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+          Debug.logError(e,errMsg,module);
+        }
       }
     }
   }
@@ -293,7 +293,7 @@
     try {
       Map sendConfirmBodCtx=FastMap.newInstance();
       sendConfirmBodCtx.putAll(saveErrorMapListCtx);
-      sendConfirmBodCtx.put("origRefId",returnId);
+      sendConfirmBodCtx.put("origRefId",lastReturnId);
       dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
     }
  catch (    GenericServiceException e) {
