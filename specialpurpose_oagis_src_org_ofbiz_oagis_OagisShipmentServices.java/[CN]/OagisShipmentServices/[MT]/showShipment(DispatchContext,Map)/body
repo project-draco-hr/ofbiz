@@ -1,5 +1,6 @@
 {
   Document doc=(Document)context.get("document");
+  boolean isErrorRetry=Boolean.TRUE.equals(context.get("isErrorRetry"));
   LocalDispatcher dispatcher=ctx.getDispatcher();
   GenericDelegator delegator=ctx.getDelegator();
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
@@ -55,7 +56,12 @@
     }
   }
   try {
-    dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoCtx,60,true);
+    if (isErrorRetry) {
+      dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
+    }
+ else {
+      dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoCtx,60,true);
+    }
   }
  catch (  GenericServiceException e) {
     String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
@@ -294,6 +300,14 @@ catch (          GenericEntityException e) {
   result.put("referenceId",referenceId);
   result.put("userLogin",userLogin);
   if (errorMapList.size() > 0) {
+    try {
+      oagisMsgInfoCtx.put("processingStatusId","OAGMP_PROC_ERROR");
+      dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
     Map saveErrorMapListCtx=FastMap.newInstance();
     saveErrorMapListCtx.put("logicalId",logicalId);
     saveErrorMapListCtx.put("component",component);
@@ -321,8 +335,8 @@ catch (          GenericEntityException e) {
     return result;
   }
  else {
-    oagisMsgInfoCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
     try {
+      oagisMsgInfoCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
       dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
     }
  catch (    GenericServiceException e) {
