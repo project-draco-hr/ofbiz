@@ -73,6 +73,7 @@
   List invItemIds=FastList.newInstance();
   List receiptLineElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
   if (UtilValidate.isNotEmpty(receiptLineElementList)) {
+    Map processedStatusIdByReturnIdMap=FastMap.newInstance();
     Iterator receiptLineElementIter=receiptLineElementList.iterator();
     while (receiptLineElementIter.hasNext()) {
       Map ripCtx=FastMap.newInstance();
@@ -111,6 +112,7 @@
       String statusId=null;
       if (returnHeader != null) {
         statusId=returnHeader.get("statusId").toString();
+        processedStatusIdByReturnIdMap.put(returnId,statusId);
         String invItemStatusId=null;
         String invItemStatus=UtilXml.childElementValue(receiptLnElement,"of:DISPOSITN");
         if (invItemStatus.equals("ReceivedTOAvailable") || invItemStatus.equals("NotAvailableTOAvailable")) {
@@ -171,10 +173,15 @@
               String serialNum=(String)serialNumIter.next();
               GenericValue inventoryItem=null;
               try {
-                inventoryItem=EntityUtil.getFirst(delegator.findByAnd("InventoryItem",UtilMisc.toMap("serialNumber",serialNum)));
+                Set productIdSet=ProductWorker.getRefurbishedProductIdSet(productId,delegator);
+                productIdSet.add(productId);
+                EntityCondition bySerialNumberCondition=new EntityExpr(new EntityExpr("serialNumber",EntityOperator.EQUALS,serialNumber),EntityOperator.AND,new EntityExpr("productId",EntityOperator.IN,productIdSet));
+                List inventoryItemsBySerialNumber=delegator.findByCondition("InventoryItem",bySerialNumberCondition,null,null);
+                inventoryItem=EntityUtil.getFirst(inventoryItemsBySerialNumber);
               }
  catch (              GenericEntityException e) {
-                String errMsg="Error Getting Entity InventoryItem";
+                String errMsg="Error Finding InventoryItem for product ID [" + productId + "], and seria lumber ["+ serialNum+ "]: "+ e.toString();
+                errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
                 Debug.logError(e,errMsg,module);
               }
               if (inventoryItem != null) {
@@ -204,7 +211,19 @@
                 localRipCtx.put("serialNumber",serialNum);
                 localRipCtx.put("productId",productId);
                 localRipCtx.put("returnItemSeqId",returnItemSeqId);
-                invItemIds.add(UtilMisc.toMap("inventoryItemId",runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher)));
+                try {
+                  Map ripResult=dispatcher.runSync("receiveInventoryProduct",localRipCtx);
+                  if (ServiceUtil.isError(ripResult)) {
+                    String errMsg=ServiceUtil.getErrorMessage(ripResult);
+                    errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
+                  }
+                  invItemIds.add(ripResult.get("inventoryItemId"));
+                }
+ catch (                GenericServiceException e) {
+                  String errMsg="Error running service receiveInventoryProduct: " + e.toString();
+                  errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
+                  Debug.logError(e,errMsg,module);
+                }
               }
             }
           }
@@ -215,7 +234,20 @@
             localRipCtx.put("quantityRejected",new Double(0.0));
             localRipCtx.put("productId",productId);
             localRipCtx.put("returnItemSeqId",returnItemSeqId);
-            String inventoryItemId=runReceiveInventoryProduct(localRipCtx,errorMapList,dispatcher);
+            String inventoryItemId=null;
+            try {
+              Map ripResult=dispatcher.runSync("receiveInventoryProduct",localRipCtx);
+              if (ServiceUtil.isError(ripResult)) {
+                String errMsg=ServiceUtil.getErrorMessage(ripResult);
+                errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
+              }
+              inventoryItemId=(String)ripResult.get("inventoryItemId");
+            }
+ catch (            GenericServiceException e) {
+              String errMsg="Error running service receiveInventoryProduct: " + e.toString();
+              errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
+              Debug.logError(e,errMsg,module);
+            }
             invItemIds.add(UtilMisc.toMap("inventoryItemId",inventoryItemId));
             if (("INV_ON_HOLD").equals(invItemStatusId)) {
               Map createPhysicalInvAndVarCtx=FastMap.newInstance();
@@ -249,6 +281,12 @@
         Debug.logError(errMsg,module);
         errorMapList.add(UtilMisc.toMap("reasonCode","ReturnIdNotFound","description",errMsg));
       }
+    }
+    Iterator processedStatusIdByReturnIdEntryIter=processedStatusIdByReturnIdMap.entrySet().iterator();
+    while (processedStatusIdByReturnIdEntryIter.hasNext()) {
+      Map.Entry processedStatusIdByReturnIdEntry=(Map.Entry)processedStatusIdByReturnIdEntryIter.next();
+      String returnId=(String)processedStatusIdByReturnIdEntry.getKey();
+      String statusId=(String)processedStatusIdByReturnIdEntry.getValue();
       if (UtilValidate.isNotEmpty(statusId) && statusId.equals("RETURN_ACCEPTED")) {
         try {
           dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_RECEIVED","returnId",returnId,"userLogin",userLogin));
