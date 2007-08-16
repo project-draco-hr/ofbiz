@@ -77,7 +77,7 @@
     errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericEntityException"));
   }
   if (shipment == null) {
-    String errMsg="Could not find Shipment id ID [" + shipmentId + "]";
+    String errMsg="Could not find Shipment ID [" + shipmentId + "]";
     errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","ShipmentIdNotValid"));
   }
   String shipGroupSeqId=shipment.getString("primaryShipGroupSeqId");
@@ -117,13 +117,33 @@
       if (UtilValidate.isNotEmpty(invItemElementList)) {
         List invitemMapList=FastList.newInstance();
         Iterator invItemElementIter=invItemElementList.iterator();
+        boolean foundBadProductId=false;
         while (invItemElementIter.hasNext()) {
           Element invItemElement=(Element)invItemElementIter.next();
           String productId=UtilXml.childElementValue(invItemElement,"of:ITEM");
+          try {
+            GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+            if (product == null) {
+              String errMsg="Product with ID [" + productId + "] not found (invalid Product ID).";
+              errorMapList.add(UtilMisc.toMap("reasonCode","ProductIdNotValid","description",errMsg));
+              Debug.logError(errMsg,module);
+              foundBadProductId=true;
+              continue;
+            }
+          }
+ catch (          GenericEntityException e) {
+            String errMsg="Error checking for valid Product ID: " + e.toString();
+            errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+            Debug.logError(e,errMsg,module);
+            continue;
+          }
           Map invitemMap=FastMap.newInstance();
           invitemMap.put("productId",productId);
           invitemMap.put("invItemElement",invItemElement);
           invitemMapList.add(invitemMap);
+        }
+        if (foundBadProductId) {
+          continue;
         }
         UtilMisc.sortMaps(invitemMapList,UtilMisc.toList("productId"));
         Iterator invitemMapIter=invitemMapList.iterator();
@@ -203,12 +223,12 @@
               if (UtilValidate.isNotEmpty(serialNumberList)) {
                 for (int i=0; i < currentResQuantity; i++) {
                   String serialNumber=(String)serialNumberIter.next();
-                  if (requireSerialNumberExist != null) {
+                  if (OagisServices.requireSerialNumberExist != null) {
                     Set productIdSet=ProductWorker.getRefurbishedProductIdSet(productId,delegator);
                     productIdSet.add(productId);
                     EntityCondition bySerialNumberCondition=new EntityExpr(new EntityExpr("serialNumber",EntityOperator.EQUALS,serialNumber),EntityOperator.AND,new EntityExpr("productId",EntityOperator.IN,productIdSet));
                     List inventoryItemsBySerialNumber=delegator.findByCondition("InventoryItem",bySerialNumberCondition,null,null);
-                    if (requireSerialNumberExist.booleanValue()) {
+                    if (OagisServices.requireSerialNumberExist.booleanValue()) {
                       if (inventoryItemsBySerialNumber.size() > 0) {
                         String errMsg="Referenced serial numbers must already exist, but serial number [" + serialNumber + "] was not found.";
                         errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumberRequiredButNotFound"));
@@ -266,7 +286,7 @@
             Debug.logInfo(e,errMsg,module);
           }
 catch (          GenericEntityException e) {
-            String errMsg="Error executing issueSerializedInvToShipmentPackageAndSetTracking Service: " + e.toString();
+            String errMsg="Data Error processing Show Shipment: " + e.toString();
             errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericEntityException"));
             Debug.logInfo(e,errMsg,module);
           }

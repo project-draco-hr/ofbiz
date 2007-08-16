@@ -83,10 +83,25 @@
       double itemQty=Double.parseDouble(itemQtyStr);
       String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
       String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
-      if (productId == null) {
-        String errMsg="productId not available in Message";
-        errorMapList.add(UtilMisc.toMap("reasonCode","ParseException","description",errMsg));
+      if (UtilValidate.isEmpty(productId)) {
+        String errMsg="Product ID Missing";
+        errorMapList.add(UtilMisc.toMap("reasonCode","ProductIdMissing","description",errMsg));
         Debug.logError(errMsg,module);
+      }
+      try {
+        GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+        if (product == null) {
+          String errMsg="Product with ID [" + productId + "] not found (invalid Product ID).";
+          errorMapList.add(UtilMisc.toMap("reasonCode","ProductIdNotValid","description",errMsg));
+          Debug.logError(errMsg,module);
+          continue;
+        }
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error checking for valid Product ID: " + e.toString();
+        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+        Debug.logError(e,errMsg,module);
+        continue;
       }
       Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
       String returnId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
@@ -97,6 +112,23 @@
         returnHeaderTypeId="CUSTOMER_RETURN";
       }
       String returnItemSeqId=UtilXml.childElementValue(documentRefElement,"of:LINENUM");
+      if (UtilValidate.isNotEmpty(returnItemSeqId)) {
+        try {
+          GenericValue product=delegator.findByPrimaryKeyCache("ReturnItem",UtilMisc.toMap("returnId",returnId,"returnItemSeqId",returnItemSeqId));
+          if (product == null) {
+            String errMsg="Return Item with ID [" + returnId + ":"+ returnItemSeqId+ "] not found (invalid Return/Item ID Combination).";
+            errorMapList.add(UtilMisc.toMap("reasonCode","ReturnAndItemIdNotValid","description",errMsg));
+            Debug.logError(errMsg,module);
+            continue;
+          }
+        }
+ catch (        GenericEntityException e) {
+          String errMsg="Error checking for valid Return/Item ID: " + e.toString();
+          errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+          Debug.logError(e,errMsg,module);
+          continue;
+        }
+      }
       String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
       Timestamp timestampItemReceived=OagisServices.parseIsoDateString(datetimeReceived,errorMapList);
       ripCtx.put("datetimeReceived",timestampItemReceived);
@@ -204,6 +236,33 @@
                 invItemIds.add(UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId")));
               }
  else {
+                if (OagisServices.requireSerialNumberExist != null) {
+                  try {
+                    Set productIdSet=ProductWorker.getRefurbishedProductIdSet(productId,delegator);
+                    productIdSet.add(productId);
+                    EntityCondition bySerialNumberCondition=new EntityExpr(new EntityExpr("serialNumber",EntityOperator.EQUALS,serialNumber),EntityOperator.AND,new EntityExpr("productId",EntityOperator.IN,productIdSet));
+                    List inventoryItemsBySerialNumber=delegator.findByCondition("InventoryItem",bySerialNumberCondition,null,null);
+                    if (OagisServices.requireSerialNumberExist.booleanValue()) {
+                      if (inventoryItemsBySerialNumber.size() > 0) {
+                        String errMsg="Referenced serial numbers must already exist, but serial number [" + serialNumber + "] was not found.";
+                        errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumberRequiredButNotFound"));
+                        continue;
+                      }
+                    }
+ else {
+                      if (inventoryItemsBySerialNumber.size() == 0) {
+                        String errMsg="Referenced serial numbers must NOT already exist, but serial number [" + serialNumber + "] already exists.";
+                        errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumberRequiredNotExistButFound"));
+                        continue;
+                      }
+                    }
+                  }
+ catch (                  GenericEntityException e) {
+                    String errMsg="Error checking valid serial number: " + e.toString();
+                    errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
+                    Debug.logError(e,errMsg,module);
+                  }
+                }
                 Map localRipCtx=FastMap.newInstance();
                 localRipCtx.putAll(ripCtx);
                 localRipCtx.put("quantityAccepted",new Double(1.0));
