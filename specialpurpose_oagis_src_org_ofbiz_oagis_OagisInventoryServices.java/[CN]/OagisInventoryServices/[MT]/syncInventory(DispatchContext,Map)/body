@@ -65,18 +65,18 @@
   }
   List dataAreaList=UtilXml.childElementList(syncInventoryRootElement,"ns:DATAAREA");
   if (UtilValidate.isNotEmpty(dataAreaList)) {
-    Iterator dataAreaIter=dataAreaList.iterator();
-    while (dataAreaIter.hasNext()) {
-      Element dataAreaElement=(Element)dataAreaIter.next();
-      Element syncInventoryElement=UtilXml.firstChildElement(dataAreaElement,"ns:SYNC_INVENTORY");
-      Element inventoryElement=UtilXml.firstChildElement(syncInventoryElement,"ns:INVENTORY");
-      Element quantityElement=UtilXml.firstChildElement(inventoryElement,"os:QUANTITY");
-      String itemQtyStr=UtilXml.childElementValue(quantityElement,"of:VALUE");
-      double itemQty=Double.parseDouble(itemQtyStr);
-      String sign=UtilXml.childElementValue(quantityElement,"of:SIGN");
-      String productId=UtilXml.childElementValue(inventoryElement,"of:ITEM");
-      String itemStatus=UtilXml.childElementValue(inventoryElement,"of:ITEMSTATUS");
-      try {
+    try {
+      Iterator dataAreaIter=dataAreaList.iterator();
+      while (dataAreaIter.hasNext()) {
+        Element dataAreaElement=(Element)dataAreaIter.next();
+        Element syncInventoryElement=UtilXml.firstChildElement(dataAreaElement,"ns:SYNC_INVENTORY");
+        Element inventoryElement=UtilXml.firstChildElement(syncInventoryElement,"ns:INVENTORY");
+        Element quantityElement=UtilXml.firstChildElement(inventoryElement,"os:QUANTITY");
+        String itemQtyStr=UtilXml.childElementValue(quantityElement,"of:VALUE");
+        double itemQty=Double.parseDouble(itemQtyStr);
+        String sign=UtilXml.childElementValue(quantityElement,"of:SIGN");
+        String productId=UtilXml.childElementValue(inventoryElement,"of:ITEM");
+        String itemStatus=UtilXml.childElementValue(inventoryElement,"of:ITEMSTATUS");
         GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
         if (product == null) {
           String errMsg="Product with ID [" + productId + "] not found (invalid Product ID).";
@@ -84,24 +84,16 @@
           Debug.logError(errMsg,module);
           continue;
         }
-      }
- catch (      GenericEntityException e) {
-        String errMsg="Error checking for valid Product ID: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-        Debug.logError(e,errMsg,module);
-        continue;
-      }
-      boolean isAvailable=!"NOTAVAILABLE".equals(itemStatus);
-      String statusId="INV_AVAILABLE";
-      if (!isAvailable) {
-        statusId="INV_ON_HOLD";
-      }
-      String snapshotDateStr=UtilXml.childElementValue(inventoryElement,"os:DATETIMEISO");
-      Timestamp snapshotDate=OagisServices.parseIsoDateString(snapshotDateStr,errorMapList);
-      double quantityOnHandTotal=0.0;
-      if (isAvailable) {
-        EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("effectiveDate",EntityOperator.LESS_THAN_EQUAL_TO,snapshotDate),new EntityExpr("productId",EntityOperator.EQUALS,productId),new EntityExpr("inventoryItemTypeId",EntityOperator.EQUALS,"NON_SERIAL_INV_ITEM"),new EntityExpr("facilityId",EntityOperator.EQUALS,syncInventoryFacilityId)),EntityOperator.AND);
-        try {
+        boolean isAvailable=!"NOTAVAILABLE".equals(itemStatus);
+        String statusId="INV_AVAILABLE";
+        if (!isAvailable) {
+          statusId="INV_ON_HOLD";
+        }
+        String snapshotDateStr=UtilXml.childElementValue(inventoryElement,"os:DATETIMEISO");
+        Timestamp snapshotDate=OagisServices.parseIsoDateString(snapshotDateStr,errorMapList);
+        double quantityOnHandTotal=0.0;
+        if (isAvailable) {
+          EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("effectiveDate",EntityOperator.LESS_THAN_EQUAL_TO,snapshotDate),new EntityExpr("productId",EntityOperator.EQUALS,productId),new EntityExpr("inventoryItemTypeId",EntityOperator.EQUALS,"NON_SERIAL_INV_ITEM"),new EntityExpr("facilityId",EntityOperator.EQUALS,syncInventoryFacilityId)),EntityOperator.AND);
           List invItemAndDetails=delegator.findByCondition("InventoryItemDetailForSum",condition,UtilMisc.toList("quantityOnHandSum"),null);
           Iterator invItemAndDetailIter=invItemAndDetails.iterator();
           while (invItemAndDetailIter.hasNext()) {
@@ -109,72 +101,57 @@
             quantityOnHandTotal+=inventoryItemDetailForSum.getDouble("quantityOnHandSum").doubleValue();
           }
         }
- catch (        GenericEntityException e) {
-          String errMsg="Error Getting Inventory Item And Detail: " + e.toString();
-          errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-          Debug.logError(e,errMsg,module);
-        }
-      }
-      EntityCondition serInvCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr("statusDatetime",EntityOperator.LESS_THAN_EQUAL_TO,snapshotDate),new EntityExpr(new EntityExpr("statusEndDatetime",EntityOperator.GREATER_THAN,snapshotDate),EntityOperator.OR,new EntityExpr("statusEndDatetime",EntityOperator.EQUALS,null)),new EntityExpr("productId",EntityOperator.EQUALS,productId),new EntityExpr("statusId",EntityOperator.EQUALS,statusId),new EntityExpr("inventoryItemTypeId",EntityOperator.EQUALS,"SERIALIZED_INV_ITEM"),new EntityExpr("facilityId",EntityOperator.EQUALS,syncInventoryFacilityId)),EntityOperator.AND);
-      try {
+        EntityCondition serInvCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr("statusDatetime",EntityOperator.LESS_THAN_EQUAL_TO,snapshotDate),new EntityExpr(new EntityExpr("statusEndDatetime",EntityOperator.GREATER_THAN,snapshotDate),EntityOperator.OR,new EntityExpr("statusEndDatetime",EntityOperator.EQUALS,null)),new EntityExpr("productId",EntityOperator.EQUALS,productId),new EntityExpr("statusId",EntityOperator.EQUALS,statusId),new EntityExpr("inventoryItemTypeId",EntityOperator.EQUALS,"SERIALIZED_INV_ITEM"),new EntityExpr("facilityId",EntityOperator.EQUALS,syncInventoryFacilityId)),EntityOperator.AND);
         long invItemQuantCount=delegator.findCountByCondition("InventoryItemStatusForCount",serInvCondition,null);
         quantityOnHandTotal+=invItemQuantCount;
+        if (itemQty != quantityOnHandTotal) {
+          double quantityDiff=Math.abs((itemQty - quantityOnHandTotal));
+          inventoryMapList.add(UtilMisc.toMap("productId",productId,"statusId",statusId,"quantityOnHandTotal",String.valueOf(quantityOnHandTotal),"quantityFromMessage",itemQtyStr,"quantityDiff",String.valueOf(quantityDiff),"timestamp",snapshotDate));
+        }
       }
- catch (      GenericEntityException e) {
-        String errMsg="Error Getting Inventory Item by Status Count: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-        Debug.logError(e,errMsg,module);
-      }
-      if (itemQty != quantityOnHandTotal) {
-        double quantityDiff=Math.abs((itemQty - quantityOnHandTotal));
-        inventoryMapList.add(UtilMisc.toMap("productId",productId,"statusId",statusId,"quantityOnHandTotal",String.valueOf(quantityOnHandTotal),"quantityFromMessage",itemQtyStr,"quantityDiff",String.valueOf(quantityDiff),"timestamp",snapshotDate));
-      }
+    }
+ catch (    Throwable t) {
+      String errMsg="Error processing Sync Inventory message: " + t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","Exception"));
+      Debug.logInfo(t,errMsg,module);
     }
   }
-  if (inventoryMapList.size() > 0) {
-    Map sendMap=FastMap.newInstance();
-    String sendToEmail=UtilProperties.getPropertyValue("oagis.properties","oagis.notification.email.sendTo");
-    if (UtilValidate.isNotEmpty(sendToEmail)) {
-      String productStoreId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId");
-      GenericValue productStoreEmail=null;
-      try {
-        productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_OAGIS_CONFIRM"));
-      }
- catch (      GenericEntityException e) {
-        String errMsg="Error Getting Entity ProductStoreEmailSetting: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-        Debug.logError(e,errMsg,module);
-      }
-      if (productStoreEmail != null) {
-        String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
-        sendMap.put("bodyScreenUri",bodyScreenLocation);
-      }
+  if (errorMapList.size() == 0 && inventoryMapList.size() > 0) {
+    try {
+      Map sendMap=FastMap.newInstance();
+      String sendToEmail=UtilProperties.getPropertyValue("oagis.properties","oagis.notification.email.sendTo");
+      if (UtilValidate.isNotEmpty(sendToEmail)) {
+        String productStoreId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId");
+        GenericValue productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","PRDS_OAGIS_CONFIRM"));
+        if (productStoreEmail != null) {
+          String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+          sendMap.put("bodyScreenUri",bodyScreenLocation);
+        }
  else {
-        sendMap.put("bodyScreenUri","component://oagis/widget/EmailOagisMessageScreens.xml#InventoryMismatchNotice");
-      }
-      if (locale == null) {
-        locale=Locale.getDefault();
-      }
-      sendMap.put("sendTo",sendToEmail);
-      sendMap.put("subject",productStoreEmail.getString("subject"));
-      sendMap.put("sendFrom",productStoreEmail.getString("fromAddress"));
-      sendMap.put("sendCc",productStoreEmail.getString("ccAddress"));
-      sendMap.put("sendBcc",productStoreEmail.getString("bccAddress"));
-      sendMap.put("contentType",productStoreEmail.getString("contentType"));
-      Map bodyParameters=UtilMisc.toMap("inventoryMapList",inventoryMapList,"locale",locale);
-      sendMap.put("bodyParameters",bodyParameters);
-      sendMap.put("userLogin",userLogin);
-      try {
+          sendMap.put("bodyScreenUri","component://oagis/widget/EmailOagisMessageScreens.xml#InventoryMismatchNotice");
+        }
+        if (locale == null) {
+          locale=Locale.getDefault();
+        }
+        sendMap.put("sendTo",sendToEmail);
+        sendMap.put("subject",productStoreEmail.getString("subject"));
+        sendMap.put("sendFrom",productStoreEmail.getString("fromAddress"));
+        sendMap.put("sendCc",productStoreEmail.getString("ccAddress"));
+        sendMap.put("sendBcc",productStoreEmail.getString("bccAddress"));
+        sendMap.put("contentType",productStoreEmail.getString("contentType"));
+        Map bodyParameters=UtilMisc.toMap("inventoryMapList",inventoryMapList,"locale",locale);
+        sendMap.put("bodyParameters",bodyParameters);
+        sendMap.put("userLogin",userLogin);
         dispatcher.runAsync("sendMailFromScreen",sendMap,true);
       }
- catch (      Exception e) {
-        String errMsg="Error Running Service sendMailFromScreen: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
-        Debug.logError(e,errMsg,module);
+ else {
+        Debug.logImportant("No sendTo email address found in process syncInventory service: inventoryMapList: " + inventoryMapList,module);
       }
     }
- else {
-      Debug.logImportant("No sendTo email address found in process syncInventory service: inventoryMapList: " + inventoryMapList,module);
+ catch (    Throwable t) {
+      String errMsg="Error processing Sync Inventory message: " + t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","Exception"));
+      Debug.logInfo(t,errMsg,module);
     }
   }
   Map result=FastMap.newInstance();

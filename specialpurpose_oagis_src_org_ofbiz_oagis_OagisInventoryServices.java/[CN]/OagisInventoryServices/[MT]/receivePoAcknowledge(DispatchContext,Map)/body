@@ -71,16 +71,16 @@
   String orderId=null;
   List acknowledgeElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
   if (UtilValidate.isNotEmpty(acknowledgeElementList)) {
-    Iterator acknowledgeElementIter=acknowledgeElementList.iterator();
-    while (acknowledgeElementIter.hasNext()) {
-      Map ripCtx=FastMap.newInstance();
-      Element receiptLnElement=(Element)acknowledgeElementIter.next();
-      Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
-      String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
-      double itemQty=Double.parseDouble(itemQtyStr);
-      String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
-      String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
-      try {
+    try {
+      Iterator acknowledgeElementIter=acknowledgeElementList.iterator();
+      while (acknowledgeElementIter.hasNext()) {
+        Map ripCtx=FastMap.newInstance();
+        Element receiptLnElement=(Element)acknowledgeElementIter.next();
+        Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
+        String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
+        double itemQty=Double.parseDouble(itemQtyStr);
+        String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
+        String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
         GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
         if (product == null) {
           String errMsg="Product with ID [" + productId + "] not found (invalid Product ID).";
@@ -88,25 +88,17 @@
           Debug.logError(errMsg,module);
           continue;
         }
-      }
- catch (      GenericEntityException e) {
-        String errMsg="Error checking for valid Product ID: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-        Debug.logError(e,errMsg,module);
-        continue;
-      }
-      Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
-      orderId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
-      String orderTypeId=UtilXml.childElementValue(documentRefElement,"of:DOCTYPE");
-      if (orderTypeId.equals("PO")) {
-        orderTypeId="PURCHASE_ORDER";
-      }
-      String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
-      Timestamp timestampItemReceived=OagisServices.parseIsoDateString(datetimeReceived,errorMapList);
-      ripCtx.put("datetimeReceived",timestampItemReceived);
-      GenericValue orderHeader=null;
-      if (orderId != null) {
-        try {
+        Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
+        orderId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
+        String orderTypeId=UtilXml.childElementValue(documentRefElement,"of:DOCTYPE");
+        if (orderTypeId.equals("PO")) {
+          orderTypeId="PURCHASE_ORDER";
+        }
+        String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
+        Timestamp timestampItemReceived=OagisServices.parseIsoDateString(datetimeReceived,errorMapList);
+        ripCtx.put("datetimeReceived",timestampItemReceived);
+        GenericValue orderHeader=null;
+        if (orderId != null) {
           List toStore=FastList.newInstance();
           orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
           if (orderHeader != null) {
@@ -125,41 +117,34 @@
             delegator.storeAll(toStore);
           }
         }
- catch (        GenericEntityException e) {
-          String errMsg="Error Getting OrderHeader: " + e.toString();
-          errorMapList.add(UtilMisc.toMap("reasonCode","GenericEntityException","description",errMsg));
-          Debug.logError(e,errMsg,module);
+        ripCtx.put("statusId","INV_AVAILABLE");
+        ripCtx.put("inventoryItemTypeId","NON_SERIAL_INV_ITEM");
+        ripCtx.put("productId",productId);
+        ripCtx.put("facilityId",facilityId);
+        ripCtx.put("userLogin",userLogin);
+        double quantityAccepted=0.0;
+        double quantityRejected=0.0;
+        if (sign.equals("+")) {
+          quantityAccepted=itemQty;
+          quantityRejected=0.0;
         }
-      }
-      ripCtx.put("statusId","INV_AVAILABLE");
-      ripCtx.put("inventoryItemTypeId","NON_SERIAL_INV_ITEM");
-      ripCtx.put("productId",productId);
-      ripCtx.put("facilityId",facilityId);
-      ripCtx.put("userLogin",userLogin);
-      double quantityAccepted=0.0;
-      double quantityRejected=0.0;
-      if (sign.equals("+")) {
-        quantityAccepted=itemQty;
-        quantityRejected=0.0;
-      }
  else {
-        quantityRejected=itemQty;
-        quantityAccepted=0.0;
-      }
-      ripCtx.put("quantityAccepted",new Double(quantityAccepted));
-      ripCtx.put("quantityRejected",new Double(quantityRejected));
-      try {
+          quantityRejected=itemQty;
+          quantityAccepted=0.0;
+        }
+        ripCtx.put("quantityAccepted",new Double(quantityAccepted));
+        ripCtx.put("quantityRejected",new Double(quantityRejected));
         Map ripResult=dispatcher.runSync("receiveInventoryProduct",ripCtx);
         if (ServiceUtil.isError(ripResult)) {
           String errMsg=ServiceUtil.getErrorMessage(ripResult);
           errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
         }
       }
- catch (      GenericServiceException e) {
-        String errMsg="Error running service receiveInventoryProduct: " + e.toString();
-        errorMapList.add(UtilMisc.toMap("reasonCode","GenericServiceException","description",errMsg));
-        Debug.logError(e,errMsg,module);
-      }
+    }
+ catch (    Throwable t) {
+      String errMsg="Error processing Acknowledge Delivery PO message: " + t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","Exception"));
+      Debug.logInfo(t,errMsg,module);
     }
   }
   Map result=FastMap.newInstance();
