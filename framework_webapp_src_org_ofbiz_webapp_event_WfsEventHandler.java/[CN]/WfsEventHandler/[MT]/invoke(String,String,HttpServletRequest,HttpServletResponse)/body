@@ -1,0 +1,55 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  String typeName=null;
+  Element queryElem=null;
+  try {
+    Map paramMap=request.getParameterMap();
+    typeName=(String)request.getParameter("typename");
+    if (UtilValidate.isNotEmpty(typeName)) {
+      String queryFieldCoded=(String)request.getParameter("filter");
+      String queryFieldDecoded=UtilFormatOut.decodeQueryValue(queryFieldCoded);
+      Document doc=UtilXml.readXmlDocument(queryFieldDecoded);
+      queryElem=doc.getDocumentElement();
+    }
+ else {
+      Document doc=UtilXml.readXmlDocument(request.getInputStream(),"WFS Request");
+      Element getFeatureElem=doc.getDocumentElement();
+      queryElem=UtilXml.firstChildElement(getFeatureElem,"Query");
+      typeName=queryElem.getAttribute("typeName");
+    }
+    String inputTmplUrl=UtilProperties.getPropertyValue("wfs","input.template.path",WfsEventHandler.InputTemplateUrl);
+    String xmlScript=processWfsEntity(typeName,queryElem,inputTmplUrl);
+    Document simpleDoc=UtilXml.readXmlDocument(xmlScript);
+    Element simpleElem=simpleDoc.getDocumentElement();
+    SimpleMethod meth=new SimpleMethod(simpleElem,null,null);
+    MethodContext methodContext=new MethodContext(request,response,null);
+    String retStr=meth.exec(methodContext);
+    List entityList=(List)request.getAttribute("entityList");
+    request.setAttribute("entityList",entityList);
+  }
+ catch (  TemplateException ioe) {
+    sendError(response,"Problem handling event");
+    throw new EventHandlerException("Problem processing template",ioe);
+  }
+catch (  FileNotFoundException ioe) {
+    sendError(response,"Problem handling event");
+    throw new EventHandlerException("Cannot find file",ioe);
+  }
+catch (  URISyntaxException ioe) {
+    sendError(response,"Problem handling event");
+    throw new EventHandlerException("Cannot read the input stream",ioe);
+  }
+catch (  SAXException ioe) {
+    sendError(response,"Problem handling event");
+    throw new EventHandlerException("Cannot read the input stream",ioe);
+  }
+catch (  ParserConfigurationException ioe) {
+    sendError(response,"Problem handling event");
+    throw new EventHandlerException("Cannot read the input stream",ioe);
+  }
+catch (  IOException ioe) {
+    sendError(response,"Problem handling event");
+    throw new EventHandlerException("Cannot read the input stream",ioe);
+  }
+  return "success";
+}
