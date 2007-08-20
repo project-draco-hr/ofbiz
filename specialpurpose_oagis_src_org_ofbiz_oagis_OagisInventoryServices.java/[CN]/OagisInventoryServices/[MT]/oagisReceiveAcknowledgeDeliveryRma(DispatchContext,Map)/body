@@ -277,8 +277,49 @@
         String returnId=(String)processedStatusIdByReturnIdEntry.getKey();
         String statusId=(String)processedStatusIdByReturnIdEntry.getValue();
         if (UtilValidate.isNotEmpty(statusId) && statusId.equals("RETURN_ACCEPTED")) {
-          dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_RECEIVED","returnId",returnId,"userLogin",userLogin));
-          dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_COMPLETED","returnId",returnId,"userLogin",userLogin));
+          Map returnQuantityByProductIdMap=FastMap.newInstance();
+          List returnItemList=delegator.findByAnd("ReturnItem",UtilMisc.toMap("returnId",returnId));
+          Iterator returnItemIter=returnItemList.iterator();
+          while (returnItemIter.hasNext()) {
+            GenericValue returnItem=(GenericValue)returnItemIter.next();
+            String productId=returnItem.getString("productId");
+            Double returnQuantityDbl=returnItem.getDouble("returnQuantity");
+            if (UtilValidate.isNotEmpty(productId) && returnQuantityDbl != null) {
+              double newTotal=returnQuantityDbl.doubleValue();
+              Double existingTotal=(Double)returnQuantityByProductIdMap.get(productId);
+              if (existingTotal != null)               newTotal+=existingTotal.doubleValue();
+              returnQuantityByProductIdMap.put(productId,new Double(newTotal));
+            }
+          }
+          boolean fullReturnReceived=true;
+          Iterator returnQuantityByProductIdEntryIter=returnQuantityByProductIdMap.entrySet().iterator();
+          while (returnQuantityByProductIdEntryIter.hasNext()) {
+            Map.Entry returnQuantityByProductIdEntry=(Map.Entry)returnQuantityByProductIdEntryIter.next();
+            String productId=(String)returnQuantityByProductIdEntry.getKey();
+            double returnQuantity=((Double)returnQuantityByProductIdEntry.getValue()).doubleValue();
+            double inventoryQuantity=0;
+            List inventoryItemDetailList=delegator.findByAnd("InventoryItemAndDetail",UtilMisc.toMap("productId",productId,"returnId",returnId));
+            Iterator inventoryItemDetailIter=inventoryItemDetailList.iterator();
+            while (inventoryItemDetailIter.hasNext()) {
+              GenericValue inventoryItemDetail=(GenericValue)inventoryItemDetailIter.next();
+              Double quantityOnHandDiff=inventoryItemDetail.getDouble("quantityOnHandDiff");
+              if (quantityOnHandDiff != null && quantityOnHandDiff.doubleValue() > 0) {
+                inventoryQuantity+=quantityOnHandDiff.doubleValue();
+              }
+            }
+            if (inventoryQuantity < returnQuantity) {
+              fullReturnReceived=false;
+              break;
+            }
+ else             if (inventoryQuantity > returnQuantity) {
+              String warnMsg="Received more [" + inventoryQuantity + "] than were expected on return ["+ returnQuantity+ "] for Return ID ["+ returnId+ "] and Product ID ["+ productId+ "]";
+              Debug.logWarning(warnMsg,module);
+            }
+          }
+          if (fullReturnReceived) {
+            dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_RECEIVED","returnId",returnId,"userLogin",userLogin));
+            dispatcher.runSync("updateReturnHeader",UtilMisc.toMap("statusId","RETURN_COMPLETED","returnId",returnId,"userLogin",userLogin));
+          }
         }
       }
     }
@@ -324,7 +365,7 @@
       dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
     }
  catch (    GenericServiceException e) {
-      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      String errMsg="Error sending Confirm BOD: " + e.toString();
       Debug.logError(e,errMsg,module);
     }
     result.putAll(ServiceUtil.returnSuccess("Errors found processing message; information saved and return error sent back"));

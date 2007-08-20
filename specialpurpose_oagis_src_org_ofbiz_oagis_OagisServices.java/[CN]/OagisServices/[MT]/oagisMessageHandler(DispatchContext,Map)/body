@@ -73,9 +73,26 @@ catch (  IOException e) {
       messageProcessContext.put("isErrorRetry",Boolean.TRUE);
     }
  else {
-      String errMsg="Message already received with ID: " + oagisMessageInfoKey;
-      Debug.logError(errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      String responseMsg="Message already received with ID: " + oagisMessageInfoKey;
+      Debug.logError(responseMsg,module);
+      List errorMapList=UtilMisc.toList(UtilMisc.toMap("reasonCode","MessageAlreadyReceive","description",responseMsg));
+      Map sendConfirmBodCtx=FastMap.newInstance();
+      sendConfirmBodCtx.put("logicalId",logicalId);
+      sendConfirmBodCtx.put("component",component);
+      sendConfirmBodCtx.put("task",task);
+      sendConfirmBodCtx.put("referenceId",referenceId);
+      sendConfirmBodCtx.put("errorMapList",errorMapList);
+      sendConfirmBodCtx.put("userLogin",userLogin);
+      try {
+        dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error sending Confirm BOD: " + e.toString();
+        Debug.logError(e,errMsg,module);
+      }
+      Map result=ServiceUtil.returnSuccess(responseMsg);
+      result.put("contentType","text/plain");
+      return result;
     }
   }
   Debug.logInfo("Processing OAGIS message with verb [" + bsrVerb + "] and noun ["+ bsrNoun+ "] with context: "+ messageProcessContext,module);
