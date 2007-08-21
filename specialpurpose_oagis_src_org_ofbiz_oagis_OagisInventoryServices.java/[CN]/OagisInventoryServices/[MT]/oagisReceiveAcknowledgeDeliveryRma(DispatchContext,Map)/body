@@ -114,53 +114,46 @@
             continue;
           }
         }
+        String invItemStatusId=null;
+        String disposition=UtilXml.childElementValue(receiptLnElement,"of:DISPOSITN");
+        if ("ReceivedTOAvailable".equals(disposition)) {
+          invItemStatusId="INV_AVAILABLE";
+        }
+ else         if ("ReceivedTONotAvailable".equals(disposition)) {
+          invItemStatusId="INV_ON_HOLD";
+        }
+ else         if ("NotAvailableTOAvailable".equals(disposition) || "AvailableTONotAvailable".equals(disposition)) {
+          String errMsg="Got DISPOSITN value [" + disposition + "] that is not valid for RMA, only for status change.";
+          errorMapList.add(UtilMisc.toMap("reasonCode","DispositnNotValidForRMA","description",errMsg));
+          continue;
+        }
+        ripCtx.put("statusId",invItemStatusId);
         String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
         Timestamp timestampItemReceived=OagisServices.parseIsoDateString(datetimeReceived,errorMapList);
         ripCtx.put("datetimeReceived",timestampItemReceived);
         GenericValue returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
-        String statusId=null;
         if (returnHeader != null) {
-          statusId=returnHeader.get("statusId").toString();
+          String statusId=returnHeader.get("statusId").toString();
           processedStatusIdByReturnIdMap.put(returnId,statusId);
-          String invItemStatusId=null;
-          String invItemStatus=UtilXml.childElementValue(receiptLnElement,"of:DISPOSITN");
-          if (invItemStatus.equals("ReceivedTOAvailable") || invItemStatus.equals("NotAvailableTOAvailable")) {
-            invItemStatusId="INV_AVAILABLE";
-          }
- else           if (invItemStatus.equals("ReceivedTONotAvailable") || invItemStatus.equals("AvailableTONotAvailable")) {
-            invItemStatusId="INV_ON_HOLD";
-          }
-          ripCtx.put("statusId",invItemStatusId);
-          String serialNumber=null;
           List serialNumsList=FastList.newInstance();
           List invDetailList=UtilXml.childElementList(receiptLnElement,"ns:INVDETAIL");
           if (UtilValidate.isNotEmpty(invDetailList)) {
-            String inventoryItemTypeId="SERIALIZED_INV_ITEM";
-            ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
             for (Iterator j=invDetailList.iterator(); j.hasNext(); ) {
               Element invDetailElement=(Element)j.next();
-              serialNumber=UtilXml.childElementValue(invDetailElement,"of:SERIALNUM");
+              String serialNumber=UtilXml.childElementValue(invDetailElement,"of:SERIALNUM");
               if (UtilValidate.isNotEmpty(serialNumber)) {
                 serialNumsList.add(serialNumber);
               }
             }
           }
- else {
-            String inventoryItemTypeId="NON_SERIAL_INV_ITEM";
-            ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
-          }
-          boolean continueLoop=false;
           Integer messageQuantity=Integer.valueOf(itemQtyStr);
           if (UtilValidate.isNotEmpty(serialNumsList)) {
             if (messageQuantity.intValue() != serialNumsList.size()) {
               String errMsg="Not enough serial numbers [" + serialNumsList.size() + "] for the quantity ["+ messageQuantity.intValue()+ "].";
               errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumbersMissing"));
               Debug.logInfo(errMsg,module);
-              continueLoop=true;
+              continue;
             }
-          }
-          if (continueLoop) {
-            continue;
           }
           ripCtx.put("facilityId",facilityId);
           ripCtx.put("locationSeqId",locationSeqId);
@@ -177,24 +170,26 @@
           }
           if (quantityAccepted > 0) {
             if (serialNumsList.size() > 0) {
+              String inventoryItemTypeId="SERIALIZED_INV_ITEM";
+              ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
               Iterator serialNumIter=serialNumsList.iterator();
               while (serialNumIter.hasNext()) {
                 String serialNum=(String)serialNumIter.next();
                 Set productIdSet=ProductWorker.getRefurbishedProductIdSet(productId,delegator);
                 productIdSet.add(productId);
-                EntityCondition bySerialNumberCondition=new EntityExpr(new EntityExpr("serialNumber",EntityOperator.EQUALS,serialNumber),EntityOperator.AND,new EntityExpr("productId",EntityOperator.IN,productIdSet));
+                EntityCondition bySerialNumberCondition=new EntityExpr(new EntityExpr("serialNumber",EntityOperator.EQUALS,serialNum),EntityOperator.AND,new EntityExpr("productId",EntityOperator.IN,productIdSet));
                 List inventoryItemsBySerialNumber=delegator.findByCondition("InventoryItem",bySerialNumberCondition,null,null);
                 if (OagisServices.requireSerialNumberExist != null) {
                   if (OagisServices.requireSerialNumberExist.booleanValue()) {
                     if (inventoryItemsBySerialNumber.size() > 0) {
-                      String errMsg="Referenced serial numbers must already exist, but serial number [" + serialNumber + "] was not found.";
+                      String errMsg="Referenced serial numbers must already exist, but serial number [" + serialNum + "] was not found.";
                       errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumberRequiredButNotFound"));
                       continue;
                     }
                   }
  else {
                     if (inventoryItemsBySerialNumber.size() == 0) {
-                      String errMsg="Referenced serial numbers must NOT already exist, but serial number [" + serialNumber + "] already exists.";
+                      String errMsg="Referenced serial numbers must NOT already exist, but serial number [" + serialNum + "] already exists.";
                       errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumberRequiredNotExistButFound"));
                       continue;
                     }
@@ -231,6 +226,8 @@
               }
             }
  else {
+              String inventoryItemTypeId="NON_SERIAL_INV_ITEM";
+              ripCtx.put("inventoryItemTypeId",inventoryItemTypeId);
               Map localRipCtx=FastMap.newInstance();
               localRipCtx.putAll(ripCtx);
               localRipCtx.put("quantityAccepted",new Double(quantityAccepted));

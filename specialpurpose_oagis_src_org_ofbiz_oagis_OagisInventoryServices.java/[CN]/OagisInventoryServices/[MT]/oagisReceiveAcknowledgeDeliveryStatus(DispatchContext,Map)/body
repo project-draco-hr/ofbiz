@@ -1,0 +1,237 @@
+{
+  Document doc=(Document)context.get("document");
+  boolean isErrorRetry=Boolean.TRUE.equals(context.get("isErrorRetry"));
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericDelegator delegator=ctx.getDelegator();
+  List errorMapList=FastList.newInstance();
+  GenericValue userLogin=null;
+  try {
+    userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error Getting UserLogin: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
+  Element receiveStatusElement=doc.getDocumentElement();
+  receiveStatusElement.normalize();
+  Element docCtrlAreaElement=UtilXml.firstChildElement(receiveStatusElement,"os:CNTROLAREA");
+  Element docSenderElement=UtilXml.firstChildElement(docCtrlAreaElement,"os:SENDER");
+  Element docBsrElement=UtilXml.firstChildElement(docCtrlAreaElement,"os:BSR");
+  String bsrVerb=UtilXml.childElementValue(docBsrElement,"of:VERB");
+  String bsrNoun=UtilXml.childElementValue(docBsrElement,"of:NOUN");
+  String bsrRevision=UtilXml.childElementValue(docBsrElement,"of:REVISION");
+  String logicalId=UtilXml.childElementValue(docSenderElement,"of:LOGICALID");
+  String component=UtilXml.childElementValue(docSenderElement,"of:COMPONENT");
+  String task=UtilXml.childElementValue(docSenderElement,"of:TASK");
+  String referenceId=UtilXml.childElementValue(docSenderElement,"of:REFERENCEID");
+  String confirmation=UtilXml.childElementValue(docSenderElement,"of:CONFIRMATION");
+  String authId=UtilXml.childElementValue(docSenderElement,"of:AUTHID");
+  String sentDate=UtilXml.childElementValue(docCtrlAreaElement,"os:DATETIMEISO");
+  Timestamp sentTimestamp=OagisServices.parseIsoDateString(sentDate,errorMapList);
+  Element dataAreaElement=UtilXml.firstChildElement(receiveStatusElement,"ns:DATAAREA");
+  Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
+  String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.PoReceiptFacilityId");
+  String locationSeqId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.ReturnReceiptLocationSeqId");
+  Timestamp timestamp=UtilDateTime.nowTimestamp();
+  Map comiCtx=FastMap.newInstance();
+  comiCtx.put("logicalId",logicalId);
+  comiCtx.put("authId",authId);
+  comiCtx.put("referenceId",referenceId);
+  comiCtx.put("receivedDate",timestamp);
+  comiCtx.put("sentDate",sentTimestamp);
+  comiCtx.put("component",component);
+  comiCtx.put("task",task);
+  comiCtx.put("outgoingMessage","N");
+  comiCtx.put("confirmation",confirmation);
+  comiCtx.put("bsrVerb",bsrVerb);
+  comiCtx.put("bsrNoun",bsrNoun);
+  comiCtx.put("bsrRevision",bsrRevision);
+  comiCtx.put("processingStatusId","OAGMP_RECEIVED");
+  comiCtx.put("userLogin",userLogin);
+  if (OagisServices.debugSaveXmlIn) {
+    try {
+      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
+    }
+ catch (    IOException e) {
+      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
+      Debug.logWarning(errMsg,module);
+    }
+  }
+  try {
+    if (isErrorRetry) {
+      dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+    }
+ else {
+      dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
+  List invItemIds=FastList.newInstance();
+  List receiptLineElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
+  if (UtilValidate.isNotEmpty(receiptLineElementList)) {
+    try {
+      Iterator receiptLineElementIter=receiptLineElementList.iterator();
+      while (receiptLineElementIter.hasNext()) {
+        Map uiiCtx=FastMap.newInstance();
+        Element receiptLnElement=(Element)receiptLineElementIter.next();
+        Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
+        String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
+        double itemQty=Double.parseDouble(itemQtyStr);
+        String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
+        String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
+        if (UtilValidate.isEmpty(productId)) {
+          String errMsg="Product ID Missing";
+          errorMapList.add(UtilMisc.toMap("reasonCode","ProductIdMissing","description",errMsg));
+          Debug.logError(errMsg,module);
+        }
+        GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+        if (product == null) {
+          String errMsg="Product with ID [" + productId + "] not found (invalid Product ID).";
+          errorMapList.add(UtilMisc.toMap("reasonCode","ProductIdNotValid","description",errMsg));
+          Debug.logError(errMsg,module);
+          continue;
+        }
+        String invItemStatusId=null;
+        String disposition=UtilXml.childElementValue(receiptLnElement,"of:DISPOSITN");
+        if ("NotAvailableTOAvailable".equals(disposition)) {
+          invItemStatusId="INV_AVAILABLE";
+        }
+ else         if ("AvailableTONotAvailable".equals(disposition)) {
+          invItemStatusId="INV_ON_HOLD";
+        }
+ else         if ("ReceivedTOAvailable".equals(disposition) || "ReceivedTONotAvailable".equals(disposition)) {
+          String errMsg="Got DISPOSITN value [" + disposition + "] that is not valid for Status Change, only for RMA/return.";
+          errorMapList.add(UtilMisc.toMap("reasonCode","DispositnNotValidForStatusChange","description",errMsg));
+          continue;
+        }
+        uiiCtx.put("statusId",invItemStatusId);
+        List serialNumsList=FastList.newInstance();
+        List invDetailList=UtilXml.childElementList(receiptLnElement,"ns:INVDETAIL");
+        if (UtilValidate.isNotEmpty(invDetailList)) {
+          for (Iterator j=invDetailList.iterator(); j.hasNext(); ) {
+            Element invDetailElement=(Element)j.next();
+            String serialNumber=UtilXml.childElementValue(invDetailElement,"of:SERIALNUM");
+            if (UtilValidate.isNotEmpty(serialNumber)) {
+              serialNumsList.add(serialNumber);
+            }
+          }
+        }
+        Integer messageQuantity=Integer.valueOf(itemQtyStr);
+        if (UtilValidate.isNotEmpty(serialNumsList)) {
+          if (messageQuantity.intValue() != serialNumsList.size()) {
+            String errMsg="Not enough serial numbers [" + serialNumsList.size() + "] for the quantity ["+ messageQuantity.intValue()+ "].";
+            errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumbersMissing"));
+            Debug.logInfo(errMsg,module);
+            continue;
+          }
+        }
+        uiiCtx.put("facilityId",facilityId);
+        uiiCtx.put("locationSeqId",locationSeqId);
+        uiiCtx.put("userLogin",userLogin);
+        if (!"+".equals(sign)) {
+          String errMsg="Got a sign [" + sign + "] that was not plus (+), this is not valid for a Status Change operation.";
+          errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SignNotPlusForStatusChange"));
+          continue;
+        }
+        if (serialNumsList.size() > 0) {
+          String inventoryItemTypeId="SERIALIZED_INV_ITEM";
+          uiiCtx.put("inventoryItemTypeId",inventoryItemTypeId);
+          Iterator serialNumIter=serialNumsList.iterator();
+          while (serialNumIter.hasNext()) {
+            String serialNum=(String)serialNumIter.next();
+            Set productIdSet=ProductWorker.getRefurbishedProductIdSet(productId,delegator);
+            productIdSet.add(productId);
+            EntityCondition bySerialNumberCondition=new EntityExpr(new EntityExpr("serialNumber",EntityOperator.EQUALS,serialNum),EntityOperator.AND,new EntityExpr("productId",EntityOperator.IN,productIdSet));
+            List inventoryItemsBySerialNumber=delegator.findByCondition("InventoryItem",bySerialNumberCondition,null,null);
+            if (inventoryItemsBySerialNumber.size() > 0) {
+              String errMsg="Referenced serial numbers must already exist, but serial number [" + serialNum + "] was not found.";
+              errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SerialNumberRequiredButNotFound"));
+              continue;
+            }
+            GenericValue inventoryItem=EntityUtil.getFirst(inventoryItemsBySerialNumber);
+            if (inventoryItem != null) {
+              Map updateInvItmMap=FastMap.newInstance();
+              updateInvItmMap.put("inventoryItemId",inventoryItem.getString("inventoryItemId"));
+              updateInvItmMap.put("userLogin",userLogin);
+              updateInvItmMap.put("statusId",invItemStatusId);
+              String inventoryItemProductId=inventoryItem.getString("productId");
+              if (!inventoryItemProductId.equals(productId)) {
+                updateInvItmMap.put("productId",productId);
+              }
+              dispatcher.runSync("updateInventoryItem",updateInvItmMap);
+              invItemIds.add(UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId")));
+            }
+ else {
+            }
+          }
+        }
+ else {
+          String inventoryItemTypeId="NON_SERIAL_INV_ITEM";
+          uiiCtx.put("inventoryItemTypeId",inventoryItemTypeId);
+        }
+      }
+    }
+ catch (    Throwable t) {
+      String errMsg="System Error processing Acknowledge Delivery RMA message: " + t.toString();
+      Debug.logInfo(t,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  Map result=FastMap.newInstance();
+  result.put("logicalId",logicalId);
+  result.put("component",component);
+  result.put("task",task);
+  result.put("referenceId",referenceId);
+  result.put("userLogin",userLogin);
+  if (errorMapList.size() > 0) {
+    try {
+      comiCtx.put("processingStatusId","OAGMP_PROC_ERROR");
+      dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    Map saveErrorMapListCtx=FastMap.newInstance();
+    saveErrorMapListCtx.put("logicalId",logicalId);
+    saveErrorMapListCtx.put("component",component);
+    saveErrorMapListCtx.put("task",task);
+    saveErrorMapListCtx.put("referenceId",referenceId);
+    saveErrorMapListCtx.put("errorMapList",errorMapList);
+    saveErrorMapListCtx.put("userLogin",userLogin);
+    try {
+      dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    try {
+      Map sendConfirmBodCtx=FastMap.newInstance();
+      sendConfirmBodCtx.putAll(saveErrorMapListCtx);
+      dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error sending Confirm BOD: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    result.putAll(ServiceUtil.returnSuccess("Errors found processing message; information saved and return error sent back"));
+    return result;
+  }
+ else {
+    comiCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
+    try {
+      dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+  }
+  result.putAll(ServiceUtil.returnSuccess("Service Completed Successfully"));
+  result.put("inventoryItemIdList",invItemIds);
+  return result;
+}
