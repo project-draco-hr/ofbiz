@@ -5,6 +5,7 @@
   String returnTypeId=(String)context.get("returnTypeId");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   Locale locale=(Locale)context.get("locale");
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
   GenericValue returnHeader=null;
   List returnItems=null;
   try {
@@ -19,15 +20,15 @@
   }
   List createdOrderIds=new ArrayList();
   if (returnHeader != null && returnItems != null && returnItems.size() > 0) {
-    Map itemsByOrder=new HashMap();
+    Map returnItemsByOrderId=new HashMap();
     Map totalByOrder=new HashMap();
-    groupReturnItemsByOrder(returnItems,itemsByOrder,totalByOrder,delegator,returnId,returnTypeId);
-    Set itemSet=itemsByOrder.entrySet();
-    Iterator itemByOrderIt=itemSet.iterator();
-    while (itemByOrderIt.hasNext()) {
-      Map.Entry entry=(Map.Entry)itemByOrderIt.next();
+    groupReturnItemsByOrder(returnItems,returnItemsByOrderId,totalByOrder,delegator,returnId,returnTypeId);
+    Set returnItemsByOrderIdEntrySet=returnItemsByOrderId.entrySet();
+    Iterator returnItemsByOrderIdEntryIter=returnItemsByOrderIdEntrySet.iterator();
+    while (returnItemsByOrderIdEntryIter.hasNext()) {
+      Map.Entry entry=(Map.Entry)returnItemsByOrderIdEntryIter.next();
       String orderId=(String)entry.getKey();
-      List items=(List)entry.getValue();
+      List returnItemList=(List)entry.getValue();
       GenericValue orderHeader=null;
       try {
         orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
@@ -66,17 +67,17 @@
         }
         orderMap.put("orderContactMechs",contactMechs);
       }
-      double itemTotal=0.00;
+      double orderPriceTotal=0.00;
       double additionalItemTotal=0.00;
       List orderItems=new ArrayList();
       List orderItemShipGroupInfo=new ArrayList();
       List orderItemShipGroupIds=new ArrayList();
       List orderItemAssocs=new ArrayList();
-      if (items != null) {
-        Iterator ri=items.iterator();
+      if (returnItemList != null) {
+        Iterator returnItemIter=returnItemList.iterator();
         int itemCount=1;
-        while (ri.hasNext()) {
-          GenericValue returnItem=(GenericValue)ri.next();
+        while (returnItemIter.hasNext()) {
+          GenericValue returnItem=(GenericValue)returnItemIter.next();
           GenericValue orderItem=null;
           GenericValue product=null;
           try {
@@ -91,7 +92,7 @@
             Double quantity=returnItem.getDouble("returnQuantity");
             Double unitPrice=returnItem.getDouble("returnPrice");
             if (quantity != null && unitPrice != null) {
-              itemTotal=itemTotal + (quantity.doubleValue() * unitPrice.doubleValue());
+              orderPriceTotal+=(quantity.doubleValue() * unitPrice.doubleValue());
               GenericValue refurbItem=null;
               try {
                 if (UtilValidate.isNotEmpty(product)) {
@@ -262,11 +263,11 @@
         Debug.logError("No return items found??",module);
         continue;
       }
-      GenericValue adj=delegator.makeValue("OrderAdjustment",new HashMap());
+      GenericValue adj=delegator.makeValue("OrderAdjustment",null);
       adj.set("orderAdjustmentTypeId","REPLACE_ADJUSTMENT");
-      adj.set("amount",new Double(itemTotal * -1));
+      adj.set("amount",new Double(orderPriceTotal * -1));
       adj.set("comments","Replacement Item Return #" + returnId);
-      adj.set("createdDate",UtilDateTime.nowTimestamp());
+      adj.set("createdDate",nowTimestamp);
       adj.set("createdByUserLogin",userLogin.getString("userLoginId"));
       orderMap.put("orderAdjustments",UtilMisc.toList(adj));
       if (additionalItemTotal > 0) {
@@ -339,6 +340,43 @@
       }
       if (createdOrderId != null) {
         OrderChangeHelper.approveOrder(dispatcher,userLogin,createdOrderId);
+        Map itemResponse=FastMap.newInstance();
+        itemResponse.put("replacementOrderId",createdOrderId);
+        itemResponse.put("responseAmount",new Double(orderPriceTotal));
+        itemResponse.put("responseDate",nowTimestamp);
+        itemResponse.put("userLogin",userLogin);
+        String returnItemResponseId=null;
+        try {
+          Map createReturnItemResponseResult=dispatcher.runSync("createReturnItemResponse",itemResponse);
+          if (ServiceUtil.isError(createReturnItemResponseResult)) {
+            return ServiceUtil.returnError("Could not create ReturnItemResponse record",null,null,createReturnItemResponseResult);
+          }
+          returnItemResponseId=(String)createReturnItemResponseResult.get("returnItemResponseId");
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,"Problem creating ReturnItemResponse record",module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingReturnItemResponseRecord",locale));
+        }
+        Iterator updateReturnItemIter=returnItemList.iterator();
+        while (updateReturnItemIter.hasNext()) {
+          GenericValue returnItem=(GenericValue)updateReturnItemIter.next();
+          Map updateReturnItemCtx=FastMap.newInstance();
+          updateReturnItemCtx.put("returnId",returnId);
+          updateReturnItemCtx.put("returnItemSeqId",returnItem.get("returnItemSeqId"));
+          updateReturnItemCtx.put("returnItemResponseId",returnItemResponseId);
+          updateReturnItemCtx.put("userLogin",userLogin);
+          try {
+            Map updateReturnItemResult=dispatcher.runSync("updateReturnItem",updateReturnItemCtx);
+            if (ServiceUtil.isError(updateReturnItemResult)) {
+              return ServiceUtil.returnError("Could not update ReturnItem record",null,null,updateReturnItemResult);
+            }
+          }
+ catch (          GenericServiceException e) {
+            String errMsg="Could not update ReturnItem record";
+            Debug.logError(e,errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+        }
       }
     }
   }
