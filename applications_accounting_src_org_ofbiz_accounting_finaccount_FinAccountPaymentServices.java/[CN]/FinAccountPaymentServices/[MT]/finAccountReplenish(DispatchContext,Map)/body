@@ -16,6 +16,7 @@
     return ServiceUtil.returnError("Invalid financial account [" + finAccountId + "]");
   }
   String currency=finAccount.getString("currencyUomId");
+  String statusId=finAccount.getString("statusId");
   GenericValue finAccountType;
   try {
     finAccountType=finAccount.getRelatedOne("FinAccountType");
@@ -63,13 +64,15 @@
     Debug.logInfo("finAccountReplenish Info: Not replenishing FinAccount [" + finAccountId + "] because balance ["+ balance+ "] is greater than the replenishThreshold ["+ replenishThreshold+ "]",module);
     return ServiceUtil.returnSuccess();
   }
-  Map rollbackCtx=UtilMisc.toMap("userLogin",userLogin,"finAccountId",finAccountId,"inGoodStanding","N");
-  try {
-    dispatcher.addRollbackService("updateFinAccount",rollbackCtx,true);
-  }
- catch (  GenericServiceException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
+  if ("FNACT_NEGPENDREPL".equals(statusId)) {
+    Map rollbackCtx=UtilMisc.toMap("userLogin",userLogin,"finAccountId",finAccountId,"statusId","FNACT_NEGPENDREPL");
+    try {
+      dispatcher.addRollbackService("updateFinAccount",rollbackCtx,true);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
   }
   BigDecimal depositAmount=replenishLevel.subtract(balance);
   String ownerPartyId=finAccount.getString("ownerPartyId");
@@ -133,15 +136,17 @@
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  try {
-    Map ufaResp=dispatcher.runSync("updateFinAccount",UtilMisc.toMap("finAccountId",finAccountId,"inGoodStanding","Y","userLogin",userLogin));
-    if (ServiceUtil.isError(ufaResp)) {
-      return ufaResp;
+  if ("FNACT_NEGPENDREPL".equals(statusId)) {
+    try {
+      Map ufaResp=dispatcher.runSync("updateFinAccount",UtilMisc.toMap("finAccountId",finAccountId,"statusId","FNACT_ACTIVE","userLogin",userLogin));
+      if (ServiceUtil.isError(ufaResp)) {
+        return ufaResp;
+      }
     }
-  }
- catch (  GenericServiceException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
   }
   return ServiceUtil.returnSuccess();
 }
