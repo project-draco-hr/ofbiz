@@ -36,23 +36,35 @@
   if (previousBalance == null) {
     previousBalance=FinAccountHelper.ZERO;
   }
-  BigDecimal balance;
+  BigDecimal actualBalance;
   String refNum;
   try {
     refNum=FinAccountPaymentServices.createFinAcctPaymentTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,orderId,orderItemSeqId,currencyUom,DEPOSIT,finAccountId);
     finAccount.refresh();
-    balance=finAccount.getBigDecimal("actualBalance");
+    actualBalance=finAccount.getBigDecimal("actualBalance");
   }
  catch (  GeneralException e) {
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
-  if (balance == null) {
-    balance=FinAccountHelper.ZERO;
+  if (actualBalance == null) {
+    actualBalance=FinAccountHelper.ZERO;
+  }
+ else {
+    if (actualBalance.doubleValue() < 0) {
+      try {
+        Map rollbackCtx=UtilMisc.toMap("userLogin",userLogin,"finAccountId",finAccountId,"statusId","FNACT_NEGPENDREPL");
+        dispatcher.addRollbackService("updateFinAccount",rollbackCtx,true);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+    }
   }
   Map result=ServiceUtil.returnSuccess();
   result.put("previousBalance",previousBalance.doubleValue());
-  result.put("balance",balance.doubleValue());
+  result.put("balance",actualBalance.doubleValue());
   result.put("amount",amount);
   result.put("processResult",Boolean.TRUE);
   result.put("referenceNum",refNum);
