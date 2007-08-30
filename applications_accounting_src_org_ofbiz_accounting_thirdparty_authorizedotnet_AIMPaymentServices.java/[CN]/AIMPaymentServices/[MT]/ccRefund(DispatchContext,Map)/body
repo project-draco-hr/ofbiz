@@ -33,6 +33,39 @@
     }
   }
   Map reply=processCard(request,props);
-  processRefundTransResult(reply,results);
+  results.putAll(processRefundTransResult(reply));
+  boolean refundResult=((Boolean)results.get("refundResult")).booleanValue();
+  String refundFlag=(String)results.get("refundFlag");
+  if (!refundResult && isVoidableResponse(refundFlag)) {
+    boolean canDoVoid=false;
+    if (VOIDABLE_RESPONSES_TIME_LIMIT.contains(refundFlag)) {
+      Calendar startCalendar=UtilDateTime.toCalendar(UtilDateTime.nowTimestamp());
+      startCalendar.add(Calendar.DATE,-TIME_LIMIT_VERIFICATION_DAYS);
+      Timestamp startTimestamp=new java.sql.Timestamp(startCalendar.getTime().getTime());
+      Timestamp authTimestamp=authTransaction.getTimestamp("transactionDate");
+      if (startTimestamp.before(authTimestamp)) {
+        canDoVoid=true;
+      }
+    }
+ else {
+      canDoVoid=true;
+    }
+    if (canDoVoid) {
+      Double authAmountObj=authTransaction.getDouble("amount");
+      Double refundAmountObj=(Double)context.get("refundAmount");
+      double authAmount=authAmountObj != null ? authAmountObj.doubleValue() : 0.0;
+      double refundAmount=refundAmountObj != null ? refundAmountObj.doubleValue() : 0.0;
+      if (authAmount == refundAmount) {
+        reply=voidTransaction(authTransaction,context);
+        if (ServiceUtil.isError(reply))         return reply;
+        results=ServiceUtil.returnSuccess();
+        results.putAll(processRefundTransResult(reply));
+        return results;
+      }
+ else {
+        return ServiceUtil.returnError("Cannot perform a VOID transaction: authAmount [" + authAmount + "] is different than refundAmount ["+ refundAmount+ "]");
+      }
+    }
+  }
   return results;
 }

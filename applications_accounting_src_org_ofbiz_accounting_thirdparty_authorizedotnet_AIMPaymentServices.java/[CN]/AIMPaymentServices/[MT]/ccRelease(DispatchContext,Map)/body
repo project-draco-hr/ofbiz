@@ -1,6 +1,20 @@
 {
-  Map results=new HashMap();
-  results.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
-  results.put(ModelService.ERROR_MESSAGE,"Authorize.net ccRelease unsupported with version 3.0");
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue creditCard=null;
+  try {
+    creditCard=orderPaymentPreference.getRelatedOne("CreditCard");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to obtain cc information from payment preference [ID = " + orderPaymentPreference.getString("orderPaymentPreferenceId") + "]");
+  }
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference [ID = " + orderPaymentPreference.getString("orderPaymentPreferenceId") + "]; cannot void");
+  }
+  Map reply=voidTransaction(authTransaction,context);
+  if (ServiceUtil.isError(reply))   return reply;
+  Map results=ServiceUtil.returnSuccess();
+  results.putAll(processReleaseTransResult(reply));
   return results;
 }
