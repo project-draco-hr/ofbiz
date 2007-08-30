@@ -12,7 +12,8 @@
       String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_not_found_failure",locale);
       return ServiceUtil.returnError(errMsg + " " + communicationEventId);
     }
-    if ((communicationEvent.getString("communicationEventTypeId") == null) || !(communicationEvent.getString("communicationEventTypeId").equals("EMAIL_COMMUNICATION"))) {
+    String communicationEventType=communicationEvent.getString("communicationEventTypeId");
+    if (communicationEventType == null || !("EMAIL_COMMUNICATION".equals(communicationEventType) || "AUTO_EMAIL_COMM".equals(communicationEventType))) {
       String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_must_be_email_for_email",locale);
       return ServiceUtil.returnError(errMsg + " " + communicationEventId);
     }
@@ -26,13 +27,20 @@
     sendMailParams.put("body",communicationEvent.getString("content"));
     sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
     sendMailParams.put("userLogin",userLogin);
-    if ((communicationEvent.getString("contactListId") == null) || (communicationEvent.getString("contactListId").equals(""))) {
-      if ((communicationEvent.getRelatedOne("ToContactMech") == null) || (!(communicationEvent.getRelatedOne("ToContactMech").getString("contactMechTypeId").equals("EMAIL_ADDRESS")) || (communicationEvent.getRelatedOne("ToContactMech").getString("infoString") == null))) {
+    if ((UtilValidate.isEmpty(communicationEvent.getString("contactListId")))) {
+      String sendTo=communicationEvent.getString("toString");
+      if (UtilValidate.isEmpty(sendTo)) {
+        GenericValue toContactMech=communicationEvent.getRelatedOne("ToContactMech");
+        if (toContactMech != null && "EMAIL_ADDRESS".equals(toContactMech.getString("contactMechTypeId"))) {
+          sendTo=toContactMech.getString("infoString");
+        }
+      }
+      if (UtilValidate.isEmpty(sendTo)) {
         String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_to_contact_mech_must_be_email",locale);
         return ServiceUtil.returnError(errMsg + " " + communicationEventId);
       }
       sendMailParams.put("communicationEventId",communicationEventId);
-      sendMailParams.put("sendTo",communicationEvent.getRelatedOne("ToContactMech").getString("infoString"));
+      sendMailParams.put("sendTo",sendTo);
       sendMailParams.put("partyId",communicationEvent.getString("partyIdTo"));
       Map tmpResult=dispatcher.runSync("sendMail",sendMailParams);
       if (ServiceUtil.isError(tmpResult)) {
@@ -43,6 +51,15 @@
         if (ServiceUtil.isError(completeResult)) {
           errorMessages.add(ServiceUtil.getErrorMessage(completeResult));
         }
+      }
+      String messageId=(String)tmpResult.get("messageId");
+      communicationEvent.set("messageId",messageId);
+      try {
+        communicationEvent.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
       }
     }
  else {
