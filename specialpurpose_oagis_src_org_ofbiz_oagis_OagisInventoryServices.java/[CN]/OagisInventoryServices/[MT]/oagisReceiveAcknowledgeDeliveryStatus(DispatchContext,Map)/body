@@ -34,13 +34,30 @@
   String locationSeqId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.ReturnReceiptLocationSeqId");
   Timestamp timestamp=UtilDateTime.nowTimestamp();
   Map comiCtx=FastMap.newInstance();
-  comiCtx.put("logicalId",logicalId);
+  Map omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+  Debug.log("Processing oagisReceiveAcknowledgeDeliveryRma for message ID [" + omiPkMap + "]",module);
+  GenericValue previousOagisMessageInfo=null;
+  try {
+    previousOagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",omiPkMap);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error getting OagisMessageInfo from database for message ID [" + omiPkMap + "]: "+ e.toString();
+    Debug.logInfo(e,errMsg,module);
+  }
+  if (previousOagisMessageInfo != null) {
+    if ("OAGMP_PROC_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_ERRCONFSENT".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
+      isErrorRetry=true;
+    }
+ else {
+      String errMsg="Message received for message ID [" + omiPkMap + "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  comiCtx.putAll(omiPkMap);
   comiCtx.put("authId",authId);
-  comiCtx.put("referenceId",referenceId);
   comiCtx.put("receivedDate",timestamp);
   comiCtx.put("sentDate",sentTimestamp);
-  comiCtx.put("component",component);
-  comiCtx.put("task",task);
   comiCtx.put("outgoingMessage","N");
   comiCtx.put("confirmation",confirmation);
   comiCtx.put("bsrVerb",bsrVerb);
@@ -167,6 +184,8 @@
  else {
           String inventoryItemTypeId="NON_SERIAL_INV_ITEM";
           uiiCtx.put("inventoryItemTypeId",inventoryItemTypeId);
+          String errMsg="No serial numbers were included in the message and right now this is not supported";
+          errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","NoSerialNumbersInMessage"));
         }
       }
       if (errorMapList.size() > 0) {
@@ -174,16 +193,27 @@
       }
     }
  catch (    Throwable t) {
-      String errMsg="System Error processing Acknowledge Delivery Status message: " + t.toString();
+      String errMsg="System Error processing Acknowledge Delivery Status message for message [" + omiPkMap + "]: "+ t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SystemError"));
+      try {
+        comiCtx.put("processingStatusId","OAGMP_SYS_ERROR");
+        dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+        Map saveErrorMapListCtx=FastMap.newInstance();
+        saveErrorMapListCtx.putAll(omiPkMap);
+        saveErrorMapListCtx.put("errorMapList",errorMapList);
+        saveErrorMapListCtx.put("userLogin",userLogin);
+        dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg2="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+        Debug.logError(e,errMsg2,module);
+      }
       Debug.logInfo(t,errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
   }
   Map result=FastMap.newInstance();
-  result.put("logicalId",logicalId);
-  result.put("component",component);
-  result.put("task",task);
-  result.put("referenceId",referenceId);
+  result.putAll(omiPkMap);
   result.put("userLogin",userLogin);
   if (errorMapList.size() > 0) {
     try {
@@ -195,10 +225,7 @@
       Debug.logError(e,errMsg,module);
     }
     Map saveErrorMapListCtx=FastMap.newInstance();
-    saveErrorMapListCtx.put("logicalId",logicalId);
-    saveErrorMapListCtx.put("component",component);
-    saveErrorMapListCtx.put("task",task);
-    saveErrorMapListCtx.put("referenceId",referenceId);
+    saveErrorMapListCtx.putAll(omiPkMap);
     saveErrorMapListCtx.put("errorMapList",errorMapList);
     saveErrorMapListCtx.put("userLogin",userLogin);
     try {

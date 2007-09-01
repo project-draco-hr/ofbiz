@@ -30,13 +30,30 @@
   String sentDate=UtilXml.childElementValue(docCtrlAreaElement,"os:DATETIMEISO");
   Timestamp sentTimestamp=OagisServices.parseIsoDateString(sentDate,errorMapList);
   Timestamp timestamp=UtilDateTime.nowTimestamp();
-  comiCtx.put("logicalId",logicalId);
+  Map omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+  Debug.log("Processing oagisReceiveAcknowledgeDeliveryPo for message ID [" + omiPkMap + "]",module);
+  GenericValue previousOagisMessageInfo=null;
+  try {
+    previousOagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",omiPkMap);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error getting OagisMessageInfo from database for message ID [" + omiPkMap + "]: "+ e.toString();
+    Debug.logInfo(e,errMsg,module);
+  }
+  if (previousOagisMessageInfo != null) {
+    if ("OAGMP_PROC_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_ERRCONFSENT".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
+      isErrorRetry=true;
+    }
+ else {
+      String errMsg="Message received for message ID [" + omiPkMap + "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  comiCtx.putAll(omiPkMap);
   comiCtx.put("authId",authId);
-  comiCtx.put("referenceId",referenceId);
   comiCtx.put("receivedDate",timestamp);
   comiCtx.put("sentDate",sentTimestamp);
-  comiCtx.put("component",component);
-  comiCtx.put("task",task);
   comiCtx.put("outgoingMessage","N");
   comiCtx.put("confirmation",confirmation);
   comiCtx.put("bsrVerb",bsrVerb);
@@ -145,7 +162,21 @@
       }
     }
  catch (    Throwable t) {
-      String errMsg="System Error processing Acknowledge Delivery PO message: " + t.toString();
+      String errMsg="System Error processing Acknowledge Delivery PO message for message [" + omiPkMap + "]: "+ t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SystemError"));
+      try {
+        comiCtx.put("processingStatusId","OAGMP_SYS_ERROR");
+        dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+        Map saveErrorMapListCtx=FastMap.newInstance();
+        saveErrorMapListCtx.putAll(omiPkMap);
+        saveErrorMapListCtx.put("errorMapList",errorMapList);
+        saveErrorMapListCtx.put("userLogin",userLogin);
+        dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg2="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+        Debug.logError(e,errMsg2,module);
+      }
       Debug.logInfo(t,errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }

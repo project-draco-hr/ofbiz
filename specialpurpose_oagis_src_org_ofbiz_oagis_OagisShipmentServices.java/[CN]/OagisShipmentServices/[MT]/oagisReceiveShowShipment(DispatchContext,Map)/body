@@ -34,14 +34,14 @@
   Element daShowShipmentElement=UtilXml.firstChildElement(dataAreaElement,"ns:SHOW_SHIPMENT");
   Element shipmentElement=UtilXml.firstChildElement(daShowShipmentElement,"ns:SHIPMENT");
   String shipmentId=UtilXml.childElementValue(shipmentElement,"of:DOCUMENTID");
-  Debug.log("Processing oagisReceiveShowShipment for shipmentId [" + shipmentId + "] referenceId ["+ referenceId+ "]",module);
   Map omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+  Debug.log("Processing oagisReceiveShowShipment for shipmentId [" + shipmentId + "] message ID ["+ omiPkMap+ "]",module);
   GenericValue previousOagisMessageInfo=null;
   try {
     previousOagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",omiPkMap);
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error getting OagisMessageInfo from database for shipment ID [" + shipmentId + "]: "+ e.toString();
+    String errMsg="Error getting OagisMessageInfo from database for shipment ID [" + shipmentId + "] message ID ["+ omiPkMap+ "]: "+ e.toString();
     Debug.logInfo(e,errMsg,module);
   }
   if (previousOagisMessageInfo != null) {
@@ -49,7 +49,7 @@
       isErrorRetry=true;
     }
  else {
-      String errMsg="Message received for shipmentId [" + shipmentId + "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
+      String errMsg="Message received for shipmentId [" + shipmentId + "] message ID ["+ omiPkMap+ "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
       Debug.logError(errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
@@ -340,24 +340,27 @@
       }
     }
  catch (    Throwable t) {
+      String errMsg="System Error processing Show Shipment message for shipmentId [" + shipmentId + "] message ["+ omiPkMap+ "]: "+ t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SystemError"));
       try {
         oagisMsgInfoCtx.put("processingStatusId","OAGMP_SYS_ERROR");
         dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
+        Map saveErrorMapListCtx=FastMap.newInstance();
+        saveErrorMapListCtx.putAll(omiPkMap);
+        saveErrorMapListCtx.put("errorMapList",errorMapList);
+        saveErrorMapListCtx.put("userLogin",userLogin);
+        dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
       }
  catch (      GenericServiceException e) {
-        String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
-        Debug.logError(e,errMsg,module);
+        String errMsg2="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+        Debug.logError(e,errMsg2,module);
       }
-      String errMsg="System Error processing Show Shipment message for shipmentId [" + shipmentId + "]: "+ t.toString();
       Debug.logInfo(t,errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
   }
   Map result=FastMap.newInstance();
-  result.put("logicalId",logicalId);
-  result.put("component",component);
-  result.put("task",task);
-  result.put("referenceId",referenceId);
+  result.putAll(omiPkMap);
   result.put("userLogin",userLogin);
   if (errorMapList.size() > 0) {
     try {
@@ -368,14 +371,11 @@
       String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
       Debug.logError(e,errMsg,module);
     }
-    Map saveErrorMapListCtx=FastMap.newInstance();
-    saveErrorMapListCtx.put("logicalId",logicalId);
-    saveErrorMapListCtx.put("component",component);
-    saveErrorMapListCtx.put("task",task);
-    saveErrorMapListCtx.put("referenceId",referenceId);
-    saveErrorMapListCtx.put("errorMapList",errorMapList);
-    saveErrorMapListCtx.put("userLogin",userLogin);
     try {
+      Map saveErrorMapListCtx=FastMap.newInstance();
+      saveErrorMapListCtx.putAll(omiPkMap);
+      saveErrorMapListCtx.put("errorMapList",errorMapList);
+      saveErrorMapListCtx.put("userLogin",userLogin);
       dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
     }
  catch (    GenericServiceException e) {
@@ -384,7 +384,9 @@
     }
     try {
       Map sendConfirmBodCtx=FastMap.newInstance();
-      sendConfirmBodCtx.putAll(saveErrorMapListCtx);
+      sendConfirmBodCtx.putAll(omiPkMap);
+      sendConfirmBodCtx.put("errorMapList",errorMapList);
+      sendConfirmBodCtx.put("userLogin",userLogin);
       sendConfirmBodCtx.put("origRefId",shipmentId);
       dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
     }
