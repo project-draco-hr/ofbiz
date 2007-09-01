@@ -45,11 +45,11 @@
     Debug.logInfo(e,errMsg,module);
   }
   if (previousOagisMessageInfo != null) {
-    if ("OAGMP_PROC_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_ERRCONFSENT".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
+    if ("OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
       isErrorRetry=true;
     }
  else {
-      String errMsg="Message received for shipmentId [" + shipmentId + "] message ID ["+ omiPkMap+ "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
+      String errMsg="Message received for shipmentId [" + shipmentId + "] message ID ["+ omiPkMap+ "] was already partially processed but is not in a system error state, needs manual review; message ID: "+ omiPkMap;
       Debug.logError(errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
@@ -335,9 +335,6 @@
           Debug.logError(errMsg,module);
         }
       }
- else {
-        TransactionUtil.setRollbackOnly("Found business level errors in message processing, not saving results",null);
-      }
     }
  catch (    Throwable t) {
       String errMsg="System Error processing Show Shipment message for shipmentId [" + shipmentId + "] message ["+ omiPkMap+ "]: "+ t.toString();
@@ -394,7 +391,14 @@
       String errMsg="Error sending Confirm BOD: " + e.toString();
       Debug.logError(e,errMsg,module);
     }
-    result.putAll(ServiceUtil.returnSuccess("Errors found processing message; information saved and return error sent back"));
+    String errMsg="Found business level errors in message processing, not saving those changes but saving error messages; first error is: " + errorMapList.get(0);
+    result.putAll(ServiceUtil.returnSuccess(errMsg));
+    try {
+      TransactionUtil.setRollbackOnly(errMsg,null);
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Error setting rollback only ",module);
+    }
     return result;
   }
  else {

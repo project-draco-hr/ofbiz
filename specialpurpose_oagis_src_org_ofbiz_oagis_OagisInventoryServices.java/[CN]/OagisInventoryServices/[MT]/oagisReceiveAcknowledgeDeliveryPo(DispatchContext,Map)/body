@@ -41,11 +41,11 @@
     Debug.logInfo(e,errMsg,module);
   }
   if (previousOagisMessageInfo != null) {
-    if ("OAGMP_PROC_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_ERRCONFSENT".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
+    if ("OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
       isErrorRetry=true;
     }
  else {
-      String errMsg="Message received for message ID [" + omiPkMap + "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
+      String errMsg="Message received for message ID [" + omiPkMap + "] was already partially processed but is not in a system error state, needs manual review; message ID: "+ omiPkMap;
       Debug.logError(errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
@@ -157,9 +157,6 @@
           errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
         }
       }
-      if (errorMapList.size() > 0) {
-        TransactionUtil.setRollbackOnly("Found business level errors in message processing, not saving results",null);
-      }
     }
  catch (    Throwable t) {
       String errMsg="System Error processing Acknowledge Delivery PO message for message [" + omiPkMap + "]: "+ t.toString();
@@ -220,7 +217,14 @@
       String errMsg="Error sending Confirm BOD: " + e.toString();
       Debug.logError(e,errMsg,module);
     }
-    result.putAll(ServiceUtil.returnSuccess("Errors found processing message; information saved and return error sent back"));
+    String errMsg="Found business level errors in message processing, not saving results; first error is: " + errorMapList.get(0);
+    result.putAll(ServiceUtil.returnSuccess(errMsg));
+    try {
+      TransactionUtil.setRollbackOnly(errMsg,null);
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Error setting rollback only ",module);
+    }
     return result;
   }
  else {
