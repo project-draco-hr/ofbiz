@@ -34,10 +34,27 @@
   Element daShowShipmentElement=UtilXml.firstChildElement(dataAreaElement,"ns:SHOW_SHIPMENT");
   Element shipmentElement=UtilXml.firstChildElement(daShowShipmentElement,"ns:SHIPMENT");
   String shipmentId=UtilXml.childElementValue(shipmentElement,"of:DOCUMENTID");
-  oagisMsgInfoCtx.put("logicalId",logicalId);
-  oagisMsgInfoCtx.put("component",component);
-  oagisMsgInfoCtx.put("task",task);
-  oagisMsgInfoCtx.put("referenceId",referenceId);
+  Debug.log("Processing oagisReceiveShowShipment for shipmentId [" + shipmentId + "] referenceId ["+ referenceId+ "]",module);
+  Map omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+  GenericValue previousOagisMessageInfo=null;
+  try {
+    previousOagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",omiPkMap);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error getting OagisMessageInfo from database for shipment ID [" + shipmentId + "]: "+ e.toString();
+    Debug.logInfo(e,errMsg,module);
+  }
+  if (previousOagisMessageInfo != null) {
+    if ("OAGMP_PROC_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_ERRCONFSENT".equals(previousOagisMessageInfo.getString("processingStatusId")) || "OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
+      isErrorRetry=true;
+    }
+ else {
+      String errMsg="Message received for shipmentId [" + shipmentId + "] was already partially processed but is not in an error state, needs manual review; message ID: "+ omiPkMap;
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  oagisMsgInfoCtx.putAll(omiPkMap);
   oagisMsgInfoCtx.put("confirmation",confirmation);
   oagisMsgInfoCtx.put("authId",authId);
   oagisMsgInfoCtx.put("outgoingMessage","N");
@@ -72,7 +89,7 @@
     shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error getting Shipment from database: " + e.toString();
+    String errMsg="Error getting Shipment from database for ID [" + shipmentId + "]: "+ e.toString();
     Debug.logInfo(e,errMsg,module);
     errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","GenericEntityException"));
   }
@@ -323,7 +340,15 @@
       }
     }
  catch (    Throwable t) {
-      String errMsg="System Error processing Show Shipment message: " + t.toString();
+      try {
+        oagisMsgInfoCtx.put("processingStatusId","OAGMP_SYS_ERROR");
+        dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoCtx,60,true);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+        Debug.logError(e,errMsg,module);
+      }
+      String errMsg="System Error processing Show Shipment message for shipmentId [" + shipmentId + "]: "+ t.toString();
       Debug.logInfo(t,errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
