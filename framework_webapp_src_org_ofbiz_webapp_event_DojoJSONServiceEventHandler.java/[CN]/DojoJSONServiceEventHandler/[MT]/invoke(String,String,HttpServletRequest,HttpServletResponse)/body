@@ -1,0 +1,52 @@
+{
+  String respCode=service.invoke(eventPath,eventMethod,request,response);
+  Map attrMap=getAttributesAsMap(request);
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  if (dispatcher == null) {
+    throw new EventHandlerException("The local service dispatcher is null");
+  }
+  DispatchContext dctx=dispatcher.getDispatchContext();
+  if (dctx == null) {
+    throw new EventHandlerException("Dispatch context cannot be found");
+  }
+  String serviceName=null;
+  Locale locale=UtilHttp.getLocale(request);
+  TimeZone timeZone=UtilHttp.getTimeZone(request);
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  serviceName=eventMethod;
+  if (serviceName == null) {
+    throw new EventHandlerException("Service name (eventMethod) cannot be null");
+  }
+  ModelService model=null;
+  try {
+    model=dctx.getModelService(serviceName);
+  }
+ catch (  GenericServiceException e) {
+    throw new EventHandlerException("Problems getting the service model",e);
+  }
+  if (model == null) {
+    throw new EventHandlerException("Problems getting the service model");
+  }
+  List errorMessages=new LinkedList();
+  Map serviceContext=new HashMap();
+  serviceContext=model.makeValid(attrMap,ModelService.OUT_PARAM,true,errorMessages,timeZone,locale);
+  JSONObject json=JSONObject.fromObject(serviceContext);
+  String jsonStr=json.toString();
+  if (jsonStr == null) {
+    throw new EventHandlerException("JSON Object was empty; fatal error!");
+  }
+  String htmlJsonStr="<html><head></head><body><textarea style=\"width: 100%%; height: 100px;\">" + jsonStr + "</textarea></body></html>";
+  response.setContentType("text/html");
+  response.setContentLength(htmlJsonStr.length());
+  Writer out;
+  try {
+    out=response.getWriter();
+    out.write(htmlJsonStr);
+    out.flush();
+  }
+ catch (  IOException e) {
+    throw new EventHandlerException("Unable to get response writer",e);
+  }
+  return respCode;
+}
