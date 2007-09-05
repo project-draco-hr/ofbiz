@@ -39,11 +39,9 @@
   String dataAreaDate=UtilXml.childElementValue(dataAreaCtrlElement,"os:DATETIMEISO");
   String origRef=UtilXml.childElementValue(dataAreaConfirmElement,"of:ORIGREF");
   Timestamp receivedTimestamp=UtilDateTime.nowTimestamp();
+  Map omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
   Map oagisMsgInfoCtx=FastMap.newInstance();
-  oagisMsgInfoCtx.put("logicalId",logicalId);
-  oagisMsgInfoCtx.put("component",component);
-  oagisMsgInfoCtx.put("task",task);
-  oagisMsgInfoCtx.put("referenceId",referenceId);
+  oagisMsgInfoCtx.putAll(omiPkMap);
   oagisMsgInfoCtx.put("authId",authId);
   oagisMsgInfoCtx.put("receivedDate",receivedTimestamp);
   oagisMsgInfoCtx.put("sentDate",sentTimestamp);
@@ -66,14 +64,9 @@
   }
   try {
     dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoCtx,60,true);
-    Map originalOagisMsgCtx=FastMap.newInstance();
-    originalOagisMsgCtx.put("logicalId",dataAreaLogicalId);
-    originalOagisMsgCtx.put("component",dataAreaComponent);
-    originalOagisMsgCtx.put("task",dataAreaTask);
-    originalOagisMsgCtx.put("referenceId",dataAreaReferenceId);
-    originalOagisMsgCtx.put("userLogin",userLogin);
-    GenericValue originalOagisMsgInfo=delegator.findByPrimaryKey("OagisMessageInfo",originalOagisMsgCtx);
     List dataAreaConfirmMsgList=UtilXml.childElementList(dataAreaConfirmElement,"ns:CONFIRMMSG");
+    Map originalOmiPkMap=UtilMisc.toMap("logicalId",dataAreaLogicalId,"component",dataAreaComponent,"task",dataAreaTask,"referenceId",dataAreaReferenceId);
+    GenericValue originalOagisMsgInfo=delegator.findByPrimaryKey("OagisMessageInfo",originalOmiPkMap);
     if (originalOagisMsgInfo != null) {
       Iterator dataAreaConfirmMsgListItr=dataAreaConfirmMsgList.iterator();
       while (dataAreaConfirmMsgListItr.hasNext()) {
@@ -81,9 +74,10 @@
         String description=UtilXml.childElementValue(dataAreaConfirmMsgElement,"of:DESCRIPTN");
         String reasonCode=UtilXml.childElementValue(dataAreaConfirmMsgElement,"of:REASONCODE");
         Map createOagisMessageErrorInfoForOriginal=FastMap.newInstance();
-        createOagisMessageErrorInfoForOriginal.putAll(originalOagisMsgCtx);
+        createOagisMessageErrorInfoForOriginal.putAll(originalOmiPkMap);
         createOagisMessageErrorInfoForOriginal.put("reasonCode",reasonCode);
         createOagisMessageErrorInfoForOriginal.put("description",description);
+        createOagisMessageErrorInfoForOriginal.put("userLogin",userLogin);
         Map oagisMsgErrorInfoResult=dispatcher.runSync("createOagisMessageErrorInfo",createOagisMessageErrorInfoForOriginal);
         if (ServiceUtil.isError(oagisMsgErrorInfoResult)) {
           String errMsg="Error creating OagisMessageErrorInfo: " + ServiceUtil.getErrorMessage(oagisMsgErrorInfoResult);
@@ -93,25 +87,20 @@
       }
     }
  else {
-      String errMsg="No such message with an error was found; Not creating OagisMessageErrorInfo record(s) for original message; ID info: " + originalOagisMsgCtx;
+      String errMsg="No such message with an error was found; Not creating OagisMessageErrorInfo record(s) for original message, but saving info for this message anyway; ID info: " + omiPkMap;
       Debug.logWarning(errMsg,module);
       errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","OriginalOagisMessageInfoNotFoundError"));
     }
-    Map cbodOagisMsgInfoBaseCtx=FastMap.newInstance();
-    cbodOagisMsgInfoBaseCtx.put("logicalId",logicalId);
-    cbodOagisMsgInfoBaseCtx.put("component",component);
-    cbodOagisMsgInfoBaseCtx.put("task",task);
-    cbodOagisMsgInfoBaseCtx.put("referenceId",referenceId);
-    cbodOagisMsgInfoBaseCtx.put("userLogin",userLogin);
     Iterator dataAreaConfirmMsgListItr=dataAreaConfirmMsgList.iterator();
     while (dataAreaConfirmMsgListItr.hasNext()) {
       Element dataAreaConfirmMsgElement=(Element)dataAreaConfirmMsgListItr.next();
       String description=UtilXml.childElementValue(dataAreaConfirmMsgElement,"of:DESCRIPTN");
       String reasonCode=UtilXml.childElementValue(dataAreaConfirmMsgElement,"of:REASONCODE");
       Map createOagisMessageErrorInfoForCbod=FastMap.newInstance();
-      createOagisMessageErrorInfoForCbod.putAll(cbodOagisMsgInfoBaseCtx);
+      createOagisMessageErrorInfoForCbod.putAll(omiPkMap);
       createOagisMessageErrorInfoForCbod.put("reasonCode",reasonCode);
       createOagisMessageErrorInfoForCbod.put("description",description);
+      createOagisMessageErrorInfoForCbod.put("userLogin",userLogin);
       Map oagisMsgErrorInfoResult=dispatcher.runSync("createOagisMessageErrorInfo",createOagisMessageErrorInfoForCbod,60,true);
       if (ServiceUtil.isError(oagisMsgErrorInfoResult)) {
         String errMsg="Error creating OagisMessageErrorInfo: " + ServiceUtil.getErrorMessage(oagisMsgErrorInfoResult);
