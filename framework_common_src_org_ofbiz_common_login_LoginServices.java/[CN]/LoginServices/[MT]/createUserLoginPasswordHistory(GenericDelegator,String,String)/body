@@ -1,0 +1,35 @@
+{
+  int passwordChangeHistoryLimit=0;
+  try {
+    passwordChangeHistoryLimit=Integer.parseInt(UtilProperties.getPropertyValue("security.properties","password.change.history.limit","0"));
+  }
+ catch (  NumberFormatException nfe) {
+    passwordChangeHistoryLimit=0;
+  }
+  if (passwordChangeHistoryLimit == 0 || passwordChangeHistoryLimit < 0) {
+    return;
+  }
+  List exprs=FastList.newInstance();
+  EntityFindOptions efo=new EntityFindOptions();
+  efo.setResultSetType(EntityFindOptions.TYPE_SCROLL_INSENSITIVE);
+  exprs.add(new EntityExpr("userLoginId",EntityOperator.EQUALS,userLoginId));
+  List orderBy=UtilMisc.toList("-fromDate");
+  EntityListIterator eli=delegator.findListIteratorByCondition("UserLoginPasswordHistory",new EntityConditionList(exprs,EntityOperator.AND),null,null,orderBy,efo);
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  GenericValue pwdHist;
+  if ((pwdHist=(GenericValue)eli.next()) != null) {
+    pwdHist.set("thruDate",nowTimestamp);
+    pwdHist.store();
+    eli.last();
+    int rowIndex=eli.currentIndex();
+    if (rowIndex == passwordChangeHistoryLimit) {
+      eli.afterLast();
+      pwdHist=(GenericValue)eli.previous();
+      pwdHist.remove();
+    }
+  }
+  GenericValue userLoginPwdHistToCreate=delegator.makeValue("UserLoginPasswordHistory",UtilMisc.toMap("userLoginId",userLoginId,"fromDate",nowTimestamp));
+  boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
+  userLoginPwdHistToCreate.set("currentPassword",useEncryption ? getPasswordHash(currentPassword) : currentPassword);
+  userLoginPwdHistToCreate.create();
+}
