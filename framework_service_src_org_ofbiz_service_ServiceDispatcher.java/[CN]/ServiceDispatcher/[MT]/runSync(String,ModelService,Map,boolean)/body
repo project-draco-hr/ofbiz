@@ -26,54 +26,87 @@
         parentTransaction=TransactionUtil.suspend();
         beganTrans=TransactionUtil.begin(modelService.transactionTimeout);
       }
-    }
-    if (beganTrans && TransactionUtil.debugResources) {
-      DebugXaResource dxa=new DebugXaResource(modelService.name);
-      try {
-        dxa.enlist();
-      }
- catch (      Exception e) {
-        Debug.logError(e,module);
+      if (beganTrans && TransactionUtil.debugResources) {
+        DebugXaResource dxa=new DebugXaResource(modelService.name);
+        try {
+          dxa.enlist();
+        }
+ catch (        Exception e) {
+          Debug.logError(e,module);
+        }
       }
     }
     try {
-      if (eventMap != null)       ServiceEcaUtil.evalRules(modelService.name,eventMap,"global-rollback",ctx,context,result,isError,isFailure);
-      if (eventMap != null)       ServiceEcaUtil.evalRules(modelService.name,eventMap,"global-commit",ctx,context,result,isError,isFailure);
-      if (eventMap != null)       ServiceEcaUtil.evalRules(modelService.name,eventMap,"auth",ctx,context,result,isError,isFailure);
-      isFailure=ServiceUtil.isFailure(result);
-      isError=ServiceUtil.isError(result);
-      context=checkAuth(localName,context,modelService);
-      Object userLogin=context.get("userLogin");
-      if (modelService.auth && userLogin == null) {
-        throw new ServiceAuthException("User authorization is required for this service: " + modelService.name + modelService.debugInfo());
-      }
-      if (eventMap != null)       ServiceEcaUtil.evalRules(modelService.name,eventMap,"in-validate",ctx,context,result,isError,isFailure);
-      isFailure=ServiceUtil.isFailure(result);
-      isError=ServiceUtil.isError(result);
-      if (modelService.validate && !isError && !isFailure) {
-        try {
-          modelService.validate(context,ModelService.IN_PARAM,locale);
+      int lockRetriesRemaining=LOCK_RETRIES;
+      boolean needsLockRetry=false;
+      do {
+        lockRetriesRemaining--;
+        if (eventMap != null)         ServiceEcaUtil.evalRules(modelService.name,eventMap,"global-rollback",ctx,context,result,isError,isFailure);
+        if (eventMap != null)         ServiceEcaUtil.evalRules(modelService.name,eventMap,"global-commit",ctx,context,result,isError,isFailure);
+        if (eventMap != null)         ServiceEcaUtil.evalRules(modelService.name,eventMap,"auth",ctx,context,result,isError,isFailure);
+        isFailure=ServiceUtil.isFailure(result);
+        isError=ServiceUtil.isError(result);
+        context=checkAuth(localName,context,modelService);
+        Object userLogin=context.get("userLogin");
+        if (modelService.auth && userLogin == null) {
+          throw new ServiceAuthException("User authorization is required for this service: " + modelService.name + modelService.debugInfo());
         }
- catch (        ServiceValidationException e) {
-          Debug.logError(e,"Incoming context (in runSync : " + modelService.name + ") does not match expected requirements",module);
-          throw e;
+        if (eventMap != null)         ServiceEcaUtil.evalRules(modelService.name,eventMap,"in-validate",ctx,context,result,isError,isFailure);
+        isFailure=ServiceUtil.isFailure(result);
+        isError=ServiceUtil.isError(result);
+        if (modelService.validate && !isError && !isFailure) {
+          try {
+            modelService.validate(context,ModelService.IN_PARAM,locale);
+          }
+ catch (          ServiceValidationException e) {
+            Debug.logError(e,"Incoming context (in runSync : " + modelService.name + ") does not match expected requirements",module);
+            throw e;
+          }
         }
-      }
-      if (eventMap != null)       ServiceEcaUtil.evalRules(modelService.name,eventMap,"invoke",ctx,context,result,isError,isFailure);
-      isFailure=ServiceUtil.isFailure(result);
-      isError=ServiceUtil.isError(result);
-      if (!isError && !isFailure) {
-        Map invokeResult=engine.runSync(localName,modelService,context);
-        engine.sendCallbacks(modelService,context,invokeResult,GenericEngine.SYNC_MODE);
-        if (invokeResult != null) {
-          result.putAll(invokeResult);
-        }
+        if (eventMap != null)         ServiceEcaUtil.evalRules(modelService.name,eventMap,"invoke",ctx,context,result,isError,isFailure);
+        isFailure=ServiceUtil.isFailure(result);
+        isError=ServiceUtil.isError(result);
+        if (!isError && !isFailure) {
+          Map invokeResult=engine.runSync(localName,modelService,context);
+          engine.sendCallbacks(modelService,context,invokeResult,GenericEngine.SYNC_MODE);
+          if (invokeResult != null) {
+            result.putAll(invokeResult);
+          }
  else {
-          Debug.logWarning("Service (in runSync : " + modelService.name + ") returns null result",module);
+            Debug.logWarning("Service (in runSync : " + modelService.name + ") returns null result",module);
+          }
+        }
+        isFailure=ServiceUtil.isFailure(result);
+        isError=ServiceUtil.isError(result);
+        if (beganTrans) {
+          String errMsg=ServiceUtil.getErrorMessage(result);
+          if (errMsg != null && errMsg.toUpperCase().indexOf("DEADLOCK") >= 0) {
+            String retryMsg="RETRYING SERVICE [" + modelService.name + "]: Deadlock error found in message ["+ errMsg+ "]; retry ["+ (LOCK_RETRIES - lockRetriesRemaining)+ "] of ["+ LOCK_RETRIES+ "]";
+            TransactionUtil.rollback(beganTrans,retryMsg,null);
+            beganTrans=TransactionUtil.begin(modelService.transactionTimeout);
+            if (beganTrans && TransactionUtil.debugResources) {
+              DebugXaResource dxa=new DebugXaResource(modelService.name);
+              try {
+                dxa.enlist();
+              }
+ catch (              Exception e) {
+                Debug.logError(e,module);
+              }
+            }
+            if (!beganTrans) {
+              Debug.logError("After rollback attempt for lock retry did not begin a new transaction!",module);
+            }
+ else {
+              needsLockRetry=true;
+              result=FastMap.newInstance();
+              isFailure=false;
+              isError=false;
+              Debug.logWarning(retryMsg,module);
+            }
+          }
         }
       }
-      isFailure=ServiceUtil.isFailure(result);
-      isError=ServiceUtil.isError(result);
+ while (needsLockRetry && lockRetriesRemaining > 0);
       ecaContext=FastMap.newInstance();
       ecaContext.putAll(context);
       ecaContext.putAll(result);
@@ -125,7 +158,7 @@
     }
  finally {
       if (isError) {
-        String errMsg="Service Error [" + modelService.name + "]: "+ ServiceUtil.getErrorMessage(result);
+        String errMsg="Error is Service [" + modelService.name + "]: "+ ServiceUtil.getErrorMessage(result);
         Debug.logError(errMsg,module);
         try {
           TransactionUtil.rollback(beganTrans,errMsg,null);
