@@ -46,6 +46,8 @@
  else     if (orderType.equals("PURCHASE_ORDER")) {
       invoiceType="PURCHASE_INVOICE";
     }
+    int invoiceTypeDecimals=UtilNumber.getBigDecimalScale("invoice." + invoiceType + ".decimals");
+    if (invoiceTypeDecimals == -1)     invoiceTypeDecimals=decimals;
     OrderReadHelper orh=new OrderReadHelper(orderHeader);
     GenericValue productStore=delegator.findByPrimaryKey("ProductStore",UtilMisc.toMap("productStoreId",orh.getProductStoreId()));
     String prorateShipping=productStore.getString("prorateShipping");
@@ -212,7 +214,7 @@
         if ((product != null) && (ProductWorker.shippingApplies(product)) && (invoiceType.equals("SALES_INVOICE"))) {
           shippingApplies=true;
         }
-        BigDecimal billingAmount=orderItem.getBigDecimal("unitPrice").setScale(decimals,rounding);
+        BigDecimal billingAmount=orderItem.getBigDecimal("unitPrice").setScale(invoiceTypeDecimals,rounding);
         Map createInvoiceItemContext=FastMap.newInstance();
         createInvoiceItemContext.put("invoiceId",invoiceId);
         createInvoiceItemContext.put("invoiceItemSeqId",invoiceItemSeqId);
@@ -236,12 +238,12 @@
         if (ServiceUtil.isError(createInvoiceItemResult)) {
           return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceItemFromOrder",locale),null,null,createInvoiceItemResult);
         }
-        BigDecimal thisAmount=billingAmount.multiply(billingQuantity).setScale(decimals,rounding);
+        BigDecimal thisAmount=billingAmount.multiply(billingQuantity).setScale(invoiceTypeDecimals,rounding);
         if (shippingApplies) {
-          invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAmount).setScale(decimals,rounding);
+          invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAmount).setScale(invoiceTypeDecimals,rounding);
         }
         invoiceSubTotal=invoiceSubTotal.add(thisAmount).setScale(100,rounding);
-        invoiceQuantity=invoiceQuantity.add(billingQuantity).setScale(decimals,rounding);
+        invoiceQuantity=invoiceQuantity.add(billingQuantity).setScale(invoiceTypeDecimals,rounding);
         Map createOrderItemBillingContext=FastMap.newInstance();
         createOrderItemBillingContext.put("invoiceId",invoiceId);
         createOrderItemBillingContext.put("invoiceItemSeqId",invoiceItemSeqId);
@@ -285,7 +287,7 @@
           if (adj.get("amount") == null) {
             continue;
           }
-          if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(decimals,rounding).abs()) > 0) {
+          if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding).abs()) > 0) {
             continue;
           }
           BigDecimal amount=ZERO;
@@ -296,7 +298,7 @@
               amount=amount.setScale(taxDecimals,taxRounding);
             }
  else {
-              amount=amount.setScale(decimals,rounding);
+              amount=amount.setScale(invoiceTypeDecimals,rounding);
             }
           }
  else           if (adj.get("sourcePercentage") != null) {
@@ -305,7 +307,7 @@
             amount=billingAmount.multiply(percent);
             amount=amount.divide(originalOrderItem.getBigDecimal("quantity"),100,rounding);
             amount=amount.multiply(billingQuantity);
-            amount=amount.setScale(decimals,rounding);
+            amount=amount.setScale(invoiceTypeDecimals,rounding);
           }
           if (amount.signum() != 0) {
             Map createInvoiceItemAdjContext=FastMap.newInstance();
@@ -356,7 +358,7 @@
             if (!"SALES_TAX".equals(adj.getString("orderAdjustmentTypeId")) && !"SHIPPING_ADJUSTMENT".equals(adj.getString("orderAdjustmentTypeId"))) {
               invoiceSubTotal=invoiceSubTotal.add(thisAdjAmount).setScale(100,rounding);
               if (shippingApplies) {
-                invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAdjAmount).setScale(decimals,rounding);
+                invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAdjAmount).setScale(invoiceTypeDecimals,rounding);
               }
             }
             invoiceItemSeqNum++;
@@ -374,7 +376,7 @@
       BigDecimal adjAlreadyInvoicedAmount=null;
       try {
         Map checkResult=dispatcher.runSync("calculateInvoicedAdjustmentTotal",UtilMisc.toMap("orderAdjustment",adj));
-        adjAlreadyInvoicedAmount=((BigDecimal)checkResult.get("invoicedTotal")).setScale(decimals,rounding);
+        adjAlreadyInvoicedAmount=((BigDecimal)checkResult.get("invoicedTotal")).setScale(invoiceTypeDecimals,rounding);
       }
  catch (      GenericServiceException e) {
         String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCalculateInvoicedAdjustmentTotalService",locale);
@@ -384,7 +386,7 @@
       if (null == adj.get("amount")) {
         continue;
       }
-      if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(decimals,rounding).abs()) > 0) {
+      if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding).abs()) > 0) {
         continue;
       }
       if ("SHIPPING_CHARGES".equals(adj.getString("orderAdjustmentTypeId"))) {
@@ -394,7 +396,7 @@
         taxAdjustments.put(adj,adjAlreadyInvoicedAmount);
       }
  else {
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,adj.getBigDecimal("amount").setScale(decimals,rounding),decimals,rounding,userLogin,dispatcher,locale);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding),invoiceTypeDecimals,rounding,userLogin,dispatcher,locale);
         invoiceItemSeqNum++;
         invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
       }
@@ -406,14 +408,14 @@
       if ("N".equalsIgnoreCase(prorateShipping)) {
         BigDecimal divisor=new BigDecimal("1");
         BigDecimal multiplier=new BigDecimal("1");
-        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding).subtract(adjAlreadyInvoicedAmount);
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding).subtract(adjAlreadyInvoicedAmount);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,invoiceTypeDecimals,rounding,userLogin,dispatcher,locale);
       }
  else {
         BigDecimal divisor=shippableAmount;
         BigDecimal multiplier=invoiceShipProRateAmount;
-        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding);
-        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding);
+        BigDecimal adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,invoiceTypeDecimals,rounding,userLogin,dispatcher,locale);
       }
       invoiceItemSeqNum++;
       invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
@@ -430,16 +432,16 @@
       if ("N".equalsIgnoreCase(prorateTaxes)) {
         BigDecimal divisor=new BigDecimal("1");
         BigDecimal multiplier=new BigDecimal("1");
-        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding).subtract(adjAlreadyInvoicedAmount);
-        adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding).subtract(adjAlreadyInvoicedAmount);
+        adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,invoiceTypeDecimals,rounding,userLogin,dispatcher,locale);
       }
  else {
         BigDecimal divisor=orderSubTotal;
         BigDecimal multiplier=invoiceSubTotal;
-        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(decimals,rounding);
-        adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,decimals,rounding,userLogin,dispatcher,locale);
+        BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,rounding);
+        adjAmount=calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,invoiceTypeDecimals,rounding,userLogin,dispatcher,locale);
       }
-      invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(decimals,rounding);
+      invoiceSubTotal=invoiceSubTotal.add(adjAmount).setScale(invoiceTypeDecimals,rounding);
       invoiceItemSeqNum++;
       invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
     }
