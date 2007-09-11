@@ -72,11 +72,11 @@
         throw new RequestHandlerException("Unknown request [" + requestUri + "]; this request does not exist or cannot be called directly.");
       }
     }
-    if (session.getAttribute("visit") == null) {
+    if (this.trackVisit(request) && session.getAttribute("visit") == null) {
       Debug.logInfo("This is the first request in this visit." + " sessionId=" + UtilHttp.getSessionId(request),module);
-      VisitHandler.getVisit(session);
+      GenericValue visit=VisitHandler.getVisit(session);
       Collection events=requestManager.getFirstVisitEvents();
-      if (events != null) {
+      if (visit != null && events != null) {
         Iterator i=events.iterator();
         while (i.hasNext()) {
           Map eventMap=(Map)i.next();
@@ -97,6 +97,9 @@
           }
         }
       }
+    }
+ else {
+      Debug.log("Track visit is disabled for this request");
     }
     Collection preProcEvents=requestManager.getPreProcessor();
     if (preProcEvents != null) {
@@ -153,7 +156,7 @@
       try {
         long eventStartTime=System.currentTimeMillis();
         eventReturnString=this.runEvent(request,response,eventType,eventPath,eventMethod);
-        ServerHitBin.countEvent(cname + "." + eventMethod,request,eventStartTime,System.currentTimeMillis() - eventStartTime,userLogin,delegator);
+        if (this.trackStats(request))         ServerHitBin.countEvent(cname + "." + eventMethod,request,eventStartTime,System.currentTimeMillis() - eventStartTime,userLogin,delegator);
         if (eventReturnString == null) {
           nextView="none:";
         }
@@ -210,7 +213,6 @@
     request.getSession().removeAttribute("_PREVIOUS_REQUEST_");
     if ("logout".equals(previousRequest) || "/logout".equals(previousRequest) || "login".equals(previousRequest)|| "/login".equals(previousRequest)|| "checkLogin".equals(previousRequest)|| "/checkLogin".equals(previousRequest)) {
       Debug.logWarning("Found special _PREVIOUS_REQUEST_ of [" + previousRequest + "], setting to null to avoid problems, not running request again",module);
-      previousRequest=null;
     }
  else {
       if (Debug.infoOn())       Debug.logInfo("[Doing Previous Request]: " + previousRequest + " sessionId="+ UtilHttp.getSessionId(request),module);
