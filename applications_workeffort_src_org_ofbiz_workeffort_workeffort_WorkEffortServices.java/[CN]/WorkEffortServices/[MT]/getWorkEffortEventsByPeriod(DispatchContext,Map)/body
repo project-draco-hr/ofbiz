@@ -1,4 +1,5 @@
 {
+  GenericDelegator delegator=ctx.getDelegator();
   Security security=ctx.getSecurity();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   Locale locale=(Locale)context.get("locale");
@@ -20,14 +21,18 @@
     periodType=periodTypeObject.intValue();
   }
   int numPeriods=0;
-  if (numPeriodsInteger != null)   numPeriods=numPeriodsInteger.intValue();
+  if (numPeriodsInteger != null) {
+    numPeriods=numPeriodsInteger.intValue();
+  }
   Timestamp startStamp=UtilDateTime.getDayStart(startDay,timeZone,locale);
   Timestamp endStamp=UtilDateTime.adjustTimestamp(startStamp,periodType,1,timeZone,locale);
   long periodLen=endStamp.getTime() - startStamp.getTime();
   endStamp=UtilDateTime.adjustTimestamp(startStamp,periodType,numPeriods,timeZone,locale);
   List validWorkEfforts=null;
   Collection partyIdsToUse=partyIds;
-  if (partyIdsToUse == null)   partyIdsToUse=new HashSet();
+  if (partyIdsToUse == null) {
+    partyIdsToUse=new HashSet();
+  }
   if (UtilValidate.isNotEmpty(partyId)) {
     if (partyId.equals(userLogin.getString("partyId")) || security.hasEntityPermission("WORKEFFORTMGR","_VIEW",userLogin)) {
       partyIdsToUse.add(partyId);
@@ -41,11 +46,41 @@
       partyIdsToUse.add(userLogin.getString("partyId"));
     }
   }
-  if (partyIdsToUse.size() > 0 || UtilValidate.isNotEmpty(facilityId) || UtilValidate.isNotEmpty(fixedAssetId)) {
-    validWorkEfforts=getWorkEffortEvents(ctx,startStamp,endStamp,partyIdsToUse,facilityId,fixedAssetId);
+  List entityExprList=(List)context.get("entityExprList");
+  if (entityExprList == null) {
+    entityExprList=getDefaultWorkEffortExprList(partyIds,facilityId,fixedAssetId);
   }
+  entityExprList.add(new EntityExpr("estimatedCompletionDate",EntityOperator.GREATER_THAN_EQUAL_TO,startStamp));
+  entityExprList.add(new EntityExpr("estimatedStartDate",EntityOperator.LESS_THAN,endStamp));
   if (filterOutCanceledEvents.booleanValue()) {
-    validWorkEfforts=EntityUtil.filterOutByCondition(validWorkEfforts,new EntityExpr("currentStatusId",EntityOperator.EQUALS,"EVENT_CANCELLED"));
+    entityExprList.add(new EntityExpr("currentStatusId",EntityOperator.NOT_EQUAL,"EVENT_CANCELLED"));
+  }
+  if (partyIdsToUse.size() > 0 || UtilValidate.isNotEmpty(facilityId) || UtilValidate.isNotEmpty(fixedAssetId)) {
+    try {
+      List tempWorkEfforts=null;
+      if (partyIds != null && partyIds.size() > 0) {
+        tempWorkEfforts=delegator.findByAnd("WorkEffortAndPartyAssign",entityExprList,UtilMisc.toList("estimatedStartDate"));
+      }
+ else {
+        tempWorkEfforts=delegator.findByAnd("WorkEffort",entityExprList,UtilMisc.toList("estimatedStartDate"));
+      }
+      Set tempWeKeys=new HashSet();
+      Iterator tempWorkEffortIter=tempWorkEfforts.iterator();
+      while (tempWorkEffortIter.hasNext()) {
+        GenericValue tempWorkEffort=(GenericValue)tempWorkEffortIter.next();
+        String tempWorkEffortId=tempWorkEffort.getString("workEffortId");
+        if (tempWeKeys.contains(tempWorkEffortId)) {
+          tempWorkEffortIter.remove();
+        }
+ else {
+          tempWeKeys.add(tempWorkEffortId);
+        }
+      }
+      validWorkEfforts=new ArrayList(tempWorkEfforts);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,module);
+    }
   }
   List periods=new ArrayList();
   if (validWorkEfforts != null) {
@@ -65,7 +100,9 @@
           long length=((estimatedCompletionDate.after(endStamp) ? endStamp.getTime() : estimatedCompletionDate.getTime()) - (estimatedStartDate.before(startStamp) ? startStamp.getTime() : estimatedStartDate.getTime()));
           int periodSpan=(int)Math.ceil((double)length / periodLen);
           calEntry.put("periodSpan",new Integer(periodSpan));
-          if (i == 0)           calEntry.put("startOfPeriod",Boolean.TRUE);
+          if (i == 0) {
+            calEntry.put("startOfPeriod",Boolean.TRUE);
+          }
  else {
             boolean startOfPeriod=((estimatedStartDate.getTime() - curPeriodStart.getTime()) >= 0);
             calEntry.put("startOfPeriod",new Boolean(startOfPeriod));
@@ -79,7 +116,9 @@
         }
       }
       int numEntries=curWorkEfforts.size();
-      if (numEntries > maxConcurrentEntries)       maxConcurrentEntries=numEntries;
+      if (numEntries > maxConcurrentEntries) {
+        maxConcurrentEntries=numEntries;
+      }
       entry.put("start",curPeriodStart);
       entry.put("end",curPeriodEnd);
       entry.put("calendarEntries",curWorkEfforts);
