@@ -1,0 +1,62 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  ByteWrapper wrapper=(ByteWrapper)context.get("uploadedFile");
+  if (wrapper == null) {
+    return ServiceUtil.returnError("Uploaded file not valid or corrupted");
+  }
+  ModelService promoModel;
+  try {
+    promoModel=dispatcher.getDispatchContext().getModelService("createProductPromoCode");
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map invokeCtx=promoModel.makeValid(context,ModelService.IN_PARAM);
+  BufferedReader reader=new BufferedReader(new StringReader(new String(wrapper.getBytes())));
+  List errors=FastList.newInstance();
+  int lines=0;
+  String line;
+  try {
+    while ((line=reader.readLine()) != null) {
+      if (line.length() > 0 && !line.startsWith("#")) {
+        if (line.length() > 0 && line.length() <= 20) {
+          Map inContext=FastMap.newInstance();
+          inContext.putAll(invokeCtx);
+          inContext.put("productPromoCodeId",line);
+          Map result=dispatcher.runSync("createProductPromoCode",inContext);
+          if (result != null && ServiceUtil.isError(result)) {
+            errors.add(line + ": " + ServiceUtil.getErrorMessage(result));
+          }
+        }
+ else {
+          errors.add(line + ": is not a valid promo code; must be between 1 and 20 characters");
+        }
+        ++lines;
+      }
+    }
+  }
+ catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+ finally {
+    try {
+      reader.close();
+    }
+ catch (    IOException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (errors.size() > 0) {
+    return ServiceUtil.returnError(errors);
+  }
+ else   if (lines == 0) {
+    return ServiceUtil.returnError("Empty file; nothing to do");
+  }
+  return ServiceUtil.returnSuccess();
+}
