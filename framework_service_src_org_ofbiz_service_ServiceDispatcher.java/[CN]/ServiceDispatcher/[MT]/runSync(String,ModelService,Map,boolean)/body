@@ -21,9 +21,16 @@
   boolean beganTrans=false;
   try {
     if (modelService.useTransaction) {
-      beganTrans=TransactionUtil.begin(modelService.transactionTimeout);
-      if (modelService.requireNewTransaction && !beganTrans) {
-        parentTransaction=TransactionUtil.suspend();
+      if (TransactionUtil.isTransactionInPlace()) {
+        if (modelService.requireNewTransaction) {
+          parentTransaction=TransactionUtil.suspend();
+          if (TransactionUtil.isTransactionInPlace()) {
+            throw new GenericTransactionException("In service " + modelService.name + " transaction is still in place after suspend, status is "+ TransactionUtil.getStatusString());
+          }
+          beganTrans=TransactionUtil.begin(modelService.transactionTimeout);
+        }
+      }
+ else {
         beganTrans=TransactionUtil.begin(modelService.transactionTimeout);
       }
       if (beganTrans && TransactionUtil.debugResources) {
@@ -158,7 +165,7 @@
     }
  finally {
       if (isError) {
-        String errMsg="Error is Service [" + modelService.name + "]: "+ ServiceUtil.getErrorMessage(result);
+        String errMsg="Error in Service [" + modelService.name + "]: "+ ServiceUtil.getErrorMessage(result);
         Debug.logError(errMsg,module);
         try {
           TransactionUtil.rollback(beganTrans,errMsg,null);
