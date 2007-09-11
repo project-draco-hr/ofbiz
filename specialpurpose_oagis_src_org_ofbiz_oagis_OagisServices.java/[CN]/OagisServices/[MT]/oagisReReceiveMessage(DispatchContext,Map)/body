@@ -1,0 +1,42 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String logicalId=(String)context.get("logicalId");
+  String component=(String)context.get("component");
+  String task=(String)context.get("task");
+  String referenceId=(String)context.get("referenceId");
+  Map oagisMessageInfoKey=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+  try {
+    GenericValue oagisMessageInfo=null;
+    if (UtilValidate.isNotEmpty(referenceId) && (UtilValidate.isEmpty(component) || UtilValidate.isEmpty(task) || UtilValidate.isEmpty(referenceId))) {
+      List oagisMessageInfoList=delegator.findByAnd("OagisMessageInfo",UtilMisc.toMap("referenceId",referenceId));
+      if (oagisMessageInfoList.size() == 1) {
+        oagisMessageInfo=(GenericValue)oagisMessageInfoList.get(0);
+      }
+ else       if (oagisMessageInfoList.size() > 1) {
+        return ServiceUtil.returnError("Looked up by referenceId because logicalId, component, or task were not passed in but found more than one [" + oagisMessageInfoList.size() + "] record with referenceId ["+ referenceId+ "]");
+      }
+    }
+ else {
+      oagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",oagisMessageInfoKey);
+    }
+    if (oagisMessageInfo == null) {
+      return ServiceUtil.returnError("Could not find OagisMessageInfo record with key [" + oagisMessageInfoKey + "], not rerunning message.");
+    }
+    String fullMessageXml=oagisMessageInfo.getString("fullMessageXml");
+    if (UtilValidate.isEmpty(fullMessageXml)) {
+      return ServiceUtil.returnError("There was no fullMessageXml text in OagisMessageInfo record with key [" + oagisMessageInfoKey + "], not rerunning message.");
+    }
+    ByteArrayInputStream bis=new ByteArrayInputStream(fullMessageXml.getBytes("UTF-8"));
+    Map result=dispatcher.runSync("oagisMessageHandler",UtilMisc.toMap("inputStream",bis,"isErrorRetry",Boolean.TRUE));
+    if (ServiceUtil.isError(result)) {
+      return ServiceUtil.returnError("Error trying to re-receive message with ID [" + oagisMessageInfoKey + "]",null,null,result);
+    }
+    return ServiceUtil.returnSuccess();
+  }
+ catch (  Exception e) {
+    String errMsg="Error re-receiving message with ID [" + oagisMessageInfoKey + "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+}
