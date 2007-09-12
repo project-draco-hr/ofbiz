@@ -1,0 +1,56 @@
+{
+  Transaction parent=null;
+  boolean beganTx=false;
+  boolean isError=false;
+  try {
+    parent=TransactionUtil.suspend();
+    beganTx=TransactionUtil.begin();
+    if (!beganTx) {
+      throw new SemaphoreFailException("Cannot obtain unique transaction for semaphore logging");
+    }
+    try {
+      if (delete) {
+        value.refresh();
+        value.remove();
+        lock=null;
+      }
+ else {
+        lock=value.create();
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      isError=true;
+      throw new SemaphoreFailException("Cannot obtain unique transaction for semaphore logging");
+    }
+  }
+ catch (  GenericTransactionException e) {
+    Debug.logError(e,module);
+  }
+ finally {
+    if (isError) {
+      try {
+        TransactionUtil.rollback(beganTx,"ServiceSemaphore: dbWrite()",new Exception());
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,module);
+      }
+    }
+    if (!isError && beganTx) {
+      try {
+        TransactionUtil.commit(beganTx);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,module);
+      }
+    }
+    if (parent != null) {
+      try {
+        TransactionUtil.resume(parent);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,module);
+      }
+    }
+  }
+}
