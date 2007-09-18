@@ -1,13 +1,42 @@
 {
+  if (logLevel != null) {
+    int llevel=Debug.getLevelFromString(logLevel);
+    for (int v=0; v < 9; v++) {
+      if (v < llevel) {
+        Debug.set(v,false);
+      }
+ else {
+        Debug.set(v,true);
+      }
+    }
+  }
+  if (outFile == null) {
+    outFile=logFile;
+  }
+  JunitXmlListener xml;
+  try {
+    xml=new JunitXmlListener(new FileOutputStream(outFile));
+  }
+ catch (  FileNotFoundException e) {
+    throw new ContainerException(e);
+  }
+  TestResult results=new TestResult();
+  results.addListener(new JunitListener());
+  results.addListener(xml);
   JunitSuiteWrapper jsWrapper=new JunitSuiteWrapper(component,testCase);
   if (jsWrapper.getAllTestList().size() == 0) {
     throw new ContainerException("No tests found (" + component + " / "+ testCase+ ")");
   }
-  TestSuite suite=new TestSuite();
-  jsWrapper.populateTestSuite(suite);
-  results=new TestResult();
-  results.addListener(new JunitListener());
-  suite.run(results);
+  List testSuites=jsWrapper.makeTestSuites();
+  Iterator i=testSuites.iterator();
+  while (i.hasNext()) {
+    TestSuite suite=(TestSuite)i.next();
+    JUnitTest test=new JUnitTest();
+    test.setName(suite.getName());
+    xml.startTestSuite(test);
+    suite.run(results);
+    xml.endTestSuite(test);
+  }
   Debug.log("[JUNIT] Pass: " + results.wasSuccessful() + " | # Tests: "+ results.runCount()+ " | # Failed: "+ results.failureCount()+ " # Errors: "+ results.errorCount(),module);
   if (Debug.importantOn()) {
     Debug.log("[JUNIT] ----------------------------- ERRORS ----------------------------- [JUNIT]",module);
