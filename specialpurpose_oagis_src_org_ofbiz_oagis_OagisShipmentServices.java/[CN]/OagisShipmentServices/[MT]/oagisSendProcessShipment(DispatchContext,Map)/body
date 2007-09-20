@@ -67,171 +67,176 @@
       return ServiceUtil.returnError("No authorized payment available, not sending Process Shipment");
     }
     orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
-    if (orderHeader != null) {
-      String orderStatusId=orderHeader.getString("statusId");
-      if ("ORDER_APPROVED".equals(orderStatusId) && "SALES_ORDER".equals(orderHeader.getString("orderTypeId"))) {
-        OrderReadHelper orderReadHelper=new OrderReadHelper(orderHeader);
-        if (!orderReadHelper.hasPhysicalProductItems()) {
-          return ServiceUtil.returnSuccess();
-        }
-        if (!orderReadHelper.hasShippingAddress()) {
-          return ServiceUtil.returnError("Cannot send Process Shipment for order [" + orderId + "], it has no shipping address.");
-        }
-        referenceId=delegator.getNextSeqId("OagisMessageInfo");
-        omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
-        String authId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.AUTHID");
-        Timestamp timestamp=UtilDateTime.nowTimestamp();
-        String sentDate=OagisServices.isoDateFormat.format(timestamp);
-        bodyParameters.putAll(omiPkMap);
-        bodyParameters.put("authId",authId);
-        bodyParameters.put("sentDate",sentDate);
-        try {
-          Map comiCtx=FastMap.newInstance();
-          comiCtx.putAll(omiPkMap);
-          comiCtx.put("processingStatusId","OAGMP_TRIGGERED");
-          comiCtx.put("outgoingMessage","Y");
-          comiCtx.put("confirmation","1");
-          comiCtx.put("bsrVerb","PROCESS");
-          comiCtx.put("bsrNoun","SHIPMENT");
-          comiCtx.put("bsrRevision","001");
-          comiCtx.put("orderId",orderId);
-          comiCtx.put("sentDate",timestamp);
-          comiCtx.put("authId",authId);
-          comiCtx.put("userLogin",userLogin);
-          dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
-        }
- catch (        GenericServiceException e) {
-          String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
-          Debug.logError(e,errMsg,module);
-        }
-        if (Debug.infoOn())         Debug.logInfo("Saved OagisMessageInfo for oagisSendProcessShipment message for orderId [" + orderId + "]",module);
-        EntityCondition findShipmentCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr("primaryOrderId",EntityOperator.EQUALS,orderId),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"SHIPMENT_CANCELLED")),EntityOperator.AND);
-        List shipmentList=delegator.findByCondition("Shipment",findShipmentCondition,null,null);
-        GenericValue shipment=EntityUtil.getFirst(shipmentList);
-        if (shipment != null) {
-          String statusId=shipment.getString("statusId");
-          if ("SHIPMENT_PICKED".equals(statusId) || "SHIPMENT_PACKED".equals(statusId) || "SHIPMENT_SHIPPED".equals(statusId)|| "SHIPMENT_DELIVERED".equals(statusId)) {
-            return ServiceUtil.returnError("Not sending Process Shipment message because found Shipment that is already being processed, is in status [" + statusId + "]");
-          }
-          shipmentId=shipment.getString("shipmentId");
-        }
+    if (orderHeader == null) {
+      return ServiceUtil.returnError("Could not find OrderHeader with ID [" + orderId + "]");
+    }
+    String orderStatusId=orderHeader.getString("statusId");
+    if (!"ORDER_APPROVED".equals(orderStatusId)) {
+      return ServiceUtil.returnError("OrderHeader not in the approved status (ORDER_APPROVED) with ID [" + orderId + "]");
+    }
+    if ("SALES_ORDER".equals(orderHeader.getString("orderTypeId"))) {
+      return ServiceUtil.returnError("OrderHeader not a sales order (SALES_ORDER) with ID [" + orderId + "]");
+    }
+    OrderReadHelper orderReadHelper=new OrderReadHelper(orderHeader);
+    if (!orderReadHelper.hasPhysicalProductItems()) {
+      return ServiceUtil.returnSuccess();
+    }
+    if (!orderReadHelper.hasShippingAddress()) {
+      return ServiceUtil.returnError("Cannot send Process Shipment for order [" + orderId + "], it has no shipping address.");
+    }
+    referenceId=delegator.getNextSeqId("OagisMessageInfo");
+    omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+    String authId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.AUTHID");
+    Timestamp timestamp=UtilDateTime.nowTimestamp();
+    String sentDate=OagisServices.isoDateFormat.format(timestamp);
+    bodyParameters.putAll(omiPkMap);
+    bodyParameters.put("authId",authId);
+    bodyParameters.put("sentDate",sentDate);
+    try {
+      Map comiCtx=FastMap.newInstance();
+      comiCtx.putAll(omiPkMap);
+      comiCtx.put("processingStatusId","OAGMP_TRIGGERED");
+      comiCtx.put("outgoingMessage","Y");
+      comiCtx.put("confirmation","1");
+      comiCtx.put("bsrVerb","PROCESS");
+      comiCtx.put("bsrNoun","SHIPMENT");
+      comiCtx.put("bsrRevision","001");
+      comiCtx.put("orderId",orderId);
+      comiCtx.put("sentDate",timestamp);
+      comiCtx.put("authId",authId);
+      comiCtx.put("userLogin",userLogin);
+      dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+    }
+    if (Debug.infoOn())     Debug.logInfo("Saved OagisMessageInfo for oagisSendProcessShipment message for orderId [" + orderId + "]",module);
+    EntityCondition findShipmentCondition=new EntityConditionList(UtilMisc.toList(new EntityExpr("primaryOrderId",EntityOperator.EQUALS,orderId),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"SHIPMENT_CANCELLED")),EntityOperator.AND);
+    List shipmentList=delegator.findByCondition("Shipment",findShipmentCondition,null,null);
+    GenericValue shipment=EntityUtil.getFirst(shipmentList);
+    if (shipment != null) {
+      String statusId=shipment.getString("statusId");
+      if ("SHIPMENT_PICKED".equals(statusId) || "SHIPMENT_PACKED".equals(statusId) || "SHIPMENT_SHIPPED".equals(statusId)|| "SHIPMENT_DELIVERED".equals(statusId)) {
+        return ServiceUtil.returnError("Not sending Process Shipment message because found Shipment that is already being processed, is in status [" + statusId + "]");
+      }
+      shipmentId=shipment.getString("shipmentId");
+    }
  else {
-          Map cospResult=dispatcher.runSync("createOrderShipmentPlan",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
-          shipmentId=(String)cospResult.get("shipmentId");
-          shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
-        }
-        bodyParameters.put("shipment",shipment);
-        List shipmentItems=delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId));
-        bodyParameters.put("shipmentItems",shipmentItems);
-        GenericValue address=EntityUtil.getFirst(orderReadHelper.getShippingLocations());
-        bodyParameters.put("address",address);
-        String emailString=orderReadHelper.getOrderEmailString();
-        bodyParameters.put("emailString",emailString);
-        String contactMechId=shipment.getString("destinationTelecomNumberId");
-        GenericValue telecomNumber=delegator.findByPrimaryKey("TelecomNumber",UtilMisc.toMap("contactMechId",contactMechId));
-        if (telecomNumber == null) {
-          return ServiceUtil.returnError("In Send ProcessShipment Telecom number not found for orderId [" + orderId + "]");
-        }
-        bodyParameters.put("telecomNumber",telecomNumber);
-        orderItemShipGroup=EntityUtil.getFirst(delegator.findByAnd("OrderItemShipGroup",UtilMisc.toMap("orderId",orderId)));
-        bodyParameters.put("orderItemShipGroup",orderItemShipGroup);
-        Set correspondingPoIdSet=FastSet.newInstance();
-        List orderItems=orderReadHelper.getOrderItems();
-        Iterator oiIter=orderItems.iterator();
-        while (oiIter.hasNext()) {
-          GenericValue orderItem=(GenericValue)oiIter.next();
-          String correspondingPoId=orderItem.getString("correspondingPoId");
-          if (correspondingPoId != null) {
-            correspondingPoIdSet.add(correspondingPoId);
-          }
-        }
-        bodyParameters.put("correspondingPoIdSet",correspondingPoIdSet);
-        if (orderHeader.get("externalId") != null) {
-          Set externalIdSet=FastSet.newInstance();
-          externalIdSet.add(orderHeader.getString("externalId"));
-          bodyParameters.put("externalIdSet",externalIdSet);
-        }
-        GenericValue returnItemResponse=EntityUtil.getFirst(delegator.findByAnd("ReturnItemResponse",UtilMisc.toMap("replacementOrderId",orderId)));
-        if (returnItemResponse != null) {
-          boolean includeReturnLabel=false;
-          String returnItemResponseId=returnItemResponse.getString("returnItemResponseId");
-          List returnItemList=delegator.findByAnd("ReturnItem",UtilMisc.toMap("returnItemResponseId",returnItemResponseId));
-          GenericValue firstReturnItem=EntityUtil.getFirst(returnItemList);
-          if (firstReturnItem != null) {
-            bodyParameters.put("replacementReturnId",firstReturnItem.getString("returnId"));
-          }
+      Map cospResult=dispatcher.runSync("createOrderShipmentPlan",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+      shipmentId=(String)cospResult.get("shipmentId");
+      shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+    }
+    bodyParameters.put("shipment",shipment);
+    List shipmentItems=delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId));
+    bodyParameters.put("shipmentItems",shipmentItems);
+    GenericValue address=EntityUtil.getFirst(orderReadHelper.getShippingLocations());
+    bodyParameters.put("address",address);
+    String emailString=orderReadHelper.getOrderEmailString();
+    bodyParameters.put("emailString",emailString);
+    String contactMechId=shipment.getString("destinationTelecomNumberId");
+    GenericValue telecomNumber=delegator.findByPrimaryKey("TelecomNumber",UtilMisc.toMap("contactMechId",contactMechId));
+    if (telecomNumber == null) {
+      return ServiceUtil.returnError("In Send ProcessShipment Telecom number not found for orderId [" + orderId + "]");
+    }
+    bodyParameters.put("telecomNumber",telecomNumber);
+    orderItemShipGroup=EntityUtil.getFirst(delegator.findByAnd("OrderItemShipGroup",UtilMisc.toMap("orderId",orderId)));
+    bodyParameters.put("orderItemShipGroup",orderItemShipGroup);
+    Set correspondingPoIdSet=FastSet.newInstance();
+    List orderItems=orderReadHelper.getOrderItems();
+    Iterator oiIter=orderItems.iterator();
+    while (oiIter.hasNext()) {
+      GenericValue orderItem=(GenericValue)oiIter.next();
+      String correspondingPoId=orderItem.getString("correspondingPoId");
+      if (correspondingPoId != null) {
+        correspondingPoIdSet.add(correspondingPoId);
+      }
+    }
+    bodyParameters.put("correspondingPoIdSet",correspondingPoIdSet);
+    if (orderHeader.get("externalId") != null) {
+      Set externalIdSet=FastSet.newInstance();
+      externalIdSet.add(orderHeader.getString("externalId"));
+      bodyParameters.put("externalIdSet",externalIdSet);
+    }
+    GenericValue returnItemResponse=EntityUtil.getFirst(delegator.findByAnd("ReturnItemResponse",UtilMisc.toMap("replacementOrderId",orderId)));
+    if (returnItemResponse != null) {
+      boolean includeReturnLabel=false;
+      String returnItemResponseId=returnItemResponse.getString("returnItemResponseId");
+      List returnItemList=delegator.findByAnd("ReturnItem",UtilMisc.toMap("returnItemResponseId",returnItemResponseId));
+      GenericValue firstReturnItem=EntityUtil.getFirst(returnItemList);
+      if (firstReturnItem != null) {
+        bodyParameters.put("replacementReturnId",firstReturnItem.getString("returnId"));
+      }
  else {
-            Debug.logWarning("Could not find a ReturnItem for returnItemResponseId [" + returnItemResponseId + "]; this really shouldn't happen but isn't a real error either. It means a ReturnItemResponse was created but not attached to any item!",module);
-          }
-          Iterator returnItemIter=returnItemList.iterator();
-          while (returnItemIter.hasNext()) {
-            GenericValue returnItem=(GenericValue)returnItemIter.next();
-            if ("RTN_CSREPLACE".equals(returnItem.getString("returnTypeId"))) {
-              includeReturnLabel=true;
-            }
-          }
-          if (includeReturnLabel) {
-            bodyParameters.put("shipnotes","RETURNLABEL");
-          }
-        }
-        String partyId=shipment.getString("partyIdTo");
-        bodyParameters.put("partyNameView",delegator.findByPrimaryKey("PartyNameView",UtilMisc.toMap("partyId",partyId)));
-        List partyCarrierAccounts=delegator.findByAnd("PartyCarrierAccount",UtilMisc.toMap("partyId",partyId));
-        partyCarrierAccounts=EntityUtil.filterByDate(partyCarrierAccounts);
-        if (partyCarrierAccounts != null) {
-          Iterator pcaIter=partyCarrierAccounts.iterator();
-          while (pcaIter.hasNext()) {
-            GenericValue partyCarrierAccount=(GenericValue)pcaIter.next();
-            String carrierPartyId=partyCarrierAccount.getString("carrierPartyId");
-            if (carrierPartyId.equals(orderItemShipGroup.getString("carrierPartyId"))) {
-              String accountNumber=partyCarrierAccount.getString("accountNumber");
-              bodyParameters.put("shipperId",accountNumber);
-            }
-          }
-        }
-        bodyParameters.put("shipmentId",shipmentId);
-        bodyParameters.put("orderId",orderId);
-        bodyParameters.put("userLogin",userLogin);
-        String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ProcessShipment");
-        String outText=null;
-        Writer writer=new StringWriter();
-        ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,htmlScreenRenderer);
-        screens.render(bodyScreenUri);
-        writer.close();
-        outText=writer.toString();
-        if (Debug.infoOn())         Debug.logInfo("Finished rendering oagisSendProcessShipment message for orderId [" + orderId + "]",module);
-        try {
-          Map uomiCtx=FastMap.newInstance();
-          uomiCtx.putAll(omiPkMap);
-          uomiCtx.put("processingStatusId","OAGMP_OGEN_SUCCESS");
-          uomiCtx.put("shipmentId",shipmentId);
-          uomiCtx.put("userLogin",userLogin);
-          if (OagisServices.debugSaveXmlOut) {
-            uomiCtx.put("fullMessageXml",outText);
-          }
-          dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
-        }
- catch (        GenericServiceException e) {
-          String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
-          Debug.logError(e,errMsg,module);
-        }
-        Map sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
-        if (Debug.infoOn())         Debug.logInfo("Message send done for oagisSendProcessShipment for orderId [" + orderId + "], sendToUrl=["+ sendToUrl+ "], saveToDirectory=["+ saveToDirectory+ "], saveToFilename=["+ saveToFilename+ "]",module);
-        try {
-          Map uomiCtx=FastMap.newInstance();
-          uomiCtx.putAll(omiPkMap);
-          uomiCtx.put("processingStatusId","OAGMP_SENT");
-          uomiCtx.put("userLogin",userLogin);
-          dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
-        }
- catch (        GenericServiceException e) {
-          String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
-          Debug.logError(e,errMsg,module);
-        }
-        if (sendMessageReturn != null) {
-          return sendMessageReturn;
+        Debug.logWarning("Could not find a ReturnItem for returnItemResponseId [" + returnItemResponseId + "]; this really shouldn't happen but isn't a real error either. It means a ReturnItemResponse was created but not attached to any item!",module);
+      }
+      Iterator returnItemIter=returnItemList.iterator();
+      while (returnItemIter.hasNext()) {
+        GenericValue returnItem=(GenericValue)returnItemIter.next();
+        if ("RTN_CSREPLACE".equals(returnItem.getString("returnTypeId"))) {
+          includeReturnLabel=true;
         }
       }
+      if (includeReturnLabel) {
+        bodyParameters.put("shipnotes","RETURNLABEL");
+      }
+    }
+    String partyId=shipment.getString("partyIdTo");
+    bodyParameters.put("partyNameView",delegator.findByPrimaryKey("PartyNameView",UtilMisc.toMap("partyId",partyId)));
+    List partyCarrierAccounts=delegator.findByAnd("PartyCarrierAccount",UtilMisc.toMap("partyId",partyId));
+    partyCarrierAccounts=EntityUtil.filterByDate(partyCarrierAccounts);
+    if (partyCarrierAccounts != null) {
+      Iterator pcaIter=partyCarrierAccounts.iterator();
+      while (pcaIter.hasNext()) {
+        GenericValue partyCarrierAccount=(GenericValue)pcaIter.next();
+        String carrierPartyId=partyCarrierAccount.getString("carrierPartyId");
+        if (carrierPartyId.equals(orderItemShipGroup.getString("carrierPartyId"))) {
+          String accountNumber=partyCarrierAccount.getString("accountNumber");
+          bodyParameters.put("shipperId",accountNumber);
+        }
+      }
+    }
+    bodyParameters.put("shipmentId",shipmentId);
+    bodyParameters.put("orderId",orderId);
+    bodyParameters.put("userLogin",userLogin);
+    String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ProcessShipment");
+    String outText=null;
+    Writer writer=new StringWriter();
+    ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,htmlScreenRenderer);
+    screens.render(bodyScreenUri);
+    writer.close();
+    outText=writer.toString();
+    if (Debug.infoOn())     Debug.logInfo("Finished rendering oagisSendProcessShipment message for orderId [" + orderId + "]",module);
+    try {
+      Map uomiCtx=FastMap.newInstance();
+      uomiCtx.putAll(omiPkMap);
+      uomiCtx.put("processingStatusId","OAGMP_OGEN_SUCCESS");
+      uomiCtx.put("shipmentId",shipmentId);
+      uomiCtx.put("userLogin",userLogin);
+      if (OagisServices.debugSaveXmlOut) {
+        uomiCtx.put("fullMessageXml",outText);
+      }
+      dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+    }
+    Map sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
+    if (Debug.infoOn())     Debug.logInfo("Message send done for oagisSendProcessShipment for orderId [" + orderId + "], sendToUrl=["+ sendToUrl+ "], saveToDirectory=["+ saveToDirectory+ "], saveToFilename=["+ saveToFilename+ "]",module);
+    try {
+      Map uomiCtx=FastMap.newInstance();
+      uomiCtx.putAll(omiPkMap);
+      uomiCtx.put("processingStatusId","OAGMP_SENT");
+      uomiCtx.put("userLogin",userLogin);
+      dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+    }
+    if (sendMessageReturn != null) {
+      return sendMessageReturn;
     }
   }
  catch (  Throwable t) {
@@ -245,6 +250,8 @@
         Map uomiCtx=FastMap.newInstance();
         uomiCtx.putAll(omiPkMap);
         uomiCtx.put("processingStatusId","OAGMP_SYS_ERROR");
+        uomiCtx.put("bsrVerb","PROCESS");
+        uomiCtx.put("bsrNoun","SHIPMENT");
         uomiCtx.put("orderId",orderId);
         uomiCtx.put("shipmentId",shipmentId);
         uomiCtx.put("userLogin",userLogin);
