@@ -8,13 +8,13 @@
       connection=getConnection();
     }
  catch (    SQLException e) {
-      String message="Unable to esablish a connection with the database... Error was:" + e.toString();
+      String message="Unable to establish a connection with the database... Error was:" + e.toString();
       Debug.logError(e,message,module);
       if (messages != null)       messages.add(message);
       return null;
     }
 catch (    GenericEntityException e) {
-      String message="Unable to esablish a connection with the database... Error was:" + e.toString();
+      String message="Unable to establish a connection with the database... Error was:" + e.toString();
       Debug.logError(e,message,module);
       if (messages != null)       messages.add(message);
       return null;
@@ -120,70 +120,39 @@ catch (    GenericEntityException e) {
         if (messages != null)         messages.add(message);
       }
       if (getPks) {
-        boolean foundPks=false;
-        ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,null);
-        if (!rsPks.next()) {
-          try {
-            rsPks.close();
-          }
- catch (          SQLException e) {
-            String message="Unable to close ResultSet for primary key list, continuing anyway... Error was:" + e.toString();
-            Debug.logError(message,module);
-            if (messages != null)             messages.add(message);
-          }
-          rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,"%");
-          if (!rsPks.next()) {
-          }
- else {
-            foundPks=true;
-          }
-        }
- else {
-          foundPks=true;
-        }
-        if (foundPks) {
-          do {
-            try {
-              String tableName=ColumnCheckInfo.fixupTableName(rsPks.getString("TABLE_NAME"),lookupSchemaName,needsUpperCase);
-              String columnName=rsPks.getString("COLUMN_NAME");
-              if (needsUpperCase && columnName != null) {
-                columnName=columnName.toUpperCase();
-              }
-              Map tableColInfo=(Map)colInfo.get(tableName);
-              if (tableColInfo == null) {
-                continue;
-              }
-              ColumnCheckInfo ccInfo=(ColumnCheckInfo)tableColInfo.get(columnName);
-              if (ccInfo == null) {
-                Debug.logWarning("Got primary key information for a column that we didn't get column information for: tableName=[" + tableName + "], columnName=["+ columnName+ "]",module);
-                continue;
-              }
-              ccInfo.isPk=true;
-              ccInfo.pkSeq=rsPks.getShort("KEY_SEQ");
-              ccInfo.pkName=rsPks.getString("PK_NAME");
-            }
- catch (            SQLException e) {
-              String message="Error getting primary key info for column. Error was:" + e.toString();
-              Debug.logError(message,module);
-              if (messages != null)               messages.add(message);
-              continue;
-            }
-          }
- while (rsPks.next());
-        }
+        int pkCount=0;
         try {
-          rsPks.close();
+          ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,null);
+          pkCount+=checkPrimaryKeyInfo(rsPks,lookupSchemaName,needsUpperCase,colInfo,messages);
         }
- catch (        SQLException e) {
-          String message="Unable to close ResultSet for primary key list, continuing anyway... Error was:" + e.toString();
-          Debug.logError(message,module);
-          if (messages != null)           messages.add(message);
+ catch (        Exception e1) {
+          Debug.logWarning("Error getting primary key info from database with null tableName, will try other means: " + e1.toString(),module);
         }
+        if (pkCount == 0) {
+          try {
+            ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,"%");
+            pkCount+=checkPrimaryKeyInfo(rsPks,lookupSchemaName,needsUpperCase,colInfo,messages);
+          }
+ catch (          Exception e1) {
+            Debug.logWarning("Error getting primary key info from database with % tableName, will try other means: " + e1.toString(),module);
+          }
+        }
+        if (pkCount == 0) {
+          Debug.logInfo("Searching in " + tableNames.size() + " tables for primary key fields ...",module);
+          Iterator it=tableNames.iterator();
+          while (it.hasNext()) {
+            String curTable=(String)it.next();
+            curTable=curTable.substring(curTable.indexOf('.') + 1);
+            ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,curTable);
+            pkCount+=checkPrimaryKeyInfo(rsPks,lookupSchemaName,needsUpperCase,colInfo,messages);
+          }
+        }
+        Debug.logInfo("Reviewed " + pkCount + " primary key fields from database.",module);
       }
     }
  catch (    SQLException e) {
-      String message="Error getting column meta data for Error was:" + e.toString() + ". Not checking columns.";
-      Debug.logError(message,module);
+      String message="Error getting column meta data for Error was: [" + e.toString() + "]. Not checking columns.";
+      Debug.logError(e,message,module);
       if (messages != null)       messages.add(message);
     }
     return colInfo;

@@ -1,0 +1,44 @@
+{
+  int pkCount=0;
+  try {
+    while (rsPks.next()) {
+      pkCount++;
+      try {
+        String tableName=ColumnCheckInfo.fixupTableName(rsPks.getString("TABLE_NAME"),lookupSchemaName,needsUpperCase);
+        String columnName=rsPks.getString("COLUMN_NAME");
+        if (needsUpperCase && columnName != null) {
+          columnName=columnName.toUpperCase();
+        }
+        Map tableColInfo=(Map)colInfo.get(tableName);
+        if (tableColInfo == null) {
+          continue;
+        }
+        ColumnCheckInfo ccInfo=(ColumnCheckInfo)tableColInfo.get(columnName);
+        if (ccInfo == null) {
+          Debug.logWarning("Got primary key information for a column that we didn't get column information for: tableName=[" + tableName + "], columnName=["+ columnName+ "]",module);
+          continue;
+        }
+        ccInfo.isPk=true;
+        ccInfo.pkSeq=rsPks.getShort("KEY_SEQ");
+        ccInfo.pkName=rsPks.getString("PK_NAME");
+      }
+ catch (      SQLException e) {
+        String message="Error getting primary key info for column. Error was:" + e.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+        continue;
+      }
+    }
+  }
+  finally {
+    try {
+      rsPks.close();
+    }
+ catch (    SQLException sqle) {
+      String message="Unable to close ResultSet for primary key list, continuing anyway... Error was:" + sqle.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+    }
+  }
+  return pkCount;
+}
