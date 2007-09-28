@@ -5,10 +5,12 @@
   final HttpServletRequest request=(HttpServletRequest)FreeMarkerWorker.getWrappedObject("request",env);
   final HttpServletResponse response=(HttpServletResponse)FreeMarkerWorker.getWrappedObject("response",env);
   final Map envMap=FreeMarkerWorker.createEnvironmentMap(env);
-  final Map templateRoot=MapStack.create(envMap);
+  final Map templateRoot=MapStack.create();
+  ((MapStack)templateRoot).push(envMap);
   if (Debug.verboseOn())   Debug.logVerbose("in RenderContentAndSubContent, contentId(0):" + templateRoot.get("contentId"),module);
   FreeMarkerWorker.getSiteParameters(request,templateRoot);
   FreeMarkerWorker.overrideWithArgs(templateRoot,args);
+  final Map savedValues=new HashMap();
   return new Writer(out){
     public void write(    char cbuf[],    int off,    int len){
     }
@@ -34,20 +36,11 @@
         String contentId=(String)templateRoot.get("contentId");
         String mapKey=(String)templateRoot.get("mapKey");
         String contentAssocTypeId=(String)templateRoot.get("contentAssocTypeId");
-        if (UtilValidate.isNotEmpty(mapKey) || UtilValidate.isNotEmpty(mapKey)) {
-          List assocList=null;
-          if (UtilValidate.isNotEmpty(contentAssocTypeId)) {
-            assocList=UtilMisc.toList(contentAssocTypeId);
-          }
-          GenericValue content=ContentWorker.getSubContent(delegator,contentId,mapKey,null,null,assocList,null);
-          if (content != null) {
-            contentId=content.getString("contentId");
-          }
- else {
-            contentId=null;
-          }
+        if (UtilValidate.isNotEmpty(mapKey) || UtilValidate.isNotEmpty(contentAssocTypeId)) {
+          String txt=ContentWorker.renderSubContentAsText(dispatcher,delegator,contentId,mapKey,templateRoot,locale,mimeTypeId,true);
+          out.write(txt);
         }
-        if (contentId != null) {
+ else         if (contentId != null) {
           ContentWorker.renderContentAsText(dispatcher,delegator,contentId,out,templateRoot,locale,mimeTypeId,true);
         }
       }
