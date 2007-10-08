@@ -1,0 +1,43 @@
+{
+  GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
+  String emailAddress=(String)context.get("emailAddress");
+  String verifyHash=null;
+  String expireTime=UtilProperties.getPropertyValue("security","email_verification.expire.hours");
+  Integer expTime=Integer.valueOf(expireTime);
+  Calendar calendar=Calendar.getInstance();
+  calendar.add(Calendar.HOUR,expTime.intValue());
+  Date date=calendar.getTime();
+  Timestamp expireDate=UtilDateTime.toTimestamp(date);
+  SecureRandom secureRandom=new SecureRandom();
+synchronized (ContactMechServices.class) {
+    while (true) {
+      Long random=secureRandom.nextLong();
+      verifyHash=HashCrypt.getDigestHash(Long.toString(random),"MD5");
+      List emailAddVerifications=null;
+      try {
+        emailAddVerifications=delegator.findByAnd("EmailAddressVerification",UtilMisc.toMap("verifyHash",verifyHash));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e.getMessage(),module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      if (UtilValidate.isEmpty(emailAddVerifications)) {
+        GenericValue emailAddressVerification=delegator.makeValue("EmailAddressVerification",null);
+        emailAddressVerification.set("emailAddress",emailAddress);
+        emailAddressVerification.set("verifyHash",verifyHash);
+        emailAddressVerification.set("expireDate",expireDate);
+        try {
+          delegator.create(emailAddressVerification);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e.getMessage(),module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+        break;
+      }
+    }
+  }
+  Map result=ServiceUtil.returnSuccess();
+  result.put("verifyHash",verifyHash);
+  return result;
+}
