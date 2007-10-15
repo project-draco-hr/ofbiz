@@ -1,0 +1,49 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue dimensionValue=(GenericValue)context.get("dimensionValue");
+  List naturalKeyFields=(List)context.get("naturalKeyFields");
+  String updateMode=(String)context.get("updateMode");
+  try {
+    Map andCondition=FastMap.newInstance();
+    for (int i=0; i < naturalKeyFields.size(); i++) {
+      String naturalKeyField=(String)naturalKeyFields.get(i);
+      andCondition.put(naturalKeyField,dimensionValue.get(naturalKeyField));
+    }
+    if (andCondition.isEmpty()) {
+      return ServiceUtil.returnError("The natural key: " + naturalKeyFields + " is empty in value: "+ dimensionValue);
+    }
+    List existingDimensionValues=null;
+    try {
+      existingDimensionValues=delegator.findByAnd(dimensionValue.getEntityName(),andCondition);
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError(gee.getMessage());
+    }
+    if (UtilValidate.isEmpty(existingDimensionValues)) {
+      dimensionValue.set("dimensionId",delegator.getNextSeqId(dimensionValue.getEntityName()));
+      dimensionValue.create();
+    }
+ else {
+      if ("TYPE1".equals(updateMode)) {
+        for (int i=0; i < existingDimensionValues.size(); i++) {
+          GenericValue existingDimensionValue=(GenericValue)existingDimensionValues.get(i);
+          GenericValue updatedValue=delegator.makeValue(dimensionValue.getEntityName(),dimensionValue);
+          updatedValue.set("dimensionId",existingDimensionValue.getString("dimensionId"));
+          updatedValue.store();
+        }
+      }
+ else       if ("TYPE2".equals(updateMode)) {
+        dimensionValue.set("dimensionId",delegator.getNextSeqId(dimensionValue.getEntityName()));
+        dimensionValue.create();
+      }
+ else {
+        return ServiceUtil.returnError("The update mode: " + updateMode + " is still not supported.");
+      }
+    }
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(gee.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}

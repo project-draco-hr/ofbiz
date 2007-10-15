@@ -1,0 +1,60 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Date fromDate=(Date)context.get("fromDate");
+  Date thruDate=(Date)context.get("thruDate");
+  SimpleDateFormat monthNameFormat=new SimpleDateFormat("MMMM");
+  SimpleDateFormat dayNameFormat=new SimpleDateFormat("EEEE");
+  SimpleDateFormat dayDescriptionFormat=new SimpleDateFormat("MMMM d, yyyy");
+  SimpleDateFormat yearMonthDayFormat=new SimpleDateFormat("yyyy-MM-dd");
+  SimpleDateFormat yearMonthFormat=new SimpleDateFormat("yyyy-MM");
+  Calendar calendar=Calendar.getInstance();
+  calendar.setTime(fromDate);
+  calendar.set(Calendar.HOUR,0);
+  calendar.set(Calendar.MINUTE,0);
+  calendar.set(Calendar.SECOND,0);
+  calendar.set(Calendar.MILLISECOND,0);
+  Date currentDate=calendar.getTime();
+  while (currentDate.compareTo(thruDate) <= 0) {
+    GenericValue dateValue=null;
+    try {
+      dateValue=EntityUtil.getFirst(delegator.findByAnd("DateDimension",UtilMisc.toMap("dateValue",currentDate)));
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError(gee.getMessage());
+    }
+    boolean newValue=(dateValue == null);
+    if (newValue) {
+      dateValue=delegator.makeValue("DateDimension",null);
+      dateValue.set("dimensionId",delegator.getNextSeqId("DateDimension"));
+      dateValue.set("dateValue",currentDate);
+    }
+    dateValue.set("description",dayDescriptionFormat.format(currentDate));
+    int dayOfWeek=calendar.get(Calendar.DAY_OF_WEEK);
+    dateValue.set("dayName",dayNameFormat.format(currentDate));
+    dateValue.set("dayOfMonth",new Integer(calendar.get(Calendar.DAY_OF_MONTH)));
+    dateValue.set("dayOfYear",new Integer(calendar.get(Calendar.DAY_OF_YEAR)));
+    dateValue.set("monthName",monthNameFormat.format(currentDate));
+    dateValue.set("monthOfYear",new Integer(calendar.get(Calendar.MONTH) + 1));
+    dateValue.set("yearName",new Integer(calendar.get(Calendar.YEAR)));
+    dateValue.set("weekOfMonth",new Integer(calendar.get(Calendar.WEEK_OF_MONTH)));
+    dateValue.set("weekOfYear",new Integer(calendar.get(Calendar.WEEK_OF_YEAR)));
+    dateValue.set("weekdayType",(dayOfWeek == 1 || dayOfWeek == 7 ? "Weekend" : "Weekday"));
+    dateValue.set("yearMonthDay",yearMonthDayFormat.format(currentDate));
+    dateValue.set("yearMonth",yearMonthFormat.format(currentDate));
+    try {
+      if (newValue) {
+        dateValue.create();
+      }
+ else {
+        dateValue.store();
+      }
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError(gee.getMessage());
+    }
+    calendar.add(Calendar.DATE,1);
+    currentDate=calendar.getTime();
+  }
+  return ServiceUtil.returnSuccess();
+}
