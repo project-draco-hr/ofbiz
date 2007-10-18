@@ -8,12 +8,10 @@ synchronized (ModelReader.class) {
         numRelations=0;
         numAutoRelations=0;
         entityCache=FastMap.newInstance();
-        List tempViewEntityList=FastList.newInstance();
-        List tempExtendEntityElementList=FastList.newInstance();
+        List<ModelViewEntity> tempViewEntityList=FastList.newInstance();
+        List<Element> tempExtendEntityElementList=FastList.newInstance();
         UtilTimer utilTimer=new UtilTimer();
-        Iterator rhIter=entityResourceHandlers.iterator();
-        while (rhIter.hasNext()) {
-          ResourceHandler entityResourceHandler=(ResourceHandler)rhIter.next();
+        for (        ResourceHandler entityResourceHandler : entityResourceHandlers) {
           Document document=null;
           try {
             document=entityResourceHandler.getDocument();
@@ -42,42 +40,11 @@ synchronized (ModelReader.class) {
               boolean isExtendEntity="extend-entity".equals(curChild.getNodeName());
               if ((isEntity || isViewEntity) && curChild.getNodeType() == Node.ELEMENT_NODE) {
                 i++;
-                Element curEntityElement=(Element)curChild;
-                String entityName=UtilXml.checkEmpty(curEntityElement.getAttribute("entity-name")).intern();
-                Collection resourceHandlerEntityNames=(Collection)resourceHandlerEntities.get(entityResourceHandler);
-                if (resourceHandlerEntityNames == null) {
-                  resourceHandlerEntityNames=FastList.newInstance();
-                  resourceHandlerEntities.put(entityResourceHandler,resourceHandlerEntityNames);
-                }
-                resourceHandlerEntityNames.add(entityName);
-                if (entityCache.containsKey(entityName)) {
-                  Debug.logWarning("WARNING: Entity " + entityName + " is defined more than once, most recent will over-write "+ "previous definition(s)",module);
-                  Debug.logWarning("WARNING: Entity " + entityName + " was found in "+ entityResourceHandler+ ", but was already defined in "+ entityResourceHandlerMap.get(entityName).toString(),module);
-                }
-                entityResourceHandlerMap.put(entityName,entityResourceHandler);
-                ModelEntity modelEntity=null;
-                if (isEntity) {
-                  modelEntity=createModelEntity(curEntityElement,null,def);
-                }
- else {
-                  modelEntity=createModelViewEntity(curEntityElement,null,def);
-                  tempViewEntityList.add(modelEntity);
-                }
-                if (modelEntity != null) {
-                  entityCache.put(entityName,modelEntity);
-                  if (isEntity) {
-                    if (Debug.verboseOn())                     Debug.logVerbose("-- [Entity]: #" + i + ": "+ entityName,module);
-                  }
- else {
-                    if (Debug.verboseOn())                     Debug.logVerbose("-- [ViewEntity]: #" + i + ": "+ entityName,module);
-                  }
-                }
- else {
-                  Debug.logWarning("-- -- ENTITYGEN ERROR:getModelEntity: Could not create " + "entity for entityName: " + entityName,module);
-                }
+                ModelEntity modelEntity=buildEntity(entityResourceHandler,(Element)curChild,i,def);
+                if (isViewEntity)                 tempViewEntityList.add((ModelViewEntity)modelEntity);
               }
  else               if (isExtendEntity && curChild.getNodeType() == Node.ELEMENT_NODE) {
-                tempExtendEntityElementList.add(curChild);
+                tempExtendEntityElementList.add((Element)curChild);
               }
             }
  while ((curChild=curChild.getNextSibling()) != null);
@@ -87,39 +54,30 @@ synchronized (ModelReader.class) {
           }
           utilTimer.timerString("Finished " + entityResourceHandler.toString() + " - Total Entities: "+ i+ " FINISHED");
         }
-        Iterator tempExtendEntityElementIter=tempExtendEntityElementList.iterator();
-        while (tempExtendEntityElementIter.hasNext()) {
-          Element extendEntityElement=(Element)tempExtendEntityElementIter.next();
+        for (        Element extendEntityElement : tempExtendEntityElementList) {
           String entityName=UtilXml.checkEmpty(extendEntityElement.getAttribute("entity-name"));
           ModelEntity modelEntity=(ModelEntity)entityCache.get(entityName);
           if (modelEntity == null)           throw new GenericEntityConfException("Entity to extend does not exist: " + entityName);
           modelEntity.addExtendEntity(this,extendEntityElement);
         }
-        Iterator tempViewEntityIter=tempViewEntityList.iterator();
-        while (tempViewEntityIter.hasNext()) {
-          ModelViewEntity curViewEntity=(ModelViewEntity)tempViewEntityIter.next();
+        for (        ModelViewEntity curViewEntity : tempViewEntityList) {
           curViewEntity.populateFields(this);
-          List memberEntities=curViewEntity.getAllModelMemberEntities();
-          Iterator memberEntityIter=memberEntities.iterator();
-          while (memberEntityIter.hasNext()) {
-            ModelViewEntity.ModelMemberEntity mve=(ModelViewEntity.ModelMemberEntity)memberEntityIter.next();
+          for (          ModelViewEntity.ModelMemberEntity mve : curViewEntity.getAllModelMemberEntities()) {
             ModelEntity me=(ModelEntity)entityCache.get(mve.getEntityName());
             if (me == null)             throw new GenericEntityConfException("View " + curViewEntity.getEntityName() + " references non-existant entity: "+ mve.getEntityName());
             me.addViewEntity(curViewEntity);
           }
         }
-        TreeSet orderedMessages=new TreeSet();
-        Iterator entityNamesIter=new TreeSet(this.getEntityNames()).iterator();
-        while (entityNamesIter.hasNext()) {
-          String curEntityName=(String)entityNamesIter.next();
+        TreeSet<String> orderedMessages=new TreeSet<String>();
+        for (        String curEntityName : new TreeSet<String>(this.getEntityNames())) {
           ModelEntity curModelEntity=this.getModelEntity(curEntityName);
           if (curModelEntity instanceof ModelViewEntity) {
           }
  else {
-            List newSameEntityRelations=FastList.newInstance();
-            Iterator relationsIter=curModelEntity.getRelationsIterator();
+            List<ModelRelation> newSameEntityRelations=FastList.newInstance();
+            Iterator<ModelRelation> relationsIter=curModelEntity.getRelationsIterator();
             while (relationsIter.hasNext()) {
-              ModelRelation modelRelation=(ModelRelation)relationsIter.next();
+              ModelRelation modelRelation=relationsIter.next();
               if (("one".equals(modelRelation.getType()) || "one-nofk".equals(modelRelation.getType())) && !modelRelation.isAutoRelation()) {
                 ModelEntity relatedEnt=null;
                 try {
@@ -138,7 +96,7 @@ synchronized (ModelReader.class) {
                   newRel.setRelEntityName(curModelEntity.getEntityName());
                   newRel.setTitle(targetTitle);
                   newRel.setAutoRelation(true);
-                  Set curEntityKeyFields=FastSet.newInstance();
+                  Set<String> curEntityKeyFields=FastSet.newInstance();
                   for (int kmn=0; kmn < modelRelation.getKeyMapsSize(); kmn++) {
                     ModelKeyMap curkm=modelRelation.getKeyMap(kmn);
                     ModelKeyMap newkm=new ModelKeyMap();
@@ -149,10 +107,10 @@ synchronized (ModelReader.class) {
                   }
                   if (curModelEntity.containsAllPkFieldNames(curEntityKeyFields)) {
                     newRel.setType("one-nofk");
-                    List curPkFieldNames=curModelEntity.getPkFieldNames();
-                    Iterator nrkmIter=newRel.getKeyMapsIterator();
+                    List<String> curPkFieldNames=curModelEntity.getPkFieldNames();
+                    Iterator<ModelKeyMap> nrkmIter=newRel.getKeyMapsIterator();
                     while (nrkmIter.hasNext()) {
-                      ModelKeyMap nrkm=(ModelKeyMap)nrkmIter.next();
+                      ModelKeyMap nrkm=nrkmIter.next();
                       String checkField=nrkm.getRelFieldName();
                       if (!curPkFieldNames.contains(checkField)) {
                         nrkmIter.remove();
@@ -191,17 +149,14 @@ synchronized (ModelReader.class) {
               }
             }
             if (newSameEntityRelations.size() > 0) {
-              Iterator newRelsIter=newSameEntityRelations.iterator();
-              while (newRelsIter.hasNext()) {
-                ModelRelation newRel=(ModelRelation)newRelsIter.next();
+              for (              ModelRelation newRel : newSameEntityRelations) {
                 curModelEntity.addRelation(newRel);
               }
             }
           }
         }
-        Iterator omIter=orderedMessages.iterator();
-        while (omIter.hasNext()) {
-          Debug.logInfo((String)omIter.next(),module);
+        for (        String message : orderedMessages) {
+          Debug.logInfo(message,module);
         }
         Debug.log("FINISHED LOADING ENTITIES - ALL FILES; #Entities=" + numEntities + " #ViewEntities="+ numViewEntities+ " #Fields="+ numFields+ " #Relationships="+ numRelations+ " #AutoRelationships="+ numAutoRelations,module);
       }

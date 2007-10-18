@@ -1,8 +1,8 @@
 {
-  Map containedModelFields=FastMap.newInstance();
-  Iterator it=getAliasesIterator();
+  Map<String,List<String>> containedModelFields=FastMap.newInstance();
+  Iterator<ModelAlias> it=getAliasesIterator();
   while (it.hasNext()) {
-    ModelViewEntity.ModelAlias alias=(ModelViewEntity.ModelAlias)it.next();
+    ModelViewEntity.ModelAlias alias=it.next();
     if (alias.isComplexAlias()) {
       Debug.logWarning("Conversion for complex-alias needs to be implemented for cache and in-memory eval stuff to work correctly, will not work for alias: " + alias.getName() + " of view-entity "+ this.getEntityName(),module);
     }
@@ -10,44 +10,42 @@
       ModelConversion conversion=getOrCreateModelConversion(alias.getEntityAlias());
       conversion.addConversion(alias.getField(),alias.getName());
     }
-    List aliases=(List)containedModelFields.get(alias.getField());
+    List<String> aliases=containedModelFields.get(alias.getField());
     if (aliases == null) {
       aliases=FastList.newInstance();
       containedModelFields.put(alias.getField(),aliases);
     }
     aliases.add(alias.getName());
   }
-  it=getViewLinksIterator();
-  while (it.hasNext()) {
-    ModelViewEntity.ModelViewLink link=(ModelViewEntity.ModelViewLink)it.next();
+  Iterator<ModelViewLink> it2=getViewLinksIterator();
+  while (it2.hasNext()) {
+    ModelViewEntity.ModelViewLink link=it2.next();
     String leftAlias=link.getEntityAlias();
     String rightAlias=link.getRelEntityAlias();
     ModelConversion leftConversion=getOrCreateModelConversion(leftAlias);
     ModelConversion rightConversion=getOrCreateModelConversion(rightAlias);
-    Iterator it2=link.getKeyMapsIterator();
+    Iterator<ModelKeyMap> it3=link.getKeyMapsIterator();
     Debug.logVerbose(leftAlias + "<->" + rightAlias,module);
-    while (it2.hasNext()) {
-      ModelKeyMap mkm=(ModelKeyMap)it2.next();
+    while (it3.hasNext()) {
+      ModelKeyMap mkm=it3.next();
       String leftFieldName=mkm.getFieldName();
       String rightFieldName=mkm.getRelFieldName();
-      rightConversion.addAllAliasConversions((List)containedModelFields.get(leftFieldName),rightFieldName);
-      leftConversion.addAllAliasConversions((List)containedModelFields.get(rightFieldName),leftFieldName);
+      rightConversion.addAllAliasConversions(containedModelFields.get(leftFieldName),rightFieldName);
+      leftConversion.addAllAliasConversions(containedModelFields.get(rightFieldName),leftFieldName);
     }
   }
-  it=conversions.entrySet().iterator();
   int[] currentIndex=new int[conversions.size()];
   int[] maxIndex=new int[conversions.size()];
   ModelConversion[][] allConversions=new ModelConversion[conversions.size()][];
   int i=0;
-  while (it.hasNext()) {
-    Map.Entry entry=(Map.Entry)it.next();
-    Map aliasConversions=(Map)entry.getValue();
+  for (  Map<String,ModelConversion> aliasConversions : conversions.values()) {
     currentIndex[i]=0;
     maxIndex[i]=aliasConversions.size();
     allConversions[i]=new ModelConversion[aliasConversions.size()];
-    Iterator it2=aliasConversions.values().iterator();
-    for (int j=0; it2.hasNext() && j < aliasConversions.size(); j++) {
-      allConversions[i][j]=(ModelConversion)it2.next();
+    int j=0;
+    for (    ModelConversion conversion : aliasConversions.values()) {
+      allConversions[i][j]=conversion;
+      j++;
     }
     i++;
   }
