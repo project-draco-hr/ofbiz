@@ -1,0 +1,48 @@
+{
+  UtilCache<EntityCondition,Map<K,V>> entityCache=UtilCache.findCache(getCacheName(entityName));
+  if (newValues == null || newValues.size() == 0 || newValues.get(0) == null) {
+  }
+  if (entityCache == null) {
+    return;
+  }
+  for (  EntityCondition condition : entityCache.getCacheLineKeys()) {
+    boolean shouldRemove=false;
+    if (condition == null) {
+      shouldRemove=true;
+    }
+ else     if (oldValues == null) {
+      Iterator<T2> newValueIter=newValues.iterator();
+      while (newValueIter.hasNext() && !shouldRemove) {
+        T2 newValue=newValueIter.next();
+        shouldRemove|=condition.mapMatches(getDelegator(),newValue);
+      }
+    }
+ else {
+      boolean oldMatched=false;
+      Iterator<T1> oldValueIter=oldValues.iterator();
+      while (oldValueIter.hasNext() && !shouldRemove) {
+        T1 oldValue=oldValueIter.next();
+        if (condition.mapMatches(getDelegator(),oldValue)) {
+          oldMatched=true;
+          if (newValues != null) {
+            Iterator<T2> newValueIter=newValues.iterator();
+            while (newValueIter.hasNext() && !shouldRemove) {
+              T2 newValue=newValueIter.next();
+              shouldRemove|=isNull(newValue) || condition.mapMatches(getDelegator(),newValue);
+            }
+          }
+ else {
+            shouldRemove=true;
+          }
+        }
+      }
+      if (!oldMatched && isPK) {
+        shouldRemove=true;
+      }
+    }
+    if (shouldRemove) {
+      if (Debug.verboseOn())       Debug.logVerbose("In storeHook, matched condition, removing from cache for entityName [" + entityName + "] in cache with name ["+ entityCache.getName()+ "] entry with condition: "+ condition,module);
+      entityCache.remove(condition);
+    }
+  }
+}
