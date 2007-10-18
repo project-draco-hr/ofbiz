@@ -1,0 +1,42 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    if (primaryKeys == null)     return null;
+    List<GenericValue> results=FastList.newInstance();
+    Map<String,List<GenericPK>> pksPerHelper=FastMap.newInstance();
+    for (    GenericPK curPK : primaryKeys) {
+      String helperName=this.getEntityHelperName(curPK.getEntityName());
+      List<GenericPK> pks=pksPerHelper.get(helperName);
+      if (pks == null) {
+        pks=FastList.newInstance();
+        pksPerHelper.put(helperName,pks);
+      }
+      pks.add(curPK);
+    }
+    for (    Map.Entry<String,List<GenericPK>> curEntry : pksPerHelper.entrySet()) {
+      String helperName=curEntry.getKey();
+      GenericHelper helper=GenericHelperFactory.getHelper(helperName);
+      List<GenericValue> values=helper.findAllByPrimaryKeys(curEntry.getValue());
+      results.addAll(values);
+    }
+    this.decryptFields(results);
+    return results;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in findAllByPrimaryKeys operation, rolling back transaction";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw e;
+  }
+ finally {
+    TransactionUtil.commit(beganTransaction);
+  }
+}
