@@ -1,0 +1,60 @@
+{
+  if (UtilValidate.isNotEmpty(this.permissionServiceName)) {
+    ModelService thisService;
+    ModelService permission;
+    try {
+      thisService=dctx.getModelService(this.name);
+      permission=dctx.getModelService(this.permissionServiceName);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Failed to get ModelService: " + e.toString(),module);
+      Map<String,Object> result=ServiceUtil.returnSuccess();
+      result.put("hasPermission",Boolean.FALSE);
+      result.put("failMessage",e.getMessage());
+      return result;
+    }
+    if (permission != null) {
+      Map<String,Object> ctx=permission.makeValid(context,ModelService.IN_PARAM);
+      if (UtilValidate.isNotEmpty(this.permissionMainAction)) {
+        ctx.put("mainAction",this.permissionMainAction);
+      }
+      if (UtilValidate.isNotEmpty(this.permissionResourceDesc)) {
+        ctx.put("resourceDescription",this.permissionResourceDesc);
+      }
+ else       if (thisService != null) {
+        ctx.put("resourceDescription",thisService.name);
+      }
+      LocalDispatcher dispatcher=dctx.getDispatcher();
+      Map<String,Object> resp;
+      try {
+        resp=dispatcher.runSync(permission.name,ctx,300,true);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        Map<String,Object> result=ServiceUtil.returnSuccess();
+        result.put("hasPermission",Boolean.FALSE);
+        result.put("failMessage",e.getMessage());
+        return result;
+      }
+      if (ServiceUtil.isError(resp) || ServiceUtil.isFailure(resp)) {
+        Map<String,Object> result=ServiceUtil.returnSuccess();
+        result.put("hasPermission",Boolean.FALSE);
+        result.put("failMessage",ServiceUtil.getErrorMessage(resp));
+        return result;
+      }
+      return resp;
+    }
+ else {
+      Map<String,Object> result=ServiceUtil.returnSuccess();
+      result.put("hasPermission",Boolean.FALSE);
+      result.put("failMessage","No ModelService found with the name [" + this.permissionServiceName + "]");
+      return result;
+    }
+  }
+ else {
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("hasPermission",Boolean.FALSE);
+    result.put("failMessage","No ModelService found; no service name specified!");
+    return result;
+  }
+}

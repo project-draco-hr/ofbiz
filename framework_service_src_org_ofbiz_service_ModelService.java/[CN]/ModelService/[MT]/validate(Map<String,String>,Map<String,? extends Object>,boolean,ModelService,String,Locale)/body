@@ -1,0 +1,91 @@
+{
+  if (info == null || test == null) {
+    throw new ServiceValidationException("Cannot validate NULL maps",model);
+  }
+  Set<String> testSet=test.keySet();
+  Set<String> keySet=info.keySet();
+  if (info.size() == 0 && test.size() == 0)   return;
+  if (reverse && !testSet.containsAll(keySet)) {
+    Set<String> missing=new TreeSet<String>(keySet);
+    missing.removeAll(testSet);
+    List<String> missingMsgs=FastList.newInstance();
+    for (    String key : missing) {
+      String msg=model.getParam(key).getPrimaryFailMessage(locale);
+      if (msg == null) {
+        String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"ModelService.following_required_parameter_missing",locale);
+        msg=errMsg + " [" + mode+ "] ["+ model.name+ "."+ key+ "]";
+      }
+      missingMsgs.add(msg);
+    }
+    List<String> missingCopy=FastList.newInstance();
+    missingCopy.addAll(missing);
+    throw new ServiceValidationException(missingMsgs,model,missingCopy,null,mode);
+  }
+  if (!keySet.containsAll(testSet)) {
+    Set<String> extra=new TreeSet<String>(testSet);
+    extra.removeAll(keySet);
+    List<String> extraMsgs=FastList.newInstance();
+    for (    String key : extra) {
+      ModelParam param=model.getParam(key);
+      String msg=null;
+      if (param != null) {
+        msg=param.getPrimaryFailMessage(locale);
+      }
+      if (msg == null) {
+        msg="Unknown parameter found: [" + model.name + "."+ key+ "]";
+      }
+      extraMsgs.add(msg);
+    }
+    List<String> extraCopy=FastList.newInstance();
+    extraCopy.addAll(extra);
+    throw new ServiceValidationException(extraMsgs,model,null,extraCopy,mode);
+  }
+  List<String> typeFailMsgs=FastList.newInstance();
+  for (  String key : testSet) {
+    ModelParam param=model.getParam(key);
+    Object testObject=test.get(key);
+    String infoType=info.get(key);
+    if (param.validators != null && param.validators.size() > 0) {
+      for (      ModelParam.ModelParamValidator val : param.validators) {
+        if (UtilValidate.isNotEmpty(val.getMethodName())) {
+          try {
+            if (!typeValidate(val,testObject)) {
+              String msg=val.getFailMessage(locale);
+              if (msg == null) {
+                msg="The following parameter failed validation: [" + model.name + "."+ key+ "]";
+              }
+              typeFailMsgs.add(msg);
+            }
+          }
+ catch (          GeneralException e) {
+            Debug.logError(e,module);
+            String msg=param.getPrimaryFailMessage(locale);
+            if (msg == null) {
+              msg="The following parameter failed validation: [" + model.name + "."+ key+ "]";
+            }
+            typeFailMsgs.add(msg);
+          }
+        }
+ else {
+          if (!ObjectType.instanceOf(testObject,infoType,null)) {
+            String msg=val.getFailMessage(locale);
+            if (msg == null) {
+              msg="The following parameter failed validation: [" + model.name + "."+ key+ "]";
+            }
+            typeFailMsgs.add(msg);
+          }
+        }
+      }
+    }
+ else {
+      if (!ObjectType.instanceOf(testObject,infoType,null)) {
+        String testType=testObject == null ? "null" : testObject.getClass().getName();
+        String msg="Type check failed for field [" + model.name + "."+ key+ "]; expected type is ["+ infoType+ "]; actual type is ["+ testType+ "]";
+        typeFailMsgs.add(msg);
+      }
+    }
+  }
+  if (typeFailMsgs.size() > 0) {
+    throw new ServiceValidationException(typeFailMsgs,model,mode);
+  }
+}

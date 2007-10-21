@@ -1,0 +1,110 @@
+{
+  if (serviceName.equals(selfService)) {
+    throw new GenericServiceException("Cannot invoke self on ECA.");
+  }
+  Map<String,Object> actionContext=dctx.getModelService(serviceName).makeValid(context,ModelService.IN_PARAM);
+  actionContext.put("userLogin",ServiceUtil.getUserLogin(dctx,actionContext,runAsUser));
+  Map<String,Object> actionResult=null;
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  if (eventName.startsWith("global-")) {
+    ServiceXaWrapper xaw=new ServiceXaWrapper(dctx);
+    if (eventName.equals("global-rollback")) {
+      xaw.setRollbackService(serviceName,context,"async".equals(serviceMode),persist);
+    }
+ else     if (eventName.equals("global-commit")) {
+      xaw.setCommitService(serviceName,context,"async".equals(serviceMode),persist);
+    }
+ else     if (eventName.equals("global-commit-post-run")) {
+      xaw.setCommitService(serviceName,context,"async".equals(serviceMode),persist);
+    }
+    try {
+      xaw.enlist();
+    }
+ catch (    XAException e) {
+      throw new GenericServiceException("Unable to enlist ServiceXaWrapper with transaction",e);
+    }
+  }
+ else {
+    if (this.serviceMode.equals("sync")) {
+      if (newTransaction) {
+        actionResult=dispatcher.runSync(this.serviceName,actionContext,-1,true);
+      }
+ else {
+        actionResult=dispatcher.runSync(this.serviceName,actionContext);
+      }
+    }
+ else     if (this.serviceMode.equals("async")) {
+      dispatcher.runAsync(serviceName,actionContext,persist);
+    }
+  }
+  if (resultMapName != null && resultMapName.length() > 0) {
+    Map<String,Object> resultMap=UtilGenerics.checkMap(context.get(resultMapName));
+    if (resultMap == null) {
+      resultMap=FastMap.newInstance();
+    }
+    resultMap.putAll(dctx.getModelService(this.serviceName).makeValid(actionResult,ModelService.OUT_PARAM,false,null));
+    context.put(resultMapName,resultMap);
+  }
+  if (resultToContext) {
+    context.putAll(dctx.getModelService(this.serviceName).makeValid(actionResult,ModelService.OUT_PARAM,false,null));
+  }
+  if (resultToResult) {
+    result.putAll(dctx.getModelService(selfService).makeValid(actionResult,ModelService.OUT_PARAM,false,null));
+  }
+  boolean success=true;
+  if (actionResult != null) {
+    if (!ignoreFailure) {
+      if (ModelService.RESPOND_FAIL.equals(actionResult.get(ModelService.RESPONSE_MESSAGE))) {
+        if (result != null) {
+          result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_FAIL);
+        }
+        success=false;
+      }
+    }
+    if (!ignoreError) {
+      if (ModelService.RESPOND_ERROR.equals(actionResult.get(ModelService.RESPONSE_MESSAGE))) {
+        if (result != null) {
+          result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+        }
+        success=false;
+      }
+    }
+  }
+  if (result != null && !success) {
+    String errorMessage=(String)actionResult.get(ModelService.ERROR_MESSAGE);
+    List<? extends Object> errorMessageList=UtilGenerics.checkList(actionResult.get(ModelService.ERROR_MESSAGE_LIST));
+    Map<String,? extends Object> errorMessageMap=UtilGenerics.checkMap(actionResult.get(ModelService.ERROR_MESSAGE_MAP));
+    if (UtilValidate.isNotEmpty(errorMessage)) {
+      if (UtilValidate.isEmpty((String)result.get(ModelService.ERROR_MESSAGE))) {
+        result.put(ModelService.ERROR_MESSAGE,errorMessage);
+      }
+ else {
+        List<Object> origErrorMessageList=UtilGenerics.checkList(result.get(ModelService.ERROR_MESSAGE_LIST));
+        if (origErrorMessageList == null) {
+          origErrorMessageList=new LinkedList<Object>();
+          result.put(ModelService.ERROR_MESSAGE_LIST,origErrorMessageList);
+        }
+        origErrorMessageList.add(0,errorMessage);
+      }
+    }
+    if (errorMessageList != null && errorMessageList.size() > 0) {
+      List<Object> origErrorMessageList=UtilGenerics.checkList(result.get(ModelService.ERROR_MESSAGE_LIST));
+      if (origErrorMessageList == null) {
+        result.put(ModelService.ERROR_MESSAGE_LIST,errorMessageList);
+      }
+ else {
+        origErrorMessageList.addAll(errorMessageList);
+      }
+    }
+    if (errorMessageMap != null && errorMessageMap.size() > 0) {
+      Map<String,Object> origErrorMessageMap=UtilGenerics.checkMap(result.get(ModelService.ERROR_MESSAGE_MAP));
+      if (origErrorMessageMap == null) {
+        result.put(ModelService.ERROR_MESSAGE_MAP,errorMessageMap);
+      }
+ else {
+        origErrorMessageMap.putAll(errorMessageMap);
+      }
+    }
+  }
+  return success;
+}

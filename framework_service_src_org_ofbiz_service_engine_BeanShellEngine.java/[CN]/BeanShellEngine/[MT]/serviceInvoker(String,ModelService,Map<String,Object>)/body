@@ -1,0 +1,54 @@
+{
+  if (modelService.location == null || modelService.invoke == null)   throw new GenericServiceException("Cannot locate service to invoke");
+  DispatchContext dctx=dispatcher.getLocalContext(localName);
+  ClassLoader cl=null;
+  if (dctx == null) {
+    cl=this.getClass().getClassLoader();
+  }
+ else {
+    cl=dctx.getClassLoader();
+  }
+  String location=this.getLocation(modelService);
+  String script=scriptCache.get(localName + "_" + location);
+  if (script == null) {
+synchronized (this) {
+      script=scriptCache.get(localName + "_" + location);
+      if (script == null) {
+        URL scriptUrl=UtilURL.fromResource(location,cl);
+        if (scriptUrl != null) {
+          try {
+            HttpClient http=new HttpClient(scriptUrl);
+            script=http.get();
+          }
+ catch (          HttpClientException e) {
+            throw new GenericServiceException("Cannot read script from resource",e);
+          }
+        }
+ else {
+          throw new GenericServiceException("Cannot read script, resource [" + location + "] not found");
+        }
+        if (script == null || script.length() < 2) {
+          throw new GenericServiceException("Null or empty script");
+        }
+        scriptCache.put(localName + "_" + location,script);
+      }
+    }
+  }
+  Interpreter bsh=new Interpreter();
+  Map<String,Object> result=null;
+  try {
+    bsh.set("dctx",dctx);
+    bsh.set("context",context);
+    bsh.eval(script);
+    Object bshResult=bsh.get("result");
+    if ((bshResult != null) && (bshResult instanceof Map)) {
+      Map<String,Object> bshMapResult=UtilGenerics.checkMap(bshResult);
+      context.putAll(bshMapResult);
+    }
+    result=modelService.makeValid(context,ModelService.OUT_PARAM);
+  }
+ catch (  EvalError e) {
+    throw new GenericServiceException("BeanShell script threw an exception",e);
+  }
+  return result;
+}

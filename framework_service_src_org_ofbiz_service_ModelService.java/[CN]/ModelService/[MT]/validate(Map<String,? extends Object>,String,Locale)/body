@@ -1,0 +1,71 @@
+{
+  Map<String,String> requiredInfo=FastMap.newInstance();
+  Map<String,String> optionalInfo=FastMap.newInstance();
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn)   Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : Validating context - "+ test,module);
+  if (mode.equals(OUT_PARAM) && test != null && test.containsKey(RESPONSE_MESSAGE)) {
+    if (RESPOND_ERROR.equals(test.get(RESPONSE_MESSAGE)) || RESPOND_FAIL.equals(test.get(RESPONSE_MESSAGE))) {
+      if (verboseOn)       Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : response was an error, not validating.",module);
+      return;
+    }
+  }
+  for (  ModelParam modelParam : this.contextParamList) {
+    if ("INOUT".equals(modelParam.mode) || mode.equals(modelParam.mode)) {
+      if (modelParam.optional) {
+        optionalInfo.put(modelParam.name,modelParam.type);
+      }
+ else {
+        requiredInfo.put(modelParam.name,modelParam.type);
+      }
+    }
+  }
+  Map<String,Object> requiredTest=FastMap.newInstance();
+  Map<String,Object> optionalTest=FastMap.newInstance();
+  if (test == null)   test=FastMap.newInstance();
+  requiredTest.putAll(test);
+  List<String> requiredButNull=FastList.newInstance();
+  List<String> keyList=FastList.newInstance();
+  keyList.addAll(requiredTest.keySet());
+  for (  String key : keyList) {
+    Object value=requiredTest.get(key);
+    if (!requiredInfo.containsKey(key)) {
+      requiredTest.remove(key);
+      optionalTest.put(key,value);
+    }
+ else     if (value == null) {
+      requiredButNull.add(key);
+    }
+  }
+  if (requiredButNull.size() > 0) {
+    List<String> missingMsg=FastList.newInstance();
+    for (    String missingKey : requiredButNull) {
+      String message=this.getParam(missingKey).getPrimaryFailMessage(locale);
+      if (message == null) {
+        String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"ModelService.following_required_parameter_missing",locale);
+        message=errMsg + " [" + this.name+ "."+ missingKey+ "]";
+      }
+      missingMsg.add(message);
+    }
+    throw new ServiceValidationException(missingMsg,this,requiredButNull,null,mode);
+  }
+  if (verboseOn) {
+    StringBuilder requiredNames=new StringBuilder();
+    for (    String key : requiredInfo.keySet()) {
+      if (requiredNames.length() > 0) {
+        requiredNames.append(", ");
+      }
+      requiredNames.append(key);
+    }
+    Debug.logVerbose("[ModelService.validate] : required fields - " + requiredNames,module);
+    Debug.logVerbose("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Required - "+ requiredTest.size()+ " / "+ requiredInfo.size(),module);
+    Debug.logVerbose("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Optional - "+ optionalTest.size()+ " / "+ optionalInfo.size(),module);
+  }
+  try {
+    validate(requiredInfo,requiredTest,true,this,mode,locale);
+    validate(optionalInfo,optionalTest,false,this,mode,locale);
+  }
+ catch (  ServiceValidationException e) {
+    Debug.logError("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Required test error: "+ e.toString(),module);
+    throw e;
+  }
+}

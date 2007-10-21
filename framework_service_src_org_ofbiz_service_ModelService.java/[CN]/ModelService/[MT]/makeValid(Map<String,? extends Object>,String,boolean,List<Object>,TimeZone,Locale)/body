@@ -1,0 +1,64 @@
+{
+  Map<String,Object> target=FastMap.newInstance();
+  if (source == null) {
+    return target;
+  }
+  if (!"IN".equals(mode) && !"OUT".equals(mode) && !"INOUT".equals(mode)) {
+    return target;
+  }
+  if (contextInfo.size() == 0) {
+    return target;
+  }
+  if (locale == null) {
+    if (source.containsKey("locale")) {
+      locale=(Locale)source.get("locale");
+    }
+    if (locale == null) {
+      locale=Locale.getDefault();
+    }
+  }
+  if (timeZone == null) {
+    if (source.containsKey("timeZone")) {
+      timeZone=(TimeZone)source.get("timeZone");
+    }
+    if (timeZone == null) {
+      timeZone=TimeZone.getDefault();
+    }
+  }
+  for (  ModelParam param : contextParamList) {
+    if (param.mode.equals("INOUT") || param.mode.equals(mode)) {
+      String key=param.name;
+      if (param.stringMapPrefix != null && param.stringMapPrefix.length() > 0 && !source.containsKey(key)) {
+        Map<String,Object> paramMap=this.makePrefixMap(source,param);
+        if (paramMap != null && paramMap.size() > 0) {
+          target.put(key,paramMap);
+        }
+      }
+ else       if (param.stringListSuffix != null && param.stringListSuffix.length() > 0 && !source.containsKey(key)) {
+        List<Object> paramList=this.makeSuffixList(source,param);
+        if (paramList != null && paramList.size() > 0) {
+          target.put(key,paramList);
+        }
+      }
+ else {
+        if (source.containsKey(key)) {
+          if ((param.internal && includeInternal) || (!param.internal)) {
+            Object value=source.get(key);
+            try {
+              value=ObjectType.simpleTypeConvert(value,param.type,null,timeZone,locale,false);
+            }
+ catch (            GeneralException e) {
+              String errMsg="Type conversion of field [" + key + "] to type ["+ param.type+ "] failed for value \""+ value+ "\": "+ e.toString();
+              Debug.logWarning("[ModelService.makeValid] : " + errMsg,module);
+              if (errorMessages != null) {
+                errorMessages.add(errMsg);
+              }
+            }
+            target.put(key,value);
+          }
+        }
+      }
+    }
+  }
+  return target;
+}
