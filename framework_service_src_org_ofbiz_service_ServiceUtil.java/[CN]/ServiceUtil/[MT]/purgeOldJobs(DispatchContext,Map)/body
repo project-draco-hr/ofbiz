@@ -8,14 +8,14 @@
   cal.add(Calendar.DAY_OF_YEAR,daysToKeep * -1);
   Timestamp purgeTime=new Timestamp(cal.getTimeInMillis());
   EntityCondition pool=new EntityExpr("poolId",EntityOperator.EQUALS,sendPool);
-  List finExp=UtilMisc.toList(new EntityExpr("finishDateTime",EntityOperator.NOT_EQUAL,null));
+  List<EntityExpr> finExp=UtilMisc.toList(new EntityExpr("finishDateTime",EntityOperator.NOT_EQUAL,null));
   finExp.add(new EntityExpr("finishDateTime",EntityOperator.LESS_THAN,purgeTime));
-  List canExp=UtilMisc.toList(new EntityExpr("cancelDateTime",EntityOperator.NOT_EQUAL,null));
+  List<EntityExpr> canExp=UtilMisc.toList(new EntityExpr("cancelDateTime",EntityOperator.NOT_EQUAL,null));
   canExp.add(new EntityExpr("cancelDateTime",EntityOperator.LESS_THAN,purgeTime));
-  EntityCondition cancelled=new EntityConditionList(canExp,EntityOperator.AND);
-  EntityCondition finished=new EntityConditionList(finExp,EntityOperator.AND);
-  EntityCondition doneCond=new EntityConditionList(UtilMisc.toList(cancelled,finished),EntityOperator.OR);
-  EntityCondition mainCond=new EntityConditionList(UtilMisc.toList(doneCond,pool),EntityOperator.AND);
+  EntityCondition cancelled=new EntityConditionList<EntityExpr>(canExp,EntityOperator.AND);
+  EntityCondition finished=new EntityConditionList<EntityExpr>(finExp,EntityOperator.AND);
+  EntityCondition doneCond=new EntityConditionList<EntityCondition>(UtilMisc.toList(cancelled,finished),EntityOperator.OR);
+  EntityCondition mainCond=new EntityConditionList<EntityCondition>(UtilMisc.toList(doneCond,pool),EntityOperator.AND);
   EntityFindOptions findOptions=new EntityFindOptions();
   findOptions.setResultSetType(EntityFindOptions.TYPE_SCROLL_INSENSITIVE);
   findOptions.setMaxRows(1000);
@@ -27,7 +27,7 @@
     boolean noMoreResults=false;
     boolean beganTx1=false;
     while (!noMoreResults) {
-      List curList=null;
+      List<GenericValue> curList=null;
       try {
         beganTx1=TransactionUtil.begin();
         EntityListIterator foundJobs=delegator.findListIteratorByCondition("JobSandbox",mainCond,null,null,null,findOptions);
@@ -53,10 +53,8 @@
         }
       }
       if (curList != null && curList.size() > 0) {
-        List runtimeToDelete=FastList.newInstance();
-        Iterator curIter=curList.iterator();
-        while (curIter.hasNext()) {
-          GenericValue job=(GenericValue)curIter.next();
+        List<String> runtimeToDelete=FastList.newInstance();
+        for (        GenericValue job : curList) {
           String runtimeId=job.getString("runtimeDataId");
           String jobId=job.getString("jobId");
           boolean beganTx2=false;
@@ -84,9 +82,7 @@
           }
         }
         if (runtimeToDelete.size() > 0) {
-          Iterator delIter=runtimeToDelete.iterator();
-          while (delIter.hasNext()) {
-            String runtimeId=(String)delIter.next();
+          for (          String runtimeId : runtimeToDelete) {
             boolean beganTx3=false;
             try {
               beganTx3=TransactionUtil.begin();
