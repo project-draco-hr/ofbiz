@@ -31,30 +31,23 @@
       Debug.logVerbose("Order item [" + orderItem + "] Existing ATP = ["+ existingAtp+ "]",module);
     }
     if (existingAtp < 0.0) {
-      double qtyToProduce=Math.min((0 - existingAtp),orderItem.getDouble("quantity").doubleValue());
-      if (Debug.verboseOn()) {
-        Debug.logVerbose("Order quantity = [" + orderItem.getDouble("quantity").doubleValue() + "] quantity to produce = ["+ qtyToProduce+ "]",module);
-      }
+      double qtyRequired=0 - existingAtp;
       Map serviceContext=new HashMap();
       serviceContext.put("productId",orderItem.getString("productId"));
-      serviceContext.put("pRQuantity",new Double(qtyToProduce));
-      serviceContext.put("startDate",UtilDateTime.nowTimestamp());
       serviceContext.put("facilityId",facilityId);
       serviceContext.put("userLogin",userLogin);
-      Map resultService=dispatcher.runSync("createProductionRun",serviceContext);
-      String productionRunId=(String)resultService.get("productionRunId");
-      result.put("productionRunId",productionRunId);
-      try {
-        delegator.create("WorkOrderItemFulfillment",UtilMisc.toMap("workEffortId",productionRunId,"orderId",orderId,"orderItemSeqId",orderItemSeqId));
-      }
- catch (      GenericEntityException e) {
-        return ServiceUtil.returnError("Error creating a production run for marketing package for order [" + orderId + " "+ orderItemSeqId+ "]: "+ e.getMessage());
-      }
-      serviceContext.remove("pRQuantity");
-      serviceContext.remove("startDate");
-      resultService=dispatcher.runSync("getMktgPackagesAvailable",serviceContext);
+      Map resultService=dispatcher.runSync("getMktgPackagesAvailable",serviceContext);
       double mktgPackagesAvailable=((Double)resultService.get("availableToPromiseTotal")).doubleValue();
-      if (mktgPackagesAvailable > qtyToProduce) {
+      double qtyToProduce=Math.min(qtyRequired,mktgPackagesAvailable);
+      if (qtyToProduce > 0) {
+        if (Debug.verboseOn()) {
+          Debug.logVerbose("Required quantity (all orders) = [" + qtyRequired + "] quantity to produce = ["+ qtyToProduce+ "]",module);
+        }
+        serviceContext.put("pRQuantity",new Double(qtyToProduce));
+        serviceContext.put("startDate",UtilDateTime.nowTimestamp());
+        resultService=dispatcher.runSync("createProductionRun",serviceContext);
+        String productionRunId=(String)resultService.get("productionRunId");
+        result.put("productionRunId",productionRunId);
         try {
           serviceContext.clear();
           serviceContext.put("productionRunId",productionRunId);
@@ -69,13 +62,19 @@
  catch (        GenericServiceException e) {
           return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotCreated",locale));
         }
+        result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunCreated",UtilMisc.toMap("productionRunId",productionRunId),locale));
+        return result;
       }
-      result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunCreated",UtilMisc.toMap("productionRunId",productionRunId),locale));
-      return result;
+ else {
+        if (Debug.verboseOn()) {
+          Debug.logVerbose("There are not enough components available to produce any marketing packages [" + orderItem.getString("productId") + "]",module);
+        }
+        return ServiceUtil.returnSuccess();
+      }
     }
  else {
       if (Debug.verboseOn()) {
-        Debug.logVerbose("Order item [" + orderItem + "] does not need to be produced - ATP is ["+ existingAtp+ "]",module);
+        Debug.logVerbose("No marketing packages need to be produced - ATP is [" + existingAtp + "]",module);
       }
       return ServiceUtil.returnSuccess();
     }
