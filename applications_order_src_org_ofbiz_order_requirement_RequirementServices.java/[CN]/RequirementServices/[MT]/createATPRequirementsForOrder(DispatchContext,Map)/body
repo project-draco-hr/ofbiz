@@ -1,0 +1,54 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  try {
+    GenericValue order=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    GenericValue productStore=order.getRelatedOneCache("ProductStore");
+    String facilityId=productStore.getString("inventoryFacilityId");
+    List orderItems=order.getRelated("OrderItem");
+    for (Iterator iter=orderItems.iterator(); iter.hasNext(); ) {
+      GenericValue item=(GenericValue)iter.next();
+      GenericValue product=item.getRelatedOne("Product");
+      if (product == null)       continue;
+      if (!"PRODRQM_ATP".equals(product.get("requirementMethodEnumId")))       continue;
+      Double quantity=item.getDouble("quantity");
+      Double cancelQuantity=item.getDouble("cancelQuantity");
+      double ordered=quantity.doubleValue() - (cancelQuantity == null ? 0.0 : cancelQuantity.doubleValue());
+      if (ordered <= 0.0)       continue;
+      GenericValue productFacility=delegator.findByPrimaryKey("ProductFacility",UtilMisc.toMap("facilityId",facilityId,"productId",product.get("productId")));
+      if (productFacility == null || productFacility.get("minimumStock") == null)       continue;
+      double minimumStock=productFacility.getDouble("minimumStock").doubleValue();
+      Map results=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("userLogin",userLogin,"productId",product.get("productId"),"facilityId",facilityId));
+      if (ServiceUtil.isError(results))       return results;
+      double atp=((Double)results.get("availableToPromiseTotal")).doubleValue();
+      double shortfall=minimumStock - atp;
+      double required=Math.min(ordered,shortfall);
+      if (required <= 0.0)       continue;
+      double requirementQty=0.0;
+      List conditions=UtilMisc.toList(new EntityExpr("facilityId",EntityOperator.EQUALS,facilityId),new EntityExpr("productId",EntityOperator.EQUALS,product.get("productId")),new EntityExpr("requirementTypeId",EntityOperator.EQUALS,"PRODUCT_REQUIREMENT"),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"REQ_ORDERED"),new EntityExpr("statusId",EntityOperator.NOT_EQUAL,"REQ_REJECTED"));
+      List requirements=delegator.findByAnd("Requirement",conditions);
+      for (Iterator riter=requirements.iterator(); riter.hasNext(); ) {
+        GenericValue requirement=(GenericValue)riter.next();
+        requirementQty+=(requirement.get("quantity") == null ? 0.0 : requirement.getDouble("quantity").doubleValue());
+      }
+      required-=requirementQty;
+      if (required <= 0.0)       continue;
+      Map input=UtilMisc.toMap("userLogin",userLogin,"facilityId",facilityId,"productId",product.get("productId"),"quantity",new Double(required),"requirementTypeId","PRODUCT_REQUIREMENT");
+      results=dispatcher.runSync("createRequirement",input);
+      if (ServiceUtil.isError(results))       return results;
+      String requirementId=(String)results.get("requirementId");
+      input=UtilMisc.toMap("userLogin",userLogin,"orderId",order.get("orderId"),"orderItemSeqId",item.get("orderItemSeqId"),"requirementId",requirementId,"quantity",new Double(required));
+      results=dispatcher.runSync("createOrderRequirementCommitment",input);
+      if (ServiceUtil.isError(results))       return results;
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+  }
+  return ServiceUtil.returnSuccess();
+}
