@@ -1,0 +1,98 @@
+{
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  Security security=dctx.getSecurity();
+  if (!security.hasEntityPermission("MANUAL","_PAYMENT",userLogin)) {
+    Debug.logWarning("**** Security [" + (new Date()).toString() + "]: "+ userLogin.get("userLoginId")+ " attempt to run manual payment transaction!",module);
+    return ServiceUtil.returnError("You do not have permission for this transaction.");
+  }
+  String paymentMethodId=(String)context.get("paymentMethodId");
+  String productStoreId=(String)context.get("productStoreId");
+  String securityCode=(String)context.get("securityCode");
+  Double amount=(Double)context.get("amount");
+  GenericValue paymentMethod;
+  try {
+    paymentMethod=delegator.findByPrimaryKey("PaymentMethod",UtilMisc.toMap("paymentMethodId",paymentMethodId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (paymentMethod == null || !"CREDIT_CARD".equals(paymentMethod.getString("paymentMethodTypeId"))) {
+    return ServiceUtil.returnError("Manual CC auth service can only be used with PaymentMethodType of CREDIT_CARD");
+  }
+  GenericValue billToParty;
+  try {
+    billToParty=paymentMethod.getRelatedOne("Party");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  GenericValue creditCard;
+  try {
+    creditCard=delegator.findByPrimaryKey("CreditCard",UtilMisc.toMap("paymentMethodId",paymentMethodId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (UtilValidate.isEmpty(creditCard)) {
+    return ServiceUtil.returnError("CreditCard object not found for paymentMethodId: " + paymentMethodId);
+  }
+  String paymentService;
+  String paymentConfig;
+  GenericValue paymentSettings=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStoreId,"CREDIT_CARD","PRDS_PAY_AUTH",false);
+  if (paymentSettings == null) {
+    return ServiceUtil.returnError("No valid payment settings found for : " + productStoreId + "/"+ "");
+  }
+ else {
+    paymentService=paymentSettings.getString("paymentService");
+    paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+    if (UtilValidate.isEmpty(paymentConfig)) {
+      paymentConfig="payment.properties";
+    }
+  }
+  GenericValue orderPaymentPref=delegator.makeValue("OrderPaymentPreference",FastMap.newInstance());
+  orderPaymentPref.set("orderPaymentPreferenceId","_NA_");
+  orderPaymentPref.set("orderId","_NA_");
+  orderPaymentPref.set("presentFlag","N");
+  orderPaymentPref.set("overflowFlag","Y");
+  orderPaymentPref.set("paymentMethodTypeId","CREDIT_CARD");
+  orderPaymentPref.set("paymentMethodId",paymentMethodId);
+  if (UtilValidate.isNotEmpty(securityCode)) {
+    orderPaymentPref.set("securityCode",securityCode);
+  }
+  String currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  Map<String,Object> authContext=FastMap.newInstance();
+  authContext.put("orderId","_NA_");
+  authContext.put("orderItems",FastList.newInstance());
+  authContext.put("orderPaymentPreference",orderPaymentPref);
+  authContext.put("creditCard",creditCard);
+  authContext.put("billToParty",billToParty);
+  authContext.put("currency",currency);
+  authContext.put("paymentConfig",paymentConfig);
+  authContext.put("processAmount",amount);
+  authContext.put("userLogin",userLogin);
+  Map response;
+  try {
+    Debug.logInfo("Running authorization service: " + paymentService,module);
+    response=dispatcher.runSync(paymentService,authContext,TX_TIME,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Error calling service : " + paymentService + " / "+ authContext);
+  }
+  if (ServiceUtil.isError(response)) {
+    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(response));
+  }
+  Boolean authResult=(Boolean)response.get("authResult");
+  Debug.logInfo("Authorization service returned: " + authResult,module);
+  if (authResult != null && authResult) {
+    return ServiceUtil.returnSuccess();
+  }
+ else {
+    return ServiceUtil.returnError("Authorization failed");
+  }
+}
