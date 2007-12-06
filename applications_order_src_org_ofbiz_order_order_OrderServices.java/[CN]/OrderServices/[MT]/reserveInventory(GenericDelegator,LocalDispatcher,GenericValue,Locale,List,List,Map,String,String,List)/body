@@ -16,29 +16,29 @@
   if (reserveInventory && isImmediatelyFulfilled) {
     reserveInventory=false;
   }
-  if (reserveInventory) {
-    if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
-      Iterator osiInfos=orderItemShipGroupInfo.iterator();
-      while (osiInfos.hasNext()) {
-        GenericValue orderItemShipGroupAssoc=(GenericValue)osiInfos.next();
-        if ("OrderItemShipGroupAssoc".equals(orderItemShipGroupAssoc.getEntityName())) {
-          if (dropShipGroupIds != null && dropShipGroupIds.contains(orderItemShipGroupAssoc.getString("shipGroupSeqId"))) {
-            continue;
-          }
-          GenericValue orderItem=(GenericValue)itemValuesBySeqId.get(orderItemShipGroupAssoc.get("orderItemSeqId"));
-          String itemStatus=orderItem.getString("statusId");
-          if ("ITEM_REJECTED".equals(itemStatus) || "ITEM_CANCELLED".equals(itemStatus) || "ITEM_COMPLETED".equals(itemStatus)) {
-            Debug.logInfo("Order item [" + orderItem.getString("orderId") + " / "+ orderItem.getString("orderItemSeqId")+ "] is not in a proper status for reservation",module);
-            continue;
-          }
-          if (UtilValidate.isNotEmpty(orderItem.getString("productId")) && !"RENTAL_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId"))) {
-            try {
-              GenericValue product=orderItem.getRelatedOne("Product");
-              if (product == null) {
-                Debug.logError("Error when looking up product in reserveInventory service",module);
-                resErrorMessages.add("Error when looking up product in reserveInventory service");
-                continue;
-              }
+  if (orderItemShipGroupInfo != null && orderItemShipGroupInfo.size() > 0) {
+    Iterator osiInfos=orderItemShipGroupInfo.iterator();
+    while (osiInfos.hasNext()) {
+      GenericValue orderItemShipGroupAssoc=(GenericValue)osiInfos.next();
+      if ("OrderItemShipGroupAssoc".equals(orderItemShipGroupAssoc.getEntityName())) {
+        if (dropShipGroupIds != null && dropShipGroupIds.contains(orderItemShipGroupAssoc.getString("shipGroupSeqId"))) {
+          continue;
+        }
+        GenericValue orderItem=(GenericValue)itemValuesBySeqId.get(orderItemShipGroupAssoc.get("orderItemSeqId"));
+        String itemStatus=orderItem.getString("statusId");
+        if ("ITEM_REJECTED".equals(itemStatus) || "ITEM_CANCELLED".equals(itemStatus) || "ITEM_COMPLETED".equals(itemStatus)) {
+          Debug.logInfo("Order item [" + orderItem.getString("orderId") + " / "+ orderItem.getString("orderItemSeqId")+ "] is not in a proper status for reservation",module);
+          continue;
+        }
+        if (UtilValidate.isNotEmpty(orderItem.getString("productId")) && !"RENTAL_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId"))) {
+          try {
+            GenericValue product=orderItem.getRelatedOne("Product");
+            if (product == null) {
+              Debug.logError("Error when looking up product in reserveInventory service",module);
+              resErrorMessages.add("Error when looking up product in reserveInventory service");
+              continue;
+            }
+            if (reserveInventory) {
               if ("MARKETING_PKG_PICK".equals(product.get("productTypeId"))) {
                 Map componentsRes=dispatcher.runSync("getAssociatedProducts",UtilMisc.toMap("productId",orderItem.getString("productId"),"type","PRODUCT_COMPONENT"));
                 if (ServiceUtil.isError(componentsRes)) {
@@ -91,25 +91,25 @@
                   invErrMsg+=" with ID " + orderItem.getString("productId") + " is no longer in stock. Please try reducing the quantity or removing the product from this order.";
                   resErrorMessages.add(invErrMsg);
                 }
-                if ("MARKETING_PKG_AUTO".equals(product.get("productTypeId"))) {
-                  GenericValue permUserLogin=delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId","system"));
-                  Map inputMap=new HashMap();
-                  inputMap.put("facilityId",productStore.getString("inventoryFacilityId"));
-                  inputMap.put("orderId",orderItem.getString("orderId"));
-                  inputMap.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
-                  inputMap.put("userLogin",permUserLogin);
-                  Map prunResult=dispatcher.runSync("createProductionRunForMktgPkg",inputMap);
-                  if (ServiceUtil.isError(prunResult)) {
-                    Debug.logError(ServiceUtil.getErrorMessage(prunResult) + " for input:" + inputMap,module);
-                  }
-                }
               }
             }
- catch (            GenericServiceException e) {
-              String errMsg="Fatal error calling reserveStoreInventory service: " + e.toString();
-              Debug.logError(e,errMsg,module);
-              resErrorMessages.add(errMsg);
+            if ("MARKETING_PKG_AUTO".equals(product.get("productTypeId"))) {
+              GenericValue permUserLogin=delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId","system"));
+              Map inputMap=new HashMap();
+              inputMap.put("facilityId",productStore.getString("inventoryFacilityId"));
+              inputMap.put("orderId",orderItem.getString("orderId"));
+              inputMap.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+              inputMap.put("userLogin",permUserLogin);
+              Map prunResult=dispatcher.runSync("createProductionRunForMktgPkg",inputMap);
+              if (ServiceUtil.isError(prunResult)) {
+                Debug.logError(ServiceUtil.getErrorMessage(prunResult) + " for input:" + inputMap,module);
+              }
             }
+          }
+ catch (          GenericServiceException e) {
+            String errMsg="Fatal error calling reserveStoreInventory service: " + e.toString();
+            Debug.logError(e,errMsg,module);
+            resErrorMessages.add(errMsg);
           }
         }
       }

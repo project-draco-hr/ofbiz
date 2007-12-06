@@ -7,6 +7,15 @@
   String facilityId=(String)context.get("facilityId");
   String orderId=(String)context.get("orderId");
   String orderItemSeqId=(String)context.get("orderItemSeqId");
+  boolean isImmediatelyFulfilled=false;
+  try {
+    GenericValue order=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    GenericValue productStore=delegator.getRelatedOne("ProductStore",order);
+    isImmediatelyFulfilled="Y".equals(productStore.getString("isImmediatelyFulfilled"));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Error creating a production run for marketing package for order [" + orderId + " "+ orderItemSeqId+ "]: "+ e.getMessage());
+  }
   GenericValue orderItem=null;
   try {
     orderItem=delegator.findByPrimaryKey("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId));
@@ -26,6 +35,9 @@
     Map tmpResults=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.<String,Object>toMap("productId",orderItem.getString("productId"),"facilityId",facilityId,"userLogin",userLogin));
     if (tmpResults.get("availableToPromiseTotal") != null) {
       existingAtp=((Double)tmpResults.get("availableToPromiseTotal")).doubleValue();
+    }
+    if (isImmediatelyFulfilled) {
+      existingAtp-=orderItem.getDouble("quantity");
     }
     if (Debug.verboseOn()) {
       Debug.logVerbose("Order item [" + orderItem + "] Existing ATP = ["+ existingAtp+ "]",module);
