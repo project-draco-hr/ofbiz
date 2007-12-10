@@ -1,0 +1,39 @@
+{
+  ResourceBundle bundle=null;
+  try {
+    bundle=ResourceBundle.getBundle(resource,locale,loader);
+  }
+ catch (  MissingResourceException e) {
+  }
+  if (bundle != null) {
+    return bundle;
+  }
+  double startTime=System.currentTimeMillis();
+  FastList<Locale> candidateLocales=(FastList<Locale>)getCandidateLocales(locale);
+  ResourceBundle parentBundle=null;
+synchronized (bundleLocaleCache) {
+    while (candidateLocales.size() > 0) {
+      Locale candidateLocale=candidateLocales.removeLast();
+      String parentName=createResourceName(resource,candidateLocale);
+      ResourceBundle lookupBundle=bundleLocaleCache.get(parentName);
+      if (lookupBundle == null) {
+        Properties newProps=getProperties(resource,candidateLocale);
+        if (UtilValidate.isNotEmpty(newProps)) {
+          bundle=new UtilResourceBundle(newProps,candidateLocale,parentBundle);
+          bundleLocaleCache.put(parentName,bundle);
+          parentBundle=bundle;
+        }
+      }
+ else {
+        parentBundle=bundle;
+        bundle=lookupBundle;
+      }
+    }
+  }
+  double totalTime=System.currentTimeMillis() - startTime;
+  if (bundle == null) {
+    throw new MissingResourceException("Resource " + resource + ", locale "+ locale+ " not found",null,null);
+  }
+  Debug.logInfo("ResourceBundle " + resource + " ("+ locale+ ") created in "+ totalTime+ " mS",module);
+  return bundle;
+}
