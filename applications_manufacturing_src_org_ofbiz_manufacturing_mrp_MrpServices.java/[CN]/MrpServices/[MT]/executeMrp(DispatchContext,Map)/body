@@ -60,39 +60,42 @@
   List components=null;
   boolean isBuilt=false;
   GenericValue routing=null;
+  String mrpId=delegator.getNextSeqId("Mrp");
   Map result=null;
   Map parameters=null;
   List listInventoryEventForMRP=null;
   ListIterator iteratorListInventoryEventForMRP=null;
   GenericValue inventoryEventForMRP=null;
-  parameters=UtilMisc.toMap("reInitialize",Boolean.TRUE,"defaultYearsOffset",defaultYearsOffset,"userLogin",userLogin);
+  parameters=UtilMisc.toMap("mrpId",mrpId,"reInitialize",Boolean.TRUE,"defaultYearsOffset",defaultYearsOffset,"userLogin",userLogin);
   try {
-    result=dispatcher.runSync("initInventoryEventPlanned",parameters);
+    result=dispatcher.runSync("initMrpEvents",parameters);
   }
  catch (  GenericServiceException e) {
-    Debug.logError("Error : initInventoryEventPlanned",module);
-    Debug.logError("Error : parameters = " + parameters,module);
-    return ServiceUtil.returnError("Problem, can not initialise the table InventoryEventPlanned, for more detail look at the log");
+    return ServiceUtil.returnError("Error running the initMrpEvents service: " + e.getMessage());
   }
   long bomLevel=0;
   do {
-    parameters=UtilMisc.toMap("billOfMaterialLevel",new Long(bomLevel),"userLogin",userLogin);
+    EntityCondition filterByConditions=null;
+    if (bomLevel == 0) {
+      filterByConditions=new EntityExpr(new EntityExpr("billOfMaterialLevel",EntityOperator.EQUALS,null),EntityOperator.OR,new EntityExpr("billOfMaterialLevel",EntityOperator.EQUALS,new Long(bomLevel)));
+    }
+ else {
+      filterByConditions=new EntityExpr("billOfMaterialLevel",EntityOperator.EQUALS,new Long(bomLevel));
+    }
     try {
-      result=dispatcher.runSync("listProductForMrp",parameters);
+      listInventoryEventForMRP=delegator.findByCondition("MrpEventView",filterByConditions,null,UtilMisc.toList("productId","eventDate"));
     }
- catch (    GenericServiceException e) {
-      Debug.logError("Error : listProductForMrp, parameters =" + parameters,module);
-      return ServiceUtil.returnError("Problem, can not list the products for the MRP, for more detail look at the log");
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError("MRP Error retieving MRP event for the bom level: " + bomLevel + ". Error: "+ e.getMessage());
     }
-    listInventoryEventForMRP=(List)result.get("listInventoryEventForMrp");
-    if (listInventoryEventForMRP != null && listInventoryEventForMRP.size() > 0) {
+    if (UtilValidate.isNotEmpty(listInventoryEventForMRP)) {
       bomLevelWithNoEvent=0;
       iteratorListInventoryEventForMRP=listInventoryEventForMRP.listIterator();
       oldProductId="";
       while (iteratorListInventoryEventForMRP.hasNext()) {
         inventoryEventForMRP=(GenericValue)iteratorListInventoryEventForMRP.next();
         productId=inventoryEventForMRP.getString("productId");
-        eventQuantity=inventoryEventForMRP.getDouble("eventQuantity").doubleValue();
+        eventQuantity=inventoryEventForMRP.getDouble("quantity").doubleValue();
         if (!productId.equals(oldProductId)) {
           double positiveEventQuantity=(eventQuantity > 0 ? eventQuantity : -1 * eventQuantity);
           try {
@@ -104,16 +107,16 @@
           }
           stockTmp=findProductMrpQoh(product,facilityId,dispatcher,delegator);
           try {
-            InventoryEventPlannedServices.createOrUpdateInventoryEventPlanned(UtilMisc.toMap("productId",product.getString("productId"),"inventoryEventPlanTypeId","INITIAL_QOH","eventDate",now),new Double(stockTmp),facilityId,null,false,delegator);
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),new Double(stockTmp),facilityId,null,false,delegator);
           }
  catch (          GenericEntityException e) {
-            return ServiceUtil.returnError("Problem running createOrUpdateInventoryEventPlanned");
+            return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
           }
           daysToShip=0;
           if (productFacility != null) {
             reorderQuantity=(productFacility.getDouble("reorderQuantity") != null ? productFacility.getDouble("reorderQuantity").doubleValue() : -1);
             minimumStock=(productFacility.getDouble("minimumStock") != null ? productFacility.getDouble("minimumStock").doubleValue() : 0);
-            if ("SALES_ORDER_SHIP".equals(inventoryEventForMRP.getString("inventoryEventPlanTypeId"))) {
+            if ("SALES_ORDER_SHIP".equals(inventoryEventForMRP.getString("mrpEventTypeId"))) {
               daysToShip=(productFacility.getLong("daysToShip") != null ? productFacility.getLong("daysToShip").intValue() : 0);
             }
           }
@@ -175,7 +178,7 @@
           }
           Map routingTaskStartDate=proposedOrder.calculateStartDate(daysToShip,routing,delegator,dispatcher,userLogin);
           if (isBuilt) {
-            processBomComponent(product,proposedOrder.getQuantity(),proposedOrder.getRequirementStartDate(),routingTaskStartDate,components);
+            processBomComponent(mrpId,product,proposedOrder.getQuantity(),proposedOrder.getRequirementStartDate(),routingTaskStartDate,components);
           }
           String requirementId=null;
           if (productFacility != null) {
@@ -188,12 +191,12 @@
           if (UtilValidate.isNotEmpty(requirementId)) {
             eventName="*" + requirementId + " ("+ proposedOrder.getRequirementStartDate()+ ")*";
           }
-          Map eventMap=UtilMisc.toMap("productId",product.getString("productId"),"eventDate",eventDate,"inventoryEventPlanTypeId",(isBuilt ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
+          Map eventMap=UtilMisc.toMap("productId",product.getString("productId"),"mrpId",mrpId,"eventDate",eventDate,"mrpEventTypeId",(isBuilt ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
           try {
-            InventoryEventPlannedServices.createOrUpdateInventoryEventPlanned(eventMap,new Double(proposedOrder.getQuantity()),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(eventMap,new Double(proposedOrder.getQuantity()),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
           }
  catch (          GenericEntityException e) {
-            return ServiceUtil.returnError("Problem running createOrUpdateInventoryEventPlanned");
+            return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
           }
           stockTmp=stockTmp + proposedOrder.getQuantity();
         }
