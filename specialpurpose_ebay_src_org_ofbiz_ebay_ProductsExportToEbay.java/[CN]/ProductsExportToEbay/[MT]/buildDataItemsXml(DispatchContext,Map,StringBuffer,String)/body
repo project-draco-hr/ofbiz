@@ -1,0 +1,59 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  try {
+    GenericDelegator delegator=dctx.getDelegator();
+    List selectResult=(List)context.get("selectResult");
+    List productsList=delegator.findByCondition("Product",new EntityExpr("productId",EntityOperator.IN,selectResult),null,null);
+    try {
+      Document itemDocument=UtilXml.makeEmptyXmlDocument("AddItemRequest");
+      Element itemRequestElem=itemDocument.getDocumentElement();
+      itemRequestElem.setAttribute("xmlns","urn:ebay:apis:eBLBaseComponents");
+      appendRequesterCredentials(itemRequestElem,itemDocument,token);
+      Iterator productsListItr=productsList.iterator();
+      while (productsListItr.hasNext()) {
+        GenericValue prod=(GenericValue)productsListItr.next();
+        String title=parseText(prod.getString("internalName"));
+        String description=parseText(prod.getString("internalName"));
+        String qnt=(String)context.get("qnt");
+        Element itemElem=UtilXml.addChildElement(itemRequestElem,"Item",itemDocument);
+        UtilXml.addChildElementValue(itemElem,"Country",(String)context.get("country"),itemDocument);
+        UtilXml.addChildElementValue(itemElem,"Location",(String)context.get("location"),itemDocument);
+        UtilXml.addChildElementValue(itemElem,"Currency","USD",itemDocument);
+        UtilXml.addChildElementValue(itemElem,"SKU",prod.getString("productId"),itemDocument);
+        UtilXml.addChildElementValue(itemElem,"Title",title,itemDocument);
+        UtilXml.addChildElementValue(itemElem,"Description",description,itemDocument);
+        UtilXml.addChildElementValue(itemElem,"ListingDuration",(String)context.get("listingDuration"),itemDocument);
+        UtilXml.addChildElementValue(itemElem,"Quantity",qnt,itemDocument);
+        UtilXml.addChildElementValue(itemElem,"UseTaxTable","true",itemDocument);
+        setPaymentMethodAccepted(itemDocument,itemElem,context);
+        String categoryCode=(String)context.get("ebayCategory");
+        String categoryParent="";
+        String levelLimit="";
+        if (categoryCode != null) {
+          String[] params=categoryCode.split("_");
+          if (params == null || params.length != 3) {
+            ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.parametersNotCorrectInGetEbayCategories",locale));
+          }
+ else {
+            categoryParent=params[1];
+            levelLimit=params[2];
+          }
+        }
+        Element primaryCatElem=UtilXml.addChildElement(itemElem,"PrimaryCategory",itemDocument);
+        UtilXml.addChildElementValue(primaryCatElem,"CategoryID",categoryParent,itemDocument);
+        Element startPriceElem=UtilXml.addChildElementValue(itemElem,"StartPrice",(String)context.get("startPrice"),itemDocument);
+        startPriceElem.setAttribute("currencyID","USD");
+      }
+      dataItemsXml.append(UtilXml.writeXmlDocument(itemDocument));
+    }
+ catch (    Exception e) {
+      Debug.logError("Exception during building data items to eBay",module);
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.exceptionDuringBuildingDataItemsToEbay",locale));
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception during building data items to eBay",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.exceptionDuringBuildingDataItemsToEbay",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

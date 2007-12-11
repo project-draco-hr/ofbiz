@@ -1,0 +1,51 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  String externalId=(String)context.get("externalId");
+  String transactionId=(String)context.get("transactionId");
+  Map result=FastMap.newInstance();
+  try {
+    if (orderId == null && externalId == null) {
+      Debug.logError("orderId or externalId must be filled",module);
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.orderIdOrExternalIdAreMandatory",locale));
+    }
+    GenericValue orderHeader=null;
+    if (UtilValidate.isNotEmpty(orderId)) {
+      orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+      if (orderHeader == null) {
+        Debug.logError("Cannot find order with orderId [" + orderId + "]",module);
+        return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.errorRetrievingOrderFromOrderId",locale));
+      }
+      if (!"EBAY_SALES_CHANNEL".equals(orderHeader.getString("salesChannelEnumId")) || orderHeader.getString("externalId") == null) {
+        return ServiceUtil.returnSuccess();
+      }
+      externalId=(String)orderHeader.get("externalId");
+      transactionId=(String)orderHeader.get("transactionId");
+    }
+    String configString="ebayExport.properties";
+    String devID=UtilProperties.getPropertyValue(configString,"eBayExport.devID");
+    String appID=UtilProperties.getPropertyValue(configString,"eBayExport.appID");
+    String certID=UtilProperties.getPropertyValue(configString,"eBayExport.certID");
+    String token=UtilProperties.getPropertyValue(configString,"eBayExport.token");
+    String compatibilityLevel=UtilProperties.getPropertyValue(configString,"eBayExport.compatibilityLevel");
+    String siteID=UtilProperties.getPropertyValue(configString,"eBayExport.siteID");
+    String xmlGatewayUri=UtilProperties.getPropertyValue(configString,"eBayExport.xmlGatewayUri");
+    StringBuffer completeSaleXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildCompleteSaleRequest(delegator,locale,externalId,transactionId,context,completeSaleXml,token))) {
+      result=postItem(xmlGatewayUri,completeSaleXml,devID,appID,certID,"CompleteSale",compatibilityLevel,siteID);
+      String successMessage=(String)result.get("successMessage");
+      if (successMessage != null) {
+        return readCompleteSaleResponse(successMessage,locale);
+      }
+ else {
+        ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.errorDuringPostCompleteSaleRequest",locale));
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception in setEbayOrderToComplete " + e,module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.exceptionInSetEbayOrderToComplete",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

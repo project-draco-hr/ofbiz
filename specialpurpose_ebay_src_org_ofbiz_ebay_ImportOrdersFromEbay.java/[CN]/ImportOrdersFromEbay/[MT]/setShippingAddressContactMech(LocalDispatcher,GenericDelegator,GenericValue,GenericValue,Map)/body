@@ -1,0 +1,26 @@
+{
+  String contactMechId=null;
+  String partyId=(String)party.get("partyId");
+  Collection shippingLocations=ContactHelper.getContactMechByPurpose(party,"SHIPPING_LOCATION",false);
+  Iterator shippingLocationsIterator=shippingLocations.iterator();
+  while (shippingLocationsIterator.hasNext()) {
+    GenericValue shippingLocation=(GenericValue)shippingLocationsIterator.next();
+    contactMechId=shippingLocation.getString("contactMechId");
+    GenericValue postalAddress;
+    try {
+      postalAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",contactMechId));
+      String country=((String)parameters.get("shippingAddressCountry")).toUpperCase();
+      String state=((String)parameters.get("shippingAddressStateOrProvince")).toUpperCase();
+      String city=(String)parameters.get("shippingAddressCityName");
+      correctCityStateCountry(dispatcher,parameters,city,state,country);
+      if (parameters.get("shippingAddressStreet1").toString().equals((postalAddress.get("address1").toString())) && parameters.get("shippingAddressStreet2").toString().equals((postalAddress.get("address2").toString())) && parameters.get("city").toString().equals((postalAddress.get("city").toString()))&& parameters.get("stateProvinceGeoId").toString().equals((postalAddress.get("stateProvinceGeoId").toString()))&& parameters.get("countryGeoId").toString().equals((postalAddress.get("countryGeoId").toString()))&& parameters.get("shippingAddressPostalCode").toString().equals((postalAddress.get("postalCode").toString()))) {
+        return contactMechId;
+      }
+    }
+ catch (    Exception e) {
+      Debug.logError(e,"Problem with verifying postal addresses for contactMechId " + contactMechId + ".",module);
+    }
+  }
+  Debug.logInfo("Unable to find matching postal address for partyId " + partyId + ". Creating a new one.",module);
+  return createAddress(dispatcher,partyId,userLogin,"SHIPPING_LOCATION",parameters);
+}

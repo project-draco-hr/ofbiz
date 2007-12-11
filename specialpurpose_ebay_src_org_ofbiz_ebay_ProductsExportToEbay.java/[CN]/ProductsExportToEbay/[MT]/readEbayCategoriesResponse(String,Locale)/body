@@ -1,0 +1,42 @@
+{
+  Map results=null;
+  List categories=FastList.newInstance();
+  try {
+    Document docResponse=UtilXml.readXmlDocument(msg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    String ack=UtilXml.childElementValue(elemResponse,"Ack","Failure");
+    if (ack != null && "Failure".equals(ack)) {
+      String errorMessage="";
+      List errorList=UtilXml.childElementList(elemResponse,"Errors");
+      Iterator errorElemIter=errorList.iterator();
+      while (errorElemIter.hasNext()) {
+        Element errorElement=(Element)errorElemIter.next();
+        errorMessage=UtilXml.childElementValue(errorElement,"ShortMessage","");
+      }
+      return ServiceUtil.returnFailure(errorMessage);
+    }
+ else {
+      List categoryArray=UtilXml.childElementList(elemResponse,"CategoryArray");
+      Iterator categoryArrayElemIter=categoryArray.iterator();
+      while (categoryArrayElemIter.hasNext()) {
+        Element categoryArrayElement=(Element)categoryArrayElemIter.next();
+        List category=UtilXml.childElementList(categoryArrayElement,"Category");
+        Iterator categoryElemIter=category.iterator();
+        while (categoryElemIter.hasNext()) {
+          Map categ=FastMap.newInstance();
+          Element categoryElement=(Element)categoryElemIter.next();
+          String categoryCode=("true".equalsIgnoreCase((UtilXml.childElementValue(categoryElement,"LeafCategory","").trim())) ? "Y" : "N") + "_" + UtilXml.childElementValue(categoryElement,"CategoryID","").trim()+ "_"+ UtilXml.childElementValue(categoryElement,"CategoryLevel","").trim();
+          categ.put("CategoryCode",categoryCode);
+          categ.put("CategoryName",UtilXml.childElementValue(categoryElement,"CategoryName"));
+          categories.add(categ);
+        }
+      }
+      categories=UtilMisc.sortMaps(categories,UtilMisc.toList("CategoryName"));
+      results=UtilMisc.toMap("categories",categories);
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnFailure();
+  }
+  return results;
+}

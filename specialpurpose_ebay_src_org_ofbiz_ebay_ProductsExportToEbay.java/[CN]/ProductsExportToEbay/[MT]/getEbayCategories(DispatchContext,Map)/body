@@ -1,0 +1,45 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  String categoryCode=(String)context.get("categoryCode");
+  Map result=null;
+  try {
+    String configString="ebayExport.properties";
+    String devID=UtilProperties.getPropertyValue(configString,"eBayExport.devID");
+    String appID=UtilProperties.getPropertyValue(configString,"eBayExport.appID");
+    String certID=UtilProperties.getPropertyValue(configString,"eBayExport.certID");
+    String token=UtilProperties.getPropertyValue(configString,"eBayExport.token");
+    String compatibilityLevel=UtilProperties.getPropertyValue(configString,"eBayExport.compatibilityLevel");
+    String siteID=UtilProperties.getPropertyValue(configString,"eBayExport.siteID");
+    String xmlGatewayUri=UtilProperties.getPropertyValue(configString,"eBayExport.xmlGatewayUri");
+    String categoryParent="";
+    String levelLimit="";
+    if (categoryCode != null) {
+      String[] params=categoryCode.split("_");
+      if (params == null || params.length != 3) {
+        ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.parametersNotCorrectInGetEbayCategories",locale));
+      }
+ else {
+        categoryParent=params[1];
+        levelLimit=params[2];
+        Integer level=new Integer(levelLimit);
+        levelLimit=(level.intValue() + 1) + "";
+      }
+    }
+    StringBuffer dataItemsXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildCategoriesXml(context,dataItemsXml,token,siteID,categoryParent,levelLimit))) {
+      Map resultCat=postItem(xmlGatewayUri,dataItemsXml,devID,appID,certID,"GetCategories",compatibilityLevel,siteID);
+      String successMessage=(String)resultCat.get("successMessage");
+      if (successMessage != null) {
+        result=readEbayCategoriesResponse(successMessage,locale);
+      }
+ else {
+        ServiceUtil.returnFailure(ServiceUtil.getErrorMessage(resultCat));
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception in GetEbayCategories " + e,module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.exceptionInGetEbayCategories",locale));
+  }
+  return result;
+}
