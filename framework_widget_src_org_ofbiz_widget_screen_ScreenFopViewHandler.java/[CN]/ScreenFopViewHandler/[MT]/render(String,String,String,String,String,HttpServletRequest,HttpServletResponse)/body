@@ -1,9 +1,5 @@
 {
-  if (UtilValidate.isEmpty(contentType)) {
-    contentType="application/pdf";
-  }
   Writer writer=new StringWriter();
-  FopFactory fopFactory=ApacheFopFactory.instance();
   try {
     ScreenRenderer screens=new ScreenRenderer(writer,null,foScreenRenderer);
     screens.populateContextForRequest(request,response,servletContext);
@@ -13,66 +9,26 @@
  catch (  Throwable t) {
     throw new ViewHandlerException("Problems with the response writer/output stream",t);
   }
+  Reader reader=new StringReader(writer.toString());
+  StreamSource src=new StreamSource(reader);
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("Transforming the following xsl-fo template: " + writer.toString(),module);
+  }
   ByteArrayOutputStream out=new ByteArrayOutputStream();
-  TransformerFactory transFactory=TransformerFactory.newInstance();
   try {
-    Fop fop=fopFactory.newFop(contentType,out);
-    Transformer transformer=transFactory.newTransformer();
-    Reader reader=new StringReader(writer.toString());
-    Source src=new StreamSource(reader);
-    if (Debug.verboseOn()) {
-      Debug.logVerbose("Transforming the following xsl-fo template: " + writer.toString(),module);
-    }
-    Result res=new SAXResult(fop.getDefaultHandler());
-    try {
-      transformer.transform(src,res);
-    }
- catch (    TransformerException e) {
-      Debug.logError("FOP transform failed: " + e,module);
-      Debug.logInfo("Rendering the error message using the default error template: " + DEFAULT_ERROR_TEMPLATE,module);
-      try {
-        writer=new StringWriter();
-        out=new ByteArrayOutputStream();
-        fopFactory=ApacheFopFactory.instance();
-        transFactory=TransformerFactory.newInstance();
-        transformer=transFactory.newTransformer();
-        fop=fopFactory.newFop(contentType,out);
-        res=new SAXResult(fop.getDefaultHandler());
-        ScreenRenderer screens=new ScreenRenderer(writer,null,foScreenRenderer);
-        screens.populateContextForRequest(request,response,servletContext);
-        screens.getContext().put("errorMessage",e.toString());
-        screens.render(DEFAULT_ERROR_TEMPLATE);
-        transformer.transform(new StreamSource(new StringReader(writer.toString())),res);
-      }
- catch (      Throwable t) {
-        throw new ViewHandlerException("Unable to transform FO to " + contentType,e);
-      }
-    }
-    fopFactory.getImageFactory().clearCaches();
-    response.setContentType(contentType);
-    response.setContentLength(out.size());
-    try {
-      out.writeTo(response.getOutputStream());
-      response.getOutputStream().flush();
-    }
- catch (    IOException e) {
-      throw new ViewHandlerException("Unable write to browser OutputStream",e);
-    }
+    Fop fop=ApacheFopWorker.createFopInstance(out,contentType);
+    ApacheFopWorker.transform(src,null,fop);
   }
- catch (  TransformerConfigurationException e) {
-    Debug.logError("FOP TransformerConfiguration Exception " + e,module);
-    throw new ViewHandlerException("Transformer Configuration Error",e);
+ catch (  Exception e) {
+    throw createException("Unable to transform FO file",e,response);
   }
-catch (  FOPException e) {
-    Debug.logError("FOP Exception " + e,module);
-    throw new ViewHandlerException("FOP Error",e);
+  response.setContentType(contentType);
+  response.setContentLength(out.size());
+  try {
+    out.writeTo(response.getOutputStream());
+    response.getOutputStream().flush();
   }
- finally {
-    try {
-      out.close();
-    }
- catch (    IOException e) {
-      Debug.logError("Unable to close output stream " + e,module);
-    }
+ catch (  IOException e) {
+    throw createException("Unable write to browser OutputStream",e,response);
   }
 }
