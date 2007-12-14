@@ -1,8 +1,13 @@
 {
+  Locale locale=UtilHttp.getLocale(request);
   GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
-  String webSiteId=CatalogWorker.getWebSiteId(request);
   GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (productStore == null) {
+    Debug.logError("ProductStore is null",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"payPalEvents.problemsGettingMerchantConfiguration",locale));
+    return "error";
+  }
   GenericValue paymentConfig=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStore.getString("productStoreId"),"EXT_PAYPAL",null,true);
   String configString=null;
   if (paymentConfig != null) {
@@ -15,10 +20,10 @@
   String redirectUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.redirect");
   if (confirmUrl == null || redirectUrl == null) {
     Debug.logError("Payment properties is not configured properly, no confirm URL defined!",module);
-    request.setAttribute("_ERROR_MESSAGE_","PayPal has not been configured, please contact customer service.");
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"payPalEvents.problemsGettingMerchantConfiguration",locale));
     return "error";
   }
-  Map parametersMap=UtilHttp.getParameterMap(request);
+  Map<String,Object> parametersMap=UtilHttp.getParameterMap(request);
   parametersMap.put("cmd","_notify-validate");
   String confirmResp=null;
   try {
@@ -43,8 +48,8 @@
   }
  else {
     Debug.logError("###### PayPal did not verify this request, need investigation!",module);
-    Set keySet=parametersMap.keySet();
-    Iterator i=keySet.iterator();
+    Set<String> keySet=parametersMap.keySet();
+    Iterator<String> i=keySet.iterator();
     while (i.hasNext()) {
       String name=(String)i.next();
       String value=request.getParameter(name);
@@ -59,7 +64,7 @@
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Cannot get UserLogin for: " + userLoginId + "; cannot continue",module);
-    request.setAttribute("_ERROR_MESSAGE_","Problems getting authentication user.");
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"payPalEvents.problemsGettingAuthenticationUser",locale));
     return "error";
   }
   String orderId=request.getParameter("invoice");
@@ -70,24 +75,20 @@
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
-      request.setAttribute("_ERROR_MESSAGE_","Problems getting order header.");
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"payPalEvents.problemsGettingOrderHeader",locale));
       return "error";
     }
   }
  else {
     Debug.logError("PayPal did not callback with a valid orderId!",module);
-    request.setAttribute("_ERROR_MESSAGE_","No valid orderId returned with PayPal Callback.");
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"payPalEvents.noValidOrderIdReturned",locale));
     return "error";
   }
   if (orderHeader == null) {
     Debug.logError("Cannot get the order header for order: " + orderId,module);
-    request.setAttribute("_ERROR_MESSAGE_","Problems getting order header; not a valid orderId.");
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource,"payPalEvents.problemsGettingOrderHeader",locale));
     return "error";
   }
-  String paymentCurrency=request.getParameter("mc_currency");
-  String paymentAmount=request.getParameter("mc_gross");
-  String paymentFee=request.getParameter("mc_fee");
-  String transactionId=request.getParameter("txn_id");
   String paymentStatus=request.getParameter("payment_status");
   boolean okay=true;
   boolean beganTransaction=false;
@@ -133,9 +134,9 @@
   }
   if (okay) {
     OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
-    Map emailContext=UtilMisc.toMap("orderId",orderId);
+    Map<String,String> emailContext=UtilMisc.toMap("orderId",orderId);
     try {
-      Map emailResult=dispatcher.runSync("sendOrderConfirmation",emailContext);
+      dispatcher.runSync("sendOrderConfirmation",emailContext);
     }
  catch (    GenericServiceException e) {
       Debug.logError(e,"Problems sending email confirmation",module);
