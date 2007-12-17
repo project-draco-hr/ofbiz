@@ -43,7 +43,9 @@
       List orderPayPrefs=null;
       try {
         orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
-        orderPayPrefs=orderHeader.getRelated("OrderPaymentPreference",UtilMisc.toMap("statusId","PAYMENT_SETTLED"),UtilMisc.toList("-maxAmount"));
+        orderPayPrefs=orderHeader.getRelated("OrderPaymentPreference",UtilMisc.toList("-maxAmount"));
+        List exprs=UtilMisc.toList(new EntityExpr("statusId",EntityOperator.EQUALS,"PAYMENT_SETTLED"),new EntityExpr("statusId",EntityOperator.EQUALS,"PAYMENT_RECEIVED"));
+        orderPayPrefs=EntityUtil.filterByOr(orderPayPrefs,exprs);
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,"Cannot get Order details for #" + orderId,module);
@@ -161,15 +163,31 @@
               }
             }
  else {
+              try {
+                Map input=UtilMisc.toMap("userLogin",userLogin,"amount",new Double(amountLeftToRefund.doubleValue()),"statusId","PMNT_NOT_PAID");
+                input.put("partyIdTo",returnHeader.get("fromPartyId"));
+                input.put("partyIdFrom",returnHeader.get("toPartyId"));
+                input.put("paymentTypeId","CUSTOMER_REFUND");
+                input.put("paymentMethodId",orderPaymentPreference.get("paymentMethodId"));
+                input.put("paymentMethodTypeId",orderPaymentPreference.get("paymentMethodTypeId"));
+                input.put("paymentPreferenceId",orderPaymentPreference.get("orderPaymentPreferenceId"));
+                serviceResult=dispatcher.runSync("createPayment",input);
+                if (ServiceUtil.isError(serviceResult) || ServiceUtil.isFailure(serviceResult)) {
+                  Debug.logError("Error in refund payment: " + ServiceUtil.getErrorMessage(serviceResult),module);
+                  continue;
+                }
+                paymentId=(String)serviceResult.get("paymentId");
+              }
+ catch (              GenericServiceException e) {
+                return ServiceUtil.returnError(e.getMessage());
+              }
             }
             Map response=FastMap.newInstance();
             response.put("orderPaymentPreferenceId",orderPaymentPreference.getString("orderPaymentPreferenceId"));
             response.put("responseAmount",new Double(amountToRefund.setScale(decimals,rounding).doubleValue()));
             response.put("responseDate",now);
             response.put("userLogin",userLogin);
-            if (paymentId != null) {
-              response.put("paymentId",paymentId);
-            }
+            response.put("paymentId",paymentId);
             if (paymentMethodTypeId.equals("EXT_BILLACT")) {
               response.put("billingAccountId",orderReadHelper.getBillingAccount().getString("billingAccountId"));
             }
@@ -217,29 +235,6 @@
             }
             amountLeftToRefund=amountLeftToRefund.subtract(amountToRefund);
           }
-        }
-      }
-      if (amountLeftToRefund.compareTo(ZERO) == 1) {
-        try {
-          Map input=UtilMisc.toMap("userLogin",userLogin,"amount",new Double(amountLeftToRefund.doubleValue()),"statusId","PMNT_NOT_PAID");
-          input.put("partyIdTo",returnHeader.get("fromPartyId"));
-          input.put("partyIdFrom",returnHeader.get("toPartyId"));
-          input.put("paymentTypeId","CUSTOMER_REFUND");
-          if (UtilValidate.isNotEmpty(refundPaymentMethod)) {
-            input.put("paymentMethodId",refundPaymentMethod.get("paymentMethodId"));
-            input.put("paymentMethodTypeId",refundPaymentMethod.get("paymentMethodTypeId"));
-          }
- else {
-            Debug.logInfo("refundPaymentMethodId not configured in PartyAcctgPreference, not setting for remaining refund amount",module);
-          }
-          Map results=dispatcher.runSync("createPayment",input);
-          if (ServiceUtil.isError(results))           return results;
-          input=UtilMisc.toMap("userLogin",userLogin,"paymentId",results.get("paymentId"),"responseAmount",new Double(amountLeftToRefund.doubleValue()));
-          results=dispatcher.runSync("createReturnItemResponse",input);
-          if (ServiceUtil.isError(results))           return results;
-        }
- catch (        GenericServiceException e) {
-          return ServiceUtil.returnError(e.getMessage());
         }
       }
     }
