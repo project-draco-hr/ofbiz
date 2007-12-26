@@ -1,0 +1,106 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  final GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  Map ctx=UtilHttp.getParameterMap(request);
+  String acctgTransId;
+  String acctgTransEntrySeqId;
+  String glAccountId=null;
+  String organizationPartyId=null;
+  double reconciledBalance=0.00;
+  boolean isSelected;
+  String debitCreditFlag;
+  int rowCount=0;
+  if (ctx.containsKey("_rowCount")) {
+    rowCount=Integer.parseInt((String)ctx.get("_rowCount"));
+  }
+  for (int i=0; i < rowCount; i++) {
+    double amount=0.00;
+    String suffix=UtilHttp.MULTI_ROW_DELIMITER + i;
+    isSelected=(ctx.containsKey("_rowSubmit" + suffix) && "Y".equalsIgnoreCase((String)ctx.get("_rowSubmit" + suffix)));
+    if (!isSelected) {
+      continue;
+    }
+    acctgTransId=(String)ctx.get("acctgTransId" + suffix);
+    acctgTransEntrySeqId=(String)ctx.get("acctgTransEntrySeqId" + suffix);
+    organizationPartyId=(String)ctx.get("organizationPartyId" + suffix);
+    glAccountId=(String)ctx.get("glAccountId" + suffix);
+    GenericValue acctgTransEntry;
+    try {
+      List acctgTransEntries=delegator.findByAnd("AcctgTransEntry",UtilMisc.toMap("acctgTransId",acctgTransId,"acctgTransEntrySeqId",acctgTransEntrySeqId));
+      if (UtilValidate.isNotEmpty(acctgTransEntries)) {
+        Iterator acctgTransEntryItr=acctgTransEntries.iterator();
+        while (acctgTransEntryItr.hasNext()) {
+          acctgTransEntry=(GenericValue)acctgTransEntryItr.next();
+          debitCreditFlag=(String)acctgTransEntry.getString("debitCreditFlag");
+          if ("D".equalsIgnoreCase(debitCreditFlag)) {
+            amount+=acctgTransEntry.getDouble("amount");
+          }
+ else {
+            amount-=acctgTransEntry.getDouble("amount");
+          }
+        }
+      }
+      reconciledBalance+=amount;
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return "error";
+    }
+  }
+  Map fieldMap=UtilMisc.toMap("glReconciliationName","Reconciliation at date " + UtilDateTime.nowTimestamp(),"glAccountId",glAccountId,"organizationPartyId",organizationPartyId,"reconciledDate",UtilDateTime.nowTimestamp(),"reconciledBalance",new Double(reconciledBalance),"userLogin",userLogin);
+  Map glReconResult=null;
+  try {
+    glReconResult=dispatcher.runSync("createGlReconciliation",fieldMap);
+    if (ServiceUtil.isError(glReconResult)) {
+      return "error";
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return "error";
+  }
+  String glReconciliationId=(String)glReconResult.get("glReconciliationId");
+  String reconciledAmount;
+  for (int i=0; i < rowCount; i++) {
+    String suffix=UtilHttp.MULTI_ROW_DELIMITER + i;
+    isSelected=(ctx.containsKey("_rowSubmit" + suffix) && "Y".equalsIgnoreCase((String)ctx.get("_rowSubmit" + suffix)));
+    if (!isSelected) {
+      continue;
+    }
+    acctgTransId=(String)ctx.get("acctgTransId" + suffix);
+    acctgTransEntrySeqId=(String)ctx.get("acctgTransEntrySeqId" + suffix);
+    GenericValue acctgTransEntry;
+    try {
+      List acctgTransEntries=delegator.findByAnd("AcctgTransEntry",UtilMisc.toMap("acctgTransId",acctgTransId,"acctgTransEntrySeqId",acctgTransEntrySeqId));
+      if (UtilValidate.isNotEmpty(acctgTransEntries)) {
+        Iterator acctgTransEntryItr=acctgTransEntries.iterator();
+        while (acctgTransEntryItr.hasNext()) {
+          acctgTransEntry=(GenericValue)acctgTransEntryItr.next();
+          reconciledAmount=acctgTransEntry.getString("amount");
+          acctgTransId=acctgTransEntry.getString("acctgTransId");
+          acctgTransEntrySeqId=acctgTransEntry.getString("acctgTransEntrySeqId");
+          Map glReconEntryMap=UtilMisc.toMap("glReconciliationId",glReconciliationId,"acctgTransId",acctgTransId,"acctgTransEntrySeqId",acctgTransEntrySeqId,"reconciledAmount",reconciledAmount,"userLogin",userLogin);
+          Map glReconEntryResult=null;
+          try {
+            glReconEntryResult=dispatcher.runSync("createGlReconciliationEntry",glReconEntryMap);
+            if (ServiceUtil.isError(glReconEntryResult)) {
+              return "error";
+            }
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return "error";
+          }
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return "error";
+    }
+  }
+  ctx.put("glReconciliationId",glReconciliationId);
+  request.setAttribute("glReconciliationId",glReconciliationId);
+  return "success";
+}
