@@ -360,5 +360,71 @@
     }
     if (Debug.infoOn())     Debug.logInfo("Created " + numIndicesCreated + " indices",module);
   }
+  if (datasourceInfo.checkIndicesOnStart) {
+    int numIndicesCreated=0;
+    Map<String,Set<String>> tableIndexListMap=this.getIndexInfo(indexTableNames,messages);
+    if (tableIndexListMap == null) {
+      if (Debug.verboseOn())       Debug.logVerbose("Ref Table Info Map is null",module);
+    }
+ else {
+      for (      ModelEntity entity : modelEntityList) {
+        String entityName=entity.getEntityName();
+        if (entity instanceof ModelViewEntity) {
+          String entMessage="NOT Checking View Entity " + entity.getEntityName();
+          Debug.logVerbose(entMessage,module);
+          if (messages != null)           messages.add(entMessage);
+          continue;
+        }
+        Set<String> tableIndexList=tableIndexListMap.get(entity.getTableName(datasourceInfo));
+        if (tableIndexList == null) {
+          this.createDeclaredIndices(entity,messages);
+        }
+ else {
+          boolean createdIndexes=false;
+          Iterator<ModelIndex> indexes=entity.getIndexesIterator();
+          while (indexes.hasNext()) {
+            ModelIndex modelIndex=indexes.next();
+            String relIndexName=makeIndexName(modelIndex,datasourceInfo.constraintNameClipLength);
+            if (tableIndexList.contains(relIndexName)) {
+              tableIndexList.remove(relIndexName);
+            }
+ else {
+              String noIdxMessage="No Index [" + relIndexName + "] found for entity ["+ entityName+ "]";
+              if (messages != null)               messages.add(noIdxMessage);
+              if (Debug.infoOn())               Debug.logInfo(noIdxMessage,module);
+              if (addMissing) {
+                String errMsg=createDeclaredIndex(entity,modelIndex);
+                if (errMsg != null && errMsg.length() > 0) {
+                  String message="Could not create index " + relIndexName + " for entity ["+ entity.getEntityName()+ "]: "+ errMsg;
+                  Debug.logError(message,module);
+                  if (messages != null)                   messages.add(message);
+                }
+ else {
+                  String message="Created index " + relIndexName + " for entity ["+ entity.getEntityName()+ "]";
+                  Debug.logVerbose(message,module);
+                  if (messages != null)                   messages.add(message);
+                  createdIndexes=true;
+                  numIndicesCreated++;
+                }
+              }
+            }
+          }
+          if (createdIndexes) {
+            String message="Created foreign key index/indices for entity [" + entity.getEntityName() + "]";
+            Debug.logImportant(message,module);
+            if (messages != null)             messages.add(message);
+          }
+        }
+        if (tableIndexList != null) {
+          for (          String indexLeft : tableIndexList) {
+            String message="Unknown Index " + indexLeft + " found in table "+ entity.getTableName(datasourceInfo);
+            Debug.logImportant(message,module);
+            if (messages != null)             messages.add(message);
+          }
+        }
+      }
+    }
+    if (Debug.infoOn())     Debug.logInfo("Created " + numIndicesCreated + " indices",module);
+  }
   timer.timerString("Finished Checking Entity Database");
 }
