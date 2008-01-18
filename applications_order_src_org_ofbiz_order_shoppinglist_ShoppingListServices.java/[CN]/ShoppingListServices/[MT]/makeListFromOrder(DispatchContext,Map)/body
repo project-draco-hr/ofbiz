@@ -55,10 +55,24 @@
     }
     List orderItems=orh.getOrderItems();
     Iterator i=orderItems.iterator();
+    String productId=null;
     while (i.hasNext()) {
       GenericValue orderItem=(GenericValue)i.next();
-      if (orderItem.get("productId") != null) {
+      productId=orderItem.getString("productId");
+      if (UtilValidate.isNotEmpty(productId)) {
         Map ctx=UtilMisc.toMap("userLogin",userLogin,"shoppingListId",shoppingListId,"productId",orderItem.get("productId"),"quantity",orderItem.get("quantity"));
+        if ("AGGREGATED_CONF".equals(ProductWorker.getProductTypeId(delegator,productId))) {
+          try {
+            GenericValue instanceProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+            String configId=instanceProduct.getString("configId");
+            ctx.put("configId",configId);
+            String aggregatedProductId=ProductWorker.getInstanceAggregatedId(delegator,productId);
+            ctx.put("productId",aggregatedProductId);
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+          }
+        }
         Map serviceResult=null;
         try {
           serviceResult=dispatcher.runSync("createShoppingListItem",ctx);

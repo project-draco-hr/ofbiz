@@ -1,0 +1,57 @@
+{
+  if (UtilValidate.isEmpty(item.getConfigWrapper()) || UtilValidate.isEmpty(item.getConfigWrapper().getConfigId())) {
+    return null;
+  }
+  String newProductId=null;
+  String configId=item.getConfigWrapper().getConfigId();
+  try {
+    newProductId=ProductWorker.getAggregatedInstanceId(getDelegator(),item.getProductId(),configId);
+    if (configId.equals(newProductId)) {
+      return newProductId;
+    }
+    Map serviceContext=new HashMap();
+    GenericValue permUserLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+    String internalName=item.getProductId() + "_" + configId;
+    serviceContext.put("internalName",internalName);
+    serviceContext.put("productTypeId","AGGREGATED_CONF");
+    serviceContext.put("configId",configId);
+    serviceContext.put("userLogin",permUserLogin);
+    Map result=dispatcher.runSync("createProduct",serviceContext);
+    if (ServiceUtil.isError(result)) {
+      Debug.logError(ServiceUtil.getErrorMessage(result),module);
+      return null;
+    }
+    serviceContext.clear();
+    newProductId=(String)result.get("productId");
+    serviceContext.put("productId",item.getProductId());
+    serviceContext.put("productIdTo",newProductId);
+    serviceContext.put("productAssocTypeId","PRODUCT_CONF");
+    serviceContext.put("fromDate",UtilDateTime.nowTimestamp());
+    serviceContext.put("userLogin",permUserLogin);
+    result=dispatcher.runSync("createProductAssoc",serviceContext);
+    if (ServiceUtil.isError(result)) {
+      Debug.logError(ServiceUtil.getErrorMessage(result),module);
+      return null;
+    }
+    List productionRunTemplates=getDelegator().findByAnd("WorkEffortGoodStandard",UtilMisc.toMap("productId",item.getProductId(),"workEffortGoodStdTypeId","ROU_PROD_TEMPLATE","statusId","WEGS_CREATED"));
+    GenericValue productionRunTemplate=EntityUtil.getFirst(EntityUtil.filterByDate(productionRunTemplates));
+    if (productionRunTemplate != null) {
+      serviceContext.clear();
+      serviceContext.put("workEffortId",productionRunTemplate.getString("workEffortId"));
+      serviceContext.put("productId",newProductId);
+      serviceContext.put("workEffortGoodStdTypeId","ROU_PROD_TEMPLATE");
+      serviceContext.put("statusId","WEGS_CREATED");
+      serviceContext.put("userLogin",permUserLogin);
+      result=dispatcher.runSync("createWorkEffortGoodStandard",serviceContext);
+      if (ServiceUtil.isError(result)) {
+        Debug.logError(ServiceUtil.getErrorMessage(result),module);
+        return null;
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e,module);
+    return null;
+  }
+  return newProductId;
+}

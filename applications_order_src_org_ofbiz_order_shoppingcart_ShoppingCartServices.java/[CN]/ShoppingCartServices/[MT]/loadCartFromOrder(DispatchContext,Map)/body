@@ -161,8 +161,27 @@
           reservLength=OrderReadHelper.getWorkEffortRentalLenght(workEffort);
           reservPersons=workEffort.getDouble("reservPersons");
         }
+        ProductConfigWrapper configWrapper=null;
+        String configId=null;
         try {
-          itemIndex=cart.addItemToEnd(productId,amount,quantityDbl,null,reservStart,reservLength,reservPersons,null,null,prodCatalogId,item.getString("orderItemTypeId"),dispatcher,null,null,skipInventoryChecks,skipProductChecks);
+          GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+          if ("AGGREGATED_CONF".equals(product.getString("productTypeId"))) {
+            List productAssocs=delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_CONF","productIdTo",product.getString("productId")));
+            productAssocs=EntityUtil.filterByDate(productAssocs);
+            if (UtilValidate.isNotEmpty(productAssocs)) {
+              productId=EntityUtil.getFirst(productAssocs).getString("productId");
+              configId=product.getString("configId");
+            }
+          }
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+        }
+        if (UtilValidate.isNotEmpty(configId)) {
+          configWrapper=ProductConfigWorker.loadProductConfigWrapper(delegator,dispatcher,configId,productId,productStoreId,prodCatalogId,website,currency,locale,userLogin);
+        }
+        try {
+          itemIndex=cart.addItemToEnd(productId,amount,quantityDbl,null,reservStart,reservLength,reservPersons,null,null,prodCatalogId,configWrapper,item.getString("orderItemTypeId"),dispatcher,null,null,skipInventoryChecks,skipProductChecks);
         }
  catch (        ItemNotFoundException e) {
           Debug.logError(e,module);
