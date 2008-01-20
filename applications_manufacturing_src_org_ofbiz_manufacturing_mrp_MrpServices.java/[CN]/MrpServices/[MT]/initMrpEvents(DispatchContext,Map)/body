@@ -1,6 +1,8 @@
 {
   GenericDelegator delegator=ctx.getDelegator();
   Timestamp now=UtilDateTime.nowTimestamp();
+  String facilityId=(String)context.get("facilityId");
+  String manufacturingFacilityId=(String)context.get("manufacturingFacilityId");
   Integer defaultYearsOffset=(Integer)context.get("defaultYearsOffset");
   String mrpId=(String)context.get("mrpId");
   List listResult=null;
@@ -73,6 +75,7 @@
   resultList=null;
   iteratorResult=null;
   parameters=UtilMisc.toMap("orderTypeId","SALES_ORDER","oiStatusId","ITEM_APPROVED");
+  parameters.put("facilityId",facilityId);
   try {
     resultList=delegator.findByAnd("OrderHeaderItemAndShipGroup",parameters,UtilMisc.toList("orderId"));
   }
@@ -85,12 +88,19 @@
   while (iteratorResult.hasNext()) {
     genericResult=(GenericValue)iteratorResult.next();
     String productId=genericResult.getString("productId");
+    Double reservedQuantity=genericResult.getDouble("reservedQuantity");
     Double shipGroupQuantity=genericResult.getDouble("quantity");
     Double cancelledQuantity=genericResult.getDouble("cancelQuantity");
-    if (UtilValidate.isNotEmpty(cancelledQuantity)) {
-      shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - cancelledQuantity.doubleValue());
+    Double eventQuantityTmp=new Double(0.0);
+    if (UtilValidate.isNotEmpty(reservedQuantity)) {
+      eventQuantityTmp=new Double(-1.0 * reservedQuantity.doubleValue());
     }
-    Double eventQuantityTmp=new Double(-1.0 * shipGroupQuantity.doubleValue());
+ else {
+      if (UtilValidate.isNotEmpty(cancelledQuantity)) {
+        shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - cancelledQuantity.doubleValue());
+      }
+      eventQuantityTmp=new Double(-1.0 * shipGroupQuantity.doubleValue());
+    }
     if (eventQuantityTmp.doubleValue() == 0) {
       continue;
     }
@@ -120,7 +130,7 @@
   }
   resultList=null;
   iteratorResult=null;
-  parameters=UtilMisc.toMap("requirementTypeId","PRODUCT_REQUIREMENT","statusId","REQ_APPROVED");
+  parameters=UtilMisc.toMap("requirementTypeId","PRODUCT_REQUIREMENT","statusId","REQ_APPROVED","facilityId",facilityId);
   try {
     resultList=delegator.findByAnd("Requirement",parameters);
   }
@@ -151,13 +161,14 @@
   iteratorResult=null;
   String orderId=null;
   GenericValue orderDeliverySchedule=null;
-  parameters=UtilMisc.toMap("orderTypeId","PURCHASE_ORDER","itemStatusId","ITEM_APPROVED");
   try {
-    resultList=delegator.findByAnd("OrderHeaderAndItems",parameters,UtilMisc.toList("orderId"));
+    List facilityContactMechs=EntityUtil.filterByDate(delegator.findByAnd("FacilityContactMech",UtilMisc.toMap("facilityId",facilityId)));
+    List facilityContactMechIds=EntityUtil.getFieldListFromEntityList(facilityContactMechs,"contactMechId",true);
+    List searchConditions=UtilMisc.toList(new EntityExpr("orderTypeId",EntityOperator.EQUALS,"PURCHASE_ORDER"),new EntityExpr("oiStatusId",EntityOperator.EQUALS,"ITEM_APPROVED"),new EntityExpr("contactMechId",EntityOperator.IN,facilityContactMechIds));
+    List fieldsToSelect=UtilMisc.toList("orderId","orderItemSeqId","productId","quantity","cancelQuantity","oiEstimatedDeliveryDate");
+    resultList=delegator.findByCondition("OrderHeaderItemAndShipGroup",new EntityConditionList(searchConditions,EntityOperator.AND),fieldsToSelect,UtilMisc.toList("orderDate"));
   }
  catch (  GenericEntityException e) {
-    Debug.logError(e,"Error : delegator.findByAnd(\"OrderItem\", parameters\")",module);
-    Debug.logError(e,"Error : parameters = " + parameters,module);
     return ServiceUtil.returnError("Problem, we can not find the order items, for more detail look at the log");
   }
   iteratorResult=resultList.iterator();
@@ -174,7 +185,24 @@
       }
     }
     String productId=genericResult.getString("productId");
-    Double eventQuantityTmp=new Double(genericResult.getDouble("quantity").doubleValue());
+    Double shipGroupQuantity=genericResult.getDouble("quantity");
+    Double cancelledQuantity=genericResult.getDouble("cancelQuantity");
+    if (UtilValidate.isEmpty(shipGroupQuantity)) {
+      shipGroupQuantity=new Double(0);
+    }
+    if (UtilValidate.isNotEmpty(cancelledQuantity)) {
+      shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - cancelledQuantity.doubleValue());
+    }
+    OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+    BigDecimal shippedQuantity=null;
+    try {
+      shippedQuantity=orh.getItemShippedQuantity(genericResult.getRelatedOne("OrderItem"));
+    }
+ catch (    GenericEntityException e) {
+    }
+    if (UtilValidate.isNotEmpty(shippedQuantity)) {
+      shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - shippedQuantity.doubleValue());
+    }
     GenericValue orderItemDeliverySchedule=null;
     try {
       orderItemDeliverySchedule=delegator.findByPrimaryKey("OrderDeliverySchedule",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",genericResult.getString("orderItemSeqId")));
@@ -196,7 +224,7 @@
     }
     parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",estimatedShipDate,"mrpEventTypeId","PUR_ORDER_RECP");
     try {
-      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,genericResult.getString("orderId") + "-" + genericResult.getString("orderItemSeqId"),false,delegator);
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,shipGroupQuantity,null,genericResult.getString("orderId") + "-" + genericResult.getString("orderItemSeqId"),false,delegator);
     }
  catch (    GenericEntityException e) {
       return ServiceUtil.returnError("Problem initializing the MrpEvent entity (PUR_ORDER_RECP)");
@@ -204,7 +232,7 @@
   }
   resultList=null;
   iteratorResult=null;
-  parameters=UtilMisc.toMap("workEffortGoodStdTypeId","PRUNT_PROD_NEEDED","statusId","WEGS_CREATED");
+  parameters=UtilMisc.toMap("workEffortGoodStdTypeId","PRUNT_PROD_NEEDED","statusId","WEGS_CREATED","facilityId",facilityId);
   try {
     resultList=delegator.findByAnd("WorkEffortAndGoods",parameters);
   }
@@ -233,7 +261,7 @@
   }
   resultList=null;
   iteratorResult=null;
-  parameters=UtilMisc.toMap("workEffortGoodStdTypeId","PRUN_PROD_DELIV","statusId","WEGS_CREATED","workEffortTypeId","PROD_ORDER_HEADER");
+  parameters=UtilMisc.toMap("workEffortGoodStdTypeId","PRUN_PROD_DELIV","statusId","WEGS_CREATED","workEffortTypeId","PROD_ORDER_HEADER","facilityId",facilityId);
   try {
     resultList=delegator.findByAnd("WorkEffortAndGoods",parameters);
   }
