@@ -1,0 +1,119 @@
+{
+  HttpServletResponse response=(HttpServletResponse)context.get("response");
+  HttpServletRequest request=(HttpServletRequest)context.get("request");
+  ModelForm modelForm=form.getModelForm(context);
+  modelForm.runFormActions(context);
+  modelForm.preparePager(context);
+  String targetService=modelForm.getPaginateTarget(context);
+  if (targetService == null) {
+    targetService="${targetService}";
+  }
+  String viewIndexParam=modelForm.getPaginateIndexField(context);
+  String viewSizeParam=modelForm.getPaginateSizeField(context);
+  int viewIndex=modelForm.getViewIndex(context);
+  int viewSize=modelForm.getViewSize(context);
+  int listSize=modelForm.getListSize(context);
+  int lowIndex=modelForm.getLowIndex(context);
+  int highIndex=modelForm.getHighIndex(context);
+  int actualPageSize=modelForm.getActualPageSize(context);
+  if (actualPageSize >= listSize && listSize >= 0)   return;
+  Map uiLabelMap=(Map)context.get("uiLabelMap");
+  String pageLabel="";
+  String rowsLabel="";
+  String ofLabel="";
+  if (uiLabelMap == null) {
+    Debug.logWarning("Could not find uiLabelMap in context",module);
+  }
+ else {
+    pageLabel=(String)uiLabelMap.get("CommonPage");
+    rowsLabel=(String)uiLabelMap.get("CommonRows");
+    ofLabel=(String)uiLabelMap.get("CommonOf");
+    ofLabel=ofLabel.toLowerCase();
+  }
+  if (viewIndexParam.equals("viewIndex"))   viewIndexParam="VIEW_INDEX";
+  if (viewSizeParam.equals("viewSize"))   viewSizeParam="VIEW_SIZE";
+  ServletContext ctx=(ServletContext)request.getAttribute("servletContext");
+  RequestHandler rh=(RequestHandler)ctx.getAttribute("_REQUEST_HANDLER_");
+  Map inputFields=(Map)context.get("requestParameters");
+  if (modelForm.getType().equals("multi")) {
+    inputFields=UtilHttp.removeMultiFormParameters(inputFields);
+  }
+  String queryString=UtilHttp.urlEncodeArgs(inputFields);
+  queryString=UtilHttp.stripViewParamsFromQueryString(queryString);
+  HashSet paramNames=new HashSet();
+  paramNames.add(viewIndexParam);
+  paramNames.add(viewSizeParam);
+  queryString=UtilHttp.stripNamedParamsFromQueryString(queryString,paramNames);
+  String anchor="";
+  String paginateAnchor=modelForm.getPaginateTargetAnchor();
+  if (paginateAnchor != null)   anchor="#" + paginateAnchor;
+  String prepLinkText="";
+  prepLinkText=targetService;
+  if (prepLinkText.indexOf("?") < 0) {
+    prepLinkText+="?";
+  }
+ else   if (!prepLinkText.endsWith("?")) {
+    prepLinkText+="&amp;";
+  }
+  if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+    prepLinkText+=queryString + "&amp;";
+  }
+  prepLinkText+=viewSizeParam + "=" + viewSize+ "&amp;"+ viewIndexParam+ "=";
+  String linkText;
+  appendWhitespace(writer);
+  writer.write("<li class=\"" + modelForm.getPaginateLastStyle());
+  if (highIndex < listSize) {
+    writer.write("\"><a href=\"");
+    int page=(listSize / viewSize) - 1;
+    linkText=prepLinkText + page + anchor;
+    writer.write(rh.makeLink(request,response,linkText));
+    writer.write("\">" + modelForm.getPaginateLastLabel(context) + "</a>");
+  }
+ else {
+    writer.write(" disabled\">" + modelForm.getPaginateLastLabel(context));
+  }
+  writer.write("</li>");
+  appendWhitespace(writer);
+  writer.write("<li class=\"" + modelForm.getPaginateNextStyle());
+  if (highIndex < listSize) {
+    writer.write("\"><a href=\"");
+    linkText=prepLinkText + (viewIndex + 1) + anchor;
+    writer.write(rh.makeLink(request,response,linkText));
+    writer.write("\">" + modelForm.getPaginateNextLabel(context) + "</a>");
+  }
+ else {
+    writer.write(" disabled\">" + modelForm.getPaginateNextLabel(context));
+  }
+  writer.write("</li>");
+  appendWhitespace(writer);
+  if (listSize > 0) {
+    writer.write("<li>");
+    writer.write((lowIndex + 1) + " - " + (lowIndex + actualPageSize)+ " "+ ofLabel+ " "+ listSize);
+    writer.write("</li>");
+    appendWhitespace(writer);
+  }
+  writer.write("<li class=\"nav-previous");
+  if (viewIndex > 0) {
+    writer.write("\"><a href=\"");
+    linkText=prepLinkText + (viewIndex - 1) + anchor;
+    writer.write(rh.makeLink(request,response,linkText));
+    writer.write("\">" + modelForm.getPaginatePreviousLabel(context) + "</a>");
+  }
+ else {
+    writer.write(" disabled\">" + modelForm.getPaginatePreviousLabel(context));
+  }
+  writer.write("</li>");
+  appendWhitespace(writer);
+  writer.write("<li class=\"nav-first");
+  if (viewIndex > 0) {
+    writer.write("\"><a href=\"");
+    linkText=prepLinkText + 0 + anchor;
+    writer.write(rh.makeLink(request,response,linkText));
+    writer.write("\">" + modelForm.getPaginateFirstLabel(context) + "</a>");
+  }
+ else {
+    writer.write(" disabled\">" + modelForm.getPaginateFirstLabel(context));
+  }
+  writer.write("</li>");
+  appendWhitespace(writer);
+}
