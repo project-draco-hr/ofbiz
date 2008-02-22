@@ -1,0 +1,72 @@
+{
+  String eomodeldFullPath=(String)context.get("eomodeldFullPath");
+  String entityPackageName=(String)context.get("entityPackageName");
+  String entityGroupId=(String)context.get("entityGroupId");
+  String datasourceName=(String)context.get("datasourceName");
+  String entityNamePrefix=(String)context.get("entityNamePrefix");
+  ModelReader reader=dctx.getDelegator().getModelReader();
+  try {
+    if (!eomodeldFullPath.endsWith(".eomodeld")) {
+      eomodeldFullPath=eomodeldFullPath + ".eomodeld";
+    }
+    File outdir=new File(eomodeldFullPath);
+    if (!outdir.exists()) {
+      outdir.mkdir();
+    }
+    if (!outdir.isDirectory()) {
+      return ServiceUtil.returnError("eomodel Full Path is not a directory: " + eomodeldFullPath);
+    }
+    if (!outdir.canWrite()) {
+      return ServiceUtil.returnError("eomodel Full Path is not write-able: " + eomodeldFullPath);
+    }
+    Set<String> entityNames=new TreeSet();
+    if (UtilValidate.isNotEmpty(entityPackageName)) {
+      Map<String,TreeSet<String>> entitiesByPackage=reader.getEntitiesByPackage(UtilMisc.toSet(entityPackageName),null);
+      Debug.logInfo("entitiesByPackage = " + entitiesByPackage,module);
+      if (entitiesByPackage.get(entityPackageName) != null) {
+        entityNames.addAll(entitiesByPackage.get(entityPackageName));
+      }
+    }
+ else     if (UtilValidate.isNotEmpty(entityGroupId)) {
+      entityNames.addAll(EntityGroupUtil.getEntityNamesByGroup(entityGroupId,dctx.getDelegator()));
+    }
+ else {
+      entityNames.addAll(reader.getEntityNames());
+    }
+    PrintWriter writer=new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(new File(eomodeldFullPath,"index.eomodeld")),"UTF-8")));
+    writer.println("{");
+    writer.println("EOModelVersion = \"2.1\";");
+    writer.println("entities = (");
+    Iterator<String> entityNameIter=entityNames.iterator();
+    while (entityNameIter.hasNext()) {
+      String entityName=entityNameIter.next();
+      writer.print("{ className = EOGenericRecord; name = ");
+      writer.print(entityName);
+      if (entityNameIter.hasNext()) {
+        writer.println("; },");
+      }
+ else {
+        writer.println("; }");
+      }
+    }
+    writer.println(");");
+    writer.println("}");
+    writer.close();
+    for (    String curEntityName : entityNames) {
+      ModelEntity modelEntity=reader.getModelEntity(curEntityName);
+      PrintWriter entityWriter=new PrintWriter(new BufferedWriter(new OutputStreamWriter(new FileOutputStream(new File(eomodeldFullPath,curEntityName + ".plist")),"UTF-8")));
+      modelEntity.writeEoModelText(entityWriter,entityNamePrefix,datasourceName);
+      entityWriter.close();
+    }
+  }
+ catch (  UnsupportedEncodingException e) {
+    return ServiceUtil.returnError("ERROR saving file: " + e.toString());
+  }
+catch (  FileNotFoundException e) {
+    return ServiceUtil.returnError("ERROR: file/directory not found: " + e.toString());
+  }
+catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("ERROR: getting entity names: " + e.toString());
+  }
+  return ServiceUtil.returnSuccess();
+}

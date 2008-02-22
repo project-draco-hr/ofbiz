@@ -1,0 +1,50 @@
+{
+  List<ModelEntity> entityModelToUseList=FastList.newInstance();
+  Iterator entityNameIter=delegator.getModelReader().getEntityNamesIterator();
+  while (entityNameIter.hasNext()) {
+    String entityName=(String)entityNameIter.next();
+    ModelEntity modelEntity=delegator.getModelEntity(entityName);
+    if (modelEntity instanceof ModelViewEntity) {
+      continue;
+    }
+    if (!modelEntity.isField(ModelEntity.STAMP_FIELD) || !modelEntity.isField(ModelEntity.STAMP_TX_FIELD)) {
+      continue;
+    }
+    if (entityGroupEntryValues.size() == 0) {
+      entityModelToUseList.add(modelEntity);
+    }
+ else {
+      boolean matchesInclude=false;
+      boolean matchesExclude=false;
+      boolean matchesAlways=false;
+      Iterator<GenericValue> entitySyncIncludeIter=entityGroupEntryValues.iterator();
+      while (entitySyncIncludeIter.hasNext()) {
+        GenericValue entitySyncInclude=entitySyncIncludeIter.next();
+        String entityOrPackage=entitySyncInclude.getString("entityOrPackage");
+        boolean matches=false;
+        if (entityName.equals(entityOrPackage)) {
+          matches=true;
+        }
+ else         if (modelEntity.getPackageName().startsWith(entityOrPackage)) {
+          matches=true;
+        }
+        if (matches) {
+          if ("ESIA_INCLUDE".equals(entitySyncInclude.getString("applEnumId"))) {
+            matchesInclude=true;
+          }
+ else           if ("ESIA_EXCLUDE".equals(entitySyncInclude.getString("applEnumId"))) {
+            matchesExclude=true;
+          }
+ else           if ("ESIA_ALWAYS".equals(entitySyncInclude.getString("applEnumId"))) {
+            matchesAlways=true;
+            break;
+          }
+        }
+      }
+      if (matchesAlways || (matchesInclude && !matchesExclude)) {
+        entityModelToUseList.add(modelEntity);
+      }
+    }
+  }
+  return entityModelToUseList;
+}
