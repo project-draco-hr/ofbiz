@@ -1,0 +1,69 @@
+{
+  boolean useMoreDetailedNames=true;
+  Set<String> allDiagramEntitiesWithPrefixes=FastSet.newInstance();
+  List<ServiceArtifactInfo> allServiceList=FastList.newInstance();
+  List<ServiceEcaArtifactInfo> allServiceEcaList=FastList.newInstance();
+  List<ServiceArtifactInfo> callingServiceList=this.getServicesCallingService();
+  for (  ServiceArtifactInfo callingService : callingServiceList) {
+    callingService.setDisplayPrefix("Calling:");
+    allDiagramEntitiesWithPrefixes.add(callingService.getDisplayPrefixedName());
+    allServiceList.add(callingService);
+  }
+  List<ServiceArtifactInfo> calledServiceList=this.getServicesCalledByService();
+  for (  ServiceArtifactInfo calledService : calledServiceList) {
+    calledService.setDisplayPrefix("Called:");
+    allDiagramEntitiesWithPrefixes.add(calledService.getDisplayPrefixedName());
+    allServiceList.add(calledService);
+  }
+  List<ServiceEcaArtifactInfo> callingServiceEcaList=this.getServiceEcaRulesCallingService();
+  for (  ServiceEcaArtifactInfo callingServiceEca : callingServiceEcaList) {
+    callingServiceEca.setDisplayPrefix("Triggering:");
+    allDiagramEntitiesWithPrefixes.add(callingServiceEca.getDisplayPrefixedName());
+    allServiceEcaList.add(callingServiceEca);
+  }
+  List<ServiceEcaArtifactInfo> calledServiceEcaList=this.getServiceEcaRulesTriggeredByService();
+  for (  ServiceEcaArtifactInfo calledServiceEca : calledServiceEcaList) {
+    calledServiceEca.setDisplayPrefix("Called:");
+    allDiagramEntitiesWithPrefixes.add(calledServiceEca.getDisplayPrefixedName());
+    allServiceEcaList.add(calledServiceEca);
+  }
+  Map<String,Object> indexEoModelMap=FastMap.newInstance();
+  indexEoModelMap.put("EOModelVersion","\"2.1\"");
+  List<Map<String,Object>> entitiesMapList=FastList.newInstance();
+  indexEoModelMap.put("entities",entitiesMapList);
+  for (  String entityName : allDiagramEntitiesWithPrefixes) {
+    Map<String,Object> entitiesMap=FastMap.newInstance();
+    entitiesMapList.add(entitiesMap);
+    entitiesMap.put("className","EOGenericRecord");
+    entitiesMap.put("name",entityName);
+  }
+  UtilFormatOut.writePlistFile(indexEoModelMap,eomodeldFullPath,"index.eomodeld");
+  Map<String,Object> thisServiceEoModelMap=createEoModelMap(allServiceList,allServiceEcaList,useMoreDetailedNames);
+  UtilFormatOut.writePlistFile(thisServiceEoModelMap,eomodeldFullPath,this.getDisplayPrefixedName() + ".plist");
+  for (  ServiceArtifactInfo callingService : callingServiceList) {
+    Map<String,Object> serviceEoModelMap=callingService.createEoModelMap(UtilMisc.toList(this),null,useMoreDetailedNames);
+    UtilFormatOut.writePlistFile(serviceEoModelMap,eomodeldFullPath,callingService.getDisplayPrefixedName() + ".plist");
+  }
+  for (  ServiceArtifactInfo calledService : calledServiceList) {
+    Map<String,Object> serviceEoModelMap=calledService.createEoModelMap(UtilMisc.toList(this),null,useMoreDetailedNames);
+    UtilFormatOut.writePlistFile(serviceEoModelMap,eomodeldFullPath,calledService.getDisplayPrefixedName() + ".plist");
+  }
+  for (  ServiceEcaArtifactInfo callingServiceEca : callingServiceEcaList) {
+    List<ServiceArtifactInfo> ecaCallingServiceList=callingServiceEca.getServicesTriggeringServiceEca();
+    for (    ServiceArtifactInfo ecaCallingService : ecaCallingServiceList) {
+      ecaCallingService.setDisplayPrefix("Triggering:");
+    }
+    ecaCallingServiceList.add(this);
+    Map<String,Object> serviceEcaEoModelMap=callingServiceEca.createEoModelMap(ecaCallingServiceList,useMoreDetailedNames);
+    UtilFormatOut.writePlistFile(serviceEcaEoModelMap,eomodeldFullPath,callingServiceEca.getDisplayPrefixedName() + ".plist");
+  }
+  for (  ServiceEcaArtifactInfo calledServiceEca : calledServiceEcaList) {
+    List<ServiceArtifactInfo> ecaCalledServiceList=calledServiceEca.getServicesCalledByServiceEcaActions();
+    for (    ServiceArtifactInfo ecaCalledService : ecaCalledServiceList) {
+      ecaCalledService.setDisplayPrefix("Called:");
+    }
+    ecaCalledServiceList.add(this);
+    Map<String,Object> serviceEcaEoModelMap=calledServiceEca.createEoModelMap(ecaCalledServiceList,useMoreDetailedNames);
+    UtilFormatOut.writePlistFile(serviceEcaEoModelMap,eomodeldFullPath,calledServiceEca.getDisplayPrefixedName() + ".plist");
+  }
+}
