@@ -13,18 +13,29 @@
       return;
     }
     Set<String> allEntityNameSet=simpleMethodToCall.getAllEntityNamesUsed();
-    for (    String entityName : allEntityNameSet) {
-      if (entityName.contains("${")) {
-        continue;
-      }
-      if (!aif.getEntityModelReader().getEntityNames().contains(entityName)) {
-        Debug.logWarning("Entity [" + entityName + "] reference in service ["+ this.modelService.name+ "] does not exist!",module);
-        continue;
-      }
-      this.entitiesUsedByThisService.add(aif.getEntityArtifactInfo(entityName));
-      UtilMisc.addToSetInMap(this,aif.allServiceInfosReferringToEntityName,entityName);
-    }
+    populateEntitiesFromNameSet(allEntityNameSet);
   }
  else   if ("java".equals(this.modelService.engineName)) {
+    String fullClassPathAndFile=UtilJavaParse.findRealPathAndFileForClass(this.modelService.location);
+    if (fullClassPathAndFile != null) {
+      String javaFile=null;
+      try {
+        javaFile=FileUtil.readTextFile(fullClassPathAndFile,true).toString();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logWarning("Error reading java file [" + fullClassPathAndFile + "] for service implementation: "+ e.toString(),module);
+        return;
+      }
+catch (      IOException e) {
+        Debug.logWarning("Error reading java file [" + fullClassPathAndFile + "] for service implementation: "+ e.toString(),module);
+        return;
+      }
+      int methodBlockStart=UtilJavaParse.findServiceMethodBlockStart(this.modelService.invoke,javaFile);
+      int methodBlockEnd=UtilJavaParse.findEndOfBlock(methodBlockStart,javaFile);
+      Set<String> allEntityNameSet=UtilJavaParse.findEntityUseInBlock(methodBlockStart,methodBlockEnd,javaFile);
+      populateEntitiesFromNameSet(allEntityNameSet);
+    }
+  }
+ else   if ("group".equals(this.modelService.engineName)) {
   }
 }

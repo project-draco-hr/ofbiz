@@ -13,18 +13,41 @@
       return;
     }
     Set<String> allServiceNameSet=simpleMethodToCall.getAllServiceNamesCalled();
-    for (    String serviceName : allServiceNameSet) {
-      if (serviceName.contains("${")) {
-        continue;
-      }
-      if (!aif.getDispatchContext().getAllServiceNames().contains(serviceName)) {
-        Debug.logWarning("Service [" + serviceName + "] reference in service ["+ this.modelService.name+ "] does not exist!",module);
-        continue;
-      }
-      this.servicesCalledByThisService.add(aif.getServiceArtifactInfo(serviceName));
-      UtilMisc.addToSetInMap(this,aif.allServiceInfosReferringToServiceName,serviceName);
-    }
+    populateServicesFromNameSet(allServiceNameSet);
   }
  else   if ("java".equals(this.modelService.engineName)) {
+    String fullClassPathAndFile=UtilJavaParse.findRealPathAndFileForClass(this.modelService.location);
+    if (fullClassPathAndFile != null) {
+      String javaFile=null;
+      try {
+        javaFile=FileUtil.readTextFile(fullClassPathAndFile,true).toString();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logWarning("Error reading java file [" + fullClassPathAndFile + "] for service implementation: "+ e.toString(),module);
+        return;
+      }
+catch (      IOException e) {
+        Debug.logWarning("Error reading java file [" + fullClassPathAndFile + "] for service implementation: "+ e.toString(),module);
+        return;
+      }
+      int methodBlockStart=UtilJavaParse.findServiceMethodBlockStart(this.modelService.invoke,javaFile);
+      int methodBlockEnd=UtilJavaParse.findEndOfBlock(methodBlockStart,javaFile);
+      Set<String> allServiceNameSet=UtilJavaParse.findServiceCallsInBlock(methodBlockStart,methodBlockEnd,javaFile);
+      populateServicesFromNameSet(allServiceNameSet);
+    }
+  }
+ else   if ("group".equals(this.modelService.engineName)) {
+    Set<String> allServiceNameSet=FastSet.newInstance();
+    GroupModel groupModel=modelService.internalGroup;
+    if (groupModel == null) {
+      groupModel=ServiceGroupReader.getGroupModel(this.modelService.location);
+    }
+    if (groupModel != null) {
+      List<GroupServiceModel> groupServiceModels=groupModel.getServices();
+      for (      GroupServiceModel groupServiceModel : groupServiceModels) {
+        allServiceNameSet.add(groupServiceModel.getName());
+      }
+    }
+    populateServicesFromNameSet(allServiceNameSet);
   }
 }
