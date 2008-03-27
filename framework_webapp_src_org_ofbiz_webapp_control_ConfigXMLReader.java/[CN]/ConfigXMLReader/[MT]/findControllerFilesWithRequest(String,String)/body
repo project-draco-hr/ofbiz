@@ -1,0 +1,35 @@
+{
+  Set<String> allControllerRequestSet=FastSet.newInstance();
+  String cacheId=controllerPartialPath != null ? controllerPartialPath : "NOPARTIALPATH";
+  List<ControllerConfig> controllerConfigs=(List<ControllerConfig>)controllerSearchResultsCache.get(cacheId);
+  if (controllerConfigs == null) {
+    try {
+      List<File> controllerFiles=FileUtil.findXmlFiles(null,controllerPartialPath,"site-conf","site-conf.xsd");
+      controllerConfigs=FastList.newInstance();
+      for (      File controllerFile : controllerFiles) {
+        URL controllerUrl=null;
+        try {
+          controllerUrl=controllerFile.toURL();
+        }
+ catch (        MalformedURLException mue) {
+          throw new GeneralException(mue);
+        }
+        ControllerConfig cc=ConfigXMLReader.getControllerConfig(controllerUrl);
+        controllerConfigs.add(cc);
+      }
+      controllerSearchResultsCache.put(cacheId,controllerConfigs);
+    }
+ catch (    IOException e) {
+      throw new GeneralException("Error finding controller XML files to lookup request references: " + e.toString(),e);
+    }
+  }
+  if (controllerConfigs != null) {
+    for (    ControllerConfig cc : controllerConfigs) {
+      if (cc.requestMap.get(requestUri) != null) {
+        String requestUniqueId=cc.url.toExternalForm() + "#" + requestUri;
+        allControllerRequestSet.add(requestUniqueId);
+      }
+    }
+  }
+  return allControllerRequestSet;
+}
