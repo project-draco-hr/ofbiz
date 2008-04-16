@@ -7,6 +7,9 @@
   String productionRunId=(String)context.get("productionRunId");
   String workEffortId=(String)context.get("productionRunTaskId");
   String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId=userLogin.getString("partyId");
+  }
   Timestamp fromDate=(Timestamp)context.get("fromDate");
   Timestamp toDate=(Timestamp)context.get("toDate");
   Double addQuantityProduced=(Double)context.get("addQuantityProduced");
@@ -14,6 +17,10 @@
   Double addSetupTime=(Double)context.get("addSetupTime");
   Double addTaskTime=(Double)context.get("addTaskTime");
   String comments=(String)context.get("comments");
+  Boolean issueRequiredComponents=(Boolean)context.get("issueRequiredComponents");
+  if (issueRequiredComponents == null) {
+    issueRequiredComponents=Boolean.FALSE;
+  }
   if (fromDate == null) {
     fromDate=UtilDateTime.nowTimestamp();
   }
@@ -76,6 +83,39 @@
   double totalSetupMillis=actualSetupMillis.doubleValue() + addSetupTime.doubleValue();
   double totalQuantityProduced=quantityProduced.doubleValue() + addQuantityProduced.doubleValue();
   double totalQuantityRejected=quantityRejected.doubleValue() + addQuantityRejected.doubleValue();
+  if (issueRequiredComponents.booleanValue() && addQuantityProduced.doubleValue() > 0) {
+    Double quantityToProduce=theTask.getDouble("quantityToProduce");
+    if (quantityToProduce == null) {
+      quantityToProduce=new Double(0);
+    }
+    if (quantityToProduce.doubleValue() > 0) {
+      try {
+        List<GenericValue> components=theTask.getRelated("WorkEffortGoodStandard");
+        for (        GenericValue component : components) {
+          double totalRequiredMaterialQuantity=component.getDouble("estimatedQuantity").doubleValue() * totalQuantityProduced / quantityToProduce.doubleValue();
+          List<GenericValue> issuances=delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",workEffortId,"productId",component.getString("productId")));
+          double totalIssued=0.0;
+          for (          GenericValue issuance : issuances) {
+            Double issued=issuance.getDouble("quantity");
+            if (issued != null) {
+              totalIssued+=issued.doubleValue();
+            }
+          }
+          double requiredQuantity=totalRequiredMaterialQuantity - totalIssued;
+          if (requiredQuantity > 0) {
+            Map serviceContext=UtilMisc.toMap("workEffortId",workEffortId,"productId",component.getString("productId"),"fromDate",component.getTimestamp("fromDate"));
+            serviceContext.put("quantity",new Double(requiredQuantity));
+            serviceContext.put("userLogin",userLogin);
+            Map resultService=dispatcher.runSync("issueProductionRunTaskComponent",serviceContext);
+          }
+        }
+      }
+ catch (      GenericEntityException gee) {
+      }
+catch (      GenericServiceException gee) {
+      }
+    }
+  }
   try {
     String timeEntryId=delegator.getNextSeqId("TimeEntry");
     Map timeEntryFields=UtilMisc.toMap("timeEntryId",timeEntryId,"workEffortId",workEffortId);

@@ -1,0 +1,54 @@
+{
+  Map result=FastMap.newInstance();
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunId=(String)context.get("workEffortId");
+  Double quantity=(Double)context.get("quantity");
+  ProductionRun productionRun=new ProductionRun(productionRunId,delegator,dispatcher);
+  Double quantityProduced=productionRun.getGenericValue().getDouble("quantityProduced");
+  Double quantityToProduce=productionRun.getGenericValue().getDouble("quantityToProduce");
+  if (quantityProduced == null) {
+    quantityProduced=new Double(0);
+  }
+  if (quantityToProduce == null) {
+    quantityToProduce=new Double(0);
+  }
+  double minimumQuantityProducedByTask=quantityProduced.doubleValue() + quantity.doubleValue();
+  if (minimumQuantityProducedByTask > quantityToProduce.doubleValue()) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingQuantityProducedIsHigherThanQuantityDeclared",locale));
+  }
+  List tasks=productionRun.getProductionRunRoutingTasks();
+  for (int i=0; i < tasks.size(); i++) {
+    GenericValue oneTask=(GenericValue)tasks.get(i);
+    String taskId=oneTask.getString("workEffortId");
+    if ("PRUN_RUNNING".equals(oneTask.getString("currentStatusId"))) {
+      Double quantityDeclared=oneTask.getDouble("quantityProduced");
+      if (quantityDeclared == null) {
+        quantityDeclared=new Double(0);
+      }
+      if (minimumQuantityProducedByTask > quantityDeclared.doubleValue()) {
+        try {
+          Map serviceContext=UtilMisc.toMap("productionRunId",productionRunId,"productionRunTaskId",taskId);
+          serviceContext.put("addQuantityProduced",new Double(minimumQuantityProducedByTask - quantityDeclared.doubleValue()));
+          serviceContext.put("issueRequiredComponents",Boolean.TRUE);
+          serviceContext.put("userLogin",userLogin);
+          Map resultService=dispatcher.runSync("updateProductionRunTask",serviceContext);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,"Problem calling the changeProductionRunTaskStatus service",module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+        }
+      }
+    }
+  }
+  try {
+    result=dispatcher.runSync("productionRunProduce",context);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the changeProductionRunTaskStatus service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+  }
+  return result;
+}
