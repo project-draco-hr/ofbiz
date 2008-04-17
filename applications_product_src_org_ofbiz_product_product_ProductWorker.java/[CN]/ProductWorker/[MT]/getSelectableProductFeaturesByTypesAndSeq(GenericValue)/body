@@ -1,0 +1,53 @@
+{
+  if (product == null) {
+    return null;
+  }
+  List<List<Map<String,String>>> featureTypeFeatures=new ArrayList<List<Map<String,String>>>();
+  try {
+    if (product != null) {
+      GenericDelegator delegator=product.getDelegator();
+      Map<String,String> fields=UtilMisc.toMap("productId",product.getString("productId"),"productFeatureApplTypeId","SELECTABLE_FEATURE");
+      List<String> order=UtilMisc.toList("productFeatureTypeId","sequenceNum");
+      List features=delegator.findByAndCache("ProductFeatureAndAppl",fields,order);
+      List featuresSorted=(List)UtilMisc.sortMaps(features,order);
+      Iterator it=(Iterator)featuresSorted.iterator();
+      String oldType=null;
+      List<Map<String,String>> featureList=new LinkedList<Map<String,String>>();
+      while (it.hasNext()) {
+        GenericValue productFeatureAppl=(GenericValue)it.next();
+        if (oldType == null || !oldType.equals(productFeatureAppl.getString("productFeatureTypeId"))) {
+          if (oldType != null) {
+            featureTypeFeatures.add(featureList);
+            featureList=new LinkedList<Map<String,String>>();
+          }
+          GenericValue productFeatureType=delegator.findByPrimaryKey("ProductFeatureType",UtilMisc.toMap("productFeatureTypeId",productFeatureAppl.getString("productFeatureTypeId")));
+          featureList.add(UtilMisc.toMap("productFeatureTypeId",productFeatureAppl.getString("productFeatureTypeId"),"description",productFeatureType.getString("description")));
+          oldType=productFeatureAppl.getString("productFeatureTypeId");
+        }
+        Map<String,String> featureData=UtilMisc.toMap("productFeatureId",productFeatureAppl.getString("productFeatureId"));
+        if (UtilValidate.isNotEmpty(productFeatureAppl.get("description"))) {
+          featureData.put("description",productFeatureAppl.getString("description"));
+        }
+ else {
+          featureData.put("description",productFeatureAppl.getString("productFeatureId"));
+        }
+        List<GenericValue> productFeaturePrices=EntityUtil.filterByDate(delegator.findByAnd("ProductFeaturePrice",UtilMisc.toMap("productFeatureId",productFeatureAppl.getString("productFeatureId"),"productPriceTypeId","DEFAULT_PRICE")));
+        if (UtilValidate.isNotEmpty(productFeaturePrices)) {
+          GenericValue productFeaturePrice=productFeaturePrices.get(0);
+          if (UtilValidate.isNotEmpty(productFeaturePrice.get("price"))) {
+            featureData.put("price",productFeaturePrice.getBigDecimal("price").toString());
+            featureData.put("currencyUomId",productFeaturePrice.getString("currencyUomId"));
+          }
+        }
+        featureList.add(featureData);
+      }
+      if (oldType != null) {
+        featureTypeFeatures.add(featureList);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  return featureTypeFeatures;
+}
