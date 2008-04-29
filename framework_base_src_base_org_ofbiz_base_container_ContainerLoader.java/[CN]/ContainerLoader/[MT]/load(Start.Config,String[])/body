@@ -11,7 +11,27 @@
   }
   if (containers != null) {
     for (    ContainerConfig.Container containerCfg : containers) {
-      loadedContainers.add(loadContainer(containerCfg,args));
+      Container tmpContainer=loadContainer(containerCfg,args);
+      loadedContainers.add(tmpContainer);
+      if (containerCfg.name.equals("rmi-dispatcher") && configFile.equals("limited-containers.xml")) {
+        try {
+          ContainerConfig.Container.Property initialCtxProp=containerCfg.getProperty("use-initial-context");
+          String useCtx=initialCtxProp == null || initialCtxProp.value == null ? "false" : initialCtxProp.value;
+          if (!useCtx.equalsIgnoreCase("true")) {
+            if (System.getSecurityManager() == null) {
+              System.setSecurityManager(new java.rmi.RMISecurityManager());
+            }
+            tmpContainer.start();
+            rmiLoadedContainer=tmpContainer;
+          }
+        }
+ catch (        ContainerException e) {
+          throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+        }
+catch (        java.lang.AbstractMethodError e) {
+          throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+        }
+      }
     }
   }
 }
