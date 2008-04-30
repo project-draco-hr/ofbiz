@@ -17,7 +17,6 @@
     errMsg=UtilProperties.getMessage(resource,"loginservices.password_missing",locale);
   }
  else {
-    String realPassword=useEncryption ? LoginServices.getPasswordHash(password) : password;
     boolean repeat=true;
     int passNumber=0;
     while (repeat) {
@@ -36,6 +35,16 @@
         Debug.logWarning(e,"",module);
       }
       if (userLogin != null) {
+        String encodedPassword=useEncryption ? HashCrypt.getDigestHash(password,getHashType()) : password;
+        String encodedPasswordOldFunnyHexEncode=useEncryption ? HashCrypt.getDigestHashOldFunnyHexEncode(password,getHashType()) : password;
+        String encodedPasswordUsingDbHashType=encodedPassword;
+        String currentPassword=userLogin.getString("currentPassword");
+        if (useEncryption && currentPassword != null && currentPassword.startsWith("{")) {
+          String dbHashType=HashCrypt.getHashTypeFromPrefix(currentPassword);
+          if (dbHashType != null) {
+            encodedPasswordUsingDbHashType=HashCrypt.getDigestHash(password,dbHashType);
+          }
+        }
         String ldmStr=UtilProperties.getPropertyValue("security.properties","login.disable.minutes");
         long loginDisableMinutes=30;
         try {
@@ -59,7 +68,7 @@
           if (!isSystem) {
             userLogin.set("enabled","Y");
           }
-          if ((userLogin.get("currentPassword") != null && (realPassword.equals(userLogin.getString("currentPassword")) || ("true".equals(UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain")) && password.equals(userLogin.getString("currentPassword")))))) {
+          if ((userLogin.get("currentPassword") != null && (HashCrypt.removeHashTypePrefix(encodedPassword).equals(userLogin.getString("currentPassword")) || HashCrypt.removeHashTypePrefix(encodedPasswordOldFunnyHexEncode).equals(userLogin.getString("currentPassword")) || HashCrypt.removeHashTypePrefix(encodedPasswordUsingDbHashType).equals(userLogin.getString("currentPassword"))|| ("true".equals(UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain")) && password.equals(userLogin.getString("currentPassword")))))) {
             Debug.logVerbose("[LoginServices.userLogin] : Password Matched",module);
             if (hasLoggedOut) {
               userLogin.set("hasLoggedOut","N");
@@ -83,6 +92,7 @@
             result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
           }
  else {
+            Debug.logInfo("Entered password [" + encodedPassword + "], Entered password OldFunnyHexEncode ["+ encodedPasswordOldFunnyHexEncode+ "], db password ["+ userLogin.getString("currentPassword")+ "]",module);
             if (isServiceAuth && passNumber <= 1) {
               delegator.clearCacheLine("UserLogin",UtilMisc.toMap("userLoginId",username));
               repeat=true;
