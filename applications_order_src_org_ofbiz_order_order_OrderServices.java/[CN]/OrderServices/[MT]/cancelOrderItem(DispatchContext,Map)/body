@@ -62,6 +62,9 @@
         thisCancelQty=new Double(availableQuantity.doubleValue());
       }
       if (availableQuantity.doubleValue() >= thisCancelQty.doubleValue()) {
+        if (availableQuantity.doubleValue() == 0) {
+          return ServiceUtil.returnSuccess();
+        }
         orderItem.set("cancelQuantity",Double.valueOf(itemCancelQuantity.doubleValue() + thisCancelQty.doubleValue()));
         orderItemShipGroupAssoc.set("cancelQuantity",Double.valueOf(aisgaCancelQuantity.doubleValue() + thisCancelQty.doubleValue()));
         try {
@@ -71,6 +74,23 @@
  catch (        GenericEntityException e) {
           Debug.logError(e,module);
           return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToSetCancelQuantity",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
+        }
+        Map serviceCtx=FastMap.newInstance();
+        serviceCtx.put("orderId",orderItem.getString("orderId"));
+        serviceCtx.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+        serviceCtx.put("cancelQuantity",thisCancelQty);
+        serviceCtx.put("changeTypeEnumId","ODR_ITM_CANCEL");
+        serviceCtx.put("userLogin",userLogin);
+        Map resp=null;
+        try {
+          resp=dispatcher.runSync("createOrderItemChange",serviceCtx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+        if (ServiceUtil.isError(resp)) {
+          return ServiceUtil.returnError((String)resp.get(ModelService.ERROR_MESSAGE));
         }
         if (thisCancelQty.doubleValue() >= itemQuantity.doubleValue()) {
           Map statusCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
