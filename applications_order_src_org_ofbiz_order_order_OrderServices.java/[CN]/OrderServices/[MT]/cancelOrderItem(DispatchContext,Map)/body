@@ -7,6 +7,8 @@
   String orderId=(String)context.get("orderId");
   String orderItemSeqId=(String)context.get("orderItemSeqId");
   String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  Map itemReasonMap=(Map)context.get("itemReasonMap");
+  Map itemCommentMap=(Map)context.get("itemCommentMap");
   String itemMsgInfo=orderId + " / " + orderItemSeqId+ " / "+ shipGroupSeqId;
   Security security=ctx.getSecurity();
   boolean hasPermission=OrderServices.hasPermission(orderId,userLogin,"UPDATE",security,delegator);
@@ -63,7 +65,7 @@
       }
       if (availableQuantity.doubleValue() >= thisCancelQty.doubleValue()) {
         if (availableQuantity.doubleValue() == 0) {
-          return ServiceUtil.returnSuccess();
+          continue;
         }
         orderItem.set("cancelQuantity",Double.valueOf(itemCancelQuantity.doubleValue() + thisCancelQty.doubleValue()));
         orderItemShipGroupAssoc.set("cancelQuantity",Double.valueOf(aisgaCancelQuantity.doubleValue() + thisCancelQty.doubleValue()));
@@ -75,25 +77,37 @@
           Debug.logError(e,module);
           return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToSetCancelQuantity",UtilMisc.toMap("itemMsgInfo",itemMsgInfo),locale));
         }
-        Map serviceCtx=FastMap.newInstance();
-        serviceCtx.put("orderId",orderItem.getString("orderId"));
-        serviceCtx.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
-        serviceCtx.put("cancelQuantity",thisCancelQty);
-        serviceCtx.put("changeTypeEnumId","ODR_ITM_CANCEL");
-        serviceCtx.put("userLogin",userLogin);
-        Map resp=null;
-        try {
-          resp=dispatcher.runSync("createOrderItemChange",serviceCtx);
-        }
- catch (        GenericServiceException e) {
-          Debug.logError(e,module);
-          return ServiceUtil.returnError(e.getMessage());
-        }
-        if (ServiceUtil.isError(resp)) {
-          return ServiceUtil.returnError((String)resp.get(ModelService.ERROR_MESSAGE));
+        if (!"Y".equals(orderItem.getString("isPromo"))) {
+          String reasonEnumId=null;
+          String changeComments=null;
+          if (UtilValidate.isNotEmpty(itemReasonMap)) {
+            reasonEnumId=(String)itemReasonMap.get(orderItem.getString("orderItemSeqId"));
+          }
+          if (UtilValidate.isNotEmpty(itemCommentMap)) {
+            changeComments=(String)itemCommentMap.get(orderItem.getString("orderItemSeqId"));
+          }
+          Map serviceCtx=FastMap.newInstance();
+          serviceCtx.put("orderId",orderItem.getString("orderId"));
+          serviceCtx.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+          serviceCtx.put("cancelQuantity",thisCancelQty);
+          serviceCtx.put("changeTypeEnumId","ODR_ITM_CANCEL");
+          serviceCtx.put("reasonEnumId",reasonEnumId);
+          serviceCtx.put("changeComments",changeComments);
+          serviceCtx.put("userLogin",userLogin);
+          Map resp=null;
+          try {
+            resp=dispatcher.runSync("createOrderItemChange",serviceCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+          if (ServiceUtil.isError(resp)) {
+            return ServiceUtil.returnError((String)resp.get(ModelService.ERROR_MESSAGE));
+          }
         }
         if (thisCancelQty.doubleValue() >= itemQuantity.doubleValue()) {
-          Map statusCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
+          Map statusCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.getString("orderItemSeqId"),"statusId","ITEM_CANCELLED","userLogin",userLogin);
           try {
             dispatcher.runSyncIgnore("changeOrderItemStatus",statusCtx);
           }
@@ -103,7 +117,7 @@
           }
         }
  else {
-          Map invCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId,"cancelQuantity",thisCancelQty,"userLogin",userLogin);
+          Map invCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.getString("orderItemSeqId"),"shipGroupSeqId",shipGroupSeqId,"cancelQuantity",thisCancelQty,"userLogin",userLogin);
           try {
             dispatcher.runSyncIgnore("cancelOrderItemInvResQty",invCtx);
           }
