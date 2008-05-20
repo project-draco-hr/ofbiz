@@ -39,8 +39,17 @@
     buffer.append("/>");
   }
  else {
+    String formId=modelForm.getContainerId();
+    List<ModelForm.UpdateArea> updateAreas=modelForm.getOnSubmitUpdateAreas();
     String backgroundSubmitRefreshTarget=submitField.getBackgroundSubmitRefreshTarget(context);
     if (UtilValidate.isNotEmpty(backgroundSubmitRefreshTarget)) {
+      if (updateAreas == null) {
+        updateAreas=FastList.newInstance();
+      }
+      updateAreas.add(new ModelForm.UpdateArea("submit",formId,backgroundSubmitRefreshTarget));
+    }
+    boolean ajaxEnabled=(updateAreas != null || UtilValidate.isNotEmpty(backgroundSubmitRefreshTarget)) && UtilHttp.isJavaScriptEnabled(request);
+    if (ajaxEnabled) {
       buffer.append("<input type=\"button\"");
     }
  else {
@@ -67,16 +76,36 @@
     }
  else {
     }
-    if (UtilValidate.isNotEmpty(backgroundSubmitRefreshTarget)) {
-      String formId=submitField.getModelFormField().getModelForm().getContainerId();
-      String formContainerId=submitField.getModelFormField().getModelForm().getContainerId();
-      buffer.append(" onclick=\"javascript:submitFormInBackground($('");
-      buffer.append(formId);
-      buffer.append("'), '");
-      buffer.append(formContainerId);
-      buffer.append("', '");
-      this.appendOfbizUrl(buffer,backgroundSubmitRefreshTarget);
-      buffer.append("');\"");
+    if (ajaxEnabled) {
+      buffer.append(" onclick=\"");
+      if (updateAreas.size() == 1) {
+        ModelForm.UpdateArea updateArea=updateAreas.get(0);
+        buffer.append("submitFormInBackground($('");
+        buffer.append(formId);
+        buffer.append("'), '");
+        buffer.append(updateArea.getAreaId());
+        buffer.append("', '");
+        this.appendOfbizUrl(buffer,updateArea.getAreaTarget(context));
+      }
+ else {
+        buffer.append("ajaxSubmitFormUpdateAreas($('");
+        buffer.append(formId);
+        buffer.append("'), '");
+        boolean firstLoop=true;
+        for (        ModelForm.UpdateArea updateArea : updateAreas) {
+          if (firstLoop) {
+            firstLoop=false;
+          }
+ else {
+            buffer.append(",");
+          }
+          String targetString=updateArea.getAreaTarget(context);
+          String target=UtilHttp.removeQueryStringFromTarget(targetString);
+          String targetParams=UtilHttp.getQueryStringFromTarget(targetString);
+          buffer.append(updateArea.getAreaId() + "," + target+ ","+ targetParams);
+        }
+      }
+      buffer.append("')\"");
     }
     buffer.append("/>");
   }

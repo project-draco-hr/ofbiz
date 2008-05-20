@@ -1,9 +1,20 @@
 {
-  String targetService=modelForm.getPaginateTarget(context);
+  boolean javaScriptEnabled=UtilHttp.isJavaScriptEnabled(request);
+  boolean ajaxEnabled=false;
+  List<ModelForm.UpdateArea> updateAreas=modelForm.getOnPaginateUpdateAreas();
+  String targetService=null;
+  if (javaScriptEnabled) {
+    if (UtilValidate.isNotEmpty(updateAreas)) {
+      ajaxEnabled=true;
+    }
+  }
+ else {
+    targetService=modelForm.getPaginateTarget(context);
+  }
   if (targetService == null) {
     targetService="${targetService}";
   }
-  if (UtilValidate.isEmpty(targetService)) {
+  if (UtilValidate.isEmpty(targetService) && updateAreas == null) {
     Debug.logWarning("Cannot paginate because TargetService is empty for the form: " + modelForm.getName(),module);
     return;
   }
@@ -42,8 +53,11 @@
   String anchor="";
   String paginateAnchor=modelForm.getPaginateTargetAnchor();
   if (paginateAnchor != null)   anchor="#" + paginateAnchor;
-  String prepLinkText="";
-  prepLinkText=targetService;
+  String urlPath=UtilHttp.removeQueryStringFromTarget(targetService);
+  String prepLinkText=UtilHttp.getQueryStringFromTarget(targetService);
+  if (prepLinkText == null) {
+    prepLinkText="";
+  }
   if (prepLinkText.indexOf("?") < 0) {
     prepLinkText+="?";
   }
@@ -54,36 +68,111 @@
     prepLinkText+=queryString + "&amp;";
   }
   prepLinkText+=viewSizeParam + "=" + viewSize+ "&amp;"+ viewIndexParam+ "=";
+  if (ajaxEnabled) {
+    prepLinkText=prepLinkText.replace("?","");
+    prepLinkText=prepLinkText.replace("&amp;","&");
+  }
   buffer.append("<div class=\"").append(modelForm.getPaginateStyle()).append("\">");
-  buffer.append("<ul>");
+  appendWhitespace(buffer);
+  buffer.append(" <ul>");
+  appendWhitespace(buffer);
   String linkText;
-  buffer.append("<li class=\"").append(modelForm.getPaginateFirstStyle());
+  buffer.append("  <li class=\"").append(modelForm.getPaginateFirstStyle());
   if (viewIndex > 0) {
     buffer.append("\"><a href=\"");
-    linkText=prepLinkText + 0 + anchor;
-    buffer.append(rh.makeLink(this.request,this.response,linkText)).append("\">").append(modelForm.getPaginateFirstLabel(context)).append("</a>");
+    if (ajaxEnabled) {
+      buffer.append("javascript:ajaxUpdateAreas('");
+      for (      ModelForm.UpdateArea updateArea : updateAreas) {
+        linkText=UtilHttp.getQueryStringFromTarget(updateArea.getAreaTarget(context));
+        if (UtilValidate.isEmpty(linkText)) {
+          linkText="";
+        }
+        if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+          linkText+=queryString + "&";
+        }
+        linkText+=viewSizeParam + "=" + viewSize+ "&"+ viewIndexParam+ "="+ 0+ anchor;
+        linkText=linkText.replace("?","");
+        linkText=linkText.replace("&amp;","&");
+        buffer.append(updateArea.getAreaId() + ",");
+        buffer.append(rh.makeLink(this.request,this.response,UtilHttp.removeQueryStringFromTarget(updateArea.getAreaTarget(context))));
+        buffer.append("," + linkText + ",");
+      }
+      buffer.append("')");
+    }
+ else {
+      linkText=prepLinkText + 0 + anchor;
+      buffer.append(rh.makeLink(this.request,this.response,urlPath + linkText));
+    }
+    buffer.append("\">").append(modelForm.getPaginateFirstLabel(context)).append("</a>");
   }
  else {
     buffer.append("-disabled\">").append(modelForm.getPaginateFirstLabel(context));
   }
   buffer.append("</li>");
-  buffer.append("<li class=\"").append(modelForm.getPaginatePreviousStyle());
+  appendWhitespace(buffer);
+  buffer.append("  <li class=\"").append(modelForm.getPaginatePreviousStyle());
   if (viewIndex > 0) {
     buffer.append("\"><a href=\"");
-    linkText=prepLinkText + (viewIndex - 1) + anchor;
-    buffer.append(rh.makeLink(this.request,this.response,linkText)).append("\">").append(modelForm.getPaginatePreviousLabel(context)).append("</a>");
+    if (ajaxEnabled) {
+      buffer.append("javascript:ajaxUpdateAreas('");
+      for (      ModelForm.UpdateArea updateArea : updateAreas) {
+        linkText=UtilHttp.getQueryStringFromTarget(updateArea.getAreaTarget(context));
+        if (UtilValidate.isEmpty(linkText)) {
+          linkText="";
+        }
+        if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+          linkText+=queryString + "&";
+        }
+        linkText+=viewSizeParam + "=" + viewSize+ "&"+ viewIndexParam+ "="+ (viewIndex - 1)+ anchor;
+        linkText=linkText.replace("?","");
+        linkText=linkText.replace("&amp;","&");
+        buffer.append(updateArea.getAreaId() + ",");
+        buffer.append(rh.makeLink(this.request,this.response,UtilHttp.removeQueryStringFromTarget(updateArea.getAreaTarget(context))));
+        buffer.append("," + linkText + ",");
+      }
+      buffer.append("')");
+    }
+ else {
+      linkText=prepLinkText + (viewIndex - 1) + anchor;
+      buffer.append(rh.makeLink(this.request,this.response,urlPath + linkText));
+    }
+    buffer.append("\">").append(modelForm.getPaginatePreviousLabel(context)).append("</a>");
   }
  else {
     buffer.append("-disabled\">").append(modelForm.getPaginatePreviousLabel(context));
   }
   buffer.append("</li>");
-  int page=0;
-  if (listSize > 0) {
-    linkText=prepLinkText;
-    if (linkText.startsWith("/")) {
-      linkText=linkText.substring(1,linkText.length());
+  appendWhitespace(buffer);
+  if (listSize > 0 && javaScriptEnabled) {
+    buffer.append("  <li>").append(pageLabel).append(" <select name=\"page\" size=\"1\" onchange=\"");
+    if (ajaxEnabled) {
+      buffer.append("javascript:ajaxUpdateAreas('");
+      for (      ModelForm.UpdateArea updateArea : updateAreas) {
+        linkText=UtilHttp.getQueryStringFromTarget(updateArea.getAreaTarget(context));
+        if (UtilValidate.isEmpty(linkText)) {
+          linkText="";
+        }
+        if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+          linkText+=queryString + "&";
+        }
+        linkText+=viewSizeParam + "=" + viewSize+ "&"+ viewIndexParam+ "=' + this.value + '";
+        linkText=linkText.replace("?","");
+        linkText=linkText.replace("&amp;","&");
+        buffer.append(updateArea.getAreaId() + ",");
+        buffer.append(rh.makeLink(this.request,this.response,UtilHttp.removeQueryStringFromTarget(updateArea.getAreaTarget(context))));
+        buffer.append("," + linkText + ",");
+      }
+      buffer.append("')\"");
     }
-    buffer.append("<li>").append(pageLabel).append(" <select name=\"page\" size=\"1\" onchange=\"location.href = '" + linkText + "' + this.value;\" >");
+ else {
+      linkText=prepLinkText;
+      if (linkText.startsWith("/")) {
+        linkText=linkText.substring(1);
+      }
+      buffer.append("location.href = '" + urlPath + linkText+ "' + this.value;\"");
+    }
+    buffer.append(">");
+    int page=0;
     for (int i=0; i < listSize; ) {
       if (page == viewIndex) {
         buffer.append("<option selected value=\"");
@@ -102,27 +191,76 @@
     buffer.append("<li>");
     buffer.append((lowIndex + 1) + " - " + (lowIndex + actualPageSize)+ " "+ ofLabel+ " "+ listSize).append(" " + rowsLabel);
     buffer.append("</li>");
+    appendWhitespace(buffer);
   }
-  buffer.append("<li class=\"").append(modelForm.getPaginateNextStyle());
+  buffer.append("  <li class=\"").append(modelForm.getPaginateNextStyle());
   if (highIndex < listSize) {
     buffer.append("\"><a href=\"");
-    linkText=prepLinkText + (viewIndex + 1) + anchor;
-    buffer.append(rh.makeLink(this.request,this.response,linkText)).append("\">").append(modelForm.getPaginateNextLabel(context)).append("</a>");
+    if (ajaxEnabled) {
+      buffer.append("javascript:ajaxUpdateAreas('");
+      for (      ModelForm.UpdateArea updateArea : updateAreas) {
+        linkText=UtilHttp.getQueryStringFromTarget(updateArea.getAreaTarget(context));
+        if (UtilValidate.isEmpty(linkText)) {
+          linkText="";
+        }
+        if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+          linkText+=queryString + "&";
+        }
+        linkText+=viewSizeParam + "=" + viewSize+ "&"+ viewIndexParam+ "="+ (viewIndex + 1)+ anchor;
+        linkText=linkText.replace("?","");
+        linkText=linkText.replace("&amp;","&");
+        buffer.append(updateArea.getAreaId() + ",");
+        buffer.append(rh.makeLink(this.request,this.response,UtilHttp.removeQueryStringFromTarget(updateArea.getAreaTarget(context))));
+        buffer.append("," + linkText + ",");
+      }
+      buffer.append("')");
+    }
+ else {
+      linkText=prepLinkText + (viewIndex + 1) + anchor;
+      buffer.append(rh.makeLink(this.request,this.response,urlPath + linkText));
+    }
+    buffer.append("\">").append(modelForm.getPaginateNextLabel(context)).append("</a>");
   }
  else {
     buffer.append("-disabled\">").append(modelForm.getPaginateNextLabel(context));
   }
   buffer.append("</li>");
-  buffer.append("<li class=\"").append(modelForm.getPaginateLastStyle());
+  appendWhitespace(buffer);
+  buffer.append("  <li class=\"").append(modelForm.getPaginateLastStyle());
   if (highIndex < listSize) {
     buffer.append("\"><a href=\"");
-    linkText=prepLinkText + (page - 1) + anchor;
-    buffer.append(rh.makeLink(this.request,this.response,linkText)).append("\">").append(modelForm.getPaginateLastLabel(context)).append("</a>");
+    if (ajaxEnabled) {
+      buffer.append("javascript:ajaxUpdateAreas('");
+      for (      ModelForm.UpdateArea updateArea : updateAreas) {
+        linkText=UtilHttp.getQueryStringFromTarget(updateArea.getAreaTarget(context));
+        if (UtilValidate.isEmpty(linkText)) {
+          linkText="";
+        }
+        if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+          linkText+=queryString + "&";
+        }
+        linkText+=viewSizeParam + "=" + viewSize+ "&"+ viewIndexParam+ "="+ (listSize / viewSize)+ anchor;
+        linkText=linkText.replace("?","");
+        linkText=linkText.replace("&amp;","&");
+        buffer.append(updateArea.getAreaId() + ",");
+        buffer.append(rh.makeLink(this.request,this.response,UtilHttp.removeQueryStringFromTarget(updateArea.getAreaTarget(context))));
+        buffer.append("," + linkText + ",");
+      }
+      buffer.append("')");
+    }
+ else {
+      linkText=prepLinkText + (listSize / viewSize) + anchor;
+      buffer.append(rh.makeLink(this.request,this.response,urlPath + linkText));
+    }
+    buffer.append("\">").append(modelForm.getPaginateLastLabel(context)).append("</a>");
   }
  else {
     buffer.append("-disabled\">").append(modelForm.getPaginateLastLabel(context));
   }
   buffer.append("</li>");
-  buffer.append("</ul>").append("</div>");
+  appendWhitespace(buffer);
+  buffer.append(" </ul>");
+  appendWhitespace(buffer);
+  buffer.append("</div>");
   appendWhitespace(buffer);
 }
