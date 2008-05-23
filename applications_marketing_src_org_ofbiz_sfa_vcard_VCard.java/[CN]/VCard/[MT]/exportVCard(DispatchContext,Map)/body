@@ -1,0 +1,64 @@
+{
+  GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
+  String partyId=(String)context.get("partyId");
+  File file=null;
+  try {
+    ContactModelFactory cmf=Pim.getContactModelFactory();
+    Contact contact=cmf.createContact();
+    PersonalIdentity pid=cmf.createPersonalIdentity();
+    String fullName=PartyHelper.getPartyName(delegator,partyId,false);
+    String[] name=fullName.split("\\s");
+    pid.setFirstname(name[0]);
+    pid.setLastname(name[1]);
+    contact.setPersonalIdentity(pid);
+    GenericValue postalAddress=PartyWorker.findPartyLatestPostalAddress(partyId,delegator);
+    Address address=cmf.createAddress();
+    address.setStreet(postalAddress.getString("address1"));
+    address.setCity(postalAddress.getString("city"));
+    address.setPostalCode(postalAddress.getString("postalCode"));
+    String state=postalAddress.getRelatedOne("StateProvinceGeo").getString("geoName");
+    address.setRegion(state);
+    String country=postalAddress.getRelatedOne("CountryGeo").getString("geoName");
+    address.setCountry(country);
+    address.setWork(true);
+    contact.addAddress(address);
+    Communications communication=cmf.createCommunications();
+    contact.setCommunications(communication);
+    PhoneNumber number=cmf.createPhoneNumber();
+    GenericValue telecomNumber=PartyWorker.findPartyLatestTelecomNumber(partyId,delegator);
+    if (UtilValidate.isNotEmpty(telecomNumber)) {
+      number.setNumber(telecomNumber.getString("areaCode") + telecomNumber.getString("contactNumber"));
+      number.setWork(true);
+      communication.addPhoneNumber(number);
+    }
+    EmailAddress email=cmf.createEmailAddress();
+    GenericValue emailAddress=PartyWorker.findPartyLatestContactMech(partyId,"EMAIL_ADDRESS",delegator);
+    if (UtilValidate.isNotEmpty(emailAddress.getString("infoString"))) {
+      email.setAddress(emailAddress.getString("infoString"));
+      communication.addEmailAddress(email);
+    }
+    ContactIOFactory ciof=Pim.getContactIOFactory();
+    ContactMarshaller marshaller=ciof.createContactMarshaller();
+    String saveToDirectory=UtilProperties.getPropertyValue("sfa.properties","save.outgoing.directory","");
+    if (UtilValidate.isEmpty(saveToDirectory)) {
+      saveToDirectory=System.getProperty("ofbiz.home");
+    }
+    String saveToFilename=fullName + ".vcf";
+    file=new File(saveToDirectory + "/" + saveToFilename);
+    FileOutputStream outputStream=new FileOutputStream(file);
+    marshaller.marshallContact(outputStream,contact);
+    outputStream.close();
+  }
+ catch (  FileNotFoundException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to open file for writing: " + file.getAbsolutePath());
+  }
+catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to write data to: " + file.getAbsolutePath());
+  }
+catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}

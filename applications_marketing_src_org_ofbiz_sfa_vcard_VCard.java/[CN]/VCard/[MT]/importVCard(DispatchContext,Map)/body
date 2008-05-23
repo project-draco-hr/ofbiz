@@ -1,0 +1,92 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)dctx.getDispatcher();
+  GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
+  Map result=ServiceUtil.returnSuccess();
+  Address workAddress=null;
+  String email=null;
+  String phone=null;
+  ByteBuffer byteBuffer=(ByteBuffer)context.get("infile");
+  byte[] inputByteArray=byteBuffer.array();
+  InputStream in=new ByteArrayInputStream(inputByteArray);
+  try {
+    ContactIOFactory ciof=Pim.getContactIOFactory();
+    ContactUnmarshaller unmarshaller=ciof.createContactUnmarshaller();
+    Contact[] contact=unmarshaller.unmarshallContacts(in);
+    for (int i=0; i < contact.length; i++) {
+      PersonalIdentity pid=contact[i].getPersonalIdentity();
+      Map serviceCtx=UtilMisc.toMap("firstName",pid.getFirstname(),"lastName",pid.getLastname());
+      for (Iterator iter=contact[i].getAddresses(); iter.hasNext(); ) {
+        Address address=(AddressImpl)iter.next();
+        if (contact[i].isPreferredAddress(address)) {
+          workAddress=address;
+          break;
+        }
+ else         if (address.isWork()) {
+          workAddress=address;
+          break;
+        }
+ else {
+          continue;
+        }
+      }
+      serviceCtx.put("address1",workAddress.getStreet());
+      serviceCtx.put("city",workAddress.getCity());
+      serviceCtx.put("postalCode",workAddress.getPostalCode());
+      EntityCondition cond=new EntityConditionList(UtilMisc.toList(new EntityExpr("geoTypeId",EntityOperator.EQUALS,"COUNTRY"),new EntityExpr("geoName",EntityOperator.LIKE,workAddress.getCountry())),EntityOperator.AND);
+      GenericValue countryGeo=EntityUtil.getFirst(delegator.findList("Geo",cond,null,null,null,true));
+      serviceCtx.put("countryGeoId",countryGeo.get("geoId"));
+      EntityCondition condition=new EntityConditionList(UtilMisc.toList(new EntityExpr("geoTypeId",EntityOperator.EQUALS,"STATE"),new EntityExpr("geoName",EntityOperator.LIKE,workAddress.getRegion())),EntityOperator.AND);
+      GenericValue stateGeo=EntityUtil.getFirst(delegator.findList("Geo",condition,null,null,null,true));
+      serviceCtx.put("stateProvinceGeoId",stateGeo.get("geoId"));
+      Communications communications=contact[i].getCommunications();
+      for (Iterator iter=communications.getEmailAddresses(); iter.hasNext(); ) {
+        EmailAddress emailAddress=(EmailAddressImpl)iter.next();
+        if (communications.isPreferredEmailAddress(emailAddress)) {
+          email=emailAddress.getAddress();
+          break;
+        }
+ else {
+          email=emailAddress.getAddress();
+          break;
+        }
+      }
+      serviceCtx.put("emailAddress",email);
+      for (Iterator iter=communications.getPhoneNumbers(); iter.hasNext(); ) {
+        PhoneNumber phoneNumber=(PhoneNumberImpl)iter.next();
+        if (phoneNumber.isPreferred()) {
+          phone=phoneNumber.getNumber();
+          break;
+        }
+ else         if (phoneNumber.isWork()) {
+          phone=phoneNumber.getNumber();
+          break;
+        }
+ else {
+          continue;
+        }
+      }
+      String[] number=phone.split("\\D");
+      String telNumber="";
+      for (int j=0; j < number.length; j++) {
+        if (number[j] != "") {
+          telNumber=telNumber + number[j];
+        }
+      }
+      serviceCtx.put("areaCode",telNumber.substring(0,3));
+      serviceCtx.put("contactNumber",telNumber.substring(3));
+      GenericValue userLogin=(GenericValue)context.get("userLogin");
+      serviceCtx.put("userLogin",userLogin);
+      Map resp=dispatcher.runSync("createContact",serviceCtx);
+      result.put("partyId",resp.get("partyId"));
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
