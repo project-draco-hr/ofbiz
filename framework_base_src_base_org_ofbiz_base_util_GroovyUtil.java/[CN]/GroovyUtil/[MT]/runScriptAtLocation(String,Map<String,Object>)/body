@@ -1,19 +1,21 @@
 {
   try {
-    Script script=parsedScripts.get(location);
-    if (script == null) {
+    String scriptString=sourceScripts.get(location);
+    if (scriptString == null) {
       URL scriptUrl=FlexibleLocation.resolveLocation(location);
       if (scriptUrl == null) {
         throw new GeneralException("Script not found at location [" + location + "]");
       }
-      GroovyShell shell=getShell(context);
-      script=shell.parse(scriptUrl.openStream(),scriptUrl.getFile());
-      if (Debug.verboseOn()) {
-        Debug.logVerbose("Caching Groovy script at: " + location,module);
-      }
-      parsedScripts.put(location,script);
+      scriptString=UtilURL.readUrlText(scriptUrl);
+      if (Debug.verboseOn())       Debug.logVerbose("Caching Groovy script source at: " + location,module);
+      sourceScripts.put(location,scriptString);
     }
-    return script.run();
+    long startTime=System.currentTimeMillis();
+    Script script=emptyGroovyShell.parse(scriptString,location);
+    script.setBinding(getBinding(context));
+    Object scriptResult=script.run();
+    if (Debug.timingOn())     Debug.logTiming("Parsed and ran groovy script in [" + (System.currentTimeMillis() - startTime) + "]ms at: "+ location,module);
+    return scriptResult;
   }
  catch (  MalformedURLException e) {
     String errMsg="Error loading Groovy script at [" + location + "]: "+ e.toString();
