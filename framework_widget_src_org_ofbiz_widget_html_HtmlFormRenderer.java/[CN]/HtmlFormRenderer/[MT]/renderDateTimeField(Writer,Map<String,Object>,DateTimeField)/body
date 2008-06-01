@@ -1,0 +1,155 @@
+{
+  ModelFormField modelFormField=dateTimeField.getModelFormField();
+  String paramName=modelFormField.getParameterName(context);
+  String defaultDateTimeString=dateTimeField.getDefaultDateTimeString(context);
+  Map uiLabelMap=(Map)context.get("uiLabelMap");
+  if (uiLabelMap == null) {
+    Debug.logWarning("Could not find uiLabelMap in context",module);
+  }
+  String localizedInputTitle="", localizedIconTitle="";
+  boolean shortDateInput=("date".equals(dateTimeField.getType()) || "time-dropdown".equals(dateTimeField.getInputMethod()) ? true : false);
+  writer.write("<input type=\"text\"");
+  appendClassNames(writer,context,modelFormField);
+  writer.write(" name=\"");
+  if ("time-dropdown".equals(dateTimeField.getInputMethod())) {
+    writer.write(UtilHttp.makeCompositeParam(paramName,"date"));
+  }
+ else {
+    writer.write(paramName);
+  }
+  writer.write('"');
+  int size=25;
+  int maxlength=30;
+  if (shortDateInput) {
+    size=maxlength=10;
+    if (uiLabelMap != null) {
+      localizedInputTitle=(String)uiLabelMap.get("CommonFormatDate");
+    }
+  }
+ else   if ("time".equals(dateTimeField.getType())) {
+    size=maxlength=8;
+    if (uiLabelMap != null) {
+      localizedInputTitle=(String)uiLabelMap.get("CommonFormatTime");
+    }
+  }
+ else {
+    if (uiLabelMap != null) {
+      localizedInputTitle=(String)uiLabelMap.get("CommonFormatDateTime");
+    }
+  }
+  writer.write(" title=\"");
+  writer.write(localizedInputTitle);
+  writer.write('"');
+  String value=modelFormField.getEntry(context,dateTimeField.getDefaultValue(context));
+  if (UtilValidate.isNotEmpty(value)) {
+    if (value.length() > maxlength) {
+      value=value.substring(0,maxlength);
+    }
+    writer.write(" value=\"");
+    writer.write(value);
+    writer.write('"');
+  }
+  writer.write(" size=\"");
+  writer.write(Integer.toString(size));
+  writer.write('"');
+  writer.write(" maxlength=\"");
+  writer.write(Integer.toString(maxlength));
+  writer.write('"');
+  String idName=modelFormField.getIdName();
+  if (UtilValidate.isNotEmpty(idName)) {
+    writer.write(" id=\"");
+    writer.write(idName);
+    writer.write('"');
+  }
+  writer.write("/>");
+  if (uiLabelMap != null) {
+    localizedIconTitle=(String)uiLabelMap.get("CommonViewCalendar");
+  }
+  if (!"time".equals(dateTimeField.getType())) {
+    if (shortDateInput) {
+      writer.write("<a href=\"javascript:call_cal_notime(document.");
+    }
+ else {
+      writer.write("<a href=\"javascript:call_cal(document.");
+    }
+    writer.write(modelFormField.getModelForm().getCurrentFormName(context));
+    writer.write('.');
+    if ("time-dropdown".equals(dateTimeField.getInputMethod())) {
+      writer.write(UtilHttp.makeCompositeParam(paramName,"date"));
+    }
+ else {
+      writer.write(paramName);
+    }
+    writer.write(",'");
+    writer.write(UtilHttp.encodeBlanks(modelFormField.getEntry(context,defaultDateTimeString)));
+    writer.write("');\">");
+    writer.write("<img src=\"");
+    this.appendContentUrl(writer,"/images/cal.gif");
+    writer.write("\" width=\"16\" height=\"16\" border=\"0\" alt=\"");
+    writer.write(localizedIconTitle);
+    writer.write("\" title=\"");
+    writer.write(localizedIconTitle);
+    writer.write("\"/></a>");
+  }
+  if ("time-dropdown".equals(dateTimeField.getInputMethod())) {
+    String className=modelFormField.getWidgetStyle();
+    String classString=(className != null ? " class=\"" + className + "\" " : "");
+    boolean isTwelveHour="12".equals(dateTimeField.getClock());
+    Calendar cal=null;
+    try {
+      Timestamp defaultTimestamp=Timestamp.valueOf(modelFormField.getEntry(context,defaultDateTimeString));
+      cal=Calendar.getInstance();
+      cal.setTime(defaultTimestamp);
+    }
+ catch (    IllegalArgumentException e) {
+      Debug.logWarning("Form widget field [" + paramName + "] with input-method=\"time-dropdown\" was not able to understand the default time ["+ defaultDateTimeString+ "]. The parsing error was: "+ e.getMessage(),module);
+    }
+    writer.write("&nbsp;<select name=\"" + UtilHttp.makeCompositeParam(paramName,"hour") + "\"");
+    writer.write(classString + ">");
+    if (isTwelveHour) {
+      for (int i=1; i <= 12; i++) {
+        writer.write("<option value=\"" + Integer.toString(i) + "\"");
+        if (cal != null) {
+          int hour=cal.get(Calendar.HOUR_OF_DAY);
+          if (hour == 0)           hour=12;
+          if (hour > 12)           hour-=12;
+          if (i == hour)           writer.write(" selected");
+        }
+        writer.write(">" + Integer.toString(i) + "</option>");
+      }
+    }
+ else {
+      for (int i=0; i < 24; i++) {
+        writer.write("<option value=\"" + Integer.toString(i) + "\"");
+        if (cal != null && i == cal.get(Calendar.HOUR_OF_DAY)) {
+          writer.write(" selected");
+        }
+        writer.write(">" + Integer.toString(i) + "</option>");
+      }
+    }
+    writer.write("</select>:<select name=\"");
+    writer.write(UtilHttp.makeCompositeParam(paramName,"minutes") + "\"");
+    writer.write(classString + ">");
+    for (int i=0; i < 60; i++) {
+      writer.write("<option value=\"" + Integer.toString(i) + "\"");
+      if (cal != null && i == cal.get(Calendar.MINUTE)) {
+        writer.write(" selected");
+      }
+      writer.write(">" + Integer.toString(i) + "</option>");
+    }
+    writer.write("</select>");
+    if (isTwelveHour) {
+      String amSelected=((cal != null && cal.get(Calendar.AM_PM) == Calendar.AM) ? "selected" : "");
+      String pmSelected=((cal != null && cal.get(Calendar.AM_PM) == Calendar.PM) ? "selected" : "");
+      writer.write("<select name=\"" + UtilHttp.makeCompositeParam(paramName,"ampm") + "\"");
+      writer.write(classString + ">");
+      writer.write("<option value=\"" + "AM" + "\" " + amSelected + ">AM</option>");
+      writer.write("<option value=\"" + "PM" + "\" " + pmSelected + ">PM</option>");
+      writer.write("</select>");
+    }
+    writer.write("<input type=\"hidden\" name=\"");
+    writer.write(UtilHttp.makeCompositeParam(paramName,"compositeType"));
+    writer.write("\" value=\"Timestamp\"/>");
+  }
+  this.appendTooltip(writer,context,modelFormField);
+}
