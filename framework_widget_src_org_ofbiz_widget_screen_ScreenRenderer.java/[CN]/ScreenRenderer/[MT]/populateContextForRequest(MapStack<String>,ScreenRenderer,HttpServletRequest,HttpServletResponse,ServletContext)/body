@@ -1,0 +1,96 @@
+{
+  HttpSession session=request.getSession();
+  Set<String> attrNamesToSkip=FastSet.newInstance();
+  attrNamesToSkip.add("delegator");
+  attrNamesToSkip.add("dispatcher");
+  attrNamesToSkip.add("security");
+  attrNamesToSkip.add("webSiteId");
+  Map parameterMap=UtilHttp.getCombinedMap(request,attrNamesToSkip);
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  populateBasicContext(context,screens,parameterMap,(GenericDelegator)request.getAttribute("delegator"),(LocalDispatcher)request.getAttribute("dispatcher"),(Security)request.getAttribute("security"),UtilHttp.getLocale(request),userLogin);
+  context.put("autoUserLogin",session.getAttribute("autoUserLogin"));
+  context.put("person",session.getAttribute("person"));
+  context.put("partyGroup",session.getAttribute("partyGroup"));
+  request.setAttribute("userLogin",userLogin);
+  context.put("timeZone",UtilHttp.getTimeZone(request));
+  context.put("request",request);
+  context.put("response",response);
+  context.put("session",session);
+  context.put("application",servletContext);
+  if (servletContext != null) {
+    String rootDir=(String)context.get("rootDir");
+    String webSiteId=(String)context.get("webSiteId");
+    String https=(String)context.get("https");
+    if (UtilValidate.isEmpty(rootDir)) {
+      rootDir=servletContext.getRealPath("/");
+      context.put("rootDir",rootDir);
+    }
+    if (UtilValidate.isEmpty(webSiteId)) {
+      webSiteId=(String)servletContext.getAttribute("webSiteId");
+      context.put("webSiteId",webSiteId);
+    }
+    if (UtilValidate.isEmpty(https)) {
+      https=(String)servletContext.getAttribute("https");
+      context.put("https",https);
+    }
+  }
+  context.put("javaScriptEnabled",new Boolean(UtilHttp.isJavaScriptEnabled(request)));
+  BeansWrapper wrapper=BeansWrapper.getDefaultInstance();
+  context.put("sessionAttributes",new HttpSessionHashModel(session,wrapper));
+  context.put("requestAttributes",new HttpRequestHashModel(request,wrapper));
+  TaglibFactory JspTaglibs=new TaglibFactory(servletContext);
+  context.put("JspTaglibs",JspTaglibs);
+  context.put("requestParameters",UtilHttp.getParameterMap(request));
+  context.put("page",FastMap.newInstance());
+  context.put("controlPath",request.getAttribute("_CONTROL_PATH_"));
+  context.put("contextRoot",request.getAttribute("_CONTEXT_ROOT_"));
+  context.put("serverRoot",request.getAttribute("_SERVER_ROOT_URL_"));
+  context.put("checkLoginUrl",LoginWorker.makeLoginUrl(request,"checkLogin"));
+  String externalLoginKey=LoginWorker.getExternalLoginKey(request);
+  String externalKeyParam=externalLoginKey == null ? "" : "&amp;externalLoginKey=" + externalLoginKey;
+  context.put("externalLoginKey",externalLoginKey);
+  context.put("externalKeyParam",externalKeyParam);
+  List<String> eventMessageList=UtilGenerics.toList(request.getAttribute("eventMessageList"));
+  if (eventMessageList == null)   eventMessageList=new LinkedList<String>();
+  List<String> errorMessageList=UtilGenerics.toList(request.getAttribute("errorMessageList"));
+  if (errorMessageList == null)   errorMessageList=new LinkedList<String>();
+  if (request.getAttribute("_EVENT_MESSAGE_") != null) {
+    eventMessageList.add(UtilFormatOut.replaceString((String)request.getAttribute("_EVENT_MESSAGE_"),"\n","<br/>"));
+    request.removeAttribute("_EVENT_MESSAGE_");
+  }
+  List<String> msgList=UtilGenerics.toList(request.getAttribute("_EVENT_MESSAGE_LIST_"));
+  if (msgList != null) {
+    eventMessageList.addAll(msgList);
+    request.removeAttribute("_EVENT_MESSAGE_LIST_");
+  }
+  if (request.getAttribute("_ERROR_MESSAGE_") != null) {
+    errorMessageList.add(UtilFormatOut.replaceString((String)request.getAttribute("_ERROR_MESSAGE_"),"\n","<br/>"));
+    request.removeAttribute("_ERROR_MESSAGE_");
+  }
+  if (session.getAttribute("_ERROR_MESSAGE_") != null) {
+    errorMessageList.add(UtilFormatOut.replaceString((String)session.getAttribute("_ERROR_MESSAGE_"),"\n","<br/>"));
+    session.removeAttribute("_ERROR_MESSAGE_");
+  }
+  msgList=UtilGenerics.toList(request.getAttribute("_ERROR_MESSAGE_LIST_"));
+  if (msgList != null) {
+    errorMessageList.addAll(msgList);
+    request.removeAttribute("_ERROR_MESSAGE_LIST_");
+  }
+  context.put("eventMessageList",eventMessageList);
+  context.put("errorMessageList",errorMessageList);
+  if (request.getAttribute("serviceValidationException") != null) {
+    context.put("serviceValidationException",request.getAttribute("serviceValidationException"));
+    request.removeAttribute("serviceValidationException");
+  }
+  if (errorMessageList.size() > 0) {
+    context.put("isError",Boolean.TRUE);
+  }
+ else {
+    context.put("isError",Boolean.FALSE);
+  }
+  if ("true".equals(parameterMap.get("isError"))) {
+    context.put("isError",Boolean.TRUE);
+  }
+  context.put("nowTimestamp",UtilDateTime.nowTimestamp());
+  context.push();
+}
