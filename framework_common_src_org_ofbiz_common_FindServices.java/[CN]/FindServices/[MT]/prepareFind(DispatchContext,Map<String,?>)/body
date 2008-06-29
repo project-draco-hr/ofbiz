@@ -1,0 +1,56 @@
+{
+  String entityName=(String)context.get("entityName");
+  String orderBy=(String)context.get("orderBy");
+  Map<String,?> inputFields=checkMap(context.get("inputFields"),String.class,Object.class);
+  String noConditionFind=(String)context.get("noConditionFind");
+  if (UtilValidate.isEmpty(noConditionFind)) {
+    noConditionFind=(String)inputFields.get("noConditionFind");
+  }
+  if (UtilValidate.isEmpty(noConditionFind)) {
+    noConditionFind=UtilProperties.getPropertyValue("widget","widget.defaultNoConditionFind");
+  }
+  String filterByDate=(String)context.get("filterByDate");
+  if (UtilValidate.isEmpty(filterByDate)) {
+    filterByDate=(String)inputFields.get("filterByDate");
+  }
+  Timestamp filterByDateValue=(Timestamp)context.get("filterByDateValue");
+  Map<String,Object> queryStringMap=FastMap.newInstance();
+  Map<String,List<Object[]>> origValueMap=FastMap.newInstance();
+  HashMap<String,HashMap<String,HashMap<String,Object>>> normalizedFields=prepareField(inputFields,queryStringMap,origValueMap);
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue entityValue=delegator.makeValue(entityName,FastMap.newInstance());
+  ModelEntity modelEntity=entityValue.getModelEntity();
+  List<String> keys=modelEntity.getAllFieldNames();
+  ArrayList<EntityCondition> tmpList=createCondition(keys,normalizedFields,queryStringMap,origValueMap);
+  if ((tmpList.size() > 0) || ((noConditionFind != null) && (noConditionFind.equals("Y")))) {
+    if (!UtilValidate.isEmpty(filterByDate) && "Y".equals(filterByDate)) {
+      if (UtilValidate.isEmpty(filterByDateValue)) {
+        EntityCondition filterByDateCondition=EntityUtil.getFilterByDateExpr();
+        tmpList.add(filterByDateCondition);
+      }
+ else {
+        EntityCondition filterByDateCondition=EntityUtil.getFilterByDateExpr(filterByDateValue);
+        tmpList.add(filterByDateCondition);
+      }
+    }
+  }
+  EntityConditionList exprList=null;
+  if (tmpList.size() > 0) {
+    exprList=EntityCondition.makeCondition(tmpList);
+  }
+  List<String> orderByList=null;
+  if (UtilValidate.isNotEmpty(orderBy)) {
+    orderByList=StringUtil.split(orderBy,"|");
+  }
+  Map<String,Object> results=ServiceUtil.returnSuccess();
+  Map<String,Object> reducedQueryStringMap=buildReducedQueryString(inputFields,entityName,delegator);
+  reducedQueryStringMap.put("noConditionFind",noConditionFind);
+  reducedQueryStringMap.put("filterByDate",filterByDate);
+  reducedQueryStringMap.put("filterByDateValue",filterByDateValue);
+  String queryString=UtilHttp.urlEncodeArgs(reducedQueryStringMap);
+  results.put("queryString",queryString);
+  results.put("queryStringMap",reducedQueryStringMap);
+  results.put("orderByList",orderByList);
+  results.put("entityConditionList",exprList);
+  return results;
+}

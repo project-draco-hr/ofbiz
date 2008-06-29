@@ -1,0 +1,236 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  if ("true".equals(UtilProperties.getPropertyValue("security","security.ldap.enable"))) {
+    if (!LdapAuthenticationServices.userLogin(ctx,context)) {
+      String errMsg=UtilProperties.getMessage(resource,"loginservices.ldap_authentication_failed",locale);
+      if ("true".equals(UtilProperties.getPropertyValue("security","security.ldap.fail.login"))) {
+        return ServiceUtil.returnError(errMsg);
+      }
+ else {
+        Debug.logInfo(errMsg,module);
+      }
+    }
+  }
+  Map<String,Object> result=FastMap.newInstance();
+  GenericDelegator delegator=ctx.getDelegator();
+  boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
+  boolean isServiceAuth=context.get("isServiceAuth") != null && ((Boolean)context.get("isServiceAuth")).booleanValue();
+  String username=(String)context.get("login.username");
+  if (username == null)   username=(String)context.get("username");
+  String password=(String)context.get("login.password");
+  if (password == null)   password=(String)context.get("password");
+  String visitId=(String)context.get("visitId");
+  String errMsg="";
+  if (username == null || username.length() <= 0) {
+    errMsg=UtilProperties.getMessage(resource,"loginservices.username_missing",locale);
+  }
+ else   if (password == null || password.length() <= 0) {
+    errMsg=UtilProperties.getMessage(resource,"loginservices.password_missing",locale);
+  }
+ else {
+    boolean repeat=true;
+    int passNumber=0;
+    while (repeat) {
+      repeat=false;
+      passNumber++;
+      GenericValue userLogin=null;
+      try {
+        userLogin=delegator.findOne("UserLogin",isServiceAuth,"userLoginId",username);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logWarning(e,"",module);
+      }
+      if (userLogin != null) {
+        String encodedPassword=useEncryption ? HashCrypt.getDigestHash(password,getHashType()) : password;
+        String encodedPasswordOldFunnyHexEncode=useEncryption ? HashCrypt.getDigestHashOldFunnyHexEncode(password,getHashType()) : password;
+        String encodedPasswordUsingDbHashType=encodedPassword;
+        String currentPassword=userLogin.getString("currentPassword");
+        if (useEncryption && currentPassword != null && currentPassword.startsWith("{")) {
+          String dbHashType=HashCrypt.getHashTypeFromPrefix(currentPassword);
+          if (dbHashType != null) {
+            encodedPasswordUsingDbHashType=HashCrypt.getDigestHash(password,dbHashType);
+          }
+        }
+        String ldmStr=UtilProperties.getPropertyValue("security.properties","login.disable.minutes");
+        long loginDisableMinutes=30;
+        try {
+          loginDisableMinutes=Long.parseLong(ldmStr);
+        }
+ catch (        Exception e) {
+          loginDisableMinutes=30;
+          Debug.logWarning("Could not parse login.disable.minutes from security.properties, using default of 30",module);
+        }
+        Timestamp disabledDateTime=userLogin.getTimestamp("disabledDateTime");
+        Timestamp reEnableTime=null;
+        if (loginDisableMinutes > 0 && disabledDateTime != null) {
+          reEnableTime=new Timestamp(disabledDateTime.getTime() + loginDisableMinutes * 60000);
+        }
+        boolean doStore=true;
+        userLogin=GenericValue.create(userLogin);
+        boolean isSystem=(isServiceAuth && userLogin.get("isSystem") != null) ? "Y".equalsIgnoreCase(userLogin.getString("isSystem")) : false;
+        boolean hasLoggedOut=userLogin.get("hasLoggedOut") != null ? "Y".equalsIgnoreCase(userLogin.getString("hasLoggedOut")) : false;
+        if (UtilValidate.isEmpty(userLogin.getString("enabled")) || "Y".equals(userLogin.getString("enabled")) || (reEnableTime != null && reEnableTime.before(UtilDateTime.nowTimestamp()))|| (isSystem)) {
+          String successfulLogin;
+          if (!isSystem) {
+            userLogin.set("enabled","Y");
+          }
+          if ((userLogin.get("currentPassword") != null && (HashCrypt.removeHashTypePrefix(encodedPassword).equals(HashCrypt.removeHashTypePrefix(currentPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordOldFunnyHexEncode).equals(HashCrypt.removeHashTypePrefix(currentPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordUsingDbHashType).equals(HashCrypt.removeHashTypePrefix(currentPassword))|| ("true".equals(UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain")) && password.equals(userLogin.getString("currentPassword")))))) {
+            Debug.logVerbose("[LoginServices.userLogin] : Password Matched",module);
+            if (hasLoggedOut) {
+              userLogin.set("hasLoggedOut","N");
+            }
+            Long currentFailedLogins=userLogin.getLong("successiveFailedLogins");
+            if (currentFailedLogins != null && currentFailedLogins.longValue() > 0) {
+              userLogin.set("successiveFailedLogins",Long.valueOf(0));
+            }
+ else             if (!hasLoggedOut) {
+              doStore=false;
+            }
+            successfulLogin="Y";
+            if (!isServiceAuth) {
+              Map userLoginSessionMap=getUserLoginSession(userLogin);
+              GenericValue userLoginSession=null;
+              if (userLoginSessionMap != null) {
+                result.put("userLoginSession",userLoginSessionMap);
+              }
+            }
+            result.put("userLogin",userLogin);
+            result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+          }
+ else {
+            Debug.logInfo("Entered password [" + encodedPassword + "], Entered password OldFunnyHexEncode ["+ encodedPasswordOldFunnyHexEncode+ "], db password ["+ userLogin.getString("currentPassword")+ "]",module);
+            if (isServiceAuth && passNumber <= 1) {
+              delegator.clearCacheLine("UserLogin",UtilMisc.toMap("userLoginId",username));
+              repeat=true;
+              continue;
+            }
+            Debug.logInfo("[LoginServices.userLogin] : Password Incorrect",module);
+            errMsg=UtilProperties.getMessage(resource,"loginservices.password_incorrect",locale);
+            Long currentFailedLogins=userLogin.getLong("successiveFailedLogins");
+            if (currentFailedLogins == null) {
+              currentFailedLogins=Long.valueOf(1);
+            }
+ else {
+              currentFailedLogins=Long.valueOf(currentFailedLogins.longValue() + 1);
+            }
+            userLogin.set("successiveFailedLogins",currentFailedLogins);
+            String mflStr=UtilProperties.getPropertyValue("security.properties","max.failed.logins");
+            long maxFailedLogins=3;
+            try {
+              maxFailedLogins=Long.parseLong(mflStr);
+            }
+ catch (            Exception e) {
+              maxFailedLogins=3;
+              Debug.logWarning("Could not parse max.failed.logins from security.properties, using default of 3",module);
+            }
+            if (maxFailedLogins > 0 && currentFailedLogins.longValue() >= maxFailedLogins) {
+              userLogin.set("enabled","N");
+              userLogin.set("disabledDateTime",UtilDateTime.nowTimestamp());
+            }
+            successfulLogin="N";
+          }
+          Transaction parentTx=null;
+          boolean beganTransaction=false;
+          try {
+            try {
+              parentTx=TransactionUtil.suspend();
+            }
+ catch (            GenericTransactionException e) {
+              Debug.logError(e,"Could not suspend transaction: " + e.getMessage(),module);
+            }
+            try {
+              beganTransaction=TransactionUtil.begin();
+              if (doStore) {
+                userLogin.store();
+              }
+              if ("true".equals(UtilProperties.getPropertyValue("security.properties","store.login.history"))) {
+                boolean createHistory=true;
+                if (isServiceAuth && !"true".equals(UtilProperties.getPropertyValue("security.properties","store.login.history.on.service.auth"))) {
+                  createHistory=false;
+                }
+                if (createHistory) {
+                  Map<String,Object> ulhCreateMap=UtilMisc.toMap("userLoginId",username,"visitId",visitId,"fromDate",UtilDateTime.nowTimestamp(),"successfulLogin",successfulLogin);
+                  ModelEntity modelUserLogin=userLogin.getModelEntity();
+                  if (modelUserLogin.isField("partyId")) {
+                    ulhCreateMap.put("partyId",userLogin.get("partyId"));
+                  }
+                  if ("N".equals(successfulLogin) && !"false".equals(UtilProperties.getPropertyValue("security.properties","store.login.history.incorrect.password"))) {
+                    ulhCreateMap.put("passwordUsed",password);
+                  }
+                  delegator.create("UserLoginHistory",ulhCreateMap);
+                }
+              }
+            }
+ catch (            GenericEntityException e) {
+              String geeErrMsg="Error saving UserLoginHistory";
+              if (doStore) {
+                geeErrMsg+=" and updating login status to reset hasLoggedOut, unsuccessful login count, etc.";
+              }
+              geeErrMsg+=": " + e.toString();
+              try {
+                TransactionUtil.rollback(beganTransaction,geeErrMsg,e);
+              }
+ catch (              GenericTransactionException e2) {
+                Debug.logError(e2,"Could not rollback nested transaction: " + e2.getMessage(),module);
+              }
+              if (doStore) {
+                return ServiceUtil.returnError(geeErrMsg);
+              }
+            }
+ finally {
+              try {
+                TransactionUtil.commit(beganTransaction);
+              }
+ catch (              GenericTransactionException e) {
+                Debug.logError(e,"Could not commit nested transaction: " + e.getMessage(),module);
+              }
+            }
+          }
+  finally {
+            if (parentTx != null) {
+              try {
+                TransactionUtil.resume(parentTx);
+                Debug.logVerbose("Resumed the parent transaction.",module);
+              }
+ catch (              GenericTransactionException e) {
+                Debug.logError(e,"Could not resume parent nested transaction: " + e.getMessage(),module);
+              }
+            }
+          }
+        }
+ else {
+          if (isServiceAuth && passNumber <= 1) {
+            delegator.clearCacheLine("UserLogin",UtilMisc.toMap("userLoginId",username));
+            repeat=true;
+            continue;
+          }
+          Map<String,Object> messageMap=UtilMisc.<String,Object>toMap("username",username);
+          errMsg=UtilProperties.getMessage(resource,"loginservices.account_for_user_login_id_disabled",messageMap,locale);
+          if (disabledDateTime != null) {
+            messageMap=UtilMisc.<String,Object>toMap("disabledDateTime",disabledDateTime);
+            errMsg+=UtilProperties.getMessage(resource,"loginservices.since_datetime",messageMap,locale);
+          }
+ else {
+            errMsg+=".";
+          }
+          if (loginDisableMinutes > 0 && reEnableTime != null) {
+            messageMap=UtilMisc.<String,Object>toMap("reEnableTime",reEnableTime);
+            errMsg+=UtilProperties.getMessage(resource,"loginservices.will_be_reenabled",messageMap,locale);
+          }
+ else {
+            errMsg+=UtilProperties.getMessage(resource,"loginservices.not_scheduled_to_be_reenabled",locale);
+          }
+        }
+      }
+ else {
+        errMsg=UtilProperties.getMessage(resource,"loginservices.user_not_found",locale);
+        Debug.logInfo("[LoginServices.userLogin] : Invalid User : " + errMsg,module);
+      }
+    }
+  }
+  if (errMsg.length() > 0) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+  }
+  return result;
+}
