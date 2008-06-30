@@ -1,14 +1,12 @@
 {
-  ArrayList valuesToCreate=new ArrayList();
+  ArrayList<GenericValue> valuesToCreate=new ArrayList<GenericValue>();
   if (this.nextCreateTxTime != null && (this.nextCreateTxTime.equals(currentRunEndTime) || this.nextCreateTxTime.after(currentRunEndTime))) {
     return valuesToCreate;
   }
   int entitiesSkippedForKnownNext=0;
-  Iterator entityModelToUseCreateIter=entityModelToUseList.iterator();
-  while (entityModelToUseCreateIter.hasNext()) {
+  for (  ModelEntity modelEntity : entityModelToUseList) {
     int insertBefore=0;
-    ModelEntity modelEntity=(ModelEntity)entityModelToUseCreateIter.next();
-    Timestamp knownNextCreateTime=(Timestamp)this.nextEntityCreateTxTime.get(modelEntity.getEntityName());
+    Timestamp knownNextCreateTime=this.nextEntityCreateTxTime.get(modelEntity.getEntityName());
     if (knownNextCreateTime != null && (knownNextCreateTime.equals(currentRunEndTime) || knownNextCreateTime.after(currentRunEndTime))) {
       entitiesSkippedForKnownNext++;
       continue;
@@ -25,11 +23,11 @@
       EntityListIterator eli=delegator.find(modelEntity.getEntityName(),findValCondition,null,null,UtilMisc.toList(ModelEntity.CREATE_STAMP_TX_FIELD,ModelEntity.CREATE_STAMP_FIELD),null);
       GenericValue nextValue=null;
       long valuesPerEntity=0;
-      while ((nextValue=(GenericValue)eli.next()) != null) {
-        while (insertBefore < valuesToCreate.size() && ((GenericValue)valuesToCreate.get(insertBefore)).getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD).before(nextValue.getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD))) {
+      while ((nextValue=eli.next()) != null) {
+        while (insertBefore < valuesToCreate.size() && valuesToCreate.get(insertBefore).getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD).before(nextValue.getTimestamp(ModelEntity.CREATE_STAMP_TX_FIELD))) {
           insertBefore++;
         }
-        while (insertBefore < valuesToCreate.size() && ((GenericValue)valuesToCreate.get(insertBefore)).getTimestamp(ModelEntity.CREATE_STAMP_FIELD).before(nextValue.getTimestamp(ModelEntity.CREATE_STAMP_FIELD))) {
+        while (insertBefore < valuesToCreate.size() && valuesToCreate.get(insertBefore).getTimestamp(ModelEntity.CREATE_STAMP_FIELD).before(nextValue.getTimestamp(ModelEntity.CREATE_STAMP_FIELD))) {
           insertBefore++;
         }
         valuesToCreate.add(insertBefore,nextValue);
@@ -40,7 +38,7 @@
         Timestamp startCheckStamp=new Timestamp(System.currentTimeMillis() - syncEndBufferMillis);
         EntityCondition findNextCondition=EntityCondition.makeCondition(EntityCondition.makeCondition(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunEndTime));
         EntityListIterator eliNext=delegator.find(modelEntity.getEntityName(),findNextCondition,null,null,UtilMisc.toList(ModelEntity.CREATE_STAMP_TX_FIELD),null);
-        GenericValue firstVal=(GenericValue)eliNext.next();
+        GenericValue firstVal=eliNext.next();
         eliNext.close();
         Timestamp nextTxTime;
         if (firstVal != null) {
@@ -53,7 +51,7 @@
           this.nextCreateTxTime=nextTxTime;
           Debug.logInfo("EntitySync: Set nextCreateTxTime to [" + nextTxTime + "]",module);
         }
-        Timestamp curEntityNextTxTime=(Timestamp)this.nextEntityCreateTxTime.get(modelEntity.getEntityName());
+        Timestamp curEntityNextTxTime=this.nextEntityCreateTxTime.get(modelEntity.getEntityName());
         if (curEntityNextTxTime == null || nextTxTime.before(curEntityNextTxTime)) {
           this.nextEntityCreateTxTime.put(modelEntity.getEntityName(),nextTxTime);
           Debug.logInfo("EntitySync: Set nextEntityCreateTxTime to [" + nextTxTime + "] for the entity ["+ modelEntity.getEntityName()+ "]",module);
@@ -91,9 +89,7 @@ catch (    Throwable t) {
   boolean logValues=false;
   if (logValues && valuesToCreate.size() > 0) {
     StringBuilder toCreateInfo=new StringBuilder();
-    Iterator valuesToCreateIter=valuesToCreate.iterator();
-    while (valuesToCreateIter.hasNext()) {
-      GenericValue valueToCreate=(GenericValue)valuesToCreateIter.next();
+    for (    GenericValue valueToCreate : valuesToCreate) {
       toCreateInfo.append("\n-->[");
       toCreateInfo.append(valueToCreate.get(ModelEntity.CREATE_STAMP_TX_FIELD));
       toCreateInfo.append(":");

@@ -1,14 +1,12 @@
 {
-  ArrayList valuesToStore=new ArrayList();
+  ArrayList<GenericValue> valuesToStore=new ArrayList<GenericValue>();
   if (this.nextUpdateTxTime != null && (this.nextUpdateTxTime.equals(currentRunEndTime) || this.nextUpdateTxTime.after(currentRunEndTime))) {
     return valuesToStore;
   }
   int entitiesSkippedForKnownNext=0;
-  Iterator entityModelToUseUpdateIter=entityModelToUseList.iterator();
-  while (entityModelToUseUpdateIter.hasNext()) {
+  for (  ModelEntity modelEntity : entityModelToUseList) {
     int insertBefore=0;
-    ModelEntity modelEntity=(ModelEntity)entityModelToUseUpdateIter.next();
-    Timestamp knownNextUpdateTime=(Timestamp)this.nextEntityUpdateTxTime.get(modelEntity.getEntityName());
+    Timestamp knownNextUpdateTime=this.nextEntityUpdateTxTime.get(modelEntity.getEntityName());
     if (knownNextUpdateTime != null && (knownNextUpdateTime.equals(currentRunEndTime) || knownNextUpdateTime.after(currentRunEndTime))) {
       entitiesSkippedForKnownNext++;
       continue;
@@ -26,11 +24,11 @@
       EntityListIterator eli=delegator.find(modelEntity.getEntityName(),findValCondition,null,null,UtilMisc.toList(ModelEntity.STAMP_TX_FIELD,ModelEntity.STAMP_FIELD),null);
       GenericValue nextValue=null;
       long valuesPerEntity=0;
-      while ((nextValue=(GenericValue)eli.next()) != null) {
-        while (insertBefore < valuesToStore.size() && ((GenericValue)valuesToStore.get(insertBefore)).getTimestamp(ModelEntity.STAMP_TX_FIELD).before(nextValue.getTimestamp(ModelEntity.STAMP_TX_FIELD))) {
+      while ((nextValue=eli.next()) != null) {
+        while (insertBefore < valuesToStore.size() && valuesToStore.get(insertBefore).getTimestamp(ModelEntity.STAMP_TX_FIELD).before(nextValue.getTimestamp(ModelEntity.STAMP_TX_FIELD))) {
           insertBefore++;
         }
-        while (insertBefore < valuesToStore.size() && ((GenericValue)valuesToStore.get(insertBefore)).getTimestamp(ModelEntity.STAMP_FIELD).before(nextValue.getTimestamp(ModelEntity.STAMP_FIELD))) {
+        while (insertBefore < valuesToStore.size() && valuesToStore.get(insertBefore).getTimestamp(ModelEntity.STAMP_FIELD).before(nextValue.getTimestamp(ModelEntity.STAMP_FIELD))) {
           insertBefore++;
         }
         valuesToStore.add(insertBefore,nextValue);
@@ -41,7 +39,7 @@
         Timestamp startCheckStamp=new Timestamp(System.currentTimeMillis() - syncEndBufferMillis);
         EntityCondition findNextCondition=EntityCondition.makeCondition(EntityCondition.makeCondition(ModelEntity.STAMP_TX_FIELD,EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition(ModelEntity.STAMP_TX_FIELD,EntityOperator.GREATER_THAN_EQUAL_TO,currentRunEndTime),EntityCondition.makeCondition(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition(ModelEntity.CREATE_STAMP_TX_FIELD,EntityOperator.LESS_THAN,currentRunEndTime));
         EntityListIterator eliNext=delegator.find(modelEntity.getEntityName(),findNextCondition,null,null,UtilMisc.toList(ModelEntity.STAMP_TX_FIELD),null);
-        GenericValue firstVal=(GenericValue)eliNext.next();
+        GenericValue firstVal=eliNext.next();
         eliNext.close();
         Timestamp nextTxTime;
         if (firstVal != null) {
@@ -54,7 +52,7 @@
           this.nextUpdateTxTime=nextTxTime;
           Debug.logInfo("EntitySync: Set nextUpdateTxTime to [" + nextTxTime + "]",module);
         }
-        Timestamp curEntityNextTxTime=(Timestamp)this.nextEntityUpdateTxTime.get(modelEntity.getEntityName());
+        Timestamp curEntityNextTxTime=this.nextEntityUpdateTxTime.get(modelEntity.getEntityName());
         if (curEntityNextTxTime == null || nextTxTime.before(curEntityNextTxTime)) {
           this.nextEntityUpdateTxTime.put(modelEntity.getEntityName(),nextTxTime);
           Debug.logInfo("EntitySync: Set nextEntityUpdateTxTime to [" + nextTxTime + "] for the entity ["+ modelEntity.getEntityName()+ "]",module);
@@ -92,9 +90,7 @@ catch (    Throwable t) {
   boolean logValues=false;
   if (logValues && valuesToStore.size() > 0) {
     StringBuilder toStoreInfo=new StringBuilder();
-    Iterator valuesToStoreIter=valuesToStore.iterator();
-    while (valuesToStoreIter.hasNext()) {
-      GenericValue valueToStore=(GenericValue)valuesToStoreIter.next();
+    for (    GenericValue valueToStore : valuesToStore) {
       toStoreInfo.append("\n-->[");
       toStoreInfo.append(valueToStore.get(ModelEntity.STAMP_TX_FIELD));
       toStoreInfo.append(":");
