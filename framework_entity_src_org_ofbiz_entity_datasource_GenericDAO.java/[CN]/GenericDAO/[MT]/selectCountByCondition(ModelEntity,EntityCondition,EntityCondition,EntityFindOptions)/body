@@ -9,11 +9,26 @@
   if (verboseOn) {
     Debug.logVerbose("Doing selectListIteratorByCondition with whereEntityCondition: " + whereEntityCondition,module);
   }
-  StringBuilder sqlBuffer=new StringBuilder("SELECT ");
-  if (findOptions.getDistinct()) {
-    sqlBuffer.append("DISTINCT ");
+  boolean isGroupBy=false;
+  ModelViewEntity modelViewEntity=null;
+  String groupByString=null;
+  if (modelEntity instanceof ModelViewEntity) {
+    modelViewEntity=(ModelViewEntity)modelEntity;
+    groupByString=modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(),", ","",false);
+    if (UtilValidate.isNotEmpty(groupByString)) {
+      isGroupBy=true;
+    }
   }
-  sqlBuffer.append("COUNT(*) ");
+  StringBuilder sqlBuffer=new StringBuilder("SELECT ");
+  if (isGroupBy) {
+    sqlBuffer.append("COUNT(1) FROM (SELECT ");
+  }
+  if (findOptions.getDistinct()) {
+    sqlBuffer.append("DISTINCT COUNT(*) ");
+  }
+ else {
+    sqlBuffer.append("COUNT(1) ");
+  }
   sqlBuffer.append(SqlJdbcUtil.makeFromClause(modelEntity,datasourceInfo));
   StringBuilder whereString=new StringBuilder();
   String entityCondWhereString="";
@@ -37,9 +52,7 @@
     sqlBuffer.append(" WHERE ");
     sqlBuffer.append(whereString.toString());
   }
-  if (modelEntity instanceof ModelViewEntity) {
-    ModelViewEntity modelViewEntity=(ModelViewEntity)modelEntity;
-    String groupByString=modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(),", ","",false);
+  if (isGroupBy) {
     if (UtilValidate.isNotEmpty(groupByString)) {
       sqlBuffer.append(" GROUP BY ");
       sqlBuffer.append(groupByString);
@@ -54,7 +67,11 @@
     sqlBuffer.append(" HAVING ");
     sqlBuffer.append(entityCondHavingString);
   }
+  if (isGroupBy) {
+    sqlBuffer.append(") TEMP_NAME");
+  }
   String sql=sqlBuffer.toString();
+  Debug.logInfo("Count select sql: " + sql,module);
   SQLProcessor sqlP=new SQLProcessor(helperName);
   sqlP.prepareStatement(sql,findOptions.getSpecifyTypeAndConcur(),findOptions.getResultSetType(),findOptions.getResultSetConcurrency(),findOptions.getFetchSize(),findOptions.getMaxRows());
   if (verboseOn) {
@@ -73,20 +90,7 @@
     sqlP.executeQuery();
     long count=0;
     ResultSet resultSet=sqlP.getResultSet();
-    boolean isGroupBy=false;
-    if (modelEntity instanceof ModelViewEntity) {
-      ModelViewEntity modelViewEntity=(ModelViewEntity)modelEntity;
-      String groupByString=modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(),", ","",false);
-      if (UtilValidate.isNotEmpty(groupByString)) {
-        isGroupBy=true;
-      }
-    }
-    if (isGroupBy) {
-      while (resultSet.next()) {
-        count++;
-      }
-    }
- else     if (resultSet.next()) {
+    if (resultSet.next()) {
       count=resultSet.getLong(1);
     }
     return count;
