@@ -1,51 +1,42 @@
 {
   SSLUtil.loadJsseProperties();
-  Log log=Log.instance();
-  log.disableLog();
-  Log4jSink sink=new Log4jSink();
-  log.add(sink);
-  sink.setOptions(UtilURL.fromResource("debug.properties").toExternalForm());
-  try {
-    sink.start();
-  }
- catch (  Exception e) {
-    Debug.logWarning(e,module);
-  }
   ContainerConfig.Container jc=ContainerConfig.getContainer("jetty-container",configFile);
-  for (  ContainerConfig.Container.Property prop : jc.properties.values()) {
-    servers.put(prop.name,createServer(prop));
+  for (  ContainerConfig.Container.Property property : jc.properties.values()) {
+    servers.put(property.name,createServer(property));
   }
-  Collection<ComponentConfig> componentConfigs=ComponentConfig.getAllComponents();
+  Collection componentConfigs=ComponentConfig.getAllComponents();
   if (componentConfigs != null) {
-    for (    ComponentConfig component : componentConfigs) {
-      for (      ComponentConfig.WebappInfo appInfo : component.getWebappInfos()) {
-        List<String> virtualHosts=appInfo.getVirtualHosts();
-        Map<String,String> initParameters=appInfo.getInitParameters();
-        Server server=servers.get(appInfo.server);
+    for (    Object componentConfig : componentConfigs) {
+      ComponentConfig component=(ComponentConfig)componentConfig;
+      for (      ComponentConfig.WebappInfo webappInfo : component.getWebappInfos()) {
+        List virtualHosts=webappInfo.getVirtualHosts();
+        Map initParameters=webappInfo.getInitParameters();
+        Server server=servers.get(webappInfo.server);
         if (server == null) {
-          Debug.logWarning("Server with name [" + appInfo.server + "] not found; not mounting ["+ appInfo.name+ "]",module);
+          Debug.logWarning("Server with name [" + webappInfo.server + "] not found; not mounting ["+ webappInfo.name+ "]",module);
         }
  else {
-          try {
-            String location=component.getRootLocation() + appInfo.location;
-            location=location.replace('\\','/');
-            if (!location.endsWith("/")) {
-              location=location + "/";
-            }
-            WebApplicationContext ctx=server.addWebApplication(appInfo.mountPoint,location);
-            ctx.setAttribute("_serverId",appInfo.server);
-            SessionManager sm=new HashSessionManager();
-            ctx.getWebApplicationHandler().setSessionManager(sm);
-            for (            String vh : virtualHosts) {
-              ctx.addVirtualHost(vh);
-            }
-            for (            Map.Entry<String,String> entry : initParameters.entrySet()) {
-              ctx.setInitParameter(entry.getKey(),entry.getValue());
-            }
+          String location=component.getRootLocation() + webappInfo.location;
+          location=location.replace('\\','/');
+          if (location.endsWith("/")) {
+            location=location.substring(0,location.lastIndexOf("/"));
           }
- catch (          IOException e) {
-            Debug.logError(e,"Problem mounting application [" + appInfo.name + " / "+ appInfo.location+ "]",module);
+          String mountPoint=webappInfo.mountPoint;
+          if (mountPoint.endsWith("/*")) {
+            mountPoint=mountPoint.substring(0,mountPoint.lastIndexOf("/"));
           }
+          WebAppContext context=new WebAppContext(location,mountPoint);
+          context.setAttribute("_serverId",webappInfo.server);
+          context.setLogUrlOnStart(true);
+          HashSessionManager sm=new HashSessionManager();
+          context.setSessionHandler(new SessionHandler(sm));
+          if (virtualHosts != null && !virtualHosts.isEmpty()) {
+            context.setVirtualHosts((String[])virtualHosts.toArray());
+          }
+          if (initParameters != null && !initParameters.isEmpty()) {
+            context.setInitParams(initParameters);
+          }
+          server.addHandler(context);
         }
       }
     }
