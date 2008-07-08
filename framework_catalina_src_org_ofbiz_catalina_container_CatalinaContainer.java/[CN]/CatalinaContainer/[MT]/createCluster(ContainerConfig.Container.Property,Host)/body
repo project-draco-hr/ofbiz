@@ -14,10 +14,10 @@
   if (mcb != null) {
     mcast.setMcastBindAddress(mcb);
   }
-  mcast.setMcastAddr(mca);
-  mcast.setMcastPort(mcp);
+  mcast.setAddress(mca);
+  mcast.setPort(mcp);
   mcast.setMcastDropTime(mcd);
-  mcast.setMcastFrequency(mcf);
+  mcast.setFrequency(mcf);
   String tla=ContainerConfig.getPropertyValue(clusterProps,"tcp-listen-host","auto");
   int tlp=ContainerConfig.getPropertyValue(clusterProps,"tcp-listen-port",4001);
   int tlt=ContainerConfig.getPropertyValue(clusterProps,"tcp-sector-timeout",100);
@@ -25,20 +25,29 @@
   if (tlp == -1) {
     throw new ContainerException("Cluster configuration requires tcp-listen-port property");
   }
-  ReplicationListener listener=new ReplicationListener();
-  listener.setTcpListenAddress(tla);
-  listener.setTcpListenPort(tlp);
-  listener.setTcpSelectorTimeout(tlt);
-  listener.setTcpThreadCount(tlc);
+  NioReceiver listener=new NioReceiver();
+  listener.setAddress(tla);
+  listener.setPort(tlp);
+  listener.setSelectorTimeout(tlt);
+  listener.setMaxThreads(tlc);
+  listener.setMinThreads(tlc);
   ReplicationTransmitter trans=new ReplicationTransmitter();
-  trans.setReplicationMode(ContainerConfig.getPropertyValue(clusterProps,"replication-mode","pooled"));
+  try {
+    MultiPointSender mps=(MultiPointSender)Class.forName(ContainerConfig.getPropertyValue(clusterProps,"replication-mode","org.apache.catalina.tribes.transport.bio.PooledMultiSender")).newInstance();
+    trans.setTransport(mps);
+  }
+ catch (  Exception exc) {
+    throw new ContainerException("Cluster configuration requires a valid replication-mode property: " + exc.getMessage());
+  }
   String mgrClassName=ContainerConfig.getPropertyValue(clusterProps,"manager-class","org.apache.catalina.cluster.session.DeltaManager");
   SimpleTcpCluster cluster=new SimpleTcpCluster();
   cluster.setClusterName(clusterProps.name);
   cluster.setManagerClassName(mgrClassName);
-  cluster.setClusterReceiver(listener);
-  cluster.setClusterSender(trans);
-  cluster.setMembershipService(mcast);
+  GroupChannel channel=new GroupChannel();
+  channel.setChannelReceiver(listener);
+  channel.setChannelSender(trans);
+  channel.setMembershipService(mcast);
+  cluster.setChannel(channel);
   cluster.addValve(clusterValve);
   host.setCluster(cluster);
   Debug.logInfo("Catalina Cluster [" + cluster.getClusterName() + "] configured for host - "+ host.getName(),module);
