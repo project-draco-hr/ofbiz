@@ -53,9 +53,11 @@
  else {
       Debug.logInfo("Persisting New Email: " + aboutThisEmail,module);
     }
-    List allResults=getListOfParyInfoFromEmailAddresses(addressesTo,addressesCC,addressesBCC,userLogin,dispatcher);
-    Iterator itr=allResults.iterator();
-    if (!allResults.isEmpty()) {
+    List toParties=buildListOfPartyInfoFromEmailAddresses(addressesTo,userLogin,dispatcher);
+    List ccParties=buildListOfPartyInfoFromEmailAddresses(addressesCC,userLogin,dispatcher);
+    List bccParties=buildListOfPartyInfoFromEmailAddresses(addressesBCC,userLogin,dispatcher);
+    if (!toParties.isEmpty()) {
+      Iterator itr=toParties.iterator();
       Map firstAddressTo=(Map)itr.next();
       partyIdTo=(String)firstAddressTo.get("partyId");
       contactMechIdTo=(String)firstAddressTo.get("contactMechId");
@@ -193,20 +195,9 @@
       int attachmentCount=EmailWorker.addAttachmentsToCommEvent(message,communicationEventId,dispatcher,userLogin);
       if (Debug.infoOn())       Debug.logInfo(attachmentCount + " attachments added to CommunicationEvent:" + communicationEventId,module);
     }
-    while (itr.hasNext()) {
-      Map address=(Map)itr.next();
-      String partyId=(String)address.get("partyId");
-      Map commEventRoleMap=UtilMisc.toMap("communicationEventId",communicationEventId,"partyId",partyId,"roleTypeId","_NA_");
-      GenericValue commEventRole=delegator.findByPrimaryKey("CommunicationEventRole",commEventRoleMap);
-      if (commEventRole == null) {
-        GenericValue partyRole=delegator.findByPrimaryKey("PartyRole",UtilMisc.toMap("partyId",partyId,"roleTypeId","_NA_"));
-        if (partyRole == null) {
-          dispatcher.runSync("createPartyRole",UtilMisc.<String,Object>toMap("partyId",partyId,"roleTypeId","_NA_","userLogin",userLogin));
-        }
-        Map input=UtilMisc.toMap("communicationEventId",communicationEventId,"partyId",partyId,"roleTypeId","_NA_","userLogin",userLogin,"contactMechId",(String)address.get("contactMechId"));
-        dispatcher.runSync("createCommunicationEventRole",input);
-      }
-    }
+    createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,toParties,"ADDRESSEE");
+    createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,ccParties,"CC");
+    createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,bccParties,"BCC");
     Map results=ServiceUtil.returnSuccess();
     results.put("communicationEventId",communicationEventId);
     results.put("statusId",commEventMap.get("statusId"));
