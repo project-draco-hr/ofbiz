@@ -57,7 +57,7 @@
   String tmpUploadRepository=UtilProperties.getPropertyValue("general.properties","http.upload.tmprepository","runtime/tmp");
   String encoding=request.getCharacterEncoding();
   boolean isMultiPart=ServletFileUpload.isMultipartContent(request);
-  Map multiPartMap=FastMap.newInstance();
+  Map<String,Object> multiPartMap=FastMap.newInstance();
   if (isMultiPart) {
     ServletFileUpload upload=new ServletFileUpload(new DiskFileItemFactory(sizeThreshold,new File(tmpUploadRepository)));
     FileUploadProgressListener listener=new FileUploadProgressListener();
@@ -83,10 +83,10 @@
           if (multiPartMap.containsKey(fieldName)) {
             Object mapValue=multiPartMap.get(fieldName);
             if (mapValue instanceof List) {
-              ((List)mapValue).add(item.getString());
+              checkList(mapValue,Object.class).add(item.getString());
             }
  else             if (mapValue instanceof String) {
-              List newList=new ArrayList();
+              List<String> newList=FastList.newInstance();
               newList.add((String)mapValue);
               newList.add(item.getString());
               multiPartMap.put(fieldName,newList);
@@ -130,10 +130,8 @@
     }
   }
   request.setAttribute("multiPartMap",multiPartMap);
-  Map serviceContext=new HashMap();
-  Iterator modelParmInIter=model.getInModelParamList().iterator();
-  while (modelParmInIter.hasNext()) {
-    ModelParam modelParam=(ModelParam)modelParmInIter.next();
+  Map<String,Object> serviceContext=FastMap.newInstance();
+  for (  ModelParam modelParam : model.getInModelParamList()) {
     String name=modelParam.name;
     if ("userLogin".equals(name))     continue;
     if ("locale".equals(name))     continue;
@@ -185,7 +183,7 @@
     }
     serviceContext.put(name,value);
   }
-  List errorMessages=new LinkedList();
+  List<Object> errorMessages=FastList.newInstance();
   serviceContext=model.makeValid(serviceContext,ModelService.IN_PARAM,true,errorMessages,timeZone,locale);
   if (errorMessages.size() > 0) {
     request.setAttribute("_ERROR_MESSAGE_LIST_",errorMessages);
@@ -200,7 +198,7 @@
   if (timeZone != null) {
     serviceContext.put("timeZone",timeZone);
   }
-  Map result=null;
+  Map<String,Object> result=null;
   try {
     if (ASYNC.equalsIgnoreCase(mode)) {
       dispatcher.runAsync(serviceName,serviceContext);
@@ -243,10 +241,8 @@ catch (  GenericServiceException e) {
     request.setAttribute("_ERROR_MESSAGE_",result.get(ModelService.ERROR_MESSAGE));
     request.setAttribute("_EVENT_MESSAGE_LIST_",result.get(ModelService.SUCCESS_MESSAGE_LIST));
     request.setAttribute("_EVENT_MESSAGE_",result.get(ModelService.SUCCESS_MESSAGE));
-    Iterator rmei=result.entrySet().iterator();
-    while (rmei.hasNext()) {
-      Map.Entry rme=(Map.Entry)rmei.next();
-      String resultKey=(String)rme.getKey();
+    for (    Map.Entry<String,Object> rme : result.entrySet()) {
+      String resultKey=rme.getKey();
       Object resultValue=rme.getValue();
       if (resultKey != null && !ModelService.RESPONSE_MESSAGE.equals(resultKey) && !ModelService.ERROR_MESSAGE.equals(resultKey) && !ModelService.ERROR_MESSAGE_LIST.equals(resultKey) && !ModelService.ERROR_MESSAGE_MAP.equals(resultKey) && !ModelService.SUCCESS_MESSAGE.equals(resultKey) && !ModelService.SUCCESS_MESSAGE_LIST.equals(resultKey)) {
         request.setAttribute(resultKey,resultValue);
