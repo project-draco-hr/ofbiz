@@ -1,0 +1,44 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Map<String,Object> context=UtilMisc.makeMapWritable(rcontext);
+  Map results=FastMap.newInstance();
+  Set visitedSet=(Set)context.get("visitedSet");
+  if (visitedSet == null) {
+    visitedSet=FastSet.newInstance();
+    context.put("visitedSet",visitedSet);
+  }
+  String contentId=(String)context.get("contentId");
+  String pageMode=(String)context.get("pageMode");
+  String contentTypeId="OUTLINE_NODE";
+  if (pageMode != null && pageMode.toLowerCase().indexOf("page") >= 0)   contentTypeId="PAGE_NODE";
+  GenericValue thisContent=null;
+  try {
+    thisContent=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+    if (thisContent == null)     ServiceUtil.returnError("No entity found for id=" + contentId);
+    thisContent.set("contentTypeId","OUTLINE_NODE");
+    thisContent.store();
+    List kids=ContentWorker.getAssociatedContent(thisContent,"from",UtilMisc.toList("SUB_CONTENT"),null,null,null);
+    Iterator iter=kids.iterator();
+    while (iter.hasNext()) {
+      GenericValue kidContent=(GenericValue)iter.next();
+      if (contentTypeId.equals("OUTLINE_NODE")) {
+        updateOutlineNodeChildren(kidContent,true,context);
+      }
+ else {
+        kidContent.put("contentTypeId","PAGE_NODE");
+        kidContent.store();
+        List kids2=ContentWorker.getAssociatedContent(kidContent,"from",UtilMisc.toList("SUB_CONTENT"),null,null,null);
+        Iterator iter2=kids.iterator();
+        while (iter2.hasNext()) {
+          GenericValue kidContent2=(GenericValue)iter2.next();
+          updatePageNodeChildren(kidContent2,context);
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.toString());
+  }
+  return results;
+}
