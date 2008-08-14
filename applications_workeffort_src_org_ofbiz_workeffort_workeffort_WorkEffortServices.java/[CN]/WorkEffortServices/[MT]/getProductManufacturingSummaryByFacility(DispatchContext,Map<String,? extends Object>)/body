@@ -1,0 +1,117 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  String productId=(String)context.get("productId");
+  String facilityId=(String)context.get("facilityId");
+  Map<String,Map<String,Object>> summaryInByFacility=FastMap.newInstance();
+  Map<String,Map<String,Object>> summaryOutByFacility=FastMap.newInstance();
+  try {
+    List<EntityCondition> findIncomingProductionRunsConds=FastList.newInstance();
+    findIncomingProductionRunsConds.add(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId));
+    findIncomingProductionRunsConds.add(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"WEGS_CREATED"));
+    findIncomingProductionRunsConds.add(EntityCondition.makeCondition("workEffortGoodStdTypeId",EntityOperator.EQUALS,"PRUN_PROD_DELIV"));
+    if (facilityId != null) {
+      findIncomingProductionRunsConds.add(EntityCondition.makeCondition("facilityId",EntityOperator.EQUALS,facilityId));
+    }
+    List<EntityCondition> findIncomingProductionRunsStatusConds=FastList.newInstance();
+    findIncomingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_CREATED"));
+    findIncomingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_SCHEDULED"));
+    findIncomingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_DOC_PRINTED"));
+    findIncomingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_RUNNING"));
+    findIncomingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_COMPLETED"));
+    findIncomingProductionRunsConds.add(EntityCondition.makeCondition(findIncomingProductionRunsStatusConds,EntityOperator.OR));
+    EntityConditionList findIncomingProductionRunsCondition=EntityCondition.makeCondition(findIncomingProductionRunsConds,EntityOperator.AND);
+    List<GenericValue> incomingProductionRuns=delegator.findList("WorkEffortAndGoods",findIncomingProductionRunsCondition,null,UtilMisc.toList("-estimatedCompletionDate"),null,false);
+    for (    GenericValue incomingProductionRun : incomingProductionRuns) {
+      double producedQtyTot=0.0;
+      if (incomingProductionRun.getString("currentStatusId").equals("PRUN_COMPLETED")) {
+        List<GenericValue> inventoryItems=delegator.findByAnd("WorkEffortAndInventoryProduced",UtilMisc.toMap("productId",productId,"workEffortId",incomingProductionRun.getString("workEffortId")));
+        for (        GenericValue inventoryItem : inventoryItems) {
+          GenericValue inventoryItemDetail=EntityUtil.getFirst(delegator.findByAnd("InventoryItemDetail",UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId")),UtilMisc.toList("inventoryItemDetailSeqId")));
+          if (inventoryItemDetail != null && inventoryItemDetail.get("quantityOnHandDiff") != null) {
+            Double inventoryItemQty=inventoryItemDetail.getDouble("quantityOnHandDiff");
+            producedQtyTot=producedQtyTot + inventoryItemQty.doubleValue();
+          }
+        }
+      }
+      double estimatedQuantity=0.0;
+      if (incomingProductionRun.get("estimatedQuantity") != null) {
+        estimatedQuantity=incomingProductionRun.getDouble("estimatedQuantity").doubleValue();
+      }
+      double remainingQuantity=estimatedQuantity - producedQtyTot;
+      if (remainingQuantity > 0) {
+        incomingProductionRun.set("estimatedQuantity",Double.valueOf(remainingQuantity));
+      }
+ else {
+        continue;
+      }
+      String weFacilityId=incomingProductionRun.getString("facilityId");
+      Map<String,Object> quantitySummary=UtilGenerics.checkMap(summaryInByFacility.get(weFacilityId));
+      if (quantitySummary == null) {
+        quantitySummary=FastMap.newInstance();
+        quantitySummary.put("facilityId",weFacilityId);
+        summaryInByFacility.put(weFacilityId,quantitySummary);
+      }
+      Double remainingQuantityTot=(Double)quantitySummary.get("estimatedQuantityTotal");
+      if (remainingQuantityTot == null) {
+        quantitySummary.put("estimatedQuantityTotal",Double.valueOf(remainingQuantity));
+      }
+ else {
+        quantitySummary.put("estimatedQuantityTotal",Double.valueOf(remainingQuantity + remainingQuantityTot.doubleValue()));
+      }
+      List<GenericValue> incomingProductionRunList=UtilGenerics.checkList(quantitySummary.get("incomingProductionRunList"));
+      if (incomingProductionRunList == null) {
+        incomingProductionRunList=FastList.newInstance();
+        quantitySummary.put("incomingProductionRunList",incomingProductionRunList);
+      }
+      incomingProductionRunList.add(incomingProductionRun);
+    }
+    List<EntityCondition> findOutgoingProductionRunsConds=FastList.newInstance();
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId));
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"WEGS_CREATED"));
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("workEffortGoodStdTypeId",EntityOperator.EQUALS,"PRUNT_PROD_NEEDED"));
+    if (facilityId != null) {
+      findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("facilityId",EntityOperator.EQUALS,facilityId));
+    }
+    List<EntityCondition> findOutgoingProductionRunsStatusConds=FastList.newInstance();
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_CREATED"));
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_SCHEDULED"));
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_DOC_PRINTED"));
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_RUNNING"));
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition(findOutgoingProductionRunsStatusConds,EntityOperator.OR));
+    EntityConditionList findOutgoingProductionRunsCondition=EntityCondition.makeCondition(findOutgoingProductionRunsConds,EntityOperator.AND);
+    List<GenericValue> outgoingProductionRuns=delegator.findList("WorkEffortAndGoods",findOutgoingProductionRunsCondition,null,UtilMisc.toList("-estimatedStartDate"),null,false);
+    for (    GenericValue outgoingProductionRun : outgoingProductionRuns) {
+      String weFacilityId=outgoingProductionRun.getString("facilityId");
+      Double neededQuantity=outgoingProductionRun.getDouble("estimatedQuantity");
+      if (neededQuantity == null) {
+        neededQuantity=Double.valueOf(0);
+      }
+      Map<String,Object> quantitySummary=UtilGenerics.checkMap(summaryOutByFacility.get(weFacilityId));
+      if (quantitySummary == null) {
+        quantitySummary=FastMap.newInstance();
+        quantitySummary.put("facilityId",weFacilityId);
+        summaryOutByFacility.put(weFacilityId,quantitySummary);
+      }
+      Double remainingQuantityTot=(Double)quantitySummary.get("estimatedQuantityTotal");
+      if (remainingQuantityTot == null) {
+        quantitySummary.put("estimatedQuantityTotal",neededQuantity);
+      }
+ else {
+        quantitySummary.put("estimatedQuantityTotal",Double.valueOf(neededQuantity.doubleValue() + remainingQuantityTot.doubleValue()));
+      }
+      List<GenericValue> outgoingProductionRunList=UtilGenerics.checkList(quantitySummary.get("outgoingProductionRunList"));
+      if (outgoingProductionRunList == null) {
+        outgoingProductionRunList=FastList.newInstance();
+        quantitySummary.put("outgoingProductionRunList",outgoingProductionRunList);
+      }
+      outgoingProductionRunList.add(outgoingProductionRun);
+    }
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError("Error retrieving manufacturing data for productId [" + productId + "]: "+ gee.getMessage());
+  }
+  Map<String,Object> resultMap=ServiceUtil.returnSuccess();
+  resultMap.put("summaryInByFacility",summaryInByFacility);
+  resultMap.put("summaryOutByFacility",summaryOutByFacility);
+  return resultMap;
+}
