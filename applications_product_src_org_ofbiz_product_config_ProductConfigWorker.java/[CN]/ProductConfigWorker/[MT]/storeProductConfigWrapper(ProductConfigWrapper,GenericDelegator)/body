@@ -54,9 +54,65 @@
       try {
         List tempResult=delegator.findByAnd("ProductConfigConfig",UtilMisc.toMap("configId",tempConfigId));
         if (tempResult.size() == selectedOptionSize && configsToCheck.containsAll(tempResult)) {
-          configWrapper.configId=tempConfigId;
-          Debug.logInfo("Existing configuration found with configId:" + tempConfigId,module);
-          return;
+          List<GenericValue> configOptionProductOptions=delegator.findByAnd("ConfigOptionProductOption",UtilMisc.toMap("configId",tempConfigId));
+          if (UtilValidate.isNotEmpty(configOptionProductOptions)) {
+            for (int i=0; i < questions.size(); i++) {
+              String configItemId=null;
+              Long sequenceNum=null;
+              List<ProductConfigWrapper.ConfigOption> selectedOptions=new ArrayList<ProductConfigWrapper.ConfigOption>();
+              ConfigItem ci=(ConfigItem)questions.get(i);
+              List options=ci.getOptions();
+              if (ci.isStandard()) {
+                selectedOptions.addAll(options);
+              }
+ else {
+                Iterator availOptions=options.iterator();
+                while (availOptions.hasNext()) {
+                  ConfigOption oneOption=(ConfigOption)availOptions.next();
+                  if (oneOption.isSelected()) {
+                    selectedOptions.add(oneOption);
+                  }
+                }
+              }
+              boolean match=true;
+              for (              ProductConfigWrapper.ConfigOption anOption : selectedOptions) {
+                if (match && anOption.hasVirtualComponent()) {
+                  List<GenericValue> components=anOption.getComponents();
+                  for (                  GenericValue aComponent : components) {
+                    if (anOption.isVirtualComponent(aComponent)) {
+                      Map componentOptions=anOption.getComponentOptions();
+                      String optionProductId=aComponent.getString("productId");
+                      String optionProductOptionId=(String)componentOptions.get(optionProductId);
+                      String configOptionId=anOption.configOption.getString("configOptionId");
+                      configItemId=ci.getConfigItemAssoc().getString("configItemId");
+                      sequenceNum=ci.getConfigItemAssoc().getLong("sequenceNum");
+                      GenericValue configOptionProductOption=delegator.makeValue("ConfigOptionProductOption");
+                      configOptionProductOption.set("configId",tempConfigId);
+                      configOptionProductOption.set("configItemId",configItemId);
+                      configOptionProductOption.set("sequenceNum",sequenceNum);
+                      configOptionProductOption.set("configOptionId",configOptionId);
+                      configOptionProductOption.set("productId",optionProductId);
+                      configOptionProductOption.set("productOptionId",optionProductOptionId);
+                      if (!configOptionProductOptions.remove(configOptionProductOption)) {
+                        match=false;
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+              if (match && (UtilValidate.isEmpty(configOptionProductOptions))) {
+                configWrapper.configId=tempConfigId;
+                Debug.logInfo("Existing configuration found with configId:" + tempConfigId,module);
+                return;
+              }
+            }
+          }
+ else {
+            configWrapper.configId=tempConfigId;
+            Debug.logInfo("Existing configuration found with configId:" + tempConfigId,module);
+            return;
+          }
         }
       }
  catch (      GenericEntityException e) {
@@ -92,6 +148,7 @@
       sequenceNum=ci.getConfigItemAssoc().getLong("sequenceNum");
       Iterator selOpIt=selectedOptions.iterator();
       while (selOpIt.hasNext()) {
+        List toBeStored=new LinkedList();
         ConfigOption oneOption=(ConfigOption)selOpIt.next();
         String configOptionId=oneOption.configOption.getString("configOptionId");
         GenericValue productConfigConfig=delegator.makeValue("ProductConfigConfig");
@@ -99,8 +156,26 @@
         productConfigConfig.put("configItemId",configItemId);
         productConfigConfig.put("sequenceNum",sequenceNum);
         productConfigConfig.put("configOptionId",configOptionId);
+        toBeStored.add(productConfigConfig);
+        if (oneOption.hasVirtualComponent()) {
+          List components=oneOption.getComponents();
+          for (int j=0; j < components.size(); j++) {
+            GenericValue component=(GenericValue)components.get(j);
+            if (oneOption.isVirtualComponent(component)) {
+              String componentOption=(String)oneOption.componentOptions.get(component.getString("productId"));
+              GenericValue configOptionProductOption=delegator.makeValue("ConfigOptionProductOption");
+              configOptionProductOption.put("configId",configId);
+              configOptionProductOption.put("configItemId",configItemId);
+              configOptionProductOption.put("sequenceNum",sequenceNum);
+              configOptionProductOption.put("configOptionId",configOptionId);
+              configOptionProductOption.put("productId",component.getString("productId"));
+              configOptionProductOption.put("productOptionId",componentOption);
+              toBeStored.add(configOptionProductOption);
+            }
+          }
+        }
         try {
-          productConfigConfig.create();
+          delegator.storeAll(toBeStored);
         }
  catch (        GenericEntityException e) {
           configId=null;

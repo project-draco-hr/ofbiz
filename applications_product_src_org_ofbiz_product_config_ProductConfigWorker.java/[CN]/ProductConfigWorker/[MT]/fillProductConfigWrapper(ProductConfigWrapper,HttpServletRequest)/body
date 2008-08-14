@@ -9,7 +9,50 @@
       int cnt=-1;
       try {
         cnt=Integer.parseInt(opts[h]);
-        configWrapper.setSelected(k,cnt);
+        ProductConfigWrapper.ConfigOption option=configWrapper.getItemOtion(k,cnt);
+        if (UtilValidate.isNotEmpty(option) && (option.hasVirtualComponent())) {
+          List components=option.getComponents();
+          int variantIndex=0;
+          for (int i=0; i < components.size(); i++) {
+            GenericValue component=(GenericValue)components.get(i);
+            if (option.isVirtualComponent(component)) {
+              String productParamName="add_product_id" + k + "_"+ cnt+ "_"+ variantIndex;
+              String selectedProdcutId=request.getParameter(productParamName);
+              if (UtilValidate.isEmpty(selectedProdcutId)) {
+                Debug.logWarning("ERROR: Request param [" + productParamName + "] not found!",module);
+              }
+ else {
+                if (ProductWorker.isVirtual((GenericDelegator)request.getAttribute("delegator"),selectedProdcutId)) {
+                  if ("VV_FEATURETREE".equals(ProductWorker.getProductvirtualVariantMethod((GenericDelegator)request.getAttribute("delegator"),selectedProdcutId))) {
+                    List<String> selectedFeatures=new LinkedList<String>();
+                    Enumeration paramNames=request.getParameterNames();
+                    while (paramNames.hasMoreElements()) {
+                      String paramName=(String)paramNames.nextElement();
+                      if (paramName.startsWith("FT" + k + "_"+ cnt+ "_"+ variantIndex)) {
+                        selectedFeatures.add(request.getParameterValues(paramName)[0]);
+                      }
+                    }
+                    if (UtilValidate.isEmpty(selectedFeatures)) {
+                      Debug.logWarning("ERROR: No features selected for productId [" + selectedProdcutId + "]",module);
+                    }
+                    String variantProductId=ProductWorker.getVariantFromFeatureTree(selectedProdcutId,selectedFeatures,(GenericDelegator)request.getAttribute("delegator"));
+                    if (UtilValidate.isNotEmpty(variantProductId)) {
+                      selectedProdcutId=variantProductId;
+                    }
+ else {
+                      Debug.logWarning("ERROR: Variant product not found!",module);
+                    }
+                  }
+                }
+                configWrapper.setSelected(k,cnt,i,selectedProdcutId);
+              }
+              variantIndex++;
+            }
+          }
+        }
+ else {
+          configWrapper.setSelected(k,cnt);
+        }
       }
  catch (      Exception e) {
         Debug.logWarning(e.getMessage(),module);
