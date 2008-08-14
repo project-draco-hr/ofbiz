@@ -1,0 +1,97 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String communicationEventId=(String)context.get("communicationEventId");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  List<Object> errorMessages=FastList.newInstance();
+  try {
+    GenericValue communicationEvent=delegator.findByPrimaryKey("CommunicationEvent",UtilMisc.toMap("communicationEventId",communicationEventId));
+    if (communicationEvent == null) {
+      String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_not_found_failure",locale);
+      return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+    }
+    String communicationEventType=communicationEvent.getString("communicationEventTypeId");
+    if (communicationEventType == null || !("EMAIL_COMMUNICATION".equals(communicationEventType) || "AUTO_EMAIL_COMM".equals(communicationEventType))) {
+      String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_must_be_email_for_email",locale);
+      return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+    }
+    if ((communicationEvent.getRelatedOne("FromContactMech") == null) || (!(communicationEvent.getRelatedOne("FromContactMech").getString("contactMechTypeId").equals("EMAIL_ADDRESS")) || (communicationEvent.getRelatedOne("FromContactMech").getString("infoString") == null))) {
+      String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_from_contact_mech_must_be_email",locale);
+      return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+    }
+    if (UtilValidate.isEmpty(communicationEvent.getString("subject"))) {
+      communicationEvent.put("subject"," ");
+    }
+    if (UtilValidate.isEmpty(communicationEvent.getString("content"))) {
+      communicationEvent.put("content"," ");
+    }
+    Map<String,Object> sendMailParams=FastMap.newInstance();
+    sendMailParams.put("sendFrom",communicationEvent.getRelatedOne("FromContactMech").getString("infoString"));
+    sendMailParams.put("subject",communicationEvent.getString("subject"));
+    sendMailParams.put("body",communicationEvent.getString("content"));
+    sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
+    sendMailParams.put("userLogin",userLogin);
+    if ((UtilValidate.isEmpty(communicationEvent.getString("contactListId")))) {
+      String sendTo=communicationEvent.getString("toString");
+      if (UtilValidate.isEmpty(sendTo)) {
+        GenericValue toContactMech=communicationEvent.getRelatedOne("ToContactMech");
+        if (toContactMech != null && "EMAIL_ADDRESS".equals(toContactMech.getString("contactMechTypeId"))) {
+          sendTo=toContactMech.getString("infoString");
+        }
+      }
+      if (UtilValidate.isEmpty(sendTo)) {
+        String errMsg=UtilProperties.getMessage(resource,"commeventservices.communication_event_to_contact_mech_must_be_email",locale);
+        return ServiceUtil.returnError(errMsg + " " + communicationEventId);
+      }
+      sendMailParams.put("communicationEventId",communicationEventId);
+      sendMailParams.put("sendTo",sendTo);
+      sendMailParams.put("partyId",communicationEvent.getString("partyIdTo"));
+      Map<String,Object> tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+      if (ServiceUtil.isError(tmpResult)) {
+        errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+      }
+ else {
+        String messageId=(String)tmpResult.get("messageId");
+        communicationEvent.set("messageId",messageId);
+        try {
+          communicationEvent.store();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+        Map<String,Object> completeResult=dispatcher.runSync("setCommEventComplete",UtilMisc.<String,Object>toMap("communicationEventId",communicationEventId,"userLogin",userLogin));
+        if (ServiceUtil.isError(completeResult)) {
+          errorMessages.add(ServiceUtil.getErrorMessage(completeResult));
+        }
+      }
+    }
+ else {
+      Map<String,Object> sendEmailToContactListContext=FastMap.newInstance();
+      sendEmailToContactListContext.put("contactListId",communicationEvent.getString("contactListId"));
+      sendEmailToContactListContext.put("communicationEventId",communicationEventId);
+      sendEmailToContactListContext.put("userLogin",userLogin);
+      try {
+        dispatcher.runAsync("sendEmailToContactList",sendEmailToContactListContext);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(resource,"commeventservices.errorCallingSendEmailToContactListService",locale);
+        Debug.logError(e,errMsg,module);
+        errorMessages.add(errMsg);
+        errorMessages.addAll(e.getMessageList());
+      }
+    }
+  }
+ catch (  GenericEntityException eex) {
+    ServiceUtil.returnError(eex.getMessage());
+  }
+catch (  GenericServiceException esx) {
+    ServiceUtil.returnError(esx.getMessage());
+  }
+  if (errorMessages.size() > 0) {
+    result=ServiceUtil.returnError(errorMessages);
+  }
+  return result;
+}

@@ -1,0 +1,91 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  List<Object> errorMessages=FastList.newInstance();
+  String errorCallingUpdateContactListPartyService=UtilProperties.getMessage(resource,"commeventservices.errorCallingUpdateContactListPartyService",locale);
+  String errorCallingSendMailService=UtilProperties.getMessage(resource,"commeventservices.errorCallingSendMailService",locale);
+  String errorInSendEmailToContactListService=UtilProperties.getMessage(resource,"commeventservices.errorInSendEmailToContactListService",locale);
+  String skippingInvalidEmailAddress=UtilProperties.getMessage(resource,"commeventservices.skippingInvalidEmailAddress",locale);
+  String contactListId=(String)context.get("contactListId");
+  String communicationEventId=(String)context.get("communicationEventId");
+  try {
+    GenericValue communicationEvent=delegator.findByPrimaryKey("CommunicationEvent",UtilMisc.toMap("communicationEventId",communicationEventId));
+    GenericValue contactList=delegator.findByPrimaryKey("ContactList",UtilMisc.toMap("contactListId",contactListId));
+    Map<String,Object> sendMailParams=FastMap.newInstance();
+    sendMailParams.put("sendFrom",communicationEvent.getRelatedOne("FromContactMech").getString("infoString"));
+    sendMailParams.put("subject",communicationEvent.getString("subject"));
+    sendMailParams.put("body",communicationEvent.getString("content"));
+    sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
+    sendMailParams.put("userLogin",userLogin);
+    List<EntityCondition> conditionList=UtilMisc.toList(EntityCondition.makeCondition("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),EntityCondition.makeCondition("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr(),EntityUtil.getFilterByDateExpr("contactFromDate","contactThruDate"));
+    EntityConditionList<EntityCondition> conditions=EntityCondition.makeCondition(conditionList,EntityOperator.AND);
+    Set<String> fieldsToSelect=UtilMisc.toSet("infoString");
+    List<GenericValue> sendToEmails=delegator.findList("ContactListPartyAndContactMech",conditions,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true),false);
+    List<String> orderBy=UtilMisc.toList("-fromDate");
+    for (    GenericValue contactListPartyAndContactMech : sendToEmails) {
+      try {
+        String emailAddress=contactListPartyAndContactMech.getString("infoString");
+        if (UtilValidate.isEmpty(emailAddress))         continue;
+        emailAddress=emailAddress.trim();
+        if (!UtilValidate.isEmail(emailAddress)) {
+          Debug.logError(skippingInvalidEmailAddress + ": " + emailAddress,module);
+          errorMessages.add(skippingInvalidEmailAddress + ": " + emailAddress);
+          continue;
+        }
+        List<EntityCondition> clpConditionList=UtilMisc.makeListWritable(conditionList);
+        clpConditionList.add(EntityCondition.makeCondition("infoString",EntityOperator.EQUALS,emailAddress));
+        EntityConditionList clpConditions=EntityCondition.makeCondition(clpConditionList,EntityOperator.AND);
+        List<GenericValue> emailCLPaCMs=delegator.findList("ContactListPartyAndContactMech",clpConditions,null,orderBy,null,true);
+        GenericValue lastContactListPartyACM=EntityUtil.getFirst(emailCLPaCMs);
+        if (lastContactListPartyACM == null)         continue;
+        String partyId=lastContactListPartyACM.getString("partyId");
+        sendMailParams.put("sendTo",emailAddress);
+        sendMailParams.put("partyId",partyId);
+        if ("NEWSLETTER".equals(contactList.getString("contactListTypeId"))) {
+          sendMailParams.put("communicationEventId",communicationEventId);
+        }
+        Map<String,String> contactListCommStatusRecordMap=UtilMisc.toMap("contactListId",contactListId,"communicationEventId",communicationEventId,"contactMechId",lastContactListPartyACM.getString("preferredContactMechId"));
+        GenericValue contactListCommStatusRecord=delegator.findByPrimaryKey("ContactListCommStatus",contactListCommStatusRecordMap);
+        if (contactListCommStatusRecord == null) {
+          Map<String,String> newContactListCommStatusRecordMap=UtilMisc.makeMapWritable(contactListCommStatusRecordMap);
+          newContactListCommStatusRecordMap.put("statusId","COM_IN_PROGRESS");
+          contactListCommStatusRecord=delegator.create("ContactListCommStatus",newContactListCommStatusRecordMap);
+        }
+ else         if (contactListCommStatusRecord.get("statusId") != null && contactListCommStatusRecord.getString("statusId").equals("COM_COMPLETE")) {
+          continue;
+        }
+        Map<String,Object> tmpResult=null;
+        tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+        if (tmpResult == null || ServiceUtil.isError(tmpResult)) {
+          Debug.logError(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult),module);
+          errorMessages.add(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult));
+          continue;
+        }
+        if ("Y".equals(contactList.get("singleUse"))) {
+          tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",lastContactListPartyACM.get("contactListId"),"partyId",partyId,"fromDate",lastContactListPartyACM.get("fromDate"),"thruDate",UtilDateTime.nowTimestamp(),"userLogin",userLogin));
+          if (ServiceUtil.isError(tmpResult)) {
+            Debug.logError(errorCallingUpdateContactListPartyService + ": " + ServiceUtil.getErrorMessage(tmpResult),module);
+            errorMessages.add(errorCallingUpdateContactListPartyService + ": " + ServiceUtil.getErrorMessage(tmpResult));
+            continue;
+          }
+        }
+        contactListCommStatusRecord.set("statusId","COM_COMPLETE");
+        delegator.store(contactListCommStatusRecord);
+      }
+ catch (      GenericEntityException nonFatalGEE) {
+        Debug.logError(nonFatalGEE,errorInSendEmailToContactListService,module);
+        errorMessages.add(errorInSendEmailToContactListService + ": " + nonFatalGEE.getMessage());
+      }
+catch (      GenericServiceException nonFatalGSE) {
+        Debug.logError(nonFatalGSE,errorInSendEmailToContactListService,module);
+        errorMessages.add(errorInSendEmailToContactListService + ": " + nonFatalGSE.getMessage());
+      }
+    }
+  }
+ catch (  GenericEntityException fatalGEE) {
+    ServiceUtil.returnError(fatalGEE.getMessage());
+  }
+  return errorMessages.size() == 0 ? ServiceUtil.returnSuccess() : ServiceUtil.returnError(errorMessages);
+}

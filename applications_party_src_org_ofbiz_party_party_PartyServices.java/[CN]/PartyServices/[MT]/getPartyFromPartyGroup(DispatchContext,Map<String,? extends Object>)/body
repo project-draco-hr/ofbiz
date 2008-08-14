@@ -1,0 +1,30 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  GenericDelegator delegator=dctx.getDelegator();
+  Collection<Map<String,GenericValue>> parties=FastList.newInstance();
+  String groupName=(String)context.get("groupName");
+  Locale locale=(Locale)context.get("locale");
+  if (groupName.length() == 0) {
+    return ServiceUtil.returnError("Required parameter 'groupName' cannot be empty.");
+  }
+  try {
+    EntityExpr ee=EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("groupName"),EntityOperator.LIKE,EntityFunction.UPPER("%" + groupName.toUpperCase() + "%"));
+    Collection<GenericValue> pc=delegator.findList("PartyGroup",ee,null,UtilMisc.toList("groupName","partyId"),null,false);
+    if (Debug.infoOn())     Debug.logInfo("PartyFromGroup number found: " + pc.size(),module);
+    if (pc != null) {
+      for (      GenericValue group : pc) {
+        GenericValue party=delegator.makeValue("Party",UtilMisc.toMap("partyId",group.get("partyId"),"partyTypeId","PARTY_GROUP"));
+        parties.add(UtilMisc.toMap("partyGroup",group,"party",party));
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Map<String,String> messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    String errMsg=UtilProperties.getMessage(resource,"partyservices.cannot_get_party_entities_read",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (parties.size() > 0) {
+    result.put("parties",parties);
+  }
+  return result;
+}
