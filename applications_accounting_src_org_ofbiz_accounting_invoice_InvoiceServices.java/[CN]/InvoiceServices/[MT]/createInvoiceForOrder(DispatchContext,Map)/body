@@ -19,7 +19,7 @@
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingNoOrderHeader",locale));
     }
     List billedItems=delegator.findByAnd("OrderItemBilling",UtilMisc.toMap("orderId",orderId));
-    if (billedItems != null && billedItems.size() > 0) {
+    if (billedItems.size() > 0) {
       boolean nonDigitalInvoice=false;
       Iterator bii=billedItems.iterator();
       while (bii.hasNext() && !nonDigitalInvoice) {
@@ -452,31 +452,29 @@
       invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
     }
     List orderPaymentPrefs=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId));
-    if (orderPaymentPrefs != null) {
-      List currentPayments=new ArrayList();
-      Iterator opi=orderPaymentPrefs.iterator();
-      while (opi.hasNext()) {
-        GenericValue paymentPref=(GenericValue)opi.next();
-        List payments=paymentPref.getRelated("Payment");
-        currentPayments.addAll(payments);
-      }
-      if (currentPayments.size() > 0) {
-        Iterator cpi=currentPayments.iterator();
-        while (cpi.hasNext()) {
-          GenericValue payment=(GenericValue)cpi.next();
-          List currentApplications=null;
-          currentApplications=payment.getRelated("PaymentApplication");
-          if (currentApplications == null || currentApplications.size() == 0) {
-            Map appl=new HashMap();
-            appl.put("paymentId",payment.get("paymentId"));
-            appl.put("invoiceId",invoiceId);
-            appl.put("billingAccountId",billingAccountId);
-            appl.put("amountApplied",payment.get("amount"));
-            appl.put("userLogin",userLogin);
-            Map createPayApplResult=dispatcher.runSync("createPaymentApplication",appl);
-            if (ServiceUtil.isError(createPayApplResult)) {
-              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,createPayApplResult);
-            }
+    List currentPayments=FastList.newInstance();
+    Iterator opi=orderPaymentPrefs.iterator();
+    while (opi.hasNext()) {
+      GenericValue paymentPref=(GenericValue)opi.next();
+      List payments=paymentPref.getRelated("Payment");
+      currentPayments.addAll(payments);
+    }
+    if (currentPayments.size() > 0) {
+      Iterator cpi=currentPayments.iterator();
+      while (cpi.hasNext()) {
+        GenericValue payment=(GenericValue)cpi.next();
+        List currentApplications=null;
+        currentApplications=payment.getRelated("PaymentApplication");
+        if (currentApplications == null || currentApplications.size() == 0) {
+          Map appl=new HashMap();
+          appl.put("paymentId",payment.get("paymentId"));
+          appl.put("invoiceId",invoiceId);
+          appl.put("billingAccountId",billingAccountId);
+          appl.put("amountApplied",payment.get("amount"));
+          appl.put("userLogin",userLogin);
+          Map createPayApplResult=dispatcher.runSync("createPaymentApplication",appl);
+          if (ServiceUtil.isError(createPayApplResult)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,createPayApplResult);
           }
         }
       }

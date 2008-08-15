@@ -38,22 +38,20 @@
   try {
     if (purchaseShipmentFound) {
       items=delegator.findList("ShipmentReceipt",shipmentIdsCond,null,UtilMisc.toList("shipmentId"),null,false);
-      if (items != null) {
-        Iterator itemsIter=items.iterator();
-        while (itemsIter.hasNext()) {
-          GenericValue item=(GenericValue)itemsIter.next();
-          GenericValue inventoryItem=item.getRelatedOne("InventoryItem");
-          GenericValue ownerPartyRole=delegator.findByPrimaryKeyCache("PartyRole",UtilMisc.toMap("partyId",inventoryItem.getString("ownerPartyId"),"roleTypeId","INTERNAL_ORGANIZATIO"));
-          if (UtilValidate.isEmpty(ownerPartyRole)) {
-            items.remove(item);
-          }
+      Iterator itemsIter=items.iterator();
+      while (itemsIter.hasNext()) {
+        GenericValue item=(GenericValue)itemsIter.next();
+        GenericValue inventoryItem=item.getRelatedOne("InventoryItem");
+        GenericValue ownerPartyRole=delegator.findByPrimaryKeyCache("PartyRole",UtilMisc.toMap("partyId",inventoryItem.getString("ownerPartyId"),"roleTypeId","INTERNAL_ORGANIZATIO"));
+        if (UtilValidate.isEmpty(ownerPartyRole)) {
+          itemsIter.remove();
         }
       }
     }
  else     if (dropShipmentFound) {
       List shipments=delegator.findList("Shipment",shipmentIdsCond,null,null,null,false);
       List purchaseOrderIds=EntityUtil.getFieldListFromEntityList(shipments,"primaryOrderId",true);
-      if (createSalesInvoicesForDropShipments.booleanValue()) {
+      if (createSalesInvoicesForDropShipments) {
         orderItemAssocs=delegator.findList("OrderItemAssoc",EntityCondition.makeCondition("toOrderId",EntityOperator.IN,purchaseOrderIds),null,null,null,false);
         items=EntityUtil.getRelated("FromOrderItem",orderItemAssocs);
       }
@@ -70,11 +68,11 @@
     Debug.logError(e,errMsg,module);
     return ServiceUtil.returnError(errMsg);
   }
-  if (items == null) {
+  if (items.size() == 0) {
     Debug.logInfo("No items issued for shipments",module);
     return ServiceUtil.returnSuccess();
   }
-  Map shippedOrderItems=new HashMap();
+  Map shippedOrderItems=FastMap.newInstance();
   Iterator itemsIter=items.iterator();
   while (itemsIter.hasNext()) {
     GenericValue item=(GenericValue)itemsIter.next();
@@ -105,7 +103,7 @@
       Debug.logError(e,errMsg,module);
       return ServiceUtil.returnError(errMsg);
     }
-    if (itemBillings == null || itemBillings.size() == 0) {
+    if (itemBillings.size() == 0) {
       itemsByOrder.add(item);
     }
     shippedOrderItems.put(orderId,itemsByOrder);
@@ -149,7 +147,7 @@
           Debug.logError(e,errMsg,module);
           return ServiceUtil.returnError(errMsg);
         }
-        if (billed != null && billed.size() > 0) {
+        if (billed.size() > 0) {
           BigDecimal billedQuantity=ZERO;
           Iterator bi=billed.iterator();
           while (bi.hasNext()) {
@@ -185,7 +183,7 @@
       try {
         if (dropShipmentFound) {
           List invoiceablePrimaryOrderIds=null;
-          if (createSalesInvoicesForDropShipments.booleanValue()) {
+          if (createSalesInvoicesForDropShipments) {
             List invoiceableLinkedOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
             List reverseOrderItemAssocs=EntityUtil.filterByCondition(orderItemAssocs,EntityCondition.makeCondition("orderId",EntityOperator.IN,invoiceableLinkedOrderIds));
             invoiceablePrimaryOrderIds=EntityUtil.getFieldListFromEntityList(reverseOrderItemAssocs,"toOrderId",true);
@@ -200,7 +198,7 @@
         }
  else {
           List invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
-          if (!UtilValidate.isEmpty(invoiceableShipmentIds)) {
+          if (UtilValidate.isNotEmpty(invoiceableShipmentIds)) {
             invoiceableShipments=delegator.findList("Shipment",EntityCondition.makeCondition("shipmentId",EntityOperator.IN,invoiceableShipmentIds),null,null,null,false);
           }
         }
@@ -210,9 +208,9 @@
         Debug.logError(e,errMsg,module);
         return ServiceUtil.returnError(errMsg);
       }
-      Map additionalShippingCharges=new HashMap();
+      Map additionalShippingCharges=FastMap.newInstance();
       BigDecimal totalAdditionalShippingCharges=ZERO;
-      if (!UtilValidate.isEmpty(invoiceableShipments)) {
+      if (UtilValidate.isNotEmpty(invoiceableShipments)) {
         Iterator isit=invoiceableShipments.iterator();
         while (isit.hasNext()) {
           GenericValue shipment=(GenericValue)isit.next();
@@ -302,7 +300,7 @@
               return ServiceUtil.returnError(errMsg);
             }
           }
-          List orderPaymentPreferences=new ArrayList();
+          List orderPaymentPreferences=null;
           try {
             orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId,"paymentMethodTypeId","CREDIT_CARD"));
           }
