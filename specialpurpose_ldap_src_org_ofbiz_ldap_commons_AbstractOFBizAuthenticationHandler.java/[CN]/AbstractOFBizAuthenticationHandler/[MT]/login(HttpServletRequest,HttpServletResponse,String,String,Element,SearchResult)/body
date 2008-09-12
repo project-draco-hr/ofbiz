@@ -1,0 +1,49 @@
+{
+  HttpSession session=request.getSession();
+  String visitId=VisitHandler.getVisitId(session);
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=dispatcher.getDelegator();
+  boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
+  GenericValue userLoginToCreate=delegator.makeValue("UserLogin",UtilMisc.toMap("userLoginId",username));
+  userLoginToCreate.set("passwordHint","");
+  userLoginToCreate.set("enabled","Y");
+  userLoginToCreate.set("partyId",getPartyId(rootElement,result));
+  userLoginToCreate.set("currentPassword",useEncryption ? HashCrypt.getDigestHash(password,LoginServices.getHashType()) : password);
+  GenericValue userTryToLogin=delegator.findOne("UserLogin",false,"userLoginId",username);
+  if (userTryToLogin == null) {
+    try {
+      userLoginToCreate.create();
+    }
+ catch (    GenericEntityException e) {
+      throw new GenericEntityException(e.getLocalizedMessage());
+    }
+    GenericValue userLoginSecurityGroup=delegator.makeValue("UserLoginSecurityGroup",UtilMisc.toMap("userLoginId",username,"groupId",getSecurityGroup(rootElement,result),"fromDate",UtilDateTime.nowTimestamp()));
+    try {
+      userLoginSecurityGroup.create();
+    }
+ catch (    GenericEntityException e) {
+      throw new GenericEntityException(e.getLocalizedMessage());
+    }
+  }
+ else {
+    userTryToLogin.setString("currentPassword",useEncryption ? HashCrypt.getDigestHash(password,LoginServices.getHashType()) : password);
+    userTryToLogin.store();
+  }
+  Map<String,Object> loginResult=null;
+  try {
+    loginResult=dispatcher.runSync("userLogin",UtilMisc.toMap("login.username",username,"login.password",password,"visitId",visitId,"locale",UtilHttp.getLocale(request)));
+  }
+ catch (  GenericServiceException e) {
+    throw new GenericServiceException(e.getLocalizedMessage());
+  }
+  if (ModelService.RESPOND_SUCCESS.equals(loginResult.get(ModelService.RESPONSE_MESSAGE))) {
+    GenericValue userLogin=(GenericValue)loginResult.get("userLogin");
+    Map<String,Object> userLoginSession=checkMap(loginResult.get("userLoginSession"),String.class,Object.class);
+    return LdapLoginWorker.doMainLogin(request,response,userLogin,userLoginSession);
+  }
+ else {
+    Map<String,String> messageMap=UtilMisc.toMap("errorMessage",(String)loginResult.get(ModelService.ERROR_MESSAGE));
+    String errMsg=UtilProperties.getMessage(LdapLoginWorker.resourceWebapp,"loginevents.following_error_occurred_during_login",messageMap,UtilHttp.getLocale(request));
+    throw new Exception(errMsg);
+  }
+}
