@@ -1,20 +1,53 @@
 {
   super.init();
   GenericValue job=this.getJob();
+  long maxRecurrenceCount=-1;
+  long currentRecurrenceCount=0;
+  TemporalExpression expr=null;
   RecurrenceInfo recurrence=JobManager.getRecurrenceInfo(job);
+  if (recurrence != null) {
+    if (!this.warningLogged) {
+      Debug.logWarning("Persisted Job [" + getJobId() + "] references a RecurrenceInfo, recommend using TemporalExpression instead",module);
+      this.warningLogged=true;
+    }
+    currentRecurrenceCount=recurrence.getCurrentCount();
+    expr=RecurrenceInfo.toTemporalExpression(recurrence);
+  }
+  if (expr == null && UtilValidate.isNotEmpty(job.getString("tempExprId"))) {
+    try {
+      expr=TemporalExpressionWorker.getTemporalExpression(this.delegator,job.getString("tempExprId"));
+    }
+ catch (    GenericEntityException e) {
+      throw new RuntimeException(e.getMessage());
+    }
+  }
   String instanceId=UtilProperties.getPropertyValue("general.properties","unique.instanceId","ofbiz0");
   if (!instanceId.equals(job.getString("runByInstanceId"))) {
     throw new InvalidJobException("Job has been accepted by a different instance!");
   }
+  if (job.get("maxRecurrenceCount") != null) {
+    maxRecurrenceCount=job.getLong("maxRecurrenceCount").longValue();
+  }
+  if (job.get("currentRecurrenceCount") != null) {
+    currentRecurrenceCount=job.getLong("currentRecurrenceCount").longValue();
+  }
+  if (maxRecurrenceCount != -1) {
+    currentRecurrenceCount++;
+    job.set("currentRecurrenceCount",currentRecurrenceCount);
+  }
   try {
-    if (recurrence != null) {
-      recurrence.incrementCurrentCount();
-      long next=recurrence.next();
-      createRecurrence(job,next);
+    if (expr != null && (maxRecurrenceCount == -1 || currentRecurrenceCount <= maxRecurrenceCount)) {
+      if (recurrence != null) {
+        recurrence.incrementCurrentCount();
+      }
+      Calendar next=expr.next(Calendar.getInstance());
+      if (next != null) {
+        createRecurrence(job,next.getTimeInMillis());
+      }
     }
   }
  catch (  GenericEntityException e) {
     throw new RuntimeException(e.getMessage());
   }
-  if (Debug.infoOn())   Debug.logInfo(this.toString() + "[" + getJobId()+ "] -- Next runtime: "+ new java.sql.Timestamp(nextRecurrence),module);
+  if (Debug.infoOn())   Debug.logInfo(this.toString() + "[" + getJobId()+ "] -- Next runtime: "+ new Date(nextRecurrence),module);
 }
