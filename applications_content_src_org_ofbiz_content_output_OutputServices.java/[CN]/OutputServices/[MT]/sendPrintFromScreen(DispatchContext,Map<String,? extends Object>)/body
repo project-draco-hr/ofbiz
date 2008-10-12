@@ -4,7 +4,6 @@
   Map screenContext=(Map)serviceContext.remove("screenContext");
   String contentType=(String)serviceContext.remove("contentType");
   String printerContentType=(String)serviceContext.remove("printerContentType");
-  String printerName=(String)serviceContext.remove("printerName");
   if (UtilValidate.isEmpty(screenContext)) {
     screenContext=FastMap.newInstance();
   }
@@ -41,71 +40,46 @@
       }
     }
     Doc myDoc=new SimpleDoc(bais,psInFormat,docAttributeSet);
-    PrintService[] services=PrintServiceLookup.lookupPrintServices(psInFormat,null);
     PrintService printer=null;
-    if (services.length > 0) {
-      if (UtilValidate.isNotEmpty(printerName)) {
-        String sPrinterName=null;
-        for (        PrintService service : services) {
-          PrintServiceAttribute attr=service.getAttribute(PrinterName.class);
-          sPrinterName=((PrinterName)attr).getValue();
-          if (sPrinterName.toLowerCase().indexOf(printerName.toLowerCase()) >= 0) {
-            printer=service;
-            Debug.logInfo("Printer with name [" + sPrinterName + "] selected",module);
-            break;
-          }
+    String printerName=(String)serviceContext.remove("printerName");
+    if (UtilValidate.isNotEmpty(printerName)) {
+      PrintServiceAttributeSet printServiceAttributes=new HashPrintServiceAttributeSet();
+      printServiceAttributes.add(new PrinterName(printerName,locale));
+      PrintService[] printServices=PrintServiceLookup.lookupPrintServices(null,printServiceAttributes);
+      if (printServices.length > 0) {
+        printer=printServices[0];
+        Debug.logInfo("Using printer: " + printer.getName(),module);
+        if (!printer.isDocFlavorSupported(psInFormat)) {
+          return ServiceUtil.returnError("DocFlavor [" + psInFormat + "] not supported by printer: "+ printer.getName());
         }
       }
       if (printer == null) {
-        printer=services[0];
+        return ServiceUtil.returnError("No printer found with name: " + printerName);
       }
-    }
-    if (printer != null) {
-      PrintRequestAttributeSet praset=new HashPrintRequestAttributeSet();
-      List printRequestAttributes=(List)serviceContext.remove("printRequestAttributes");
-      if (UtilValidate.isNotEmpty(printRequestAttributes)) {
-        for (        Object pra : printRequestAttributes) {
-          Debug.logInfo("Adding PrintRequestAttribute: " + pra,module);
-          praset.add((PrintRequestAttribute)pra);
-        }
-      }
-      DocPrintJob job=printer.createPrintJob();
-      job.print(myDoc,praset);
     }
  else {
-      String errMsg="No printer found with name: " + printerName;
-      Debug.logError(errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      printer=PrintServiceLookup.lookupDefaultPrintService();
+      if (printer != null) {
+        Debug.logInfo("No printer name supplied, using default printer: " + printer.getName(),module);
+      }
     }
+    if (printer == null) {
+      return ServiceUtil.returnError("No printer available");
+    }
+    PrintRequestAttributeSet praset=new HashPrintRequestAttributeSet();
+    List printRequestAttributes=(List)serviceContext.remove("printRequestAttributes");
+    if (UtilValidate.isNotEmpty(printRequestAttributes)) {
+      for (      Object pra : printRequestAttributes) {
+        Debug.logInfo("Adding PrintRequestAttribute: " + pra,module);
+        praset.add((PrintRequestAttribute)pra);
+      }
+    }
+    DocPrintJob job=printer.createPrintJob();
+    job.print(myDoc,praset);
   }
- catch (  PrintException pe) {
-    String errMsg="Error printing [" + contentType + "]: "+ pe.toString();
-    Debug.logError(pe,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
-  }
-catch (  GeneralException ge) {
-    String errMsg="Error rendering [" + contentType + "]: "+ ge.toString();
-    Debug.logError(ge,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
-  }
-catch (  IOException ie) {
-    String errMsg="Error rendering [" + contentType + "]: "+ ie.toString();
-    Debug.logError(ie,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
-  }
-catch (  FOPException fe) {
-    String errMsg="Error rendering [" + contentType + "]: "+ fe.toString();
-    Debug.logError(fe,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
-  }
-catch (  SAXException se) {
-    String errMsg="Error rendering [" + contentType + "]: "+ se.toString();
-    Debug.logError(se,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
-  }
-catch (  ParserConfigurationException pe) {
-    String errMsg="Error rendering [" + contentType + "]: "+ pe.toString();
-    Debug.logError(pe,errMsg,module);
+ catch (  Exception e) {
+    String errMsg="Error rendering [" + contentType + "]: "+ e.toString();
+    Debug.logError(e,errMsg,module);
     return ServiceUtil.returnError(errMsg);
   }
   return ServiceUtil.returnSuccess();
