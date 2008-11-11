@@ -1,0 +1,48 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String shipmentId=(String)context.get("shipmentId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  try {
+    List<GenericValue> shipmentReceipts=delegator.findByAnd("ShipmentReceipt",UtilMisc.toMap("shipmentId",shipmentId));
+    if (shipmentReceipts.size() == 0)     return ServiceUtil.returnSuccess();
+    GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+    if ((!UtilValidate.isEmpty(shipment)) && "PURCH_SHIP_CREATED".equals(shipment.getString("statusId"))) {
+      Map<String,Object> updateShipmentMap=dispatcher.runSync("updateShipment",UtilMisc.<String,Object>toMap("shipmentId",shipmentId,"statusId","PURCH_SHIP_SHIPPED","userLogin",userLogin));
+      if (ServiceUtil.isError(updateShipmentMap))       return updateShipmentMap;
+    }
+    List<GenericValue> shipmentAndItems=delegator.findByAnd("ShipmentAndItem",UtilMisc.toMap("shipmentId",shipmentId,"statusId","PURCH_SHIP_SHIPPED"));
+    if (shipmentAndItems.size() == 0)     return ServiceUtil.returnSuccess();
+    Map<String,Double> shippedCountMap=FastMap.newInstance();
+    Iterator<GenericValue> iter=shipmentAndItems.iterator();
+    while (iter.hasNext()) {
+      GenericValue item=iter.next();
+      double shippedQuantity=item.getDouble("quantity").doubleValue();
+      Double quantity=shippedCountMap.get(item.getString("productId"));
+      quantity=Double.valueOf(quantity == null ? shippedQuantity : shippedQuantity + quantity.doubleValue());
+      shippedCountMap.put(item.getString("productId"),quantity);
+    }
+    Map<String,Double> receivedCountMap=FastMap.newInstance();
+    iter=shipmentReceipts.iterator();
+    while (iter.hasNext()) {
+      GenericValue item=iter.next();
+      double receivedQuantity=item.getDouble("quantityAccepted").doubleValue();
+      Double quantity=receivedCountMap.get(item.getString("productId"));
+      quantity=Double.valueOf(quantity == null ? receivedQuantity : receivedQuantity + quantity.doubleValue());
+      receivedCountMap.put(item.getString("productId"),quantity);
+    }
+    if (!shippedCountMap.equals(receivedCountMap)) {
+      return ServiceUtil.returnSuccess();
+    }
+    dispatcher.runSync("updateShipment",UtilMisc.<String,Object>toMap("shipmentId",shipmentId,"statusId","PURCH_SHIP_RECEIVED","userLogin",userLogin));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException se) {
+    Debug.logError(se,module);
+    return ServiceUtil.returnError(se.getMessage());
+  }
+  return ServiceUtil.returnSuccess("Intentional error at end to keep from committing.");
+}

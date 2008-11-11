@@ -1,0 +1,62 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  GenericDelegator delegator=dctx.getDelegator();
+  List<GenericValue> storeAll=FastList.newInstance();
+  String productStoreShipMethId=(String)context.get("productStoreShipMethId");
+  GenericValue productStoreShipMeth=null;
+  try {
+    productStoreShipMeth=delegator.findByPrimaryKey("ProductStoreShipmentMeth",UtilMisc.toMap("productStoreShipMethId",productStoreShipMethId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Problem retrieving ProductStoreShipmentMeth entry with id [" + productStoreShipMethId + "]: "+ e.toString());
+  }
+  GenericValue estimate=delegator.makeValue("ShipmentCostEstimate");
+  estimate.set("shipmentCostEstimateId",delegator.getNextSeqId("ShipmentCostEstimate"));
+  estimate.set("shipmentMethodTypeId",productStoreShipMeth.getString("shipmentMethodTypeId"));
+  estimate.set("carrierPartyId",productStoreShipMeth.getString("partyId"));
+  estimate.set("carrierRoleTypeId","CARRIER");
+  estimate.set("productStoreId",productStoreShipMeth.getString("productStoreId"));
+  estimate.set("geoIdTo",context.get("toGeo"));
+  estimate.set("geoIdFrom",context.get("fromGeo"));
+  estimate.set("partyId",context.get("partyId"));
+  estimate.set("roleTypeId",context.get("roleTypeId"));
+  estimate.set("orderPricePercent",context.get("flatPercent"));
+  estimate.set("orderFlatPrice",context.get("flatPrice"));
+  estimate.set("orderItemFlatPrice",context.get("flatItemPrice"));
+  estimate.set("shippingPricePercent",context.get("shippingPricePercent"));
+  estimate.set("productFeatureGroupId",context.get("productFeatureGroupId"));
+  estimate.set("oversizeUnit",context.get("oversizeUnit"));
+  estimate.set("oversizePrice",context.get("oversizePrice"));
+  estimate.set("featurePercent",context.get("featurePercent"));
+  estimate.set("featurePrice",context.get("featurePrice"));
+  estimate.set("weightBreakId",context.get("weightBreakId"));
+  estimate.set("weightUnitPrice",(Double)context.get("wprice"));
+  estimate.set("weightUomId",context.get("wuom"));
+  estimate.set("quantityBreakId",context.get("quantityBreakId"));
+  estimate.set("quantityUnitPrice",(Double)context.get("qprice"));
+  estimate.set("quantityUomId",context.get("quom"));
+  estimate.set("priceBreakId",context.get("priceBreakId"));
+  estimate.set("priceUnitPrice",(Double)context.get("pprice"));
+  estimate.set("priceUomId",context.get("puom"));
+  storeAll.add(estimate);
+  if (!applyQuantityBreak(context,result,storeAll,delegator,estimate,"w","weight","Weight")) {
+    return result;
+  }
+  if (!applyQuantityBreak(context,result,storeAll,delegator,estimate,"q","quantity","Quantity")) {
+    return result;
+  }
+  if (!applyQuantityBreak(context,result,storeAll,delegator,estimate,"p","price","Price")) {
+    return result;
+  }
+  try {
+    delegator.storeAll(storeAll);
+  }
+ catch (  GenericEntityException e) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,"Problem reading product features: " + e.toString());
+    return result;
+  }
+  result.put("shipmentCostEstimateId",estimate.get("shipmentCostEstimateId"));
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}
