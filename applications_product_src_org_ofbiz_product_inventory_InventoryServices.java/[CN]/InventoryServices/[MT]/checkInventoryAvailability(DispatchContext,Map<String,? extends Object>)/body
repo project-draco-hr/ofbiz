@@ -18,9 +18,7 @@
     return ServiceUtil.returnSuccess();
   }
   Debug.log("OOS Inventory Items: " + inventoryItems.size(),module);
-  Iterator<GenericValue> itemsIter=inventoryItems.iterator();
-  while (itemsIter.hasNext()) {
-    GenericValue inventoryItem=itemsIter.next();
+  for (  GenericValue inventoryItem : inventoryItems) {
     List<GenericValue> shipmentAndItems=null;
     try {
       List<EntityExpr> exprs=FastList.newInstance();
@@ -49,9 +47,7 @@
     }
     Debug.log("Reservations for item: " + reservations.size(),module);
     double availableBeforeReserved=inventoryItem.getDouble("availableToPromiseTotal").doubleValue();
-    Iterator<GenericValue> ri=reservations.iterator();
-    while (ri.hasNext()) {
-      GenericValue reservation=ri.next();
+    for (    GenericValue reservation : reservations) {
       String orderId=reservation.getString("orderId");
       String orderItemSeqId=reservation.getString("orderItemSeqId");
       Timestamp promisedDate=reservation.getTimestamp("promisedDatetime");
@@ -68,9 +64,7 @@
       Debug.log("Promised Date: " + actualPromiseDate,module);
       Timestamp nextShipDate=null;
       double availableAtTime=0.00;
-      Iterator<GenericValue> si=shipmentAndItems.iterator();
-      while (si.hasNext()) {
-        GenericValue shipmentItem=si.next();
+      for (      GenericValue shipmentItem : shipmentAndItems) {
         availableAtTime+=shipmentItem.getDouble("quantity").doubleValue();
         if (availableAtTime >= availableBeforeReserved) {
           nextShipDate=shipmentItem.getTimestamp("estimatedArrivalDate");
@@ -131,11 +125,9 @@
     }
   }
   List<String> ordersToNotify=FastList.newInstance();
-  Set<String> orderSet=ordersToUpdate.keySet();
-  Iterator<String> orderIter=orderSet.iterator();
-  while (orderIter.hasNext()) {
-    String orderId=orderIter.next();
-    Map<String,Timestamp> backOrderedItems=ordersToUpdate.get(orderId);
+  for (  Map.Entry<String,Map<String,Timestamp>> entry : ordersToUpdate.entrySet()) {
+    String orderId=entry.getKey();
+    Map<String,Timestamp> backOrderedItems=entry.getValue();
     Map<String,Timestamp> cancelItems=ordersToCancel.get(orderId);
     boolean cancelAll=false;
     Timestamp cancelAllTime=null;
@@ -146,16 +138,12 @@
  catch (    GenericEntityException e) {
       Debug.logError(e,"Cannot get OrderItemShipGroups from orderId" + orderId,module);
     }
-    Iterator<GenericValue> orderItemShipGroupsIter=orderItemShipGroups.iterator();
-    while (orderItemShipGroupsIter.hasNext()) {
-      GenericValue orderItemShipGroup=orderItemShipGroupsIter.next();
+    for (    GenericValue orderItemShipGroup : orderItemShipGroups) {
       List<GenericValue> orderItems=FastList.newInstance();
       List<GenericValue> orderItemShipGroupAssoc=null;
       try {
         orderItemShipGroupAssoc=delegator.findByAnd("OrderItemShipGroupAssoc",UtilMisc.toMap("shipGroupSeqId",orderItemShipGroup.get("shipGroupSeqId"),"orderId",orderId));
-        Iterator<GenericValue> assocIter=orderItemShipGroupAssoc.iterator();
-        while (assocIter.hasNext()) {
-          GenericValue assoc=assocIter.next();
+        for (        GenericValue assoc : orderItemShipGroupAssoc) {
           GenericValue orderItem=assoc.getRelatedOne("OrderItem");
           if (orderItem != null) {
             orderItems.add(orderItem);
@@ -179,9 +167,7 @@
       }
       if (orderItems != null) {
         List<GenericValue> toBeStored=FastList.newInstance();
-        Iterator<GenericValue> orderItemsIter=orderItems.iterator();
-        while (orderItemsIter.hasNext()) {
-          GenericValue orderItem=orderItemsIter.next();
+        for (        GenericValue orderItem : orderItems) {
           String orderItemSeqId=orderItem.getString("orderItemSeqId");
           Timestamp shipDate=(Timestamp)backOrderedItems.get(orderItemSeqId);
           Timestamp cancelDate=(Timestamp)cancelItems.get(orderItemSeqId);
@@ -216,9 +202,7 @@
       }
     }
   }
-  Iterator<String> orderNotifyIter=ordersToNotify.iterator();
-  while (orderNotifyIter.hasNext()) {
-    String orderId=orderNotifyIter.next();
+  for (  String orderId : ordersToNotify) {
     try {
       dispatcher.runAsync("sendOrderBackorderNotification",UtilMisc.<String,Object>toMap("orderId",orderId,"userLogin",userLogin));
     }
