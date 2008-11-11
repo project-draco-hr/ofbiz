@@ -1,0 +1,84 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  Map<String,Object> responseMsgs=FastMap.newInstance();
+  String path=System.getProperty("user.dir") + "/spreadsheet";
+  List<File> fileItems=FastList.newInstance();
+  if (path != null && path.length() > 0) {
+    File importDir=new File(path);
+    if (importDir.isDirectory() && importDir.canRead()) {
+      File[] files=importDir.listFiles();
+      for (int i=0; i < files.length; i++) {
+        if (files[i].getName().toUpperCase().endsWith("XLS")) {
+          fileItems.add(files[i]);
+        }
+      }
+    }
+ else {
+      Debug.logWarning("Directory not found or can't be read",module);
+      return responseMsgs;
+    }
+  }
+ else {
+    Debug.logWarning("No path specified, doing nothing",module);
+    return responseMsgs;
+  }
+  if (fileItems.size() < 1) {
+    Debug.logWarning("No spreadsheet exists in " + path,module);
+    return responseMsgs;
+  }
+  for (int i=0; i < fileItems.size(); i++) {
+    File item=fileItems.get(i);
+    List<Map<String,Object>> products=FastList.newInstance();
+    List<Map<String,Object>> inventoryItems=FastList.newInstance();
+    POIFSFileSystem fs=null;
+    HSSFWorkbook wb=null;
+    try {
+      fs=new POIFSFileSystem(new FileInputStream(item));
+      wb=new HSSFWorkbook(fs);
+    }
+ catch (    IOException e) {
+      Debug.logError("Unable to read or create workbook from file",module);
+      return responseMsgs;
+    }
+    HSSFSheet sheet=wb.getSheetAt(0);
+    int sheetLastRowNumber=sheet.getLastRowNum();
+    for (int j=1; j <= sheetLastRowNumber; j++) {
+      HSSFRow row=sheet.getRow(j);
+      if (row != null) {
+        HSSFCell cell1=row.getCell((short)1);
+        cell1.setCellType(HSSFCell.CELL_TYPE_STRING);
+        String productId=cell1.getStringCellValue();
+        HSSFCell cell8=row.getCell((short)8);
+        double quantityOnHand=0.0;
+        if (cell8 != null && cell8.getCellType() == HSSFCell.CELL_TYPE_NUMERIC)         quantityOnHand=cell8.getNumericCellValue();
+        boolean productExists=ImportProductHelper.checkProductExists(productId,delegator);
+        if (productId != null && !productId.trim().equalsIgnoreCase("") && !productExists) {
+          products.add(ImportProductHelper.prepareProduct(productId));
+          if (quantityOnHand >= 0.0)           inventoryItems.add(ImportProductHelper.prepareInventoryItem(productId,quantityOnHand,delegator.getNextSeqId("InventoryItem")));
+ else           inventoryItems.add(ImportProductHelper.prepareInventoryItem(productId,0.0,delegator.getNextSeqId("InventoryItem")));
+        }
+        int rowNum=row.getRowNum() + 1;
+        if (row.toString() != null && !row.toString().trim().equalsIgnoreCase("") && products.size() > 0 && !productExists) {
+          Debug.logWarning("Row number " + rowNum + " not imported from "+ item.getName(),module);
+        }
+      }
+    }
+    for (int j=0; j < products.size(); j++) {
+      GenericValue productGV=delegator.makeValue("Product",products.get(j));
+      GenericValue inventoryItemGV=delegator.makeValue("InventoryItem",inventoryItems.get(j));
+      if (!ImportProductHelper.checkProductExists(productGV.getString("productId"),delegator)) {
+        try {
+          delegator.create(productGV);
+          delegator.create(inventoryItemGV);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError("Cannot store product",module);
+          return ServiceUtil.returnError("Cannot store product");
+        }
+      }
+    }
+    int uploadedProducts=products.size() + 1;
+    if (products.size() > 0)     Debug.logInfo("Uploaded " + uploadedProducts + " products from file "+ item.getName(),module);
+  }
+  return responseMsgs;
+}

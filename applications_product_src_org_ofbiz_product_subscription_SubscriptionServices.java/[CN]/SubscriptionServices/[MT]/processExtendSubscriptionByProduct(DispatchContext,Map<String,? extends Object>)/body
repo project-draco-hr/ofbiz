@@ -1,0 +1,50 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String productId=(String)context.get("productId");
+  Integer qty=(Integer)context.get("quantity");
+  if (qty == null) {
+    qty=Integer.valueOf(1);
+  }
+  Timestamp orderCreatedDate=(Timestamp)context.get("orderCreatedDate");
+  if (orderCreatedDate == null) {
+    orderCreatedDate=UtilDateTime.nowTimestamp();
+  }
+  try {
+    List<GenericValue> productSubscriptionResourceList=delegator.findByAndCache("ProductSubscriptionResource",UtilMisc.toMap("productId",productId));
+    productSubscriptionResourceList=EntityUtil.filterByDate(productSubscriptionResourceList,orderCreatedDate,null,null,true);
+    productSubscriptionResourceList=EntityUtil.filterByDate(productSubscriptionResourceList,orderCreatedDate,"purchaseFromDate","purchaseThruDate",true);
+    if (productSubscriptionResourceList.size() == 0) {
+      String msg="No ProductSubscriptionResource found for productId: " + productId;
+      Debug.logError(msg,module);
+      return ServiceUtil.returnError(msg);
+    }
+    Iterator<GenericValue> productSubscriptionResourceIter=productSubscriptionResourceList.iterator();
+    while (productSubscriptionResourceIter.hasNext()) {
+      GenericValue productSubscriptionResource=productSubscriptionResourceIter.next();
+      Long useTime=productSubscriptionResource.getLong("useTime");
+      Integer newUseTime=Integer.valueOf(0);
+      if (useTime != null) {
+        newUseTime=Integer.valueOf(useTime.intValue() * qty.intValue());
+      }
+      Map<String,Object> subContext=UtilMisc.makeMapWritable(context);
+      subContext.put("useTime",newUseTime);
+      subContext.put("useTimeUomId",productSubscriptionResource.get("useTimeUomId"));
+      subContext.put("useRoleTypeId",productSubscriptionResource.get("useRoleTypeId"));
+      subContext.put("subscriptionResourceId",productSubscriptionResource.get("subscriptionResourceId"));
+      subContext.put("automaticExtend",productSubscriptionResource.get("automaticExtend"));
+      subContext.put("canclAutmExtTime",productSubscriptionResource.get("canclAutmExtTime"));
+      subContext.put("canclAutmExtTimeUomId",productSubscriptionResource.get("canclAutmExtTimeUomId"));
+      Map<String,Object> ctx=dctx.getModelService("processExtendSubscription").makeValid(subContext,ModelService.IN_PARAM);
+      Map<String,Object> processExtendSubscriptionResult=dispatcher.runSync("processExtendSubscription",ctx);
+      if (ServiceUtil.isError(processExtendSubscriptionResult)) {
+        return ServiceUtil.returnError("Error processing subscriptions for Product with ID [" + productId + "]",null,null,processExtendSubscriptionResult);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,e.toString(),module);
+    return ServiceUtil.returnError(e.toString());
+  }
+  return ServiceUtil.returnSuccess();
+}

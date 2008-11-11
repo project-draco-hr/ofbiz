@@ -1,0 +1,57 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map<String,Object> subContext=UtilMisc.makeMapWritable(context);
+  String orderId=(String)context.get("orderId");
+  Debug.logInfo("In processExtendSubscriptionByOrder service with orderId: " + orderId,module);
+  GenericValue orderHeader=null;
+  try {
+    List<GenericValue> orderRoleList=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","END_USER_CUSTOMER"));
+    if (orderRoleList.size() > 0) {
+      GenericValue orderRole=orderRoleList.get(0);
+      String partyId=(String)orderRole.get("partyId");
+      subContext.put("partyId",partyId);
+    }
+ else {
+      String msg="No OrderRole found for orderId:" + orderId;
+      return ServiceUtil.returnFailure(msg);
+    }
+    orderHeader=delegator.findByPrimaryKeyCache("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader == null) {
+      String msg="No OrderHeader found for orderId:" + orderId;
+      return ServiceUtil.returnError(msg);
+    }
+    Timestamp orderCreatedDate=(Timestamp)orderHeader.get("orderDate");
+    subContext.put("orderCreatedDate",orderCreatedDate);
+    List<GenericValue> orderItemList=orderHeader.getRelated("OrderItem");
+    Iterator<GenericValue> orderItemIter=orderItemList.iterator();
+    while (orderItemIter.hasNext()) {
+      GenericValue orderItem=orderItemIter.next();
+      Double qty=orderItem.getDouble("quantity");
+      String productId=orderItem.getString("productId");
+      if (UtilValidate.isEmpty(productId)) {
+        continue;
+      }
+      List<GenericValue> productSubscriptionResourceList=delegator.findByAndCache("ProductSubscriptionResource",UtilMisc.toMap("productId",productId));
+      List<GenericValue> productSubscriptionResourceListFiltered=EntityUtil.filterByDate(productSubscriptionResourceList,true);
+      if (productSubscriptionResourceListFiltered.size() > 0) {
+        subContext.put("subscriptionTypeId","PRODUCT_SUBSCR");
+        subContext.put("productId",productId);
+        subContext.put("orderId",orderId);
+        subContext.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
+        subContext.put("inventoryItemId",orderItem.get("fromInventoryItemId"));
+        subContext.put("quantity",Integer.valueOf(qty.intValue()));
+        Map<String,Object> ctx=dctx.getModelService("processExtendSubscriptionByProduct").makeValid(subContext,ModelService.IN_PARAM);
+        Map<String,Object> thisResult=dispatcher.runSync("processExtendSubscriptionByProduct",ctx);
+        if (ServiceUtil.isError(thisResult)) {
+          return ServiceUtil.returnError("Error processing subscriptions for Order with ID [" + orderId + "]",null,null,thisResult);
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e.toString(),module);
+    return ServiceUtil.returnError(e.toString());
+  }
+  return ServiceUtil.returnSuccess();
+}
