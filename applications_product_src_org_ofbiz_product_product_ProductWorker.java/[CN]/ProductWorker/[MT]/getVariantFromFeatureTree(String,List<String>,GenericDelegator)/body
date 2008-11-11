@@ -1,0 +1,135 @@
+{
+  String variantProductId=null;
+  try {
+    Iterator<String> featureIter=selectedFeatures.iterator();
+    while (featureIter.hasNext()) {
+      String paramValue=featureIter.next();
+      List<GenericValue> incompatibilityVariants=delegator.findByAndCache("ProductFeatureIactn",UtilMisc.toMap("productId",productId,"productFeatureIactnTypeId","FEATURE_IACTN_INCOMP"));
+      Iterator<GenericValue> incompIter=incompatibilityVariants.iterator();
+      while (incompIter.hasNext()) {
+        GenericValue incompatibilityVariant=incompIter.next();
+        String featur=incompatibilityVariant.getString("productFeatureId");
+        if (paramValue.equals(featur)) {
+          String featurTo=incompatibilityVariant.getString("productFeatureIdTo");
+          Iterator<String> featureToIter=selectedFeatures.iterator();
+          while (featureToIter.hasNext()) {
+            String paramValueTo=featureToIter.next();
+            if (featurTo.equals(paramValueTo)) {
+              GenericValue featureFrom=(GenericValue)delegator.findByPrimaryKey("ProductFeature",UtilMisc.toMap("productFeatureId",featur));
+              GenericValue featureTo=(GenericValue)delegator.findByPrimaryKey("ProductFeature",UtilMisc.toMap("productFeatureId",featurTo));
+              Debug.logWarning("Incompatible features",module);
+              return null;
+            }
+          }
+        }
+      }
+      List<GenericValue> dependenciesVariants=delegator.findByAndCache("ProductFeatureIactn",UtilMisc.toMap("productId",productId,"productFeatureIactnTypeId","FEATURE_IACTN_DEPEND"));
+      Iterator<GenericValue> dpIter=dependenciesVariants.iterator();
+      while (dpIter.hasNext()) {
+        GenericValue dpVariant=dpIter.next();
+        String featur=dpVariant.getString("productFeatureId");
+        if (paramValue.equals(featur)) {
+          String featurTo=dpVariant.getString("productFeatureIdTo");
+          Iterator<String> featureToIter=selectedFeatures.iterator();
+          boolean found=false;
+          while (featureToIter.hasNext()) {
+            String paramValueTo=featureToIter.next();
+            if (featurTo.equals(paramValueTo)) {
+              found=true;
+              break;
+            }
+          }
+          if (!found) {
+            GenericValue featureFrom=(GenericValue)delegator.findByPrimaryKey("ProductFeature",UtilMisc.toMap("productFeatureId",featur));
+            GenericValue featureTo=(GenericValue)delegator.findByPrimaryKey("ProductFeature",UtilMisc.toMap("productFeatureId",featurTo));
+            Debug.logWarning("Dependancy features",module);
+            return null;
+          }
+        }
+      }
+    }
+    List<GenericValue> productAssocs=EntityUtil.filterByDate(delegator.findByAnd("ProductAssoc",UtilMisc.toMap("productId",productId,"productAssocTypeId","PRODUCT_VARIANT")));
+    Iterator<GenericValue> assocIter=productAssocs.iterator();
+    boolean productFound=false;
+    nextProd:     while (assocIter.hasNext()) {
+      GenericValue productAssoc=assocIter.next();
+      Iterator<String> fIter=selectedFeatures.iterator();
+      while (fIter.hasNext()) {
+        String featureId=fIter.next();
+        List<GenericValue> pAppls=delegator.findByAndCache("ProductFeatureAppl",UtilMisc.toMap("productId",productAssoc.getString("productIdTo"),"productFeatureId",featureId,"productFeatureApplTypeId","STANDARD_FEATURE"));
+        if (UtilValidate.isEmpty(pAppls)) {
+          continue nextProd;
+        }
+      }
+      productFound=true;
+      variantProductId=productAssoc.getString("productIdTo");
+      break;
+    }
+    if (!productFound) {
+      GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+      product.put("isVariant","Y");
+      product.put("isVirtual","N");
+      product.put("productId",delegator.getNextSeqId("Product"));
+      product.remove("virtualVariantMethodEnum");
+      product.create();
+      GenericValue productFeatureAppl=delegator.makeValue("ProductFeatureAppl",UtilMisc.toMap("productId",product.getString("productId"),"productFeatureApplTypeId","STANDARD_FEATURE"));
+      productFeatureAppl.put("fromDate",UtilDateTime.nowTimestamp());
+      Iterator<String> selectedFeatureIter=selectedFeatures.iterator();
+      while (selectedFeatureIter.hasNext()) {
+        String productFeatureId=selectedFeatureIter.next();
+        productFeatureAppl.put("productFeatureId",productFeatureId);
+        productFeatureAppl.create();
+      }
+      List<GenericValue> stdFeaturesAppls=EntityUtil.filterByDate(delegator.findByAnd("ProductFeatureAppl",UtilMisc.toMap("productId",productId,"productFeatureApplTypeId","STANDARD_FEATURE")));
+      Iterator<GenericValue> stdFeatureIter=stdFeaturesAppls.iterator();
+      while (stdFeatureIter.hasNext()) {
+        GenericValue stdFeaturesAppl=stdFeatureIter.next();
+        stdFeaturesAppl.put("productId",product.getString("productId"));
+        stdFeaturesAppl.create();
+      }
+      List<GenericValue> productPrices=EntityUtil.filterByDate(delegator.findByAnd("ProductPrice",UtilMisc.toMap("productId",productId)));
+      Iterator<GenericValue> ppIter=productPrices.iterator();
+      while (ppIter.hasNext()) {
+        GenericValue productPrice=ppIter.next();
+        Iterator<String> sfIter=selectedFeatures.iterator();
+        while (sfIter.hasNext()) {
+          List<GenericValue> productFeaturePrices=EntityUtil.filterByDate(delegator.findByAnd("ProductFeaturePrice",UtilMisc.toMap("productFeatureId",sfIter.next(),"productPriceTypeId",productPrice.getString("productPriceTypeId"))));
+          if (UtilValidate.isNotEmpty(productFeaturePrices)) {
+            GenericValue productFeaturePrice=productFeaturePrices.get(0);
+            if (UtilValidate.isNotEmpty(productFeaturePrice)) {
+              productPrice.put("price",productPrice.getDouble("price").doubleValue() + productFeaturePrice.getDouble("price").doubleValue());
+            }
+          }
+        }
+        if (productPrice.get("price") == null) {
+          productPrice.put("price",productPrice.getDouble("price").doubleValue());
+        }
+        productPrice.put("productId",product.getString("productId"));
+        productPrice.create();
+      }
+      GenericValue productAssoc=delegator.makeValue("ProductAssoc",UtilMisc.toMap("productId",productId,"productIdTo",product.getString("productId"),"productAssocTypeId","PRODUCT_VARIANT"));
+      productAssoc.put("fromDate",UtilDateTime.nowTimestamp());
+      productAssoc.create();
+      Debug.log("set the productId to: " + product.getString("productId"));
+      List<GenericValue> supplierProducts=delegator.findByAndCache("SupplierProduct",UtilMisc.toMap("productId",productId));
+      Iterator<GenericValue> SPite=supplierProducts.iterator();
+      while (SPite.hasNext()) {
+        GenericValue supplierProduct=SPite.next();
+        supplierProduct.set("productId",product.getString("productId"));
+        supplierProduct.create();
+      }
+      List<GenericValue> productContents=delegator.findByAndCache("ProductContent",UtilMisc.toMap("productId",productId));
+      Iterator<GenericValue> productContentsTte=productContents.iterator();
+      while (productContentsTte.hasNext()) {
+        GenericValue productContent=productContentsTte.next();
+        productContent.set("productId",product.getString("productId"));
+        productContent.create();
+      }
+      variantProductId=product.getString("productId");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  return variantProductId;
+}

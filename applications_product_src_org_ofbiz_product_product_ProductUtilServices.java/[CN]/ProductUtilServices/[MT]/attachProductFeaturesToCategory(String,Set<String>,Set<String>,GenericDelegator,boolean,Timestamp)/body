@@ -1,0 +1,85 @@
+{
+  if (nowTimestamp == null) {
+    nowTimestamp=UtilDateTime.nowTimestamp();
+  }
+  List<GenericValue> subCategoryList=delegator.findByAnd("ProductCategoryRollup",UtilMisc.toMap("parentProductCategoryId",productCategoryId));
+  if (doSubCategories) {
+    Iterator<GenericValue> subCategoryIter=subCategoryList.iterator();
+    while (subCategoryIter.hasNext()) {
+      GenericValue productCategoryRollup=subCategoryIter.next();
+      attachProductFeaturesToCategory(productCategoryRollup.getString("productCategoryId"),productFeatureTypeIdsToInclude,productFeatureTypeIdsToExclude,delegator,true,nowTimestamp);
+    }
+  }
+  Map<String,Set<String>> productFeatureIdByTypeIdSetMap=FastMap.newInstance();
+  List<GenericValue> productCategoryMemberList=delegator.findByAnd("ProductCategoryMember",UtilMisc.toMap("productCategoryId",productCategoryId));
+  Iterator<GenericValue> productCategoryMemberIter=productCategoryMemberList.iterator();
+  while (productCategoryMemberIter.hasNext()) {
+    GenericValue productCategoryMember=productCategoryMemberIter.next();
+    String productId=productCategoryMember.getString("productId");
+    EntityCondition condition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId),EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp),EntityCondition.makeCondition(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp))),EntityOperator.AND);
+    EntityListIterator productFeatureAndApplEli=delegator.find("ProductFeatureAndAppl",condition,null,null,null,null);
+    GenericValue productFeatureAndAppl=null;
+    while ((productFeatureAndAppl=(GenericValue)productFeatureAndApplEli.next()) != null) {
+      String productFeatureId=productFeatureAndAppl.getString("productFeatureId");
+      String productFeatureTypeId=productFeatureAndAppl.getString("productFeatureTypeId");
+      if (productFeatureTypeIdsToInclude != null && productFeatureTypeIdsToInclude.size() > 0 && !productFeatureTypeIdsToInclude.contains(productFeatureTypeId)) {
+        continue;
+      }
+      if (productFeatureTypeIdsToExclude != null && productFeatureTypeIdsToExclude.contains(productFeatureTypeId)) {
+        continue;
+      }
+      Set<String> productFeatureIdSet=productFeatureIdByTypeIdSetMap.get(productFeatureTypeId);
+      if (productFeatureIdSet == null) {
+        productFeatureIdSet=FastSet.newInstance();
+        productFeatureIdByTypeIdSetMap.put(productFeatureTypeId,productFeatureIdSet);
+      }
+      productFeatureIdSet.add(productFeatureId);
+    }
+    productFeatureAndApplEli.close();
+  }
+  Iterator<Map.Entry<String,Set<String>>> productFeatureIdByTypeIdSetIter=productFeatureIdByTypeIdSetMap.entrySet().iterator();
+  while (productFeatureIdByTypeIdSetIter.hasNext()) {
+    Map.Entry<String,Set<String>> entry=productFeatureIdByTypeIdSetIter.next();
+    String productFeatureTypeId=entry.getKey();
+    Set<String> productFeatureIdSet=entry.getValue();
+    String productFeatureGroupId=productCategoryId + "_" + productFeatureTypeId;
+    if (productFeatureGroupId.length() > 20) {
+      Debug.logWarning("Manufactured productFeatureGroupId was greater than 20 characters, means that we had some long productCategoryId and/or productFeatureTypeId values, at the category part should be unique since it is first, so if the feature type isn't unique it just means more than one type of feature will go into the category...",module);
+      productFeatureGroupId=productFeatureGroupId.substring(0,20);
+    }
+    GenericValue productFeatureGroup=delegator.findByPrimaryKey("ProductFeatureGroup",UtilMisc.toMap("productFeatureGroupId",productFeatureGroupId));
+    if (productFeatureGroup == null) {
+      String description="Feature Group for type [" + productFeatureTypeId + "] features in category ["+ productCategoryId+ "]";
+      productFeatureGroup=delegator.makeValue("ProductFeatureGroup",UtilMisc.toMap("productFeatureGroupId",productFeatureGroupId,"description",description));
+      productFeatureGroup.create();
+      GenericValue productFeatureCatGrpAppl=delegator.makeValue("ProductFeatureCatGrpAppl",UtilMisc.toMap("productFeatureGroupId",productFeatureGroupId,"productCategoryId",productCategoryId,"fromDate",nowTimestamp));
+      productFeatureCatGrpAppl.create();
+    }
+    Iterator<String> productFeatureIdIter=productFeatureIdSet.iterator();
+    while (productFeatureIdIter.hasNext()) {
+      String productFeatureId=productFeatureIdIter.next();
+      EntityCondition condition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productFeatureId",EntityOperator.EQUALS,productFeatureId),EntityCondition.makeCondition("productFeatureGroupId",EntityOperator.EQUALS,productFeatureGroupId),EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp),EntityCondition.makeCondition(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp))),EntityOperator.AND);
+      if (delegator.findCountByCondition("ProductFeatureGroupAppl",condition,null,null) == 0) {
+        GenericValue productFeatureGroupAppl=delegator.makeValue("ProductFeatureGroupAppl",UtilMisc.toMap("productFeatureGroupId",productFeatureGroupId,"productFeatureId",productFeatureId,"fromDate",nowTimestamp));
+        productFeatureGroupAppl.create();
+      }
+    }
+  }
+  Iterator<GenericValue> subCategoryIter=subCategoryList.iterator();
+  while (subCategoryIter.hasNext()) {
+    GenericValue productCategoryRollup=subCategoryIter.next();
+    String subProductCategoryId=productCategoryRollup.getString("productCategoryId");
+    EntityCondition condition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productCategoryId",EntityOperator.EQUALS,subProductCategoryId),EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp),EntityCondition.makeCondition(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp))),EntityOperator.AND);
+    EntityListIterator productFeatureCatGrpApplEli=delegator.find("ProductFeatureCatGrpAppl",condition,null,null,null,null);
+    GenericValue productFeatureCatGrpAppl=null;
+    while ((productFeatureCatGrpAppl=productFeatureCatGrpApplEli.next()) != null) {
+      String productFeatureGroupId=productFeatureCatGrpAppl.getString("productFeatureGroupId");
+      EntityCondition checkCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productCategoryId",EntityOperator.EQUALS,productCategoryId),EntityCondition.makeCondition("productFeatureGroupId",EntityOperator.EQUALS,productFeatureGroupId),EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp),EntityCondition.makeCondition(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp))),EntityOperator.AND);
+      if (delegator.findCountByCondition("ProductFeatureCatGrpAppl",checkCondition,null,null) == 0) {
+        GenericValue productFeatureGroupAppl=delegator.makeValue("ProductFeatureCatGrpAppl",UtilMisc.toMap("productFeatureGroupId",productFeatureGroupId,"productCategoryId",productCategoryId,"fromDate",nowTimestamp));
+        productFeatureGroupAppl.create();
+      }
+    }
+    productFeatureCatGrpApplEli.close();
+  }
+}
