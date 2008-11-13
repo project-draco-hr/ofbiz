@@ -1,0 +1,64 @@
+{
+  Map<String,List<String>> tempGroup=FastMap.newInstance();
+  Map<String,Object> group=new LinkedHashMap<String,Object>();
+  String orderKey=(String)order.get(index);
+  if (featureList == null) {
+    throw new IllegalArgumentException("Cannot build feature tree: featureList is null");
+  }
+  if (index < 0) {
+    throw new IllegalArgumentException("Invalid index '" + index + "' min index '0'");
+  }
+  if (index + 1 > order.size()) {
+    throw new IllegalArgumentException("Invalid index '" + index + "' max index '"+ (order.size() - 1)+ "'");
+  }
+  for (  String thisItem : items) {
+    if (Debug.verboseOn())     Debug.logVerbose("ThisItem: " + thisItem,module);
+    List<GenericValue> features=null;
+    try {
+      Map<String,String> fields=UtilMisc.toMap("productId",thisItem,"productFeatureTypeId",orderKey,"productFeatureApplTypeId","STANDARD_FEATURE");
+      List<String> sort=UtilMisc.toList("sequenceNum");
+      features=delegator.findByAndCache("ProductFeatureAndAppl",fields,sort);
+      features=EntityUtil.filterByDate(features,true);
+    }
+ catch (    GenericEntityException e) {
+      throw new IllegalStateException("Problem reading relation: " + e.getMessage());
+    }
+    if (Debug.verboseOn())     Debug.logVerbose("Features: " + features,module);
+    for (    GenericValue item : features) {
+      String itemKey=item.getString("description");
+      if (tempGroup.containsKey(itemKey)) {
+        List<String> itemList=tempGroup.get(itemKey);
+        if (!itemList.contains(thisItem))         itemList.add(thisItem);
+      }
+ else {
+        List<String> itemList=UtilMisc.toList(thisItem);
+        tempGroup.put(itemKey,itemList);
+      }
+    }
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("TempGroup: " + tempGroup,module);
+  List<String> orderFeatureList=featureList.get(orderKey);
+  if (orderFeatureList == null) {
+    throw new IllegalArgumentException("Cannot build feature tree: orderFeatureList is null for orderKey=" + orderKey);
+  }
+  for (  String featureStr : orderFeatureList) {
+    if (tempGroup.containsKey(featureStr))     group.put(featureStr,tempGroup.get(featureStr));
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Group: " + group,module);
+  if (group.size() == 0) {
+    return group;
+  }
+  if (index + 1 == order.size()) {
+    return group;
+  }
+  for (  String key : group.keySet()) {
+    List<String> itemList=UtilGenerics.checkList(group.get(key));
+    if (UtilValidate.isNotEmpty(itemList)) {
+      Map<String,Object> subGroup=makeGroup(delegator,featureList,itemList,order,index + 1);
+      group.put(key,subGroup);
+    }
+ else {
+    }
+  }
+  return group;
+}
