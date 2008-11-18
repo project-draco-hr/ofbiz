@@ -1,0 +1,65 @@
+{
+  GenericDelegator delegator=workEffort.getDelegator();
+  String workEffortId=workEffort.getString("workEffortId");
+  PropertyList eventProps=new PropertyList();
+  eventProps.add(new DtStamp());
+  if (workEffort.getTimestamp("createdDate") != null) {
+    eventProps.add(new Created(new DateTime(workEffort.getTimestamp("createdDate"))));
+  }
+  if (workEffort.getTimestamp("lastModifiedDate") != null) {
+    eventProps.add(new LastModified(new DateTime(workEffort.getTimestamp("lastModifiedDate"))));
+  }
+  eventProps.add(new XProperty(workEffortIdPropName,workEffort.getString("workEffortId")));
+  eventProps.add(new Summary(workEffort.getString("workEffortName")));
+  Status eventStatus=statusMap.get(workEffort.getString("currentStatusId"));
+  if (eventStatus != null) {
+    eventProps.add(statusMap.get(workEffort.getString("currentStatusId")));
+  }
+  Double durationMillis=workEffort.getDouble("estimatedMilliSeconds");
+  if (durationMillis != null) {
+    TimeDuration duration=TimeDuration.fromLong(durationMillis.longValue());
+    eventProps.add(new Duration(new Dur(duration.days(),duration.hours(),duration.minutes(),duration.seconds())));
+  }
+  List<GenericValue> relatedParties=EntityUtil.filterByDate(delegator.findList("WorkEffortPartyAssignView",EntityCondition.makeCondition("workEffortId",EntityOperator.EQUALS,workEffortId),null,null,null,false));
+  for (  GenericValue partyValue : relatedParties) {
+    ParameterList paramList=new ParameterList();
+    String partyName=partyValue.getString("groupName");
+    if (UtilValidate.isEmpty(partyName)) {
+      partyName=partyValue.getString("firstName") + " " + partyValue.getString("lastName");
+    }
+    paramList.add(new Cn(partyName));
+    try {
+      if ("CAL_ORGANIZER~CAL_OWNER".contains(partyValue.getString("roleTypeId"))) {
+        eventProps.add(new Organizer(paramList,""));
+      }
+ else {
+        eventProps.add(new Attendee(paramList,""));
+      }
+    }
+ catch (    Exception e) {
+    }
+  }
+  DateRange range=new DateRange(workEffort.getTimestamp("estimatedStartDate"),workEffort.getTimestamp("estimatedCompletionDate"));
+  eventProps.add(new DtStart(new DateTime(range.start())));
+  if (UtilValidate.isNotEmpty(workEffort.getString("tempExprId"))) {
+    TemporalExpression tempExpr=TemporalExpressionWorker.getTemporalExpression(delegator,workEffort.getString("tempExprId"));
+    if (tempExpr != null) {
+      try {
+        ICalRecurConverter.convert(tempExpr,eventProps);
+      }
+ catch (      Exception e) {
+        eventProps.add(new Description("Error while converting recurrence: " + e));
+        eventProps.add(new DtStart());
+        eventProps.add(new DtEnd());
+        return new VEvent(eventProps);
+      }
+    }
+  }
+ else {
+    eventProps.add(new DtEnd(new DateTime(range.end())));
+  }
+  if (workEffort.getString("description") != null) {
+    eventProps.add(new Description(workEffort.getString("description")));
+  }
+  return new VEvent(eventProps);
+}
