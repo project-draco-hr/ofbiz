@@ -1,0 +1,66 @@
+{
+  HttpSession session=request.getSession();
+  String viewNameId=RequestHandler.getRequestUri(request.getPathInfo());
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String returnValue="success";
+  if (userLogin != null) {
+    String userLoginId=userLogin.getString("userLoginId");
+    try {
+      List<GenericValue> protectedViews=delegator.findByAnd("UserLoginAndProtectedView",UtilMisc.toMap("userLoginId",userLoginId,"viewNameId",viewNameId));
+      if (UtilValidate.isNotEmpty(protectedViews)) {
+        Long now=System.currentTimeMillis();
+        List<GenericValue> tarpittedLoginViews=delegator.findByAnd("TarpittedLoginView",UtilMisc.toMap("userLoginId",userLoginId,"viewNameId",viewNameId));
+        if (UtilValidate.isNotEmpty(tarpittedLoginViews)) {
+          GenericValue tarpittedLoginView=tarpittedLoginViews.get(0);
+          Long tarpitReleaseDateTime=(Long)tarpittedLoginView.get("tarpitReleaseDateTime");
+          if (now < tarpitReleaseDateTime) {
+            String tarpittedMessage=UtilProperties.getMessage(resourceWebapp,"protectedviewevents.tarpitted_message",UtilHttp.getLocale(request));
+            hitsByViewAccessed.put(viewNameId,new Long(0));
+            return ":_protect_:" + tarpittedMessage;
+          }
+        }
+        GenericValue protectedView=protectedViews.get(0);
+        if (UtilValidate.isEmpty(hitsByViewAccessed.get(viewNameId))) {
+          hitsByViewAccessed.put(viewNameId,one);
+          Long maxHitsDuration=(Long)protectedView.get("maxHitsDuration") * 1000;
+          durationByViewAccessed.put(viewNameId,now + maxHitsDuration);
+        }
+ else {
+          Long maxHits=protectedView.getLong("maxHits");
+          Long maxDuration=(Long)durationByViewAccessed.get(viewNameId);
+          Long newMaxHits=(Long)hitsByViewAccessed.get(viewNameId) + one;
+          hitsByViewAccessed.put(viewNameId,newMaxHits);
+          if (now < maxDuration) {
+            if (newMaxHits > maxHits) {
+              String blockedMessage=UtilProperties.getMessage(resourceWebapp,"protectedviewevents.blocked_message",UtilHttp.getLocale(request));
+              returnValue=":_protect_:" + blockedMessage;
+              Long tarpitDuration=(Long)protectedView.get("tarpitDuration") * 1000;
+              GenericValue tarpittedLoginView=delegator.makeValue("TarpittedLoginView");
+              tarpittedLoginView.set("userLoginId",userLoginId);
+              tarpittedLoginView.set("viewNameId",viewNameId);
+              tarpittedLoginView.set("tarpitReleaseDateTime",now + tarpitDuration);
+              try {
+                delegator.createOrStore(tarpittedLoginView);
+              }
+ catch (              GenericEntityException e) {
+                Debug.logError(e,"Could not save TarpittedLoginView:",module);
+              }
+            }
+          }
+ else {
+            hitsByViewAccessed.put(viewNameId,one);
+            Long maxHitsDuration=(Long)protectedView.get("maxHitsDuration") * 1000;
+            durationByViewAccessed.put(viewNameId,now + maxHitsDuration);
+          }
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Map<String,String> messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+      String errMsg=UtilProperties.getMessage("CommonUiLabels","CommonDatabaseProblem",messageMap,UtilHttp.getLocale(request));
+      Debug.logError(e,errMsg,module);
+    }
+  }
+  return returnValue;
+}

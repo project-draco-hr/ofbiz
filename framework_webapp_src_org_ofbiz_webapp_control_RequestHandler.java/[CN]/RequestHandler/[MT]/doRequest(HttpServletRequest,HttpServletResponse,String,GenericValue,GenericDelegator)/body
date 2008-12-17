@@ -14,6 +14,7 @@
       request.setAttribute("targetRequestUri","/" + requestUri);
     }
   }
+  String eventReturnString=null;
   if (chain != null) {
     requestUri=RequestHandler.getRequestUri(chain);
     if (request.getAttribute("_POST_CHAIN_VIEW_") != null) {
@@ -107,7 +108,17 @@
         try {
           String returnString=this.runEvent(request,response,eType,ePath,eMeth);
           if (returnString != null && !returnString.equalsIgnoreCase("success")) {
-            throw new EventHandlerException("Pre-Processor event did not return 'success'.");
+            if (!returnString.contains(":_protect_:")) {
+              throw new EventHandlerException("Pre-Processor event did not return 'success'.");
+            }
+ else {
+              returnString=returnString.replace(":_protect_:","");
+              request.setAttribute("_ERROR_MESSAGE_",returnString);
+              eventReturnString="protect";
+              if (null == requestManager.getRequestAttribute(requestUri,"protect")) {
+                nextView=UtilProperties.getPropertyValue("security.properties","default.error.response.view");
+              }
+            }
           }
  else           if (returnString == null) {
             nextView="none:";
@@ -125,7 +136,6 @@
   }
   if (Debug.infoOn())   Debug.logInfo("[Processing Request]: " + requestUri + " sessionId="+ UtilHttp.getSessionId(request),module);
   request.setAttribute("thisRequestUri",requestUri);
-  String eventReturnString=null;
   if (requestManager.requiresAuth(requestUri)) {
     Debug.logVerbose("[RequestHandler]: AuthRequired. Running security check." + " sessionId=" + UtilHttp.getSessionId(request),module);
     String checkLoginType=requestManager.getEventType("checkLogin");
@@ -167,7 +177,7 @@
           request.setAttribute("_ERROR_MESSAGE_",errMsg + ": " + e.toString());
         }
  else {
-          throw new RequestHandlerException("Error calling event and no error repsonse was specified",e);
+          throw new RequestHandlerException("Error calling event and no error response was specified",e);
         }
       }
     }
