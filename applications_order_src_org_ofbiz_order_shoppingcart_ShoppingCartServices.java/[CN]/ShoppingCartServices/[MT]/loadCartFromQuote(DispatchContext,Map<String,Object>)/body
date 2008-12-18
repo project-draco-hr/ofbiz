@@ -31,10 +31,10 @@
   cart.setQuoteId(quoteId);
   cart.setOrderName(quote.getString("quoteName"));
   cart.setChannelType(quote.getString("salesChannelEnumId"));
-  List quoteItems=null;
-  List quoteAdjs=null;
-  List quoteRoles=null;
-  List quoteAttributes=null;
+  List<GenericValue> quoteItems=null;
+  List<GenericValue> quoteAdjs=null;
+  List<GenericValue> quoteRoles=null;
+  List<GenericValue> quoteAttributes=null;
   try {
     quoteItems=quote.getRelated("QuoteItem",UtilMisc.toList("quoteItemSeqId"));
     quoteAdjs=quote.getRelated("QuoteAdjustment");
@@ -46,10 +46,8 @@
     return ServiceUtil.returnError(e.getMessage());
   }
   cart.setOrderPartyId(quote.getString("partyId"));
-  if (quoteRoles != null) {
-    Iterator quoteRolesIt=quoteRoles.iterator();
-    while (quoteRolesIt.hasNext()) {
-      GenericValue quoteRole=(GenericValue)quoteRolesIt.next();
+  if (UtilValidate.isNotEmpty(quoteRoles)) {
+    for (    GenericValue quoteRole : quoteRoles) {
       String quoteRoleTypeId=quoteRole.getString("roleTypeId");
       String quoteRolePartyId=quoteRole.getString("partyId");
       if ("PLACING_CUSTOMER".equals(quoteRoleTypeId)) {
@@ -72,21 +70,17 @@
       }
     }
   }
-  if (quoteAttributes != null) {
-    Iterator quoteAttributesIt=quoteAttributes.iterator();
-    while (quoteAttributesIt.hasNext()) {
-      GenericValue quoteAttribute=(GenericValue)quoteAttributesIt.next();
+  if (UtilValidate.isNotEmpty(quoteAttributes)) {
+    for (    GenericValue quoteAttribute : quoteAttributes) {
       cart.setOrderAttribute(quoteAttribute.getString("attrName"),quoteAttribute.getString("attrValue"));
     }
   }
-  Map orderAdjsMap=new HashMap();
-  Iterator quoteAdjsIter=quoteAdjs.iterator();
-  while (quoteAdjsIter.hasNext()) {
-    GenericValue quoteAdj=(GenericValue)quoteAdjsIter.next();
-    List orderAdjs=(List)orderAdjsMap.get(quoteAdj.get("quoteItemSeqId"));
+  Map<String,List<GenericValue>> orderAdjsMap=FastMap.newInstance();
+  for (  GenericValue quoteAdj : quoteAdjs) {
+    List<GenericValue> orderAdjs=(List<GenericValue>)orderAdjsMap.get(quoteAdj.get("quoteItemSeqId"));
     if (orderAdjs == null) {
-      orderAdjs=new LinkedList();
-      orderAdjsMap.put(quoteAdj.get("quoteItemSeqId"),orderAdjs);
+      orderAdjs=FastList.newInstance();
+      orderAdjsMap.put(quoteAdj.getString("quoteItemSeqId"),orderAdjs);
     }
     GenericValue orderAdj=delegator.makeValue("OrderAdjustment");
     orderAdj.put("orderAdjustmentId",quoteAdj.get("quoteAdjustmentId"));
@@ -116,11 +110,9 @@
     orderAdjs.add(orderAdj);
   }
   long nextItemSeq=0;
-  if (quoteItems != null) {
-    Iterator i=quoteItems.iterator();
-    while (i.hasNext()) {
-      GenericValue item=(GenericValue)i.next();
-      String orderItemSeqId=item.getString("quoteItemSeqId");
+  if (UtilValidate.isNotEmpty(quoteItems)) {
+    for (    GenericValue quoteItem : quoteItems) {
+      String orderItemSeqId=quoteItem.getString("quoteItemSeqId");
       try {
         long seq=Long.parseLong(orderItemSeqId);
         if (seq > nextItemSeq) {
@@ -131,31 +123,31 @@
         Debug.logError(e,module);
         return ServiceUtil.returnError(e.getMessage());
       }
-      boolean isPromo=item.get("isPromo") != null && "Y".equals(item.getString("isPromo"));
+      boolean isPromo=quoteItem.get("isPromo") != null && "Y".equals(quoteItem.getString("isPromo"));
       if (isPromo && !applyQuoteAdjustments) {
         continue;
       }
-      Double amount=item.getDouble("selectedAmount");
+      Double amount=quoteItem.getDouble("selectedAmount");
       if (amount == null) {
         amount=new Double(0);
       }
-      Double quantity=item.getDouble("quantity");
+      Double quantity=quoteItem.getDouble("quantity");
       if (quantity == null) {
         quantity=new Double(0);
       }
-      Double quoteUnitPrice=item.getDouble("quoteUnitPrice");
+      Double quoteUnitPrice=quoteItem.getDouble("quoteUnitPrice");
       if (quoteUnitPrice == null) {
         quoteUnitPrice=new Double(0);
       }
       if (amount.doubleValue() > 0) {
         quoteUnitPrice=new Double(quoteUnitPrice.doubleValue() / amount.doubleValue());
       }
-      Timestamp reservStart=item.getTimestamp("reservStart");
-      Double reservLength=item.getDouble("reservLength");
-      Double reservPersons=item.getDouble("reservPersons");
+      Timestamp reservStart=quoteItem.getTimestamp("reservStart");
+      Double reservLength=quoteItem.getDouble("reservLength");
+      Double reservPersons=quoteItem.getDouble("reservPersons");
       int itemIndex=-1;
-      if (item.get("productId") == null) {
-        String desc=item.getString("comments");
+      if (quoteItem.get("productId") == null) {
+        String desc=quoteItem.getString("comments");
         try {
           itemIndex=cart.addNonProductItem(null,desc,null,null,quantity.doubleValue(),null,null,null,dispatcher);
         }
@@ -165,10 +157,10 @@
         }
       }
  else {
-        String productId=item.getString("productId");
+        String productId=quoteItem.getString("productId");
         ProductConfigWrapper configWrapper=null;
-        if (UtilValidate.isNotEmpty(item.getString("configId"))) {
-          configWrapper=ProductConfigWorker.loadProductConfigWrapper(delegator,dispatcher,item.getString("configId"),productId,productStoreId,null,null,currency,locale,userLogin);
+        if (UtilValidate.isNotEmpty(quoteItem.getString("configId"))) {
+          configWrapper=ProductConfigWorker.loadProductConfigWrapper(delegator,dispatcher,quoteItem.getString("configId"),productId,productStoreId,null,null,currency,locale,userLogin);
         }
         try {
           itemIndex=cart.addItemToEnd(productId,amount,quantity.doubleValue(),quoteUnitPrice,reservStart,reservLength,reservPersons,null,null,null,null,null,configWrapper,null,dispatcher,new Boolean(!applyQuoteAdjustments),new Boolean(quoteUnitPrice.doubleValue() == 0),Boolean.FALSE,Boolean.FALSE);
@@ -184,14 +176,14 @@ catch (        CartItemModifyException e) {
       }
       ShoppingCartItem cartItem=cart.findCartItem(itemIndex);
       cartItem.setOrderItemSeqId(orderItemSeqId);
-      cartItem.setItemComment(item.getString("comments"));
-      cartItem.setQuoteId(item.getString("quoteId"));
-      cartItem.setQuoteItemSeqId(item.getString("quoteItemSeqId"));
+      cartItem.setItemComment(quoteItem.getString("comments"));
+      cartItem.setQuoteId(quoteItem.getString("quoteId"));
+      cartItem.setQuoteItemSeqId(quoteItem.getString("quoteItemSeqId"));
       cartItem.setIsPromo(isPromo);
     }
   }
   if (applyQuoteAdjustments) {
-    List adjs=(List)orderAdjsMap.get(null);
+    List<GenericValue> adjs=(List<GenericValue>)orderAdjsMap.get(null);
     if (adjs != null) {
       cart.getAdjustments().addAll(adjs);
     }
@@ -215,7 +207,7 @@ catch (        CartItemModifyException e) {
       return ServiceUtil.returnError(e.getMessage());
     }
   }
-  Map result=ServiceUtil.returnSuccess();
+  Map<String,Object> result=ServiceUtil.returnSuccess();
   result.put("shoppingCart",cart);
   return result;
 }
