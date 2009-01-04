@@ -1,0 +1,43 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  String labelFileName=(String)context.get("labelFileName");
+  try {
+    LabelManagerFactory.getLabelManagerFactory(dctx.getDelegator().getDelegatorName());
+    Map<String,LabelInfo> labels=LabelManagerFactory.getLabels();
+    Map<String,String> fileNamesFound=LabelManagerFactory.getFileNamesFound();
+    Set<String> labelsList=LabelManagerFactory.getLabelsList();
+    Set<String> localesFound=LabelManagerFactory.getLocalesFound();
+    for (    String fileName : fileNamesFound.keySet()) {
+      if (UtilValidate.isNotEmpty(labelFileName) && !(labelFileName.equalsIgnoreCase(fileName))) {
+        continue;
+      }
+      String uri=(String)fileNamesFound.get(fileName);
+      Document resourceDocument=UtilXml.makeEmptyXmlDocument("resource");
+      Element resourceElem=resourceDocument.getDocumentElement();
+      Comment comment=resourceDocument.createComment("A Document Comment");
+      resourceElem.getParentNode().insertBefore(comment,resourceElem);
+      resourceElem.setAttribute("xmlns:xsi","http://www.w3.org/2001/XMLSchema-instance");
+      for (      String labelKey : labelsList) {
+        LabelInfo labelInfo=(LabelInfo)labels.get(labelKey);
+        if (!(labelInfo.getFileName().equalsIgnoreCase(fileName))) {
+          continue;
+        }
+        Element propertyElem=UtilXml.addChildElement(resourceElem,"property",resourceDocument);
+        propertyElem.setAttribute("key",labelInfo.getLabelKey());
+        for (        String localeFound : localesFound) {
+          String labelValue=labelInfo.getLabelValue(localeFound);
+          if (UtilValidate.isNotEmpty(labelValue)) {
+            Element valueElem=UtilXml.addChildElementValue(propertyElem,"value",labelValue,resourceDocument);
+            valueElem.setAttribute("xml:lang",localeFound);
+          }
+        }
+      }
+      UtilCache.clearCache("properties.UtilPropertiesBundleCache");
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Exception during save labels to xml file:",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"saveLabelsToXmlFile.exceptionDuringSaveLabelsToXmlFile",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

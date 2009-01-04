@@ -1,0 +1,48 @@
+{
+  labels=new TreeMap<String,LabelInfo>();
+  fileNamesFound=new TreeMap<String,String>();
+  fileComponent=new TreeMap<String,String>();
+  localesFound=new TreeSet<String>();
+  componentNamesFound=new TreeSet<String>();
+  int duplicatedLocales=0;
+  try {
+    Collection<ComponentConfig> componentConfigs=ComponentConfig.getAllComponents();
+    for (    ComponentConfig componentConfig : componentConfigs) {
+      String componentName=componentConfig.getComponentName();
+      List<File> resourceFiles=FileUtil.findXmlFiles(componentConfig.getRootLocation(),null,"resource",null);
+      for (      File resourceFile : resourceFiles) {
+        String fileName=resourceFile.getName();
+        Document resourceDocument=UtilXml.readXmlDocument(resourceFile.toURI().toURL());
+        Element resourceElem=resourceDocument.getDocumentElement();
+        for (        Element propertyElem : UtilXml.childElementList(resourceElem,"property")) {
+          String labelKey=propertyElem.getAttribute("key");
+          for (          Element valueElem : UtilXml.childElementList(propertyElem,"value")) {
+            String localeName=valueElem.getAttribute("xml:lang");
+            String labelValue=UtilXml.elementValue(valueElem);
+            LabelInfo label=(LabelInfo)labels.get(labelKey + "_" + fileName);
+            if (UtilValidate.isEmpty(label)) {
+              label=new LabelInfo(labelKey,fileName,componentName,localeName,labelValue);
+              labels.put(labelKey + "_" + fileName,label);
+            }
+ else {
+              if (label.setLabelValue(localeName,labelValue,false)) {
+                duplicatedLocales++;
+              }
+            }
+            localesFound.add(localeName);
+            componentNamesFound.add(componentName);
+            fileNamesFound.put(fileName,resourceFile.toURI().toString());
+            fileComponent.put(fileName,componentName);
+          }
+        }
+      }
+    }
+  }
+ catch (  IOException ioe) {
+    throw new GeneralException(ioe.getMessage());
+  }
+catch (  Exception e) {
+    throw new GeneralException(e.getMessage());
+  }
+  duplicatedLocalesLabels=duplicatedLocales;
+}
