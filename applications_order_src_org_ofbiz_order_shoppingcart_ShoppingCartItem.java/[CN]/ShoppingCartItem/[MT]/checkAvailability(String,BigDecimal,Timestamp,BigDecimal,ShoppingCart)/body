@@ -1,0 +1,92 @@
+{
+  GenericDelegator delegator=cart.getDelegator();
+  List selFixedAssetProduct=null;
+  GenericValue fixedAssetProduct=null;
+  try {
+    List allFixedAssetProduct=delegator.findByAnd("FixedAssetProduct",UtilMisc.toMap("productId",productId,"fixedAssetProductTypeId","FAPT_USE"));
+    selFixedAssetProduct=EntityUtil.filterByDate(allFixedAssetProduct,UtilDateTime.nowTimestamp(),"fromDate","thruDate",true);
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("productId",productId);
+    String msg=UtilProperties.getMessage(resource,"item.cannot_find_Fixed_Asset",messageMap,cart.getLocale());
+    return msg;
+  }
+  if (UtilValidate.isNotEmpty(selFixedAssetProduct)) {
+    Iterator firstOne=selFixedAssetProduct.iterator();
+    fixedAssetProduct=(GenericValue)firstOne.next();
+  }
+ else {
+    Map messageMap=UtilMisc.toMap("productId",productId);
+    String msg=UtilProperties.getMessage(resource,"item.cannot_find_Fixed_Asset",messageMap,cart.getLocale());
+    return msg;
+  }
+  GenericValue fixedAsset=null;
+  try {
+    fixedAsset=fixedAssetProduct.getRelatedOne("FixedAsset");
+  }
+ catch (  GenericEntityException e) {
+    Map messageMap=UtilMisc.toMap("fixedAssetId",fixedAssetProduct.getString("fixedAssetId"));
+    String msg=UtilProperties.getMessage(resource,"item.fixed_Asset_not_found",messageMap,cart.getLocale());
+    return msg;
+  }
+  if (fixedAsset == null) {
+    Map messageMap=UtilMisc.toMap("fixedAssetId",fixedAssetProduct.getString("fixedAssetId"));
+    String msg=UtilProperties.getMessage(resource,"item.fixed_Asset_not_found",messageMap,cart.getLocale());
+    return msg;
+  }
+  GenericValue techDataCalendar=null;
+  try {
+    techDataCalendar=fixedAsset.getRelatedOne("TechDataCalendar");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+  }
+  if (techDataCalendar == null) {
+    if (fixedAsset.getBigDecimal("productionCapacity").compareTo(quantity) >= 0) {
+      String msg=UtilProperties.getMessage(resource,"item.availableOk",cart.getLocale());
+      return msg;
+    }
+ else {
+      Map messageMap=UtilMisc.toMap("quantityReq",quantity,"quantityAvail",fixedAsset.getString("productionCapacity"));
+      String msg=UtilProperties.getMessage(resource,"item.availableQnt",messageMap,cart.getLocale());
+      return msg;
+    }
+  }
+  long dayCount=0;
+  String resultMessage="";
+  while (BigDecimal.valueOf(dayCount).compareTo(reservLength) < 0) {
+    GenericValue techDataCalendarExcDay=null;
+    Timestamp exceptionDateStartTime=new Timestamp((long)(reservStart.getTime() + (dayCount++ * 86400000)));
+    try {
+      techDataCalendarExcDay=delegator.findByPrimaryKey("TechDataCalendarExcDay",UtilMisc.toMap("calendarId",fixedAsset.get("calendarId"),"exceptionDateStartTime",exceptionDateStartTime));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,module);
+    }
+    if (techDataCalendarExcDay == null) {
+      if (fixedAsset.get("productionCapacity") != null && fixedAsset.getBigDecimal("productionCapacity").compareTo(quantity) < 0)       resultMessage=resultMessage.concat(exceptionDateStartTime.toString().substring(0,10) + ", ");
+    }
+ else {
+      BigDecimal exceptionCapacity=BigDecimal.ZERO;
+      if (techDataCalendarExcDay.get("exceptionCapacity") != null)       exceptionCapacity=techDataCalendarExcDay.getBigDecimal("exceptionCapacity");
+      if (exceptionCapacity.compareTo(BigDecimal.ZERO) == 0 && fixedAsset.get("productionCapacity") != null)       exceptionCapacity=fixedAsset.getBigDecimal("productionCapacity");
+      if (exceptionCapacity.compareTo(BigDecimal.ZERO) != 0) {
+        BigDecimal usedCapacity=BigDecimal.ZERO;
+        if (techDataCalendarExcDay.get("usedCapacity") != null)         usedCapacity=techDataCalendarExcDay.getBigDecimal("usedCapacity");
+        if (exceptionCapacity.compareTo(quantity.add(usedCapacity)) < 0) {
+          resultMessage=resultMessage.concat(exceptionDateStartTime.toString().substring(0,10) + ", ");
+          Debug.logInfo("No rental fixed Asset available: " + exceptionCapacity + " already used: "+ usedCapacity+ " Requested now: "+ quantity,module);
+        }
+      }
+    }
+  }
+  if (resultMessage.compareTo("") == 0) {
+    String msg=UtilProperties.getMessage(resource,"item.availableOk",cart.getLocale());
+    return msg;
+  }
+ else {
+    Map messageMap=UtilMisc.toMap("resultMessage",resultMessage);
+    String msg=UtilProperties.getMessage(resource,"item.notAvailable",messageMap,cart.getLocale());
+    return msg;
+  }
+}

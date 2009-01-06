@@ -21,26 +21,26 @@
     while (oiit.hasNext()) {
       GenericValue orderItem=(GenericValue)oiit.next();
       if (!"PRODUCT_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId")))       continue;
-      double orderItemQuantity=0;
+      BigDecimal orderItemQuantity=BigDecimal.ZERO;
       if (!UtilValidate.isEmpty(orderItem.get("quantity"))) {
-        orderItemQuantity=orderItem.getDouble("quantity").doubleValue();
+        orderItemQuantity=orderItem.getBigDecimal("quantity");
       }
-      double orderItemCancelQuantity=0;
+      BigDecimal orderItemCancelQuantity=BigDecimal.ZERO;
       if (!UtilValidate.isEmpty(orderItem.get("cancelQuantity"))) {
-        orderItemCancelQuantity=orderItem.getDouble("cancelQuantity").doubleValue();
+        orderItemCancelQuantity=orderItem.getBigDecimal("cancelQuantity");
       }
       List shipmentReceipts=orderItem.getRelated("ShipmentReceipt");
-      double receivedQuantity=0;
+      BigDecimal receivedQuantity=BigDecimal.ZERO;
       Iterator srit=shipmentReceipts.iterator();
       while (srit.hasNext()) {
         GenericValue shipmentReceipt=(GenericValue)srit.next();
         if (!UtilValidate.isEmpty(shipmentReceipt.get("quantityAccepted"))) {
-          receivedQuantity+=shipmentReceipt.getDouble("quantityAccepted").doubleValue();
+          receivedQuantity=receivedQuantity.add(shipmentReceipt.getBigDecimal("quantityAccepted"));
         }
       }
-      double quantityToCancel=orderItemQuantity - orderItemCancelQuantity - receivedQuantity;
-      if (quantityToCancel > 0) {
-        Map cancelOrderItemResult=dispatcher.runSync("cancelOrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"cancelQuantity",new Double(quantityToCancel),"userLogin",userLogin));
+      BigDecimal quantityToCancel=orderItemQuantity.subtract(orderItemCancelQuantity).subtract(receivedQuantity);
+      if (quantityToCancel.compareTo(BigDecimal.ZERO) > 0) {
+        Map cancelOrderItemResult=dispatcher.runSync("cancelOrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"cancelQuantity",quantityToCancel,"userLogin",userLogin));
         if (ServiceUtil.isError(cancelOrderItemResult))         return cancelOrderItemResult;
       }
       orderItem.refresh();

@@ -3,10 +3,10 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
-  Double overrideAmount=(Double)context.get("overrideAmount");
+  BigDecimal overrideAmount=(BigDecimal)context.get("overrideAmount");
   if (overrideAmount != null) {
-    if (overrideAmount.doubleValue() < 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is negative.");
-    if (overrideAmount.doubleValue() == 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is zero.");
+    if (overrideAmount.compareTo(BigDecimal.ZERO) < 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is negative.");
+    if (overrideAmount.compareTo(BigDecimal.ZERO) == 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is zero.");
   }
   GenericValue orderHeader=null;
   GenericValue orderPaymentPreference=null;
@@ -19,9 +19,7 @@
     return ServiceUtil.returnError("Problems getting required information: orderPaymentPreference [" + orderPaymentPreferenceId + "]");
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
-  BigDecimal orderGrandTotal=orh.getOrderGrandTotal();
-  orderGrandTotal=orderGrandTotal.setScale(decimals,rounding);
-  double totalRemaining=orderGrandTotal.doubleValue();
+  BigDecimal totalRemaining=orh.getOrderGrandTotal();
   Long procAttempt=orderPaymentPreference.getLong("processAttempt");
   if (procAttempt == null) {
     procAttempt=new Long(0);
@@ -39,15 +37,15 @@
   if (orderPaymentPreference.get("statusId") != null && "PAYMENT_AUTHORIZED".equals(orderPaymentPreference.getString("statusId"))) {
     reAuth=true;
   }
-  Double transAmount=null;
+  BigDecimal transAmount=null;
   if (overrideAmount != null) {
     transAmount=overrideAmount;
   }
  else {
-    transAmount=orderPaymentPreference.getDouble("maxAmount");
+    transAmount=orderPaymentPreference.getBigDecimal("maxAmount");
   }
-  transAmount=(new BigDecimal(transAmount)).setScale(decimals,rounding).doubleValue();
-  if ((transAmount != null) && (transAmount.doubleValue() <= 0)) {
+  transAmount=transAmount.setScale(decimals,rounding);
+  if ((transAmount != null) && (transAmount.compareTo(BigDecimal.ZERO) <= 0)) {
     Map results=ServiceUtil.returnSuccess();
     results.put("finished",Boolean.TRUE);
     results.put("errors",Boolean.FALSE);
@@ -56,7 +54,7 @@
   try {
     Map authPaymentResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,transAmount);
     if (authPaymentResult != null) {
-      Double thisAmount=(Double)authPaymentResult.get("processAmount");
+      BigDecimal thisAmount=(BigDecimal)authPaymentResult.get("processAmount");
       try {
         boolean processResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference);
         if (processResult) {

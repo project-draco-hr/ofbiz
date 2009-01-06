@@ -16,7 +16,7 @@
     Debug.logError(e,"Problems looking up return information",module);
     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
   }
-  BigDecimal adjustments=new BigDecimal(getReturnAdjustmentTotal(delegator,UtilMisc.toMap("returnId",returnId,"returnTypeId","RTN_REFUND")));
+  BigDecimal adjustments=getReturnAdjustmentTotal(delegator,UtilMisc.toMap("returnId",returnId,"returnTypeId","RTN_REFUND"));
   if (returnHeader != null && ((returnItems != null && returnItems.size() > 0) || adjustments.compareTo(ZERO) > 0)) {
     Map itemsByOrder=new HashMap();
     Map totalByOrder=new HashMap();
@@ -38,7 +38,7 @@
       Map.Entry entry=(Map.Entry)itemByOrderIt.next();
       String orderId=(String)entry.getKey();
       List items=(List)entry.getValue();
-      Double orderTotal=(Double)totalByOrder.get(orderId);
+      BigDecimal orderTotal=(BigDecimal)totalByOrder.get(orderId);
       GenericValue orderHeader=null;
       List orderPayPrefs=null;
       try {
@@ -88,11 +88,11 @@
         String orderPayPrefKey=orderPayPref.getString("paymentMethodId") != null ? orderPayPref.getString("paymentMethodId") : orderPayPref.getString("paymentMethodTypeId");
         BigDecimal orderPayPrefReceivedTotal=ZERO;
         if (receivedPaymentTotalsByPaymentMethod.containsKey(orderPayPrefKey)) {
-          orderPayPrefReceivedTotal=orderPayPrefReceivedTotal.add(new BigDecimal(((Double)receivedPaymentTotalsByPaymentMethod.get(orderPayPrefKey)).doubleValue()).setScale(decimals,rounding));
+          orderPayPrefReceivedTotal=orderPayPrefReceivedTotal.add((BigDecimal)receivedPaymentTotalsByPaymentMethod.get(orderPayPrefKey)).setScale(decimals,rounding);
         }
         BigDecimal orderPayPrefRefundedTotal=ZERO;
         if (refundedTotalsByPaymentMethod.containsKey(orderPayPrefKey)) {
-          orderPayPrefRefundedTotal=orderPayPrefRefundedTotal.add(new BigDecimal(((Double)refundedTotalsByPaymentMethod.get(orderPayPrefKey)).doubleValue()).setScale(decimals,rounding));
+          orderPayPrefRefundedTotal=orderPayPrefRefundedTotal.add((BigDecimal)refundedTotalsByPaymentMethod.get(orderPayPrefKey)).setScale(decimals,rounding);
         }
         BigDecimal orderPayPrefAvailableTotal=orderPayPrefReceivedTotal.subtract(orderPayPrefRefundedTotal);
         if (orderPayPrefAvailableTotal.compareTo(ZERO) == 1) {
@@ -107,7 +107,7 @@
           }
         }
       }
-      BigDecimal amountLeftToRefund=new BigDecimal(orderTotal.doubleValue()).setScale(decimals,rounding);
+      BigDecimal amountLeftToRefund=orderTotal.setScale(decimals,rounding);
       List electronicTypes=UtilMisc.toList("CREDIT_CARD","EFT_ACCOUNT","FIN_ACCOUNT","GIFT_CARD");
       List orderedRefundPaymentMethodTypes=new ArrayList();
       orderedRefundPaymentMethodTypes.add("EXT_BILLACT");
@@ -140,7 +140,7 @@
             String returnItemStatusId="RETURN_COMPLETED";
             if (electronicTypes.contains(paymentMethodTypeId)) {
               try {
-                serviceResult=dispatcher.runSync("refundPayment",UtilMisc.<String,Object>toMap("orderPaymentPreference",orderPaymentPreference,"refundAmount",new Double(amountToRefund.setScale(decimals,rounding).doubleValue()),"userLogin",userLogin));
+                serviceResult=dispatcher.runSync("refundPayment",UtilMisc.<String,Object>toMap("orderPaymentPreference",orderPaymentPreference,"refundAmount",amountToRefund.setScale(decimals,rounding),"userLogin",userLogin));
                 if (ServiceUtil.isError(serviceResult) || ServiceUtil.isFailure(serviceResult)) {
                   Debug.logError("Error in refund payment: " + ServiceUtil.getErrorMessage(serviceResult),module);
                   continue;
@@ -154,7 +154,7 @@
             }
  else             if (paymentMethodTypeId.equals("EXT_BILLACT")) {
               try {
-                serviceResult=dispatcher.runSync("refundBillingAccountPayment",UtilMisc.<String,Object>toMap("orderPaymentPreference",orderPaymentPreference,"refundAmount",new Double(amountToRefund.setScale(decimals,rounding).doubleValue()),"userLogin",userLogin));
+                serviceResult=dispatcher.runSync("refundBillingAccountPayment",UtilMisc.<String,Object>toMap("orderPaymentPreference",orderPaymentPreference,"refundAmount",amountToRefund.setScale(decimals,rounding),"userLogin",userLogin));
                 if (ServiceUtil.isError(serviceResult) || ServiceUtil.isFailure(serviceResult)) {
                   Debug.logError("Error in refund payment: " + ServiceUtil.getErrorMessage(serviceResult),module);
                   continue;
@@ -168,7 +168,7 @@
             }
  else {
               try {
-                Map input=UtilMisc.toMap("userLogin",userLogin,"amount",new Double(amountLeftToRefund.doubleValue()),"statusId","PMNT_NOT_PAID");
+                Map input=UtilMisc.toMap("userLogin",userLogin,"amount",amountLeftToRefund,"statusId","PMNT_NOT_PAID");
                 input.put("partyIdTo",returnHeader.get("fromPartyId"));
                 input.put("partyIdFrom",returnHeader.get("toPartyId"));
                 input.put("paymentTypeId","CUSTOMER_REFUND");
@@ -189,7 +189,7 @@
             }
             Map response=FastMap.newInstance();
             response.put("orderPaymentPreferenceId",orderPaymentPreference.getString("orderPaymentPreferenceId"));
-            response.put("responseAmount",new Double(amountToRefund.setScale(decimals,rounding).doubleValue()));
+            response.put("responseAmount",amountToRefund.setScale(decimals,rounding));
             response.put("responseDate",now);
             response.put("userLogin",userLogin);
             response.put("paymentId",paymentId);

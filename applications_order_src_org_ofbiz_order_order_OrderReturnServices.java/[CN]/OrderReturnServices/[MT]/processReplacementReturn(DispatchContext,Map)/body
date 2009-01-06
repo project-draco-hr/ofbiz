@@ -61,7 +61,7 @@
       orderMap.put("webSiteId",orderHeader.get("webSiteId"));
       orderMap.put("visitId",orderHeader.get("visitId"));
       orderMap.put("currencyUom",orderHeader.get("currencyUom"));
-      orderMap.put("grandTotal",new Double(0.00));
+      orderMap.put("grandTotal",BigDecimal.ZERO);
       List contactMechs=new ArrayList();
       List orderCm=null;
       try {
@@ -78,8 +78,8 @@
         }
         orderMap.put("orderContactMechs",contactMechs);
       }
-      double orderPriceTotal=0.00;
-      double additionalItemTotal=0.00;
+      BigDecimal orderPriceTotal=BigDecimal.ZERO;
+      BigDecimal additionalItemTotal=BigDecimal.ZERO;
       List orderItems=new ArrayList();
       List orderItemShipGroupInfo=new ArrayList();
       List orderItemShipGroupIds=new ArrayList();
@@ -100,10 +100,10 @@
             continue;
           }
           if (orderItem != null) {
-            Double quantity=returnItem.getDouble("returnQuantity");
-            Double unitPrice=returnItem.getDouble("returnPrice");
+            BigDecimal quantity=returnItem.getBigDecimal("returnQuantity");
+            BigDecimal unitPrice=returnItem.getBigDecimal("returnPrice");
             if (quantity != null && unitPrice != null) {
-              orderPriceTotal+=(quantity.doubleValue() * unitPrice.doubleValue());
+              orderPriceTotal=orderPriceTotal.add(quantity.multiply(unitPrice));
               GenericValue refurbItem=null;
               if ("CUSTOMER_RETURN".equals(returnHeaderTypeId)) {
                 try {
@@ -200,11 +200,11 @@
                       continue;
                     }
                     if (UtilValidate.isNotEmpty(repairItemProduct)) {
-                      Double repairUnitQuantity=repairItem.getDouble("quantity");
+                      BigDecimal repairUnitQuantity=repairItem.getBigDecimal("quantity");
                       if (UtilValidate.isEmpty(repairUnitQuantity)) {
-                        repairUnitQuantity=new Double(1.0);
+                        repairUnitQuantity=BigDecimal.ONE;
                       }
-                      Double repairQuantity=new Double(quantity.doubleValue() * repairUnitQuantity.doubleValue());
+                      BigDecimal repairQuantity=quantity.multiply(repairUnitQuantity);
                       newItem=delegator.makeValue("OrderItem",UtilMisc.toMap("orderItemSeqId",UtilFormatOut.formatPaddedNumber(itemCount++,5)));
                       Map priceContext=FastMap.newInstance();
                       priceContext.put("currencyUomId",orderHeader.get("currencyUom"));
@@ -235,14 +235,14 @@
                         continue;
                       }
                       if (priceResult.get("listPrice") != null) {
-                        newItem.set("unitListPrice",(Double)priceResult.get("listPrice"));
+                        newItem.set("unitListPrice",(BigDecimal)priceResult.get("listPrice"));
                       }
-                      Double repairUnitPrice=null;
+                      BigDecimal repairUnitPrice=null;
                       if (priceResult.get("basePrice") != null) {
-                        repairUnitPrice=(Double)priceResult.get("basePrice");
+                        repairUnitPrice=(BigDecimal)priceResult.get("basePrice");
                       }
  else {
-                        repairUnitPrice=new Double(0.0);
+                        repairUnitPrice=BigDecimal.ZERO;
                       }
                       newItem.set("unitPrice",repairUnitPrice);
                       newItem.set("productId",repairItemProduct.get("productId"));
@@ -250,7 +250,7 @@
                       newItem.set("itemDescription",ProductContentWrapper.getProductContentAsText(repairItemProduct,"PRODUCT_NAME",locale,null));
                       newItem.set("statusId","ITEM_CREATED");
                       orderItems.add(newItem);
-                      additionalItemTotal=additionalItemTotal + (repairQuantity.doubleValue() * repairUnitPrice.doubleValue());
+                      additionalItemTotal=additionalItemTotal.add(repairQuantity.multiply(repairUnitPrice));
                       if (UtilValidate.isNotEmpty(orderItemShipGroupAssoc)) {
                         GenericValue newOrderItemShipGroupAssoc=delegator.makeValue("OrderItemShipGroupAssoc",UtilMisc.toMap("orderItemSeqId",newItem.getString("orderItemSeqId"),"shipGroupSeqId",orderItemShipGroupAssoc.getString("shipGroupSeqId"),"quantity",repairQuantity));
                         orderItemShipGroupInfo.add(newOrderItemShipGroupAssoc);
@@ -278,12 +278,12 @@
       }
       GenericValue adj=delegator.makeValue("OrderAdjustment");
       adj.set("orderAdjustmentTypeId","REPLACE_ADJUSTMENT");
-      adj.set("amount",new Double(orderPriceTotal * -1));
+      adj.set("amount",orderPriceTotal.negate());
       adj.set("comments","Replacement Item Return #" + returnId);
       adj.set("createdDate",nowTimestamp);
       adj.set("createdByUserLogin",userLogin.getString("userLoginId"));
       orderMap.put("orderAdjustments",UtilMisc.toList(adj));
-      if (additionalItemTotal > 0) {
+      if (additionalItemTotal.compareTo(BigDecimal.ZERO) > 0) {
         GenericValue paymentMethod=null;
         try {
           paymentMethod=returnHeader.getRelatedOne("PaymentMethod");
@@ -355,7 +355,7 @@
         OrderChangeHelper.approveOrder(dispatcher,userLogin,createdOrderId);
         Map itemResponse=FastMap.newInstance();
         itemResponse.put("replacementOrderId",createdOrderId);
-        itemResponse.put("responseAmount",new Double(orderPriceTotal));
+        itemResponse.put("responseAmount",orderPriceTotal);
         itemResponse.put("responseDate",nowTimestamp);
         itemResponse.put("userLogin",userLogin);
         String returnItemResponseId=null;

@@ -6,13 +6,13 @@
   List invoicesCreated=FastList.newInstance();
   String invoiceIdIn=(String)context.get("invoiceId");
   String invoiceItemSeqIdIn=(String)context.get("invoiceItemSeqId");
-  BigDecimal amountTotal=InvoiceWorker.getInvoiceTotalBd(delegator,invoiceIdIn);
+  BigDecimal amountTotal=InvoiceWorker.getInvoiceTotal(delegator,invoiceIdIn);
   if (amountTotal.signum() == 0) {
     Debug.logWarning("Invoice [" + invoiceIdIn + "] has an amount total of ["+ amountTotal+ "], so no commission invoice will be created",module);
     return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"AccountingInvoiceCommissionZeroInvoiceAmount",locale));
   }
   try {
-    BigDecimal appliedFraction=new BigDecimal(((Double)context.get("amountApplied")).doubleValue()).divide(amountTotal,12,rounding);
+    BigDecimal appliedFraction=((BigDecimal)context.get("amountApplied")).divide(amountTotal,12,rounding);
     Map inMap=UtilMisc.toMap("invoiceId",invoiceIdIn);
     GenericValue invoice=delegator.findByPrimaryKey("Invoice",inMap);
     String invoiceTypeId=invoice.getString("invoiceTypeId");
@@ -108,7 +108,7 @@
         Map elem=(Map)itt.next();
         BigDecimal elemAmount=((BigDecimal)elem.get("commission")).multiply(appliedFraction);
         elemAmount=elemAmount.setScale(decimals,rounding);
-        Map resMap=dispatcher.runSync("createInvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"productId",elem.get("productId"),"invoiceItemTypeId","COMM_INV_ITEM","amount",new Double(elemAmount.doubleValue()),"userLogin",userLogin));
+        Map resMap=dispatcher.runSync("createInvoiceItem",UtilMisc.toMap("invoiceId",invoiceId,"productId",elem.get("productId"),"invoiceItemTypeId","COMM_INV_ITEM","amount",elemAmount,"userLogin",userLogin));
         if (ServiceUtil.isError(resMap)) {
           return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingInvoiceCommissionErrorItem",locale),null,null,resMap);
         }

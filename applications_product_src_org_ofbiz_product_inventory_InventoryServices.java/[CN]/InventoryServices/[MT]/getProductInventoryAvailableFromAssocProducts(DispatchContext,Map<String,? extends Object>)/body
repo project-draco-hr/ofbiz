@@ -3,17 +3,17 @@
   List<GenericValue> productAssocList=UtilGenerics.checkList(context.get("assocProducts"));
   String facilityId=(String)context.get("facilityId");
   String statusId=(String)context.get("statusId");
-  Double availableToPromiseTotal=Double.valueOf(0);
-  Double quantityOnHandTotal=Double.valueOf(0);
+  BigDecimal availableToPromiseTotal=BigDecimal.ZERO;
+  BigDecimal quantityOnHandTotal=BigDecimal.ZERO;
   if (UtilValidate.isNotEmpty(productAssocList)) {
-    double minQuantityOnHandTotal=Double.MAX_VALUE;
-    double minAvailableToPromiseTotal=Double.MAX_VALUE;
+    BigDecimal minQuantityOnHandTotal=null;
+    BigDecimal minAvailableToPromiseTotal=null;
     for (    GenericValue productAssoc : productAssocList) {
       String productIdTo=productAssoc.getString("productIdTo");
-      Double assocQuantity=productAssoc.getDouble("quantity");
+      BigDecimal assocQuantity=productAssoc.getBigDecimal("quantity");
       if (assocQuantity == null) {
         Debug.logWarning("ProductAssoc from [" + productAssoc.getString("productId") + "] to ["+ productAssoc.getString("productIdTo")+ "] has no quantity, assuming 1.0",module);
-        assocQuantity=Double.valueOf(1.0);
+        assocQuantity=BigDecimal.ONE;
       }
       Map<String,Object> resultOutput=null;
       try {
@@ -30,22 +30,22 @@
         Debug.logError(e,"Problems getting inventory available by facility",module);
         return ServiceUtil.returnError(e.getMessage());
       }
-      Double currentQuantityOnHandTotal=(Double)resultOutput.get("quantityOnHandTotal");
-      Double currentAvailableToPromiseTotal=(Double)resultOutput.get("availableToPromiseTotal");
-      double tmpQuantityOnHandTotal=currentQuantityOnHandTotal.doubleValue() / assocQuantity.doubleValue();
-      double tmpAvailableToPromiseTotal=currentAvailableToPromiseTotal.doubleValue() / assocQuantity.doubleValue();
-      if (tmpQuantityOnHandTotal < minQuantityOnHandTotal) {
+      BigDecimal currentQuantityOnHandTotal=(BigDecimal)resultOutput.get("quantityOnHandTotal");
+      BigDecimal currentAvailableToPromiseTotal=(BigDecimal)resultOutput.get("availableToPromiseTotal");
+      BigDecimal tmpQuantityOnHandTotal=currentQuantityOnHandTotal.divide(assocQuantity,generalRounding);
+      BigDecimal tmpAvailableToPromiseTotal=currentAvailableToPromiseTotal.divide(assocQuantity,generalRounding);
+      if (minQuantityOnHandTotal == null || tmpQuantityOnHandTotal.compareTo(minQuantityOnHandTotal) < 0) {
         minQuantityOnHandTotal=tmpQuantityOnHandTotal;
       }
-      if (tmpAvailableToPromiseTotal < minAvailableToPromiseTotal) {
+      if (minAvailableToPromiseTotal == null || tmpAvailableToPromiseTotal.compareTo(minAvailableToPromiseTotal) < 0) {
         minAvailableToPromiseTotal=tmpAvailableToPromiseTotal;
       }
       if (Debug.verboseOn()) {
         Debug.logVerbose("productIdTo = " + productIdTo + " assocQuantity = "+ assocQuantity+ "current QOH "+ currentQuantityOnHandTotal+ "currentATP = "+ currentAvailableToPromiseTotal+ " minQOH = "+ minQuantityOnHandTotal+ " minATP = "+ minAvailableToPromiseTotal,module);
       }
     }
-    quantityOnHandTotal=Double.valueOf(minQuantityOnHandTotal);
-    availableToPromiseTotal=Double.valueOf(minAvailableToPromiseTotal);
+    quantityOnHandTotal=minQuantityOnHandTotal;
+    availableToPromiseTotal=minAvailableToPromiseTotal;
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   result.put("availableToPromiseTotal",availableToPromiseTotal);

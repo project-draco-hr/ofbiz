@@ -1,0 +1,56 @@
+{
+  if (quantity == null) {
+    quantity=this.getQuantity();
+  }
+  Map<String,Object> issueMap=FastMap.newInstance();
+  issueMap.put("shipmentId",shipmentId);
+  issueMap.put("orderId",this.getOrderId());
+  issueMap.put("orderItemSeqId",this.getOrderItemSeqId());
+  issueMap.put("shipGroupSeqId",this.getShipGroupSeqId());
+  issueMap.put("inventoryItemId",this.getInventoryItemId());
+  issueMap.put("quantity",quantity);
+  issueMap.put("userLogin",userLogin);
+  Map<String,Object> issueResp=dispatcher.runSync("issueOrderItemShipGrpInvResToShipment",issueMap);
+  if (ServiceUtil.isError(issueResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(issueResp));
+  }
+  String shipmentItemSeqId=(String)issueResp.get("shipmentItemSeqId");
+  if (shipmentItemSeqId == null) {
+    throw new GeneralException("Issue item did not return a valid shipmentItemSeqId!");
+  }
+ else {
+    this.setShipmentItemSeqId(shipmentItemSeqId);
+  }
+  if (picklistBinId != null) {
+    Debug.log("Looking up picklist item for bin ID #" + picklistBinId,module);
+    GenericDelegator delegator=dispatcher.getDelegator();
+    Map<String,Object> itemLookup=FastMap.newInstance();
+    itemLookup.put("picklistBinId",picklistBinId);
+    itemLookup.put("orderId",this.getOrderId());
+    itemLookup.put("orderItemSeqId",this.getOrderItemSeqId());
+    itemLookup.put("shipGroupSeqId",this.getShipGroupSeqId());
+    itemLookup.put("inventoryItemId",this.getInventoryItemId());
+    GenericValue plItem=delegator.findByPrimaryKey("PicklistItem",itemLookup);
+    if (plItem != null) {
+      Debug.log("Found picklist bin: " + plItem,module);
+      BigDecimal itemQty=plItem.getBigDecimal("quantity");
+      if (itemQty.compareTo(quantity) == 0) {
+        itemLookup.put("itemStatusId","PICKITEM_COMPLETED");
+      }
+ else {
+        itemLookup.put("itemStatusId","PICKITEM_CANCELLED");
+      }
+      itemLookup.put("userLogin",userLogin);
+      Map<String,Object> itemUpdateResp=dispatcher.runSync("updatePicklistItem",itemLookup);
+      if (ServiceUtil.isError(itemUpdateResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(issueResp));
+      }
+    }
+ else {
+      Debug.log("No item was found for lookup: " + itemLookup,module);
+    }
+  }
+ else {
+    Debug.logWarning("*** NO Picklist Bin ID set; cannot update picklist status!",module);
+  }
+}

@@ -1,0 +1,77 @@
+{
+  if (status == 0) {
+    throw new GeneralException("Packing session has been completed; be sure to CLEAR before packing a new order! [000]");
+  }
+  if (!update && quantity.compareTo(BigDecimal.ZERO) == 0) {
+    return;
+  }
+  productId=ProductWorker.findProductId(this.getDelegator(),productId);
+  if (orderId == null) {
+    orderId=primaryOrderId;
+  }
+  if (shipGroupSeqId == null) {
+    shipGroupSeqId=primaryShipGrp;
+  }
+  if (orderItemSeqId == null && productId != null) {
+    orderItemSeqId=this.findOrderItemSeqId(productId,orderId,shipGroupSeqId,quantity);
+  }
+  Map<String,Object> invLookup=FastMap.newInstance();
+  invLookup.put("orderId",orderId);
+  invLookup.put("orderItemSeqId",orderItemSeqId);
+  invLookup.put("shipGroupSeqId",shipGroupSeqId);
+  List<GenericValue> reservations=this.getDelegator().findByAnd("OrderItemShipGrpInvRes",invLookup,UtilMisc.toList("quantity DESC"));
+  if (UtilValidate.isEmpty(reservations)) {
+    throw new GeneralException("No inventory reservations available; cannot pack this item! [101]");
+  }
+  if (reservations.size() == 1) {
+    GenericValue res=EntityUtil.getFirst(reservations);
+    int checkCode=this.checkLineForAdd(res,orderId,orderItemSeqId,shipGroupSeqId,productId,quantity,packageSeqId,update);
+    this.createPackLineItem(checkCode,res,orderId,orderItemSeqId,shipGroupSeqId,productId,quantity,weight,packageSeqId);
+  }
+ else {
+    Map<GenericValue,BigDecimal> toCreateMap=FastMap.newInstance();
+    Iterator<GenericValue> i=reservations.iterator();
+    BigDecimal qtyRemain=quantity;
+    while (i.hasNext() && qtyRemain.compareTo(BigDecimal.ZERO) > 0) {
+      GenericValue res=i.next();
+      if (!productId.equals(res.getRelatedOne("InventoryItem").getString("productId"))) {
+        continue;
+      }
+      BigDecimal resQty=res.getBigDecimal("quantity");
+      BigDecimal resPackedQty=this.getPackedQuantity(orderId,orderItemSeqId,shipGroupSeqId,productId,res.getString("inventoryItemId"),-1);
+      if (resPackedQty.compareTo(resQty) >= 0) {
+        continue;
+      }
+ else       if (!update) {
+        resQty=resQty.subtract(resPackedQty);
+      }
+      BigDecimal thisQty=resQty.compareTo(qtyRemain) > 0 ? qtyRemain : resQty;
+      int thisCheck=this.checkLineForAdd(res,orderId,orderItemSeqId,shipGroupSeqId,productId,thisQty,packageSeqId,update);
+switch (thisCheck) {
+case 2:
+        Debug.log("Packing check returned '2' - new pack line will be created!",module);
+      toCreateMap.put(res,thisQty);
+    qtyRemain=qtyRemain.subtract(thisQty);
+  break;
+case 1:
+Debug.log("Packing check returned '1' - existing pack line has been updated!",module);
+qtyRemain=qtyRemain.subtract(thisQty);
+break;
+case 0:
+Debug.log("Packing check returned '0' - doing nothing.",module);
+break;
+}
+}
+if (qtyRemain.compareTo(BigDecimal.ZERO) == 0) {
+for (Map.Entry<GenericValue,BigDecimal> entry : toCreateMap.entrySet()) {
+GenericValue res=entry.getKey();
+BigDecimal qty=entry.getValue();
+this.createPackLineItem(2,res,orderId,orderItemSeqId,shipGroupSeqId,productId,qty,weight,packageSeqId);
+}
+}
+ else {
+throw new GeneralException("Not enough inventory reservation available; cannot pack the item! [103]");
+}
+}
+this.runEvents(PackingEvent.EVENT_CODE_ADD);
+}

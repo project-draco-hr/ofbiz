@@ -63,7 +63,7 @@
       GenericValue orderItem=orderReadHelper.getOrderItem(orderShipment.getString("orderItemSeqId"));
       Map serviceContext=new HashMap();
       serviceContext.put("productId",orderItem.getString("productId"));
-      serviceContext.put("quantity",orderShipment.getDouble("quantity"));
+      serviceContext.put("quantity",orderShipment.getBigDecimal("quantity"));
       Map resultService=null;
       try {
         resultService=dispatcher.runSync("getProductsInPackages",serviceContext);
@@ -161,11 +161,10 @@
       String boxTypeId=(String)boxTypeContentEntry.getKey();
       List contentList=(List)boxTypeContentEntry.getValue();
       GenericValue boxType=(GenericValue)boxTypes.get(boxTypeId);
-      Double boxWidth=boxType.getDouble("boxLength");
-      double totalWidth=0;
-      double boxWidthDbl=0;
-      if (boxWidth != null) {
-        boxWidthDbl=boxWidth.doubleValue();
+      BigDecimal boxWidth=boxType.getBigDecimal("boxLength");
+      BigDecimal totalWidth=BigDecimal.ZERO;
+      if (boxWidth == null) {
+        boxWidth=BigDecimal.ZERO;
       }
       String shipmentPackageSeqId=null;
       for (int i=0; i < contentList.size(); i++) {
@@ -175,7 +174,7 @@
         List productsInPackages=(List)content.get("productsInPackages");
         GenericValue orderShipment=(GenericValue)content.get("orderShipment");
         GenericValue product=null;
-        double quantity=0;
+        BigDecimal quantity=BigDecimal.ZERO;
         boolean subProduct=contentMap.containsKey("componentIndex");
         if (subProduct) {
           Integer index=(Integer)contentMap.get("componentIndex");
@@ -191,24 +190,23 @@
  catch (          GenericEntityException e) {
             return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
           }
-          quantity=orderShipment.getDouble("quantity").doubleValue();
+          quantity=orderShipment.getBigDecimal("quantity");
         }
-        Double productDepth=product.getDouble("shippingDepth");
+        BigDecimal productDepth=product.getBigDecimal("shippingDepth");
         if (productDepth == null) {
-          productDepth=product.getDouble("productDepth");
+          productDepth=product.getBigDecimal("productDepth");
         }
-        double productDepthDbl=1;
-        if (productDepth != null) {
-          productDepthDbl=productDepth.doubleValue();
+        if (productDepth == null) {
+          productDepth=BigDecimal.ONE;
         }
-        int firstMaxNumOfProducts=(int)((boxWidthDbl - totalWidth) / productDepthDbl);
-        if (firstMaxNumOfProducts == 0)         firstMaxNumOfProducts=1;
-        int maxNumOfProducts=(int)(boxWidthDbl / productDepthDbl);
-        if (maxNumOfProducts == 0)         maxNumOfProducts=1;
-        double remQuantity=quantity;
+        BigDecimal firstMaxNumOfProducts=boxWidth.subtract(totalWidth).divide(productDepth,0,BigDecimal.ROUND_FLOOR);
+        if (firstMaxNumOfProducts.compareTo(BigDecimal.ZERO) == 0)         firstMaxNumOfProducts=BigDecimal.ONE;
+        BigDecimal maxNumOfProducts=boxWidth.divide(productDepth,0,BigDecimal.ROUND_FLOOR);
+        if (maxNumOfProducts.compareTo(BigDecimal.ZERO) == 0)         maxNumOfProducts=BigDecimal.ONE;
+        BigDecimal remQuantity=quantity;
         boolean isFirst=true;
-        while (remQuantity > 0) {
-          int maxQuantity=0;
+        while (remQuantity.compareTo(BigDecimal.ZERO) > 0) {
+          BigDecimal maxQuantity=BigDecimal.ZERO;
           if (isFirst) {
             maxQuantity=firstMaxNumOfProducts;
             isFirst=false;
@@ -216,7 +214,7 @@
  else {
             maxQuantity=maxNumOfProducts;
           }
-          double qty=(remQuantity < maxQuantity ? remQuantity : maxQuantity);
+          BigDecimal qty=(remQuantity.compareTo(maxQuantity) < 0 ? remQuantity : maxQuantity);
           if (shipmentPackageSeqId == null) {
             try {
               Map resultService=dispatcher.runSync("createShipmentPackage",UtilMisc.<String,Object>toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentBoxTypeId",boxTypeId,"userLogin",userLogin));
@@ -225,24 +223,24 @@
  catch (            GenericServiceException e) {
               return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
             }
-            totalWidth=0;
+            totalWidth=BigDecimal.ZERO;
           }
           try {
             Map inputMap=null;
             if (subProduct) {
-              inputMap=UtilMisc.toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackageSeqId,"shipmentItemSeqId",orderShipment.getString("shipmentItemSeqId"),"subProductId",product.getString("productId"),"userLogin",userLogin,"subProductQuantity",new Double(qty));
+              inputMap=UtilMisc.toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackageSeqId,"shipmentItemSeqId",orderShipment.getString("shipmentItemSeqId"),"subProductId",product.getString("productId"),"userLogin",userLogin,"subProductQuantity",qty);
             }
  else {
-              inputMap=UtilMisc.toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackageSeqId,"shipmentItemSeqId",orderShipment.getString("shipmentItemSeqId"),"userLogin",userLogin,"quantity",new Double(qty));
+              inputMap=UtilMisc.toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackageSeqId,"shipmentItemSeqId",orderShipment.getString("shipmentItemSeqId"),"userLogin",userLogin,"quantity",qty);
             }
             Map resultService=dispatcher.runSync("createShipmentPackageContent",inputMap);
           }
  catch (          GenericServiceException e) {
             return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
           }
-          totalWidth+=qty * productDepthDbl;
-          if (qty == maxQuantity)           shipmentPackageSeqId=null;
-          remQuantity=remQuantity - qty;
+          totalWidth=totalWidth.add(qty.multiply(productDepth));
+          if (qty.compareTo(maxQuantity) == 0)           shipmentPackageSeqId=null;
+          remQuantity=remQuantity.subtract(qty);
         }
       }
     }

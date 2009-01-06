@@ -11,18 +11,18 @@
       if ("PRUN_CLOSED".equals(genericResult.getString("currentStatusId")) || "PRUN_CREATED".equals(genericResult.getString("currentStatusId"))) {
         continue;
       }
-      Double qtyToProduce=genericResult.getDouble("quantityToProduce");
+      BigDecimal qtyToProduce=genericResult.getBigDecimal("quantityToProduce");
       if (qtyToProduce == null) {
-        qtyToProduce=new Double(0);
+        qtyToProduce=BigDecimal.ZERO;
       }
-      Double qtyProduced=genericResult.getDouble("quantityProduced");
+      BigDecimal qtyProduced=genericResult.getBigDecimal("quantityProduced");
       if (qtyProduced == null) {
-        qtyProduced=new Double(0);
+        qtyProduced=BigDecimal.ZERO;
       }
       if (qtyProduced.compareTo(qtyToProduce) >= 0) {
         continue;
       }
-      double qtyDiff=qtyToProduce.doubleValue() - qtyProduced.doubleValue();
+      BigDecimal qtyDiff=qtyToProduce.subtract(qtyProduced);
       String productId=genericResult.getString("productId");
       Timestamp estimatedShipDate=genericResult.getTimestamp("estimatedCompletionDate");
       if (estimatedShipDate == null) {
@@ -33,11 +33,11 @@
       }
       TreeMap productMap=(TreeMap)products.get(productId);
       if (!productMap.containsKey(estimatedShipDate)) {
-        productMap.put(estimatedShipDate,UtilMisc.toMap("remainingQty",new Double(0.0),"reservations",FastList.newInstance()));
+        productMap.put(estimatedShipDate,UtilMisc.toMap("remainingQty",BigDecimal.ZERO,"reservations",FastList.newInstance()));
       }
       Map dateMap=(Map)productMap.get(estimatedShipDate);
-      Double remainingQty=(Double)dateMap.get("remainingQty");
-      remainingQty=new Double(remainingQty.doubleValue() + qtyDiff);
+      BigDecimal remainingQty=(BigDecimal)dateMap.get("remainingQty");
+      remainingQty=remainingQty.add(qtyDiff);
       dateMap.put("remainingQty",remainingQty);
     }
     resultList=delegator.findByAnd("OrderHeaderAndItems",UtilMisc.toMap("orderTypeId","PURCHASE_ORDER","itemStatusId","ITEM_APPROVED"),UtilMisc.toList("orderId"));
@@ -57,7 +57,7 @@
         }
       }
       String productId=genericResult.getString("productId");
-      double orderQuantity=genericResult.getDouble("quantity").doubleValue();
+      BigDecimal orderQuantity=genericResult.getBigDecimal("quantity");
       GenericValue orderItemDeliverySchedule=null;
       try {
         orderItemDeliverySchedule=delegator.findByPrimaryKey("OrderDeliverySchedule",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",genericResult.getString("orderItemSeqId")));
@@ -82,16 +82,16 @@
       }
       TreeMap productMap=(TreeMap)products.get(productId);
       if (!productMap.containsKey(estimatedShipDate)) {
-        productMap.put(estimatedShipDate,UtilMisc.toMap("remainingQty",new Double(0.0),"reservations",FastList.newInstance()));
+        productMap.put(estimatedShipDate,UtilMisc.toMap("remainingQty",BigDecimal.ZERO,"reservations",FastList.newInstance()));
       }
       Map dateMap=(Map)productMap.get(estimatedShipDate);
-      Double remainingQty=(Double)dateMap.get("remainingQty");
-      remainingQty=new Double(remainingQty.doubleValue() + orderQuantity);
+      BigDecimal remainingQty=(BigDecimal)dateMap.get("remainingQty");
+      remainingQty=remainingQty.add(orderQuantity);
       dateMap.put("remainingQty",remainingQty);
     }
     List backordersCondList=FastList.newInstance();
     backordersCondList.add(EntityCondition.makeCondition("quantityNotAvailable",EntityOperator.NOT_EQUAL,null));
-    backordersCondList.add(EntityCondition.makeCondition("quantityNotAvailable",EntityOperator.GREATER_THAN,new Double(0.0)));
+    backordersCondList.add(EntityCondition.makeCondition("quantityNotAvailable",EntityOperator.GREATER_THAN,BigDecimal.ZERO));
     List backorders=delegator.findList("OrderItemAndShipGrpInvResAndItem",EntityCondition.makeCondition(backordersCondList,EntityOperator.AND),null,UtilMisc.toList("shipBeforeDate"),null,false);
     Iterator backordersIt=backorders.iterator();
     while (backordersIt.hasNext()) {
@@ -99,8 +99,8 @@
       String productId=genericResult.getString("productId");
       GenericValue orderItemShipGroup=delegator.findByPrimaryKey("OrderItemShipGroup",UtilMisc.toMap("orderId",genericResult.get("orderId"),"shipGroupSeqId",genericResult.get("shipGroupSeqId")));
       Timestamp requiredByDate=orderItemShipGroup.getTimestamp("shipByDate");
-      Double quantityNotAvailable=genericResult.getDouble("quantityNotAvailable");
-      double quantityNotAvailableRem=quantityNotAvailable.doubleValue();
+      BigDecimal quantityNotAvailable=genericResult.getBigDecimal("quantityNotAvailable");
+      BigDecimal quantityNotAvailableRem=quantityNotAvailable;
       if (requiredByDate == null) {
         requiredByDate=now;
       }
@@ -113,12 +113,12 @@
       while (subsetMapKeysIt.hasNext()) {
         Timestamp currentDate=(Timestamp)subsetMapKeysIt.next();
         Map currentDateMap=(Map)subsetMap.get(currentDate);
-        Double remainingQty=(Double)currentDateMap.get("remainingQty");
-        if (remainingQty.doubleValue() == 0) {
+        BigDecimal remainingQty=(BigDecimal)currentDateMap.get("remainingQty");
+        if (remainingQty.compareTo(ZERO) == 0) {
           continue;
         }
-        if (remainingQty.doubleValue() >= quantityNotAvailableRem) {
-          remainingQty=new Double(remainingQty.doubleValue() - quantityNotAvailableRem);
+        if (remainingQty.compareTo(quantityNotAvailableRem) >= 0) {
+          remainingQty=remainingQty.subtract(quantityNotAvailableRem);
           currentDateMap.put("remainingQty",remainingQty);
           GenericValue orderItemShipGrpInvRes=delegator.findByPrimaryKey("OrderItemShipGrpInvRes",UtilMisc.toMap("orderId",genericResult.getString("orderId"),"shipGroupSeqId",genericResult.getString("shipGroupSeqId"),"orderItemSeqId",genericResult.getString("orderItemSeqId"),"inventoryItemId",genericResult.getString("inventoryItemId")));
           orderItemShipGrpInvRes.set("promisedDatetime",currentDate);
@@ -126,8 +126,8 @@
           break;
         }
  else {
-          quantityNotAvailableRem=quantityNotAvailableRem - remainingQty.doubleValue();
-          remainingQty=new Double(0.0);
+          quantityNotAvailableRem=quantityNotAvailableRem.subtract(remainingQty);
+          remainingQty=BigDecimal.ZERO;
           currentDateMap.put("remainingQty",remainingQty);
         }
       }

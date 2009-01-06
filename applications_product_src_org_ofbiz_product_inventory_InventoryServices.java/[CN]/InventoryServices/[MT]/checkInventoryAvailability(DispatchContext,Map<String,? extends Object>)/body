@@ -6,7 +6,7 @@
   Map<String,Map<String,Timestamp>> ordersToCancel=FastMap.newInstance();
   List<GenericValue> inventoryItems=null;
   try {
-    EntityExpr ee=EntityCondition.makeCondition("availableToPromiseTotal",EntityOperator.LESS_THAN,Double.valueOf(0));
+    EntityExpr ee=EntityCondition.makeCondition("availableToPromiseTotal",EntityOperator.LESS_THAN,BigDecimal.ZERO);
     inventoryItems=delegator.findList("InventoryItem",ee,null,null,null,false);
   }
  catch (  GenericEntityException e) {
@@ -46,7 +46,7 @@
       continue;
     }
     Debug.log("Reservations for item: " + reservations.size(),module);
-    double availableBeforeReserved=inventoryItem.getDouble("availableToPromiseTotal").doubleValue();
+    BigDecimal availableBeforeReserved=inventoryItem.getBigDecimal("availableToPromiseTotal");
     for (    GenericValue reservation : reservations) {
       String orderId=reservation.getString("orderId");
       String orderItemSeqId=reservation.getString("orderItemSeqId");
@@ -63,10 +63,10 @@
       }
       Debug.log("Promised Date: " + actualPromiseDate,module);
       Timestamp nextShipDate=null;
-      double availableAtTime=0.00;
+      BigDecimal availableAtTime=BigDecimal.ZERO;
       for (      GenericValue shipmentItem : shipmentAndItems) {
-        availableAtTime+=shipmentItem.getDouble("quantity").doubleValue();
-        if (availableAtTime >= availableBeforeReserved) {
+        availableAtTime=availableAtTime.add(shipmentItem.getBigDecimal("quantity"));
+        if (availableAtTime.compareTo(availableBeforeReserved) >= 0) {
           nextShipDate=shipmentItem.getTimestamp("estimatedArrivalDate");
           break;
         }
@@ -121,7 +121,7 @@
           }
         }
       }
-      availableBeforeReserved-=reservation.getDouble("quantity").doubleValue();
+      availableBeforeReserved=availableBeforeReserved.subtract(reservation.getBigDecimal("quantity"));
     }
   }
   List<String> ordersToNotify=FastList.newInstance();
@@ -159,8 +159,8 @@
       }
       if (!maySplit && cancelItems != null) {
         cancelAll=true;
-        Set cancelSet=cancelItems.keySet();
-        cancelAllTime=(Timestamp)cancelItems.get(cancelSet.iterator().next());
+        Set<String> cancelSet=cancelItems.keySet();
+        cancelAllTime=cancelItems.get(cancelSet.iterator().next());
       }
       if (cancelItems == null) {
         cancelItems=FastMap.newInstance();

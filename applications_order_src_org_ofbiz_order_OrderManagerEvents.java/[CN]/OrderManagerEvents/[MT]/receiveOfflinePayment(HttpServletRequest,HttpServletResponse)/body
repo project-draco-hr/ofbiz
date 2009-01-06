@@ -14,9 +14,9 @@
     request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderProblemsReadingOrderHeaderInformation",locale));
     return "error";
   }
-  Double grandTotal=new Double(0.00);
+  BigDecimal grandTotal=BigDecimal.ZERO;
   if (orderHeader != null) {
-    grandTotal=orderHeader.getDouble("grandTotal");
+    grandTotal=orderHeader.getBigDecimal("grandTotal");
   }
   List paymentMethodTypes=null;
   try {
@@ -50,19 +50,19 @@
     String amountStr=request.getParameter(paymentMethodTypeId + "_amount");
     String paymentReference=request.getParameter(paymentMethodTypeId + "_reference");
     if (!UtilValidate.isEmpty(amountStr)) {
-      double paymentTypeAmount=0.00;
+      BigDecimal paymentTypeAmount=BigDecimal.ZERO;
       try {
-        paymentTypeAmount=NumberFormat.getNumberInstance(locale).parse(amountStr).doubleValue();
+        paymentTypeAmount=new BigDecimal(NumberFormat.getNumberInstance(locale).parse(amountStr).doubleValue());
       }
  catch (      java.text.ParseException pe) {
         request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderProblemsPaymentParsingAmount",locale));
         return "error";
       }
-      if (paymentTypeAmount > 0.00) {
+      if (paymentTypeAmount.compareTo(BigDecimal.ZERO) > 0) {
         Map prefFields=UtilMisc.toMap("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference"));
         GenericValue paymentPreference=delegator.makeValue("OrderPaymentPreference",prefFields);
         paymentPreference.set("paymentMethodTypeId",paymentMethodType.getString("paymentMethodTypeId"));
-        paymentPreference.set("maxAmount",new Double(paymentTypeAmount));
+        paymentPreference.set("maxAmount",paymentTypeAmount);
         paymentPreference.set("statusId","PAYMENT_RECEIVED");
         paymentPreference.set("orderId",orderId);
         paymentPreference.set("createdDate",UtilDateTime.nowTimestamp());
@@ -96,7 +96,7 @@
   }
   GenericValue offlineValue=null;
   List currentPrefs=null;
-  double paymentTally=0.00;
+  BigDecimal paymentTally=BigDecimal.ZERO;
   try {
     EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED")),EntityOperator.AND);
     currentPrefs=delegator.findList("OrderPaymentPreference",ecl,null,null,null,false);
@@ -113,15 +113,15 @@
         offlineValue=cp;
       }
  else {
-        Double cpAmt=cp.getDouble("maxAmount");
+        BigDecimal cpAmt=cp.getBigDecimal("maxAmount");
         if (cpAmt != null) {
-          paymentTally+=cpAmt.doubleValue();
+          paymentTally=paymentTally.add(cpAmt);
         }
       }
     }
   }
   boolean okayToApprove=false;
-  if (paymentTally >= grandTotal.doubleValue()) {
+  if (paymentTally.compareTo(grandTotal) >= 0) {
     okayToApprove=true;
     if (offlineValue != null) {
       offlineValue.set("statusId","PAYMENT_CANCELLED");

@@ -1,7 +1,7 @@
 {
   GenericDelegator delegator=dctx.getDelegator();
-  Double shippableWeight=(Double)context.get("shippableWeight");
-  if (shippableWeight.doubleValue() == 0) {
+  BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
+  if (shippableWeight.compareTo(BigDecimal.ZERO) == 0) {
     return ServiceUtil.returnFailure("shippableWeight must be greater than 0");
   }
   String originationZip=null;
@@ -53,22 +53,22 @@
     return ServiceUtil.returnError("Unable to determine the service code");
   }
   Document requestDocument=createUspsRequestDocument("RateV2Request");
-  double maxWeight=70;
+  BigDecimal maxWeight=new BigDecimal("70");
   String maxWeightStr=UtilProperties.getPropertyValue((String)context.get("serviceConfigProps"),"shipment.usps.max.estimate.weight","70");
   try {
-    maxWeight=Double.parseDouble(maxWeightStr);
+    maxWeight=new BigDecimal(maxWeightStr);
   }
  catch (  NumberFormatException e) {
     Debug.logWarning("Error parsing max estimate weight string [" + maxWeightStr + "], using default instead",module);
-    maxWeight=70;
+    maxWeight=new BigDecimal("70");
   }
   List<Map<String,Object>> shippableItemInfo=UtilGenerics.checkList(context.get("shippableItemInfo"));
-  List<Map<String,Double>> packages=getPackageSplit(dctx,shippableItemInfo,maxWeight);
+  List<Map<String,BigDecimal>> packages=getPackageSplit(dctx,shippableItemInfo,maxWeight);
   boolean isOnePackage=packages.size() == 1;
-  for (ListIterator<Map<String,Double>> li=packages.listIterator(); li.hasNext(); ) {
-    Map<String,Double> packageMap=li.next();
-    double packageWeight=isOnePackage ? shippableWeight.doubleValue() : calcPackageWeight(dctx,packageMap,shippableItemInfo,0);
-    if (packageWeight == 0) {
+  for (ListIterator<Map<String,BigDecimal>> li=packages.listIterator(); li.hasNext(); ) {
+    Map<String,BigDecimal> packageMap=li.next();
+    BigDecimal packageWeight=isOnePackage ? shippableWeight : calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
+    if (packageWeight.compareTo(BigDecimal.ZERO) == 0) {
       continue;
     }
     Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
@@ -76,12 +76,12 @@
     UtilXml.addChildElementValue(packageElement,"Service",serviceCode,requestDocument);
     UtilXml.addChildElementValue(packageElement,"ZipOrigination",originationZip.substring(0,5),requestDocument);
     UtilXml.addChildElementValue(packageElement,"ZipDestination",destinationZip.substring(0,5),requestDocument);
-    double weightPounds=Math.floor(packageWeight);
-    if ("PARCEL".equals(serviceCode.toUpperCase()) && (weightPounds < 1.0)) {
-      weightPounds=1.0;
-      packageWeight=0.0;
+    BigDecimal weightPounds=packageWeight.setScale(0,BigDecimal.ROUND_FLOOR);
+    if ("PARCEL".equals(serviceCode.toUpperCase()) && (weightPounds.compareTo(BigDecimal.ONE) < 0)) {
+      weightPounds=BigDecimal.ONE;
+      packageWeight=BigDecimal.ZERO;
     }
-    double weightOunces=Math.ceil(packageWeight * 16 % 16);
+    BigDecimal weightOunces=packageWeight.multiply(new BigDecimal("16")).remainder(new BigDecimal("16")).setScale(0,BigDecimal.ROUND_CEILING);
     DecimalFormat df=new DecimalFormat("#");
     UtilXml.addChildElementValue(packageElement,"Pounds",df.format(weightPounds),requestDocument);
     UtilXml.addChildElementValue(packageElement,"Ounces",df.format(weightOunces),requestDocument);
@@ -106,18 +106,18 @@
   if (UtilValidate.isEmpty(rates)) {
     return ServiceUtil.returnError("No rate available at this time");
   }
-  double estimateAmount=0.00;
+  BigDecimal estimateAmount=BigDecimal.ZERO;
   for (  Element packageElement : rates) {
     try {
       Element postageElement=UtilXml.firstChildElement(packageElement,"Postage");
-      double packageAmount=Double.parseDouble(UtilXml.childElementValue(postageElement,"Rate"));
-      estimateAmount+=packageAmount;
+      BigDecimal packageAmount=new BigDecimal(UtilXml.childElementValue(postageElement,"Rate"));
+      estimateAmount=estimateAmount.add(packageAmount);
     }
  catch (    NumberFormatException e) {
       Debug.log(e,module);
     }
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
-  result.put("shippingEstimateAmount",Double.valueOf(estimateAmount));
+  result.put("shippingEstimateAmount",estimateAmount);
   return result;
 }

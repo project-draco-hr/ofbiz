@@ -89,20 +89,20 @@
   while (iteratorResult.hasNext()) {
     genericResult=(GenericValue)iteratorResult.next();
     String productId=genericResult.getString("productId");
-    Double reservedQuantity=genericResult.getDouble("reservedQuantity");
-    Double shipGroupQuantity=genericResult.getDouble("quantity");
-    Double cancelledQuantity=genericResult.getDouble("cancelQuantity");
-    Double eventQuantityTmp=new Double(0.0);
+    BigDecimal reservedQuantity=genericResult.getBigDecimal("reservedQuantity");
+    BigDecimal shipGroupQuantity=genericResult.getBigDecimal("quantity");
+    BigDecimal cancelledQuantity=genericResult.getBigDecimal("cancelQuantity");
+    BigDecimal eventQuantityTmp=BigDecimal.ZERO;
     if (UtilValidate.isNotEmpty(reservedQuantity)) {
-      eventQuantityTmp=new Double(-1.0 * reservedQuantity.doubleValue());
+      eventQuantityTmp=reservedQuantity.negate();
     }
  else {
       if (UtilValidate.isNotEmpty(cancelledQuantity)) {
-        shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - cancelledQuantity.doubleValue());
+        shipGroupQuantity=shipGroupQuantity.subtract(cancelledQuantity);
       }
-      eventQuantityTmp=new Double(-1.0 * shipGroupQuantity.doubleValue());
+      eventQuantityTmp=shipGroupQuantity.negate();
     }
-    if (eventQuantityTmp.doubleValue() == 0) {
+    if (eventQuantityTmp.compareTo(BigDecimal.ZERO) == 0) {
       continue;
     }
     Timestamp requiredByDate=genericResult.getTimestamp("shipByDate");
@@ -142,7 +142,7 @@
   while (iteratorResult.hasNext()) {
     genericResult=(GenericValue)iteratorResult.next();
     String productId=genericResult.getString("productId");
-    Double eventQuantityTmp=genericResult.getDouble("quantity");
+    BigDecimal eventQuantityTmp=genericResult.getBigDecimal("quantity");
     if (productId == null || eventQuantityTmp == null) {
       continue;
     }
@@ -186,13 +186,13 @@
       }
     }
     String productId=genericResult.getString("productId");
-    Double shipGroupQuantity=genericResult.getDouble("quantity");
-    Double cancelledQuantity=genericResult.getDouble("cancelQuantity");
+    BigDecimal shipGroupQuantity=genericResult.getBigDecimal("quantity");
+    BigDecimal cancelledQuantity=genericResult.getBigDecimal("cancelQuantity");
     if (UtilValidate.isEmpty(shipGroupQuantity)) {
-      shipGroupQuantity=new Double(0);
+      shipGroupQuantity=BigDecimal.ZERO;
     }
     if (UtilValidate.isNotEmpty(cancelledQuantity)) {
-      shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - cancelledQuantity.doubleValue());
+      shipGroupQuantity=shipGroupQuantity.subtract(cancelledQuantity);
     }
     OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
     BigDecimal shippedQuantity=null;
@@ -202,7 +202,7 @@
  catch (    GenericEntityException e) {
     }
     if (UtilValidate.isNotEmpty(shippedQuantity)) {
-      shipGroupQuantity=new Double(shipGroupQuantity.doubleValue() - shippedQuantity.doubleValue());
+      shipGroupQuantity=shipGroupQuantity.subtract(shippedQuantity);
     }
     GenericValue orderItemDeliverySchedule=null;
     try {
@@ -246,7 +246,7 @@
   while (iteratorResult.hasNext()) {
     genericResult=(GenericValue)iteratorResult.next();
     String productId=genericResult.getString("productId");
-    Double eventQuantityTmp=new Double(-1.0 * genericResult.getDouble("estimatedQuantity").doubleValue());
+    BigDecimal eventQuantityTmp=genericResult.getBigDecimal("estimatedQuantity").negate();
     Timestamp estimatedShipDate=genericResult.getTimestamp("estimatedStartDate");
     if (estimatedShipDate == null) {
       estimatedShipDate=now;
@@ -277,20 +277,20 @@
     if ("PRUN_CLOSED".equals(genericResult.getString("currentStatusId"))) {
       continue;
     }
-    Double qtyToProduce=genericResult.getDouble("quantityToProduce");
+    BigDecimal qtyToProduce=genericResult.getBigDecimal("quantityToProduce");
     if (qtyToProduce == null) {
-      qtyToProduce=new Double(0);
+      qtyToProduce=BigDecimal.ZERO;
     }
-    Double qtyProduced=genericResult.getDouble("quantityProduced");
+    BigDecimal qtyProduced=genericResult.getBigDecimal("quantityProduced");
     if (qtyProduced == null) {
-      qtyProduced=new Double(0);
+      qtyProduced=BigDecimal.ZERO;
     }
     if (qtyProduced.compareTo(qtyToProduce) >= 0) {
       continue;
     }
-    double qtyDiff=qtyToProduce.doubleValue() - qtyProduced.doubleValue();
+    BigDecimal qtyDiff=qtyToProduce.subtract(qtyProduced);
     String productId=genericResult.getString("productId");
-    Double eventQuantityTmp=new Double(qtyDiff);
+    BigDecimal eventQuantityTmp=qtyDiff;
     Timestamp estimatedShipDate=genericResult.getTimestamp("estimatedCompletionDate");
     if (estimatedShipDate == null) {
       estimatedShipDate=now;
@@ -317,9 +317,9 @@
   while (iteratorResult.hasNext()) {
     genericResult=(GenericValue)iteratorResult.next();
     String productId=genericResult.getString("productId");
-    Double minimumStock=genericResult.getDouble("minimumStock");
+    BigDecimal minimumStock=genericResult.getBigDecimal("minimumStock");
     if (minimumStock == null) {
-      minimumStock=new Double(0);
+      minimumStock=BigDecimal.ZERO;
     }
     try {
       EntityFieldMap ecl=EntityCondition.makeCondition(UtilMisc.toMap("mrpId",mrpId,"productId",productId),EntityOperator.AND);
@@ -332,13 +332,13 @@
       Debug.logError(e,"Unable to count MrpEvent records.",module);
       return ServiceUtil.returnError("Unable to count MrpEvent records.");
     }
-    double qoh=findProductMrpQoh(mrpId,productId,facilityId,dispatcher,delegator);
-    if (qoh >= minimumStock.longValue()) {
+    BigDecimal qoh=findProductMrpQoh(mrpId,productId,facilityId,dispatcher,delegator);
+    if (qoh.compareTo(minimumStock) >= 0) {
       continue;
     }
     parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",now,"mrpEventTypeId","REQUIRED_MRP");
     try {
-      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,new Double(0.0),null,null,false,delegator);
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,BigDecimal.ZERO,null,null,false,delegator);
     }
  catch (    GenericEntityException e) {
       return ServiceUtil.returnError("Problem initializing the MrpEvent entity (REQUIRED_MRP)");
@@ -387,11 +387,11 @@
       while (sfdIter.hasNext()) {
         genericResult=(GenericValue)sfdIter.next();
         String productId=genericResult.getString("productId");
-        Double eventQuantityTmp=genericResult.getDouble("quantity");
+        BigDecimal eventQuantityTmp=genericResult.getBigDecimal("quantity");
         if (productId == null || eventQuantityTmp == null) {
           continue;
         }
-        eventQuantityTmp=new Double(-1.0 * eventQuantityTmp.doubleValue());
+        eventQuantityTmp=eventQuantityTmp.negate();
         parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",customTimePeriod.getDate("fromDate"),"mrpEventTypeId","SALES_FORECAST");
         try {
           InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,genericResult.getString("salesForecastDetailId"),false,delegator);

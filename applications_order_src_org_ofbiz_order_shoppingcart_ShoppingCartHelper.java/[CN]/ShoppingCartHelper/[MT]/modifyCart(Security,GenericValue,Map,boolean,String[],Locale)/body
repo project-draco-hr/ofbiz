@@ -8,9 +8,9 @@
   ArrayList errorMsgs=new ArrayList();
   Set parameterNames=context.keySet();
   Iterator parameterNameIter=parameterNames.iterator();
-  double oldQuantity=-1;
+  BigDecimal oldQuantity=BigDecimal.ONE.negate();
   String oldDescription="";
-  double oldPrice=-1;
+  BigDecimal oldPrice=BigDecimal.ONE.negate();
   if (this.cart.isReadOnlyCart()) {
     String errMsg=UtilProperties.getMessage(resource,"cart.cart_is_in_read_only_mode",this.cart.getLocale());
     errorMsgs.add(errMsg);
@@ -25,7 +25,7 @@
         String indexStr=parameterName.substring(underscorePos + 1);
         int index=Integer.parseInt(indexStr);
         String quantString=(String)context.get(parameterName);
-        double quantity=-1;
+        BigDecimal quantity=BigDecimal.ONE.negate();
         String itemDescription="";
         if (quantString != null)         quantString=quantString.trim();
         ShoppingCartItem item=this.cart.findCartItem(index);
@@ -59,13 +59,13 @@
         }
  else         if (parameterName.startsWith("reservLength")) {
           if (item != null) {
-            double reservLength=nf.parse(quantString).doubleValue();
+            BigDecimal reservLength=new BigDecimal(nf.parse(quantString).doubleValue());
             item.setReservLength(reservLength);
           }
         }
  else         if (parameterName.startsWith("reservPersons")) {
           if (item != null) {
-            double reservPersons=nf.parse(quantString).doubleValue();
+            BigDecimal reservPersons=new BigDecimal(nf.parse(quantString).doubleValue());
             item.setReservPersons(reservPersons);
           }
         }
@@ -99,8 +99,8 @@
           }
         }
  else {
-          quantity=nf.parse(quantString).doubleValue();
-          if (quantity < 0) {
+          quantity=new BigDecimal(nf.parse(quantString).doubleValue());
+          if (quantity.compareTo(BigDecimal.ZERO) < 0) {
             String errMsg=UtilProperties.getMessage(resource,"cart.quantity_not_positive_number",this.cart.getLocale());
             errorMsgs.add(errMsg);
             result=ServiceUtil.returnError(errorMsgs);
@@ -111,7 +111,7 @@
           this.cart.setShipGroupShipDatesFromItem(item);
         }
         if (parameterName.toUpperCase().startsWith("UPDATE")) {
-          if (quantity == 0.0) {
+          if (quantity.compareTo(BigDecimal.ZERO) == 0) {
             deleteList.add(item);
           }
  else {
@@ -122,7 +122,7 @@
                   if (oldQuantity != quantity) {
                     oldDescription=item.getName();
                     oldPrice=item.getBasePrice();
-                    GenericValue productSupplier=this.getProductSupplier(item.getProductId(),new Double(quantity),cart.getCurrency());
+                    GenericValue productSupplier=this.getProductSupplier(item.getProductId(),quantity,cart.getCurrency());
                     if (productSupplier == null) {
                       if ("_NA_".equals(cart.getPartyId())) {
                         item.setQuantity(quantity,dispatcher,this.cart);
@@ -136,7 +136,7 @@
                     }
  else {
                       item.setQuantity(quantity,dispatcher,this.cart);
-                      item.setBasePrice(productSupplier.getDouble("lastPrice").doubleValue());
+                      item.setBasePrice(productSupplier.getBigDecimal("lastPrice"));
                       item.setName(ShoppingCartItem.getPurchaseOrderItemDescription(item.getProduct(),productSupplier,cart.getLocale()));
                     }
                   }

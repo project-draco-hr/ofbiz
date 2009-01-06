@@ -5,7 +5,7 @@
   Locale locale=(Locale)context.get("locale");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String productionRunId=(String)context.get("workEffortId");
-  Double quantity=(Double)context.get("quantity");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
   String inventoryItemTypeId=(String)context.get("inventoryItemTypeId");
   String lotId=(String)context.get("lotId");
   Boolean createLotIfNeeded=(Boolean)context.get("createLotIfNeeded");
@@ -29,22 +29,22 @@
   if ("WIP".equals(productionRun.getProductProduced().getString("productTypeId"))) {
     return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductIsWIP",locale));
   }
-  Double quantityProduced=productionRun.getGenericValue().getDouble("quantityProduced");
+  BigDecimal quantityProduced=productionRun.getGenericValue().getBigDecimal("quantityProduced");
   if (quantityProduced == null) {
-    quantityProduced=new Double(0);
+    quantityProduced=BigDecimal.ZERO;
   }
-  Double quantityDeclared=lastTask.getDouble("quantityProduced");
+  BigDecimal quantityDeclared=lastTask.getBigDecimal("quantityProduced");
   if (quantityDeclared == null) {
-    quantityDeclared=new Double(0);
+    quantityDeclared=BigDecimal.ZERO;
   }
-  double maxQuantity=quantityDeclared.doubleValue() - quantityProduced.doubleValue();
-  if (maxQuantity <= 0) {
+  BigDecimal maxQuantity=quantityDeclared.subtract(quantityProduced);
+  if (maxQuantity.compareTo(BigDecimal.ZERO) <= 0) {
     return result;
   }
   if (quantity == null) {
-    quantity=new Double(maxQuantity);
+    quantity=maxQuantity;
   }
-  if (quantity.doubleValue() > maxQuantity) {
+  if (quantity.compareTo(maxQuantity) > 0) {
     return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunProductProducedNotStillAvailable",locale));
   }
   if (lotId == null && autoCreateLot.booleanValue()) {
@@ -82,7 +82,7 @@
   try {
     Map outputMap=dispatcher.runSync("getProductionRunCost",UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",productionRunId));
     BigDecimal totalCost=(BigDecimal)outputMap.get("totalCost");
-    unitCost=totalCost.divide(BigDecimal.valueOf(quantity.doubleValue()),decimals,rounding);
+    unitCost=totalCost.divide(quantity,decimals,rounding);
   }
  catch (  GenericServiceException e) {
     Debug.logWarning(e.getMessage(),module);
@@ -97,7 +97,7 @@
         serviceContext.put("datetimeReceived",UtilDateTime.nowTimestamp());
         serviceContext.put("comments","Created by production run " + productionRunId);
         if (unitCost.compareTo(ZERO) != 0) {
-          serviceContext.put("unitCost",new Double(unitCost.doubleValue()));
+          serviceContext.put("unitCost",unitCost);
         }
         serviceContext.put("lotId",lotId);
         serviceContext.put("userLogin",userLogin);
@@ -107,8 +107,8 @@
         serviceContext.clear();
         serviceContext.put("inventoryItemId",inventoryItemId);
         serviceContext.put("workEffortId",productionRunId);
-        serviceContext.put("availableToPromiseDiff",new Double(1));
-        serviceContext.put("quantityOnHandDiff",new Double(1));
+        serviceContext.put("availableToPromiseDiff",BigDecimal.ONE);
+        serviceContext.put("quantityOnHandDiff",BigDecimal.ONE);
         serviceContext.put("userLogin",userLogin);
         resultService=dispatcher.runSync("createInventoryItemDetail",serviceContext);
         serviceContext.clear();
@@ -134,7 +134,7 @@
       serviceContext.put("comments","Created by production run " + productionRunId);
       serviceContext.put("lotId",lotId);
       if (unitCost.compareTo(ZERO) != 0) {
-        serviceContext.put("unitCost",new Double(unitCost.doubleValue()));
+        serviceContext.put("unitCost",unitCost);
       }
       serviceContext.put("userLogin",userLogin);
       Map resultService=dispatcher.runSync("createInventoryItem",serviceContext);
@@ -166,7 +166,7 @@
     }
   }
   Map serviceContext=UtilMisc.toMap("workEffortId",productionRunId);
-  serviceContext.put("quantityProduced",new Double(quantityProduced.doubleValue() + quantity.doubleValue()));
+  serviceContext.put("quantityProduced",quantityProduced.add(quantity));
   serviceContext.put("actualCompletionDate",UtilDateTime.nowTimestamp());
   serviceContext.put("userLogin",userLogin);
   try {

@@ -1,7 +1,7 @@
 {
   GenericDelegator delegator=orderHeader.getDelegator();
   BigDecimal total=getOrderGrandTotal();
-  double openAmount=0;
+  BigDecimal openAmount=BigDecimal.ZERO;
   List prefs=getPaymentPreferences();
   for (Iterator iter=prefs.iterator(); iter.hasNext(); ) {
     GenericValue pref=(GenericValue)iter.next();
@@ -12,27 +12,27 @@
       List responses=pref.getRelatedByAnd("PaymentGatewayResponse",UtilMisc.toMap("transCodeEnumId","PGT_CAPTURE"));
       for (Iterator respIter=responses.iterator(); respIter.hasNext(); ) {
         GenericValue response=(GenericValue)respIter.next();
-        Double amount=response.getDouble("amount");
+        BigDecimal amount=response.getBigDecimal("amount");
         if (amount != null) {
-          openAmount+=amount.doubleValue();
+          openAmount=openAmount.add(amount);
         }
       }
       responses=pref.getRelatedByAnd("PaymentGatewayResponse",UtilMisc.toMap("transCodeEnumId","PGT_REFUND"));
       for (Iterator respIter=responses.iterator(); respIter.hasNext(); ) {
         GenericValue response=(GenericValue)respIter.next();
-        Double amount=response.getDouble("amount");
+        BigDecimal amount=response.getBigDecimal("amount");
         if (amount != null) {
-          openAmount-=amount.doubleValue();
+          openAmount=openAmount.subtract(amount);
         }
       }
     }
  else {
-      Double maxAmount=pref.getDouble("maxAmount");
+      BigDecimal maxAmount=pref.getBigDecimal("maxAmount");
       if (maxAmount != null) {
-        openAmount+=maxAmount.doubleValue();
+        openAmount=openAmount.add(maxAmount);
       }
     }
   }
-  openAmount=new BigDecimal(openAmount).setScale(scale,rounding).doubleValue();
-  return Math.max(total.doubleValue() - openAmount,0);
+  openAmount=total.subtract(openAmount).setScale(scale,rounding);
+  return openAmount.compareTo(BigDecimal.ZERO) > 0 ? openAmount : BigDecimal.ZERO;
 }

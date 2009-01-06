@@ -31,31 +31,31 @@
     return ServiceUtil.returnSuccess();
   }
   try {
-    double existingAtp=0.0;
+    BigDecimal existingAtp=BigDecimal.ZERO;
     Map tmpResults=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.<String,Object>toMap("productId",orderItem.getString("productId"),"facilityId",facilityId,"userLogin",userLogin));
     if (tmpResults.get("availableToPromiseTotal") != null) {
-      existingAtp=((Double)tmpResults.get("availableToPromiseTotal")).doubleValue();
+      existingAtp=(BigDecimal)tmpResults.get("availableToPromiseTotal");
     }
     if (isImmediatelyFulfilled) {
-      existingAtp-=orderItem.getDouble("quantity");
+      existingAtp=existingAtp.subtract(orderItem.getBigDecimal("quantity"));
     }
     if (Debug.verboseOn()) {
       Debug.logVerbose("Order item [" + orderItem + "] Existing ATP = ["+ existingAtp+ "]",module);
     }
-    if (existingAtp < 0.0) {
-      double qtyRequired=0 - existingAtp;
+    if (existingAtp.compareTo(ZERO) < 0) {
+      BigDecimal qtyRequired=BigDecimal.ZERO.subtract(existingAtp);
       Map serviceContext=new HashMap();
       serviceContext.put("productId",orderItem.getString("productId"));
       serviceContext.put("facilityId",facilityId);
       serviceContext.put("userLogin",userLogin);
       Map resultService=dispatcher.runSync("getMktgPackagesAvailable",serviceContext);
-      double mktgPackagesAvailable=((Double)resultService.get("availableToPromiseTotal")).doubleValue();
-      double qtyToProduce=Math.min(qtyRequired,mktgPackagesAvailable);
-      if (qtyToProduce > 0) {
+      BigDecimal mktgPackagesAvailable=(BigDecimal)resultService.get("availableToPromiseTotal");
+      BigDecimal qtyToProduce=qtyRequired.min(mktgPackagesAvailable);
+      if (qtyToProduce.compareTo(ZERO) > 0) {
         if (Debug.verboseOn()) {
           Debug.logVerbose("Required quantity (all orders) = [" + qtyRequired + "] quantity to produce = ["+ qtyToProduce+ "]",module);
         }
-        serviceContext.put("pRQuantity",new Double(qtyToProduce));
+        serviceContext.put("pRQuantity",qtyToProduce);
         serviceContext.put("startDate",UtilDateTime.nowTimestamp());
         resultService=dispatcher.runSync("createProductionRun",serviceContext);
         String productionRunId=(String)resultService.get("productionRunId");

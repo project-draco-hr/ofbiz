@@ -12,8 +12,8 @@
   }
   Timestamp fromDate=(Timestamp)context.get("fromDate");
   Timestamp toDate=(Timestamp)context.get("toDate");
-  Double addQuantityProduced=(Double)context.get("addQuantityProduced");
-  Double addQuantityRejected=(Double)context.get("addQuantityRejected");
+  BigDecimal addQuantityProduced=(BigDecimal)context.get("addQuantityProduced");
+  BigDecimal addQuantityRejected=(BigDecimal)context.get("addQuantityRejected");
   Double addSetupTime=(Double)context.get("addSetupTime");
   Double addTaskTime=(Double)context.get("addTaskTime");
   String comments=(String)context.get("comments");
@@ -29,10 +29,10 @@
     toDate=UtilDateTime.nowTimestamp();
   }
   if (addQuantityProduced == null) {
-    addQuantityProduced=new Double(0);
+    addQuantityProduced=BigDecimal.ZERO;
   }
   if (addQuantityRejected == null) {
-    addQuantityRejected=new Double(0);
+    addQuantityRejected=BigDecimal.ZERO;
   }
   if (addSetupTime == null) {
     addSetupTime=new Double(0);
@@ -72,45 +72,45 @@
   if (actualSetupMillis == null) {
     actualSetupMillis=new Double(0);
   }
-  Double quantityProduced=theTask.getDouble("quantityProduced");
+  BigDecimal quantityProduced=theTask.getBigDecimal("quantityProduced");
   if (quantityProduced == null) {
-    quantityProduced=new Double(0);
+    quantityProduced=BigDecimal.ZERO;
   }
-  Double quantityRejected=theTask.getDouble("quantityRejected");
+  BigDecimal quantityRejected=theTask.getBigDecimal("quantityRejected");
   if (quantityRejected == null) {
-    quantityRejected=new Double(0);
+    quantityRejected=BigDecimal.ZERO;
   }
   double totalMillis=actualMilliSeconds.doubleValue() + addTaskTime.doubleValue();
   double totalSetupMillis=actualSetupMillis.doubleValue() + addSetupTime.doubleValue();
-  double totalQuantityProduced=quantityProduced.doubleValue() + addQuantityProduced.doubleValue();
-  double totalQuantityRejected=quantityRejected.doubleValue() + addQuantityRejected.doubleValue();
-  if (issueRequiredComponents.booleanValue() && addQuantityProduced.doubleValue() > 0) {
-    Double quantityToProduce=theTask.getDouble("quantityToProduce");
+  BigDecimal totalQuantityProduced=quantityProduced.add(addQuantityProduced);
+  BigDecimal totalQuantityRejected=quantityRejected.add(addQuantityRejected);
+  if (issueRequiredComponents.booleanValue() && addQuantityProduced.compareTo(ZERO) > 0) {
+    BigDecimal quantityToProduce=theTask.getBigDecimal("quantityToProduce");
     if (quantityToProduce == null) {
-      quantityToProduce=new Double(0);
+      quantityToProduce=BigDecimal.ZERO;
     }
-    if (quantityToProduce.doubleValue() > 0) {
+    if (quantityToProduce.compareTo(ZERO) > 0) {
       try {
         List<GenericValue> components=theTask.getRelated("WorkEffortGoodStandard");
         for (        GenericValue component : components) {
-          double totalRequiredMaterialQuantity=component.getDouble("estimatedQuantity").doubleValue() * totalQuantityProduced / quantityToProduce.doubleValue();
+          BigDecimal totalRequiredMaterialQuantity=component.getBigDecimal("estimatedQuantity").multiply(totalQuantityProduced).divide(quantityToProduce,rounding);
           List<GenericValue> issuances=delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",workEffortId,"productId",component.getString("productId")));
-          double totalIssued=0.0;
+          BigDecimal totalIssued=BigDecimal.ZERO;
           for (          GenericValue issuance : issuances) {
-            Double issued=issuance.getDouble("quantity");
+            BigDecimal issued=issuance.getBigDecimal("quantity");
             if (issued != null) {
-              totalIssued+=issued.doubleValue();
+              totalIssued=totalIssued.add(issued);
             }
           }
-          double requiredQuantity=totalRequiredMaterialQuantity - totalIssued;
-          if (requiredQuantity > 0) {
+          BigDecimal requiredQuantity=totalRequiredMaterialQuantity.subtract(totalIssued);
+          if (requiredQuantity.compareTo(ZERO) > 0) {
             GenericPK key=component.getPrimaryKey();
             Map componentsLocation=null;
             if (componentsLocationMap != null) {
               componentsLocation=(Map)componentsLocationMap.get(key);
             }
             Map serviceContext=UtilMisc.toMap("workEffortId",workEffortId,"productId",component.getString("productId"),"fromDate",component.getTimestamp("fromDate"));
-            serviceContext.put("quantity",new Double(requiredQuantity));
+            serviceContext.put("quantity",requiredQuantity);
             if (componentsLocation != null) {
               serviceContext.put("locationSeqId",(String)componentsLocation.get("locationSeqId"));
               serviceContext.put("secondaryLocationSeqId",(String)componentsLocation.get("secondaryLocationSeqId"));
@@ -143,8 +143,8 @@ catch (      GenericServiceException gee) {
     serviceContext.put("workEffortId",workEffortId);
     serviceContext.put("actualMilliSeconds",new Double(totalMillis));
     serviceContext.put("actualSetupMillis",new Double(totalSetupMillis));
-    serviceContext.put("quantityProduced",new Double(totalQuantityProduced));
-    serviceContext.put("quantityRejected",new Double(totalQuantityRejected));
+    serviceContext.put("quantityProduced",totalQuantityProduced);
+    serviceContext.put("quantityRejected",totalQuantityRejected);
     serviceContext.put("userLogin",userLogin);
     Map resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
   }

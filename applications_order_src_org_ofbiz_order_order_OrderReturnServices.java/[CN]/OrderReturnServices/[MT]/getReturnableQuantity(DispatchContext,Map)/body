@@ -18,11 +18,11 @@
     returnable=false;
   }
   String itemStatus=orderItem.getString("statusId");
-  double orderQty=orderItem.getDouble("quantity").doubleValue();
-  if (orderItem.getDouble("cancelQuantity") != null) {
-    orderQty-=orderItem.getDouble("cancelQuantity").doubleValue();
+  BigDecimal orderQty=orderItem.getBigDecimal("quantity");
+  if (orderItem.getBigDecimal("cancelQuantity") != null) {
+    orderQty=orderQty.subtract(orderItem.getBigDecimal("cancelQuantity"));
   }
-  double returnableQuantity=0.00;
+  BigDecimal returnableQuantity=BigDecimal.ZERO;
   if (returnable && (itemStatus.equals("ITEM_APPROVED") || itemStatus.equals("ITEM_COMPLETED"))) {
     List returnedItems=null;
     try {
@@ -36,7 +36,7 @@
       returnableQuantity=orderQty;
     }
  else {
-      double returnedQty=0.00;
+      BigDecimal returnedQty=BigDecimal.ZERO;
       Iterator ri=returnedItems.iterator();
       while (ri.hasNext()) {
         GenericValue returnItem=(GenericValue)ri.next();
@@ -50,16 +50,16 @@
         }
         String returnStatus=returnHeader.getString("statusId");
         if (!returnStatus.equals("RETURN_CANCELLED")) {
-          returnedQty+=returnItem.getDouble("returnQuantity").doubleValue();
+          returnedQty=returnedQty.add(returnItem.getBigDecimal("returnQuantity"));
         }
       }
-      if (returnedQty < orderQty) {
-        returnableQuantity=orderQty - returnedQty;
+      if (returnedQty.compareTo(orderQty) < 0) {
+        returnableQuantity=orderQty.subtract(returnedQty);
       }
     }
   }
   Map result=ServiceUtil.returnSuccess();
-  result.put("returnableQuantity",new Double(returnableQuantity));
-  result.put("returnablePrice",orderItem.get("unitPrice"));
+  result.put("returnableQuantity",returnableQuantity);
+  result.put("returnablePrice",orderItem.getBigDecimal("unitPrice"));
   return result;
 }

@@ -6,7 +6,7 @@
   String productStoreId=(String)context.get("productStoreId");
   String cardNumber=(String)context.get("cardNumber");
   String pinNumber=(String)context.get("pinNumber");
-  Double amount=(Double)context.get("amount");
+  BigDecimal amount=(BigDecimal)context.get("amount");
   String partyId=(String)context.get("partyId");
   if (UtilValidate.isEmpty(partyId)) {
     partyId="_NA_";
@@ -15,7 +15,7 @@
   if (UtilValidate.isEmpty(currencyUom)) {
     currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
   }
-  if (amount.doubleValue() < 0.00) {
+  if (amount.compareTo(BigDecimal.ZERO) < 0) {
     return ServiceUtil.returnError("Amount should be a positive number.");
   }
   try {
@@ -35,15 +35,15 @@
  catch (  GenericEntityException e) {
     return ServiceUtil.returnError("Cannot get financial account settings " + e.getMessage());
   }
-  double previousBalance=finAccount.get("actualBalance") == null ? 0.0 : finAccount.getDouble("actualBalance").doubleValue();
-  double balance=0.00;
+  BigDecimal previousBalance=finAccount.get("actualBalance") == null ? BigDecimal.ZERO : finAccount.getBigDecimal("actualBalance");
+  BigDecimal balance=BigDecimal.ZERO;
   String refNum=null;
   Boolean procResult;
-  if (previousBalance >= amount.doubleValue()) {
+  if (previousBalance.compareTo(amount) >= 0) {
     try {
       refNum=GiftCertificateServices.createTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,withdrawl,cardNumber);
       finAccount.refresh();
-      balance=finAccount.get("availableBalance") == null ? 0.0 : finAccount.getDouble("availableBalance").doubleValue();
+      balance=finAccount.get("availableBalance") == null ? BigDecimal.ZERO : finAccount.getBigDecimal("availableBalance");
       procResult=Boolean.TRUE;
     }
  catch (    GeneralException e) {
@@ -57,8 +57,8 @@
     refNum="N/A";
   }
   Map result=ServiceUtil.returnSuccess();
-  result.put("previousBalance",new Double(previousBalance));
-  result.put("balance",new Double(balance));
+  result.put("previousBalance",previousBalance);
+  result.put("balance",balance);
   result.put("amount",amount);
   result.put("processResult",procResult);
   result.put("responseCode","2");

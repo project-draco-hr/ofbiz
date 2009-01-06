@@ -45,17 +45,17 @@
     return ServiceUtil.returnError("facilityId and manufacturingFacilityId cannot be null");
   }
   int bomLevelWithNoEvent=0;
-  double stockTmp=0;
+  BigDecimal stockTmp=BigDecimal.ZERO;
   String oldProductId=null;
   String productId=null;
   GenericValue product=null;
   GenericValue productFacility=null;
-  double eventQuantity=0;
+  BigDecimal eventQuantity=BigDecimal.ZERO;
   Timestamp eventDate=null;
   boolean isNegative=false;
-  double quantityNeeded=0;
-  double reorderQuantity=0;
-  double minimumStock=0;
+  BigDecimal quantityNeeded=BigDecimal.ZERO;
+  BigDecimal reorderQuantity=BigDecimal.ZERO;
+  BigDecimal minimumStock=BigDecimal.ZERO;
   int daysToShip=0;
   List components=null;
   boolean isBuilt=false;
@@ -97,9 +97,9 @@
       while (iteratorListInventoryEventForMRP.hasNext()) {
         inventoryEventForMRP=(GenericValue)iteratorListInventoryEventForMRP.next();
         productId=inventoryEventForMRP.getString("productId");
-        eventQuantity=inventoryEventForMRP.getDouble("quantity").doubleValue();
+        eventQuantity=inventoryEventForMRP.getBigDecimal("quantity");
         if (!productId.equals(oldProductId)) {
-          double positiveEventQuantity=(eventQuantity > 0 ? eventQuantity : -1 * eventQuantity);
+          BigDecimal positiveEventQuantity=eventQuantity.compareTo(BigDecimal.ZERO) > 0 ? eventQuantity : eventQuantity.negate();
           try {
             product=inventoryEventForMRP.getRelatedOneCache("Product");
             productFacility=EntityUtil.getFirst(product.getRelatedByAndCache("ProductFacility",UtilMisc.toMap("facilityId",facilityId)));
@@ -109,26 +109,26 @@
           }
           stockTmp=findProductMrpQoh(mrpId,product,facilityId,dispatcher,delegator);
           try {
-            InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),new Double(stockTmp),facilityId,null,false,delegator);
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),stockTmp,facilityId,null,false,delegator);
           }
  catch (          GenericEntityException e) {
             return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
           }
           daysToShip=0;
           if (productFacility != null) {
-            reorderQuantity=(productFacility.getDouble("reorderQuantity") != null ? productFacility.getDouble("reorderQuantity").doubleValue() : -1);
-            minimumStock=(productFacility.getDouble("minimumStock") != null ? productFacility.getDouble("minimumStock").doubleValue() : 0);
+            reorderQuantity=(productFacility.getBigDecimal("reorderQuantity") != null ? productFacility.getBigDecimal("reorderQuantity") : BigDecimal.ONE.negate());
+            minimumStock=(productFacility.getBigDecimal("minimumStock") != null ? productFacility.getBigDecimal("minimumStock") : BigDecimal.ZERO);
             if ("SALES_ORDER_SHIP".equals(inventoryEventForMRP.getString("mrpEventTypeId"))) {
               daysToShip=(productFacility.getLong("daysToShip") != null ? productFacility.getLong("daysToShip").intValue() : 0);
             }
           }
  else {
-            minimumStock=0;
-            reorderQuantity=-1;
+            minimumStock=BigDecimal.ZERO;
+            reorderQuantity=BigDecimal.ONE.negate();
           }
           Map serviceResponse=null;
           try {
-            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",new Double(positiveEventQuantity),"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
+            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",positiveEventQuantity,"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
           }
  catch (          Exception e) {
             return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
@@ -143,9 +143,9 @@
           }
           oldProductId=productId;
         }
-        stockTmp=stockTmp + eventQuantity;
-        if (stockTmp < minimumStock) {
-          double qtyToStock=minimumStock - stockTmp;
+        stockTmp=stockTmp.add(eventQuantity);
+        if (stockTmp.compareTo(minimumStock) < 0) {
+          BigDecimal qtyToStock=minimumStock.subtract(stockTmp);
           eventDate=inventoryEventForMRP.getTimestamp("eventDate");
           eventDate.setTime(eventDate.getTime() - 1);
           ProposedOrder proposedOrder=new ProposedOrder(product,facilityId,manufacturingFacilityId,isBuilt,eventDate,qtyToStock);
@@ -153,7 +153,7 @@
           proposedOrder.calculateQuantityToSupply(reorderQuantity,minimumStock,iteratorListInventoryEventForMRP);
           Map serviceResponse=null;
           try {
-            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",new Double(proposedOrder.getQuantity()),"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
+            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",proposedOrder.getQuantity(),"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
           }
  catch (          Exception e) {
             return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
@@ -195,12 +195,12 @@
           }
           Map eventMap=UtilMisc.toMap("productId",product.getString("productId"),"mrpId",mrpId,"eventDate",eventDate,"mrpEventTypeId",(isBuilt ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
           try {
-            InventoryEventPlannedServices.createOrUpdateMrpEvent(eventMap,new Double(proposedOrder.getQuantity()),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(eventMap,proposedOrder.getQuantity(),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
           }
  catch (          GenericEntityException e) {
             return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
           }
-          stockTmp=stockTmp + proposedOrder.getQuantity();
+          stockTmp=stockTmp.add(proposedOrder.getQuantity());
         }
       }
     }

@@ -71,9 +71,9 @@
       return ServiceUtil.returnError("Cannot confirm shipment: DHL ShipIT does not currently support more than one package per shipment.");
     }
     boolean hasBillingWeight=false;
-    Double billingWeight=shipmentRouteSegment.getDouble("billingWeight");
+    BigDecimal billingWeight=shipmentRouteSegment.getBigDecimal("billingWeight");
     String billingWeightUomId=shipmentRouteSegment.getString("billingWeightUomId");
-    if ((billingWeight != null) && (billingWeight.doubleValue() > 0)) {
+    if ((billingWeight != null) && (billingWeight.compareTo(BigDecimal.ZERO) > 0)) {
       hasBillingWeight=true;
       if (billingWeightUomId == null) {
         Debug.logWarning("Shipment Route Segment missing billingWeightUomId in shipmentId " + shipmentId,module);
@@ -85,13 +85,13 @@
         hasBillingWeight=false;
       }
  else {
-        billingWeight=(Double)results.get("convertedValue");
+        billingWeight=(BigDecimal)results.get("convertedValue");
       }
     }
     String length=null;
     String width=null;
     String height=null;
-    Double packageWeight=null;
+    BigDecimal packageWeight=null;
     for (    GenericValue shipmentPackageRouteSeg : shipmentPackageRouteSegs) {
       GenericValue shipmentPackage=shipmentPackageRouteSeg.getRelatedOne("ShipmentPackage");
       GenericValue shipmentBoxType=shipmentPackage.getRelatedOne("ShipmentBoxType");
@@ -108,15 +108,15 @@
       }
       if (hasBillingWeight)       continue;
       if (shipmentPackage.getString("weight") != null) {
-        packageWeight=Double.valueOf(shipmentPackage.getString("weight"));
+        packageWeight=new BigDecimal(shipmentPackage.getString("weight"));
       }
  else {
         try {
-          packageWeight=Double.valueOf(UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.default.weight.value"));
+          packageWeight=new BigDecimal(UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.default.weight.value"));
         }
  catch (        NumberFormatException ne) {
           Debug.logWarning("Default shippable weight not configured (shipment.default.weight.value)",module);
-          packageWeight=Double.valueOf(1.0);
+          packageWeight=BigDecimal.ONE;
         }
       }
       String weightUomId=(String)shipmentPackage.get("weightUomId");
@@ -127,20 +127,20 @@
       results=dispatcher.runSync("convertUom",UtilMisc.<String,Object>toMap("uomId",weightUomId,"uomIdTo",DHL_WEIGHT_UOM_ID,"originalValue",packageWeight));
       if ((results == null) || (results.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) || (results.get("convertedValue") == null)) {
         Debug.logWarning("Unable to convert weights for shipmentId " + shipmentId,module);
-        packageWeight=Double.valueOf(1.0);
+        packageWeight=BigDecimal.ONE;
       }
  else {
-        packageWeight=(Double)results.get("convertedValue");
+        packageWeight=(BigDecimal)results.get("convertedValue");
       }
     }
-    Double weight=null;
+    BigDecimal weight=null;
     if (hasBillingWeight) {
       weight=billingWeight;
     }
  else {
       weight=packageWeight;
     }
-    String roundedWeight="" + Math.round(weight.doubleValue());
+    String roundedWeight=weight.setScale(0,BigDecimal.ROUND_HALF_UP).toPlainString();
     String shipmentMethodTypeId=shipmentRouteSegment.getString("shipmentMethodTypeId");
     String dhlShipmentDetailCode=null;
     GenericValue carrierShipmentMethod=delegator.findByPrimaryKey("CarrierShipmentMethod",UtilMisc.toMap("shipmentMethodTypeId",shipmentMethodTypeId,"partyId","DHL","roleTypeId","CARRIER"));

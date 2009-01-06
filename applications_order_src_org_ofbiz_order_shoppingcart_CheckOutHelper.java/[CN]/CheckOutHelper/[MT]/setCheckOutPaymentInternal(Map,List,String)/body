@@ -8,8 +8,8 @@
     cart.clearPayments();
     if (UtilValidate.isNotEmpty(billingAccountId)) {
       Map billingAccountMap=(Map)selectedPaymentMethods.get("EXT_BILLACT");
-      Double billingAccountAmt=(Double)billingAccountMap.get("amount");
-      cart.setBillingAccount(billingAccountId,(billingAccountAmt != null ? billingAccountAmt.doubleValue() : 0.0));
+      BigDecimal billingAccountAmt=(BigDecimal)billingAccountMap.get("amount");
+      cart.setBillingAccount(billingAccountId,(billingAccountAmt != null ? billingAccountAmt : BigDecimal.ZERO));
       try {
         List billingAccountTerms=delegator.findByAnd("BillingAccountTerm",UtilMisc.toMap("billingAccountId",billingAccountId));
         if (UtilValidate.isNotEmpty(billingAccountTerms)) {
@@ -17,7 +17,7 @@
           while (billingAccountTermsIt.hasNext()) {
             GenericValue billingAccountTerm=(GenericValue)billingAccountTermsIt.next();
             if (!cart.hasOrderTerm(billingAccountTerm.getString("termTypeId"))) {
-              cart.addOrderTerm(billingAccountTerm.getString("termTypeId"),billingAccountTerm.getDouble("termValue"),billingAccountTerm.getLong("termDays"));
+              cart.addOrderTerm(billingAccountTerm.getString("termTypeId"),billingAccountTerm.getBigDecimal("termValue"),billingAccountTerm.getLong("termDays"));
             }
           }
         }
@@ -27,30 +27,30 @@
       }
     }
  else {
-      cart.setBillingAccount(null,0.0);
+      cart.setBillingAccount(null,BigDecimal.ZERO);
     }
     if (selectedPaymentMethods.containsKey("EXT_BILLACT") && selectedPaymentMethods.size() == 1) {
-      double accountCredit=this.availableAccountBalance(cart.getBillingAccountId());
-      double amountToUse=cart.getBillingAccountAmount();
-      if (amountToUse > 0 && amountToUse > accountCredit) {
+      BigDecimal accountCredit=this.availableAccountBalance(cart.getBillingAccountId());
+      BigDecimal amountToUse=cart.getBillingAccountAmount();
+      if (amountToUse.compareTo(BigDecimal.ZERO) > 0 && amountToUse.compareTo(accountCredit) > 0) {
         errMsg=UtilProperties.getMessage(resource,"checkhelper.insufficient_credit_available_on_account",(cart != null ? cart.getLocale() : Locale.getDefault()));
         errorMessages.add(errMsg);
       }
  else {
         amountToUse=accountCredit;
       }
-      double grandTotal=cart.getGrandTotal();
-      if (grandTotal > amountToUse) {
-        cart.setBillingAccount(null,0.0);
+      BigDecimal grandTotal=cart.getGrandTotal();
+      if (grandTotal.compareTo(amountToUse) > 0) {
+        cart.setBillingAccount(null,BigDecimal.ZERO);
         errMsg=UtilProperties.getMessage(resource,"checkhelper.insufficient_credit_available_on_account",(cart != null ? cart.getLocale() : Locale.getDefault()));
         errorMessages.add(errMsg);
       }
  else {
         amountToUse=grandTotal;
       }
-      if (amountToUse > 0) {
+      if (amountToUse.compareTo(BigDecimal.ZERO) > 0) {
         cart.setBillingAccount(billingAccountId,amountToUse);
-        selectedPaymentMethods.put("EXT_BILLACT",UtilMisc.toMap("amount",new Double(amountToUse),"securityCode",null));
+        selectedPaymentMethods.put("EXT_BILLACT",UtilMisc.toMap("amount",amountToUse,"securityCode",null));
       }
     }
     Set paymentMethods=selectedPaymentMethods.keySet();
@@ -66,11 +66,11 @@
         }
         Debug.log("Split checkOutPaymentId: " + splitStr[0] + " / "+ splitStr[1],module);
       }
-      Double paymentAmount=null;
+      BigDecimal paymentAmount=null;
       String securityCode=null;
       if (selectedPaymentMethods.get(checkOutPaymentId) != null) {
         Map checkOutPaymentInfo=(Map)selectedPaymentMethods.get(checkOutPaymentId);
-        paymentAmount=(Double)checkOutPaymentInfo.get("amount");
+        paymentAmount=(BigDecimal)checkOutPaymentInfo.get("amount");
         securityCode=(String)checkOutPaymentInfo.get("securityCode");
       }
       boolean singleUse=singleUsePayments.contains(checkOutPaymentId);
@@ -83,7 +83,7 @@
       }
     }
   }
- else   if (cart.getGrandTotal() != 0.00) {
+ else   if (cart.getGrandTotal().compareTo(BigDecimal.ZERO) != 0) {
     errMsg=UtilProperties.getMessage(resource,"checkhelper.select_method_of_payment",(cart != null ? cart.getLocale() : Locale.getDefault()));
     errorMessages.add(errMsg);
   }

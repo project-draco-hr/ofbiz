@@ -2,7 +2,7 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
-  Double refundAmount=(Double)context.get("refundAmount");
+  BigDecimal refundAmount=(BigDecimal)context.get("refundAmount");
   GenericValue orderHeader=null;
   try {
     orderHeader=paymentPref.getRelatedOne("OrderHeader");
@@ -32,17 +32,7 @@
         Debug.logError(e,"Problems getting billing information",module);
         return ServiceUtil.returnError("Problems getting billing information");
       }
-      String currencyFormat=UtilProperties.getPropertyValue("general.properties","currency.decimal.format","##0.00");
-      DecimalFormat formatter=new DecimalFormat(currencyFormat);
-      String amountString=formatter.format(refundAmount);
-      Double processAmount=null;
-      try {
-        processAmount=new Double(formatter.parse(amountString).doubleValue());
-      }
- catch (      ParseException e) {
-        Debug.logError(e,"Problem parsing amount using DecimalFormat",module);
-        return ServiceUtil.returnError("Refund processor problems; see logs");
-      }
+      BigDecimal processAmount=refundAmount.setScale(decimals,rounding);
       serviceContext.put("refundAmount",processAmount);
       serviceContext.put("userLogin",userLogin);
       Map refundResponse=null;
@@ -69,8 +59,8 @@
         refundResCtx.put("refundAltRefNum",refundResponse.get("refundAltRefNum"));
         refundResCtx.put("refundMessage",refundResponse.get("refundMessage"));
         refundResCtx.put("refundResult",refundResponse.get("refundResult"));
-        Double actualRefundAmount=(Double)refundResponse.get("refundAmount");
-        if (actualRefundAmount != null && actualRefundAmount.doubleValue() > 0) {
+        BigDecimal actualRefundAmount=(BigDecimal)refundResponse.get("refundAmount");
+        if (actualRefundAmount != null && actualRefundAmount.compareTo(BigDecimal.ZERO) > 0) {
           refundResCtx.put("refundAmount",refundResponse.get("refundAmount"));
         }
         refundResRes=dispatcher.runSync(model.name,refundResCtx);

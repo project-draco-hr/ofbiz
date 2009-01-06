@@ -9,21 +9,21 @@
   String shippingPostalCode=(String)context.get("shippingPostalCode");
   String shippingCountryCode=(String)context.get("shippingCountryCode");
   List<Map<String,Object>> shippableItemInfo=UtilGenerics.checkList(context.get("shippableItemInfo"));
-  Double shippableTotal=(Double)context.get("shippableTotal");
-  Double shippableQuantity=(Double)context.get("shippableQuantity");
-  Double shippableWeight=(Double)context.get("shippableWeight");
-  Double initialEstimateAmt=(Double)context.get("initialEstimateAmt");
+  BigDecimal shippableTotal=(BigDecimal)context.get("shippableTotal");
+  BigDecimal shippableQuantity=(BigDecimal)context.get("shippableQuantity");
+  BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
+  BigDecimal initialEstimateAmt=(BigDecimal)context.get("initialEstimateAmt");
   if (shippableTotal == null) {
-    shippableTotal=Double.valueOf(0.00);
+    shippableTotal=BigDecimal.ZERO;
   }
   if (shippableQuantity == null) {
-    shippableQuantity=Double.valueOf(0.00);
+    shippableQuantity=BigDecimal.ZERO;
   }
   if (shippableWeight == null) {
-    shippableWeight=Double.valueOf(0.00);
+    shippableWeight=BigDecimal.ZERO;
   }
   if (initialEstimateAmt == null) {
-    initialEstimateAmt=Double.valueOf(0.00);
+    initialEstimateAmt=BigDecimal.ZERO;
   }
   Map<String,String> estFields=UtilMisc.toMap("productStoreId",productStoreId,"shipmentMethodTypeId",shipmentMethodTypeId,"carrierPartyId",carrierPartyId,"carrierRoleTypeId",carrierRoleTypeId);
   EntityCondition estFieldsCond=EntityCondition.makeCondition(estFields,EntityOperator.AND);
@@ -40,12 +40,12 @@
     return ServiceUtil.returnError("Unable to locate estimates from database");
   }
   if (estimates == null || estimates.size() < 1) {
-    if (initialEstimateAmt.doubleValue() == 0.00) {
+    if (initialEstimateAmt.compareTo(BigDecimal.ZERO) == 0) {
       Debug.logWarning("Using the passed context : " + context,module);
       Debug.logWarning("No shipping estimates found; the shipping amount returned is 0!",module);
     }
     Map<String,Object> respNow=ServiceUtil.returnSuccess();
-    respNow.put("shippingEstimateAmount",Double.valueOf(0.00));
+    respNow.put("shippingEstimateAmount",BigDecimal.ZERO);
     return respNow;
   }
   GenericValue shipAddress=null;
@@ -107,39 +107,39 @@
         boolean priceValid=false;
         if (wv != null) {
           useWeight=true;
-          double min=0.0001;
-          double max=0.0001;
+          BigDecimal min=BigDecimal.ONE.movePointLeft(4);
+          BigDecimal max=BigDecimal.ONE.movePointLeft(4);
           try {
-            min=wv.getDouble("fromQuantity").doubleValue();
-            max=wv.getDouble("thruQuantity").doubleValue();
+            min=wv.getBigDecimal("fromQuantity");
+            max=wv.getBigDecimal("thruQuantity");
           }
  catch (          Exception e) {
           }
-          if (shippableWeight.doubleValue() >= min && (max == 0 || shippableWeight.doubleValue() <= max))           weightValid=true;
+          if (shippableWeight.compareTo(min) >= 0 && (max.compareTo(BigDecimal.ZERO) == 0 || shippableWeight.compareTo(max) <= 0))           weightValid=true;
         }
         if (qv != null) {
           useQty=true;
-          double min=0.0001;
-          double max=0.0001;
+          BigDecimal min=BigDecimal.ONE.movePointLeft(4);
+          BigDecimal max=BigDecimal.ONE.movePointLeft(4);
           try {
-            min=qv.getDouble("fromQuantity").doubleValue();
-            max=qv.getDouble("thruQuantity").doubleValue();
+            min=qv.getBigDecimal("fromQuantity");
+            max=qv.getBigDecimal("thruQuantity");
           }
  catch (          Exception e) {
           }
-          if (shippableQuantity.doubleValue() >= min && (max == 0 || shippableQuantity.doubleValue() <= max))           qtyValid=true;
+          if (shippableQuantity.compareTo(min) >= 0 && (max.compareTo(BigDecimal.ZERO) == 0 || shippableQuantity.compareTo(max) <= 0))           qtyValid=true;
         }
         if (pv != null) {
           usePrice=true;
-          double min=0.0001;
-          double max=0.0001;
+          BigDecimal min=BigDecimal.ONE.movePointLeft(4);
+          BigDecimal max=BigDecimal.ONE.movePointLeft(4);
           try {
-            min=pv.getDouble("fromQuantity").doubleValue();
-            max=pv.getDouble("thruQuantity").doubleValue();
+            min=pv.getBigDecimal("fromQuantity");
+            max=pv.getBigDecimal("thruQuantity");
           }
  catch (          Exception e) {
           }
-          if (shippableTotal.doubleValue() >= min && (max == 0 || shippableTotal.doubleValue() <= max))           priceValid=true;
+          if (shippableTotal.compareTo(min) >= 0 && (max.compareTo(BigDecimal.ZERO) == 0 || shippableTotal.compareTo(max) <= 0))           priceValid=true;
         }
         if ((useWeight && weightValid) || (useQty && qtyValid) || (usePrice && priceValid))         estimateList.add(thisEstimate);
       }
@@ -148,23 +148,23 @@
   if (estimateList.size() < 1) {
     return ServiceUtil.returnFailure("No shipping estimate found for carrier [" + carrierPartyId + "] and shipment method type ["+ shipmentMethodTypeId+ "]");
   }
-  List<Double> shippableItemSizes=FastList.newInstance();
-  Map<String,Double> shippableFeatureMap=FastMap.newInstance();
+  List<BigDecimal> shippableItemSizes=FastList.newInstance();
+  Map<String,BigDecimal> shippableFeatureMap=FastMap.newInstance();
   if (shippableItemInfo != null) {
     for (    Map<String,Object> itemMap : shippableItemInfo) {
-      Double itemSize=(Double)itemMap.get("size");
+      BigDecimal itemSize=(BigDecimal)itemMap.get("size");
       if (itemSize != null) {
         shippableItemSizes.add(itemSize);
       }
-      Double quantity=(Double)itemMap.get("quantity");
+      BigDecimal quantity=(BigDecimal)itemMap.get("quantity");
       Set<String> featureSet=UtilGenerics.checkSet(itemMap.get("featureSet"));
       if (UtilValidate.isNotEmpty(featureSet)) {
         for (        String featureId : featureSet) {
-          Double featureQuantity=shippableFeatureMap.get(featureId);
+          BigDecimal featureQuantity=(BigDecimal)shippableFeatureMap.get(featureId);
           if (featureQuantity == null) {
-            featureQuantity=Double.valueOf(0.00);
+            featureQuantity=BigDecimal.ZERO;
           }
-          featureQuantity=Double.valueOf(featureQuantity.doubleValue() + quantity.doubleValue());
+          featureQuantity=featureQuantity.add(quantity);
           shippableFeatureMap.put(featureId,featureQuantity);
         }
       }
@@ -193,39 +193,39 @@
     estimateIndex=estimateList.indexOf(estimateArray[estimateArray.length - 1]);
   }
   GenericValue estimate=estimateList.get(estimateIndex);
-  double orderFlat=0.00;
-  if (estimate.getDouble("orderFlatPrice") != null)   orderFlat=estimate.getDouble("orderFlatPrice").doubleValue();
-  double orderItemFlat=0.00;
-  if (estimate.getDouble("orderItemFlatPrice") != null)   orderItemFlat=estimate.getDouble("orderItemFlatPrice").doubleValue();
-  double orderPercent=0.00;
-  if (estimate.getDouble("orderPricePercent") != null)   orderPercent=estimate.getDouble("orderPricePercent").doubleValue();
-  double itemFlatAmount=shippableQuantity.doubleValue() * orderItemFlat;
-  double orderPercentage=shippableTotal.doubleValue() * (orderPercent / 100);
-  double flatTotal=orderFlat + itemFlatAmount + orderPercentage;
-  double weightUnit=0.00;
-  if (estimate.getDouble("weightUnitPrice") != null)   weightUnit=estimate.getDouble("weightUnitPrice").doubleValue();
-  double qtyUnit=0.00;
-  if (estimate.getDouble("quantityUnitPrice") != null)   qtyUnit=estimate.getDouble("quantityUnitPrice").doubleValue();
-  double priceUnit=0.00;
-  if (estimate.getDouble("priceUnitPrice") != null)   priceUnit=estimate.getDouble("priceUnitPrice").doubleValue();
-  double weightAmount=shippableWeight.doubleValue() * weightUnit;
-  double quantityAmount=shippableQuantity.doubleValue() * qtyUnit;
-  double priceAmount=shippableTotal.doubleValue() * priceUnit;
-  double spanTotal=weightAmount + quantityAmount + priceAmount;
-  double featureSurcharge=0.00;
+  BigDecimal orderFlat=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("orderFlatPrice") != null)   orderFlat=estimate.getBigDecimal("orderFlatPrice");
+  BigDecimal orderItemFlat=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("orderItemFlatPrice") != null)   orderItemFlat=estimate.getBigDecimal("orderItemFlatPrice");
+  BigDecimal orderPercent=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("orderPricePercent") != null)   orderPercent=estimate.getBigDecimal("orderPricePercent");
+  BigDecimal itemFlatAmount=shippableQuantity.multiply(orderItemFlat);
+  BigDecimal orderPercentage=shippableTotal.multiply(orderPercent.movePointLeft(2));
+  BigDecimal flatTotal=orderFlat.add(itemFlatAmount).add(orderPercentage);
+  BigDecimal weightUnit=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("weightUnitPrice") != null)   weightUnit=estimate.getBigDecimal("weightUnitPrice");
+  BigDecimal qtyUnit=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("quantityUnitPrice") != null)   qtyUnit=estimate.getBigDecimal("quantityUnitPrice");
+  BigDecimal priceUnit=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("priceUnitPrice") != null)   priceUnit=estimate.getBigDecimal("priceUnitPrice");
+  BigDecimal weightAmount=shippableWeight.multiply(weightUnit);
+  BigDecimal quantityAmount=shippableQuantity.multiply(qtyUnit);
+  BigDecimal priceAmount=shippableTotal.multiply(priceUnit);
+  BigDecimal spanTotal=weightAmount.add(quantityAmount).add(priceAmount);
+  BigDecimal featureSurcharge=BigDecimal.ZERO;
   String featureGroupId=estimate.getString("productFeatureGroupId");
-  Double featurePercent=estimate.getDouble("featurePercent");
-  Double featurePrice=estimate.getDouble("featurePrice");
+  BigDecimal featurePercent=estimate.getBigDecimal("featurePercent");
+  BigDecimal featurePrice=estimate.getBigDecimal("featurePrice");
   if (featurePercent == null) {
-    featurePercent=Double.valueOf(0);
+    featurePercent=BigDecimal.ZERO;
   }
   if (featurePrice == null) {
-    featurePrice=Double.valueOf(0.00);
+    featurePrice=BigDecimal.ZERO;
   }
   if (featureGroupId != null && featureGroupId.length() > 0 && shippableFeatureMap != null) {
-    for (    Map.Entry<String,Double> entry : shippableFeatureMap.entrySet()) {
+    for (    Map.Entry<String,BigDecimal> entry : shippableFeatureMap.entrySet()) {
       String featureId=entry.getKey();
-      Double quantity=entry.getValue();
+      BigDecimal quantity=entry.getValue();
       GenericValue appl=null;
       Map<String,String> fields=UtilMisc.toMap("productFeatureGroupId",featureGroupId,"productFeatureId",featureId);
       try {
@@ -237,29 +237,29 @@
         Debug.logError(e,"Unable to lookup feature/group" + fields,module);
       }
       if (appl != null) {
-        featureSurcharge+=(shippableTotal.doubleValue() * (featurePercent.doubleValue() / 100) * quantity.doubleValue());
-        featureSurcharge+=featurePrice.doubleValue() * quantity.doubleValue();
+        featureSurcharge=featureSurcharge.add(shippableTotal.multiply(featurePercent.movePointLeft(2)).multiply(quantity));
+        featureSurcharge=featureSurcharge.add(featurePrice.multiply(quantity));
       }
     }
   }
-  double sizeSurcharge=0.00;
-  Double sizeUnit=estimate.getDouble("oversizeUnit");
-  Double sizePrice=estimate.getDouble("oversizePrice");
-  if (sizeUnit != null && sizeUnit.doubleValue() > 0) {
+  BigDecimal sizeSurcharge=BigDecimal.ZERO;
+  BigDecimal sizeUnit=estimate.getBigDecimal("oversizeUnit");
+  BigDecimal sizePrice=estimate.getBigDecimal("oversizePrice");
+  if (sizeUnit != null && sizeUnit.compareTo(BigDecimal.ZERO) > 0) {
     if (shippableItemSizes != null) {
-      for (      Double size : shippableItemSizes) {
-        if (size != null && size.doubleValue() >= sizeUnit.doubleValue()) {
-          sizeSurcharge+=sizePrice.doubleValue();
+      for (      BigDecimal size : shippableItemSizes) {
+        if (size != null && size.compareTo(sizeUnit) >= 0) {
+          sizeSurcharge=sizeSurcharge.add(sizePrice);
         }
       }
     }
   }
-  double surchargeTotal=featureSurcharge + sizeSurcharge;
-  double subTotal=spanTotal + flatTotal + surchargeTotal;
-  double shippingPricePercent=0.00;
-  if (estimate.getDouble("shippingPricePercent") != null)   shippingPricePercent=estimate.getDouble("shippingPricePercent").doubleValue();
-  double shippingTotal=subTotal + ((subTotal + initialEstimateAmt.doubleValue()) * (shippingPricePercent / 100));
+  BigDecimal surchargeTotal=featureSurcharge.add(sizeSurcharge);
+  BigDecimal subTotal=spanTotal.add(flatTotal).add(surchargeTotal);
+  BigDecimal shippingPricePercent=BigDecimal.ZERO;
+  if (estimate.getBigDecimal("shippingPricePercent") != null)   shippingPricePercent=estimate.getBigDecimal("shippingPricePercent");
+  BigDecimal shippingTotal=subTotal.add((subTotal.add(initialEstimateAmt)).multiply(shippingPricePercent.movePointLeft(2)));
   Map<String,Object> responseResult=ServiceUtil.returnSuccess();
-  responseResult.put("shippingEstimateAmount",Double.valueOf(shippingTotal));
+  responseResult.put("shippingEstimateAmount",shippingTotal);
   return responseResult;
 }

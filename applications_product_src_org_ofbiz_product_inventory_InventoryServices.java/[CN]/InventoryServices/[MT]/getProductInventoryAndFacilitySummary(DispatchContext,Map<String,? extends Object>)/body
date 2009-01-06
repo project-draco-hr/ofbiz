@@ -4,7 +4,7 @@
   Timestamp checkTime=(Timestamp)context.get("checkTime");
   String facilityId=(String)context.get("facilityId");
   String productId=(String)context.get("productId");
-  String minimumStock=(String)context.get("minimumStock");
+  String minimumStockStr=(String)context.get("minimumStock");
   String statusId=(String)context.get("statusId");
   Map<String,Object> result=FastMap.newInstance();
   Map<String,Object> resultOutput=FastMap.newInstance();
@@ -32,26 +32,26 @@
       e.printStackTrace();
     }
   }
-  int minimumStockInt=0;
-  if (minimumStock != null) {
-    minimumStockInt=Double.valueOf(minimumStock).intValue();
+  BigDecimal minimumStock=BigDecimal.ZERO;
+  if (minimumStockStr != null) {
+    minimumStock=new BigDecimal(minimumStockStr);
   }
-  int quantityOnHandTotalInt=0;
+  BigDecimal quantityOnHandTotal=BigDecimal.ZERO;
   if (resultOutput.get("quantityOnHandTotal") != null) {
-    quantityOnHandTotalInt=((Double)resultOutput.get("quantityOnHandTotal")).intValue();
+    quantityOnHandTotal=(BigDecimal)resultOutput.get("quantityOnHandTotal");
   }
-  int offsetQOHQtyAvailable=quantityOnHandTotalInt - minimumStockInt;
-  int availableToPromiseTotalInt=0;
+  BigDecimal offsetQOHQtyAvailable=quantityOnHandTotal.subtract(minimumStock);
+  BigDecimal availableToPromiseTotal=BigDecimal.ZERO;
   if (resultOutput.get("availableToPromiseTotal") != null) {
-    availableToPromiseTotalInt=((Double)resultOutput.get("availableToPromiseTotal")).intValue();
+    availableToPromiseTotal=(BigDecimal)resultOutput.get("availableToPromiseTotal");
   }
-  int offsetATPQtyAvailable=availableToPromiseTotalInt - minimumStockInt;
-  double quantityOnOrder=InventoryWorker.getOutstandingPurchasedQuantity(productId,delegator);
+  BigDecimal offsetATPQtyAvailable=availableToPromiseTotal.subtract(minimumStock);
+  BigDecimal quantityOnOrder=InventoryWorker.getOutstandingPurchasedQuantity(productId,delegator);
   result.put("totalQuantityOnHand",resultOutput.get("quantityOnHandTotal").toString());
   result.put("totalAvailableToPromise",resultOutput.get("availableToPromiseTotal").toString());
-  result.put("quantityOnOrder",Double.valueOf(quantityOnOrder));
-  result.put("offsetQOHQtyAvailable",Integer.valueOf(offsetQOHQtyAvailable));
-  result.put("offsetATPQtyAvailable",Integer.valueOf(offsetATPQtyAvailable));
+  result.put("quantityOnOrder",quantityOnOrder);
+  result.put("offsetQOHQtyAvailable",offsetQOHQtyAvailable);
+  result.put("offsetATPQtyAvailable",offsetATPQtyAvailable);
   List<GenericValue> productPrices=null;
   try {
     productPrices=delegator.findByAndCache("ProductPrice",UtilMisc.toMap("productId",productId),UtilMisc.toList("-fromDate"));
@@ -61,18 +61,18 @@
   }
   for (  GenericValue onePrice : productPrices) {
     if (onePrice.getString("productPriceTypeId").equals("DEFAULT_PRICE")) {
-      result.put("defultPrice",onePrice.getDouble("price"));
+      result.put("defultPrice",onePrice.getBigDecimal("price"));
     }
  else     if (onePrice.getString("productPriceTypeId").equals("WHOLESALE_PRICE")) {
-      result.put("wholeSalePrice",onePrice.getDouble("price"));
+      result.put("wholeSalePrice",onePrice.getBigDecimal("price"));
     }
  else     if (onePrice.getString("productPriceTypeId").equals("LIST_PRICE")) {
-      result.put("listPrice",onePrice.getDouble("price"));
+      result.put("listPrice",onePrice.getBigDecimal("price"));
     }
  else {
-      result.put("defultPrice",onePrice.getDouble("price"));
-      result.put("listPrice",onePrice.getDouble("price"));
-      result.put("wholeSalePrice",onePrice.getDouble("price"));
+      result.put("defultPrice",onePrice.getBigDecimal("price"));
+      result.put("listPrice",onePrice.getBigDecimal("price"));
+      result.put("wholeSalePrice",onePrice.getBigDecimal("price"));
     }
   }
   DynamicViewEntity salesUsageViewEntity=new DynamicViewEntity();
@@ -111,12 +111,12 @@
  catch (    GenericEntityException e2) {
       e2.printStackTrace();
     }
-    double salesUsageQuantity=0;
+    BigDecimal salesUsageQuantity=BigDecimal.ZERO;
     GenericValue salesUsageItem=null;
     while ((salesUsageItem=salesUsageIt.next()) != null) {
       if (salesUsageItem.get("quantity") != null) {
         try {
-          salesUsageQuantity+=salesUsageItem.getDouble("quantity").doubleValue();
+          salesUsageQuantity=salesUsageQuantity.add(salesUsageItem.getBigDecimal("quantity"));
         }
  catch (        Exception e) {
         }
@@ -135,12 +135,12 @@
  catch (    GenericEntityException e1) {
       e1.printStackTrace();
     }
-    double productionUsageQuantity=0;
+    BigDecimal productionUsageQuantity=BigDecimal.ZERO;
     GenericValue productionUsageItem=null;
     while ((productionUsageItem=productionUsageIt.next()) != null) {
       if (productionUsageItem.get("quantity") != null) {
         try {
-          productionUsageQuantity+=productionUsageItem.getDouble("quantity").doubleValue();
+          productionUsageQuantity=productionUsageQuantity.add(productionUsageItem.getBigDecimal("quantity"));
         }
  catch (        Exception e) {
         }
@@ -152,7 +152,7 @@
  catch (    GenericEntityException e) {
       e.printStackTrace();
     }
-    result.put("usageQuantity",Double.valueOf((salesUsageQuantity + productionUsageQuantity)));
+    result.put("usageQuantity",salesUsageQuantity.add(productionUsageQuantity));
   }
   return result;
 }

@@ -24,8 +24,8 @@
     Iterator siit=shipItems.iterator();
     while (siit.hasNext()) {
       ShoppingCartItem cartItem=(ShoppingCartItem)siit.next();
-      double itemQuantity=cartItem.getQuantity();
-      double dropShipQuantity=0;
+      BigDecimal itemQuantity=cartItem.getQuantity();
+      BigDecimal dropShipQuantity=BigDecimal.ZERO;
       GenericValue product=cartItem.getProduct();
       if (product == null) {
         continue;
@@ -38,12 +38,12 @@
  else       if ("PRODRQM_DSATP".equals(requirementMethodEnumId)) {
         try {
           Map getProductInventoryAvailableResult=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facilityId));
-          double availableToPromise=((Double)getProductInventoryAvailableResult.get("availableToPromiseTotal")).doubleValue();
-          if (itemQuantity <= availableToPromise) {
-            dropShipQuantity=0;
+          BigDecimal availableToPromise=(BigDecimal)getProductInventoryAvailableResult.get("availableToPromiseTotal");
+          if (itemQuantity.compareTo(availableToPromise) <= 0) {
+            dropShipQuantity=BigDecimal.ZERO;
           }
  else {
-            dropShipQuantity=itemQuantity - availableToPromise;
+            dropShipQuantity=itemQuantity.subtract(availableToPromise);
           }
         }
  catch (        Exception e) {
@@ -51,12 +51,12 @@
         }
       }
  else {
-        dropShipQuantity=0;
+        dropShipQuantity=BigDecimal.ZERO;
       }
-      if (dropShipQuantity <= 0)       continue;
+      if (dropShipQuantity.compareTo(BigDecimal.ZERO) <= 0)       continue;
       String supplierPartyId=null;
       try {
-        Map getSuppliersForProductResult=dispatcher.runSync("getSuppliersForProduct",UtilMisc.<String,Object>toMap("productId",productId,"quantity",new Double(dropShipQuantity),"canDropShip","Y","currencyUomId",getCurrency()));
+        Map getSuppliersForProductResult=dispatcher.runSync("getSuppliersForProduct",UtilMisc.<String,Object>toMap("productId",productId,"quantity",dropShipQuantity,"canDropShip","Y","currencyUomId",getCurrency()));
         List supplierProducts=(List)getSuppliersForProductResult.get("supplierProducts");
         supplierProducts=EntityUtil.orderBy(supplierProducts,UtilMisc.toList("supplierPrefOrderId"));
         GenericValue supplierProduct=EntityUtil.getFirst(supplierProducts);
@@ -72,7 +72,7 @@
       Map supplierCartItems=(Map)dropShipItems.get(supplierPartyId);
       if (!supplierCartItems.containsKey(cartItem))       supplierCartItems.put(cartItem,new HashMap());
       Map cartItemGroupQuantities=(Map)supplierCartItems.get(cartItem);
-      cartItemGroupQuantities.put(new Integer(shipGroupIndex),new Double(dropShipQuantity));
+      cartItemGroupQuantities.put(new Integer(shipGroupIndex),dropShipQuantity);
     }
   }
   Iterator dsit=dropShipItems.keySet().iterator();
@@ -98,7 +98,7 @@
       Iterator cigit=cartItemGroupQuantities.keySet().iterator();
       while (cigit.hasNext()) {
         Integer previousShipGroupIndex=(Integer)cigit.next();
-        double dropShipQuantity=((Double)cartItemGroupQuantities.get(previousShipGroupIndex)).doubleValue();
+        BigDecimal dropShipQuantity=(BigDecimal)cartItemGroupQuantities.get(previousShipGroupIndex);
         positionItemToGroup(cartItem,dropShipQuantity,previousShipGroupIndex.intValue(),newShipGroupIndex,true);
       }
     }
