@@ -2,13 +2,21 @@
   Map<String,ModelForm> modelFormMap=new HashMap<String,ModelForm>();
   if (formFileDoc != null) {
     Element rootElement=formFileDoc.getDocumentElement();
-    List formElements=UtilXml.childElementList(rootElement,"form");
-    Iterator formElementIter=formElements.iterator();
-    while (formElementIter.hasNext()) {
-      Element formElement=(Element)formElementIter.next();
-      ModelForm modelForm=new ModelForm(formElement,entityModelReader,dispatchContext);
-      modelForm.setFormLocation(formLocation);
-      modelFormMap.put(modelForm.getName(),modelForm);
+    List<? extends Element> formElements=UtilXml.childElementList(rootElement,"form");
+    for (    Element formElement : formElements) {
+      String formName=formElement.getAttribute("name");
+      String cacheKey=formLocation + "#" + formName;
+      ModelForm modelForm=formLocationCache.get(cacheKey);
+      if (modelForm == null) {
+synchronized (formLocationCache) {
+          modelForm=formLocationCache.get(cacheKey);
+          if (modelForm == null) {
+            modelForm=createModelForm(formElement,entityModelReader,dispatchContext,formLocation,formName);
+            formLocationCache.put(cacheKey,modelForm);
+          }
+        }
+      }
+      modelFormMap.put(formName,modelForm);
     }
   }
   return modelFormMap;

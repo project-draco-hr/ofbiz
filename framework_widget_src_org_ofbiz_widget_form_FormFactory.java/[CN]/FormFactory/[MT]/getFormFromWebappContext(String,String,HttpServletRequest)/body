@@ -1,22 +1,23 @@
 {
   String webappName=UtilHttp.getApplicationName(request);
-  String cacheKey=webappName + "::" + resourceName;
-  Map<String,ModelForm> modelFormMap=formWebappCache.get(cacheKey);
-  if (modelFormMap == null) {
-synchronized (FormFactory.class) {
-      modelFormMap=formWebappCache.get(cacheKey);
-      if (modelFormMap == null) {
+  String cacheKey=webappName + "::" + resourceName+ "::"+ formName;
+  ModelForm modelForm=formWebappCache.get(cacheKey);
+  if (modelForm == null) {
+synchronized (formWebappCache) {
+      modelForm=formWebappCache.get(cacheKey);
+      if (modelForm == null) {
         ServletContext servletContext=(ServletContext)request.getAttribute("servletContext");
         GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
         LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
         URL formFileUrl=servletContext.getResource(resourceName);
         Document formFileDoc=UtilXml.readXmlDocument(formFileUrl,true);
-        modelFormMap=readFormDocument(formFileDoc,delegator.getModelReader(),dispatcher.getDispatchContext(),cacheKey);
-        formWebappCache.put(cacheKey,modelFormMap);
+        Element formElement=UtilXml.firstChildElement(formFileDoc.getDocumentElement(),"form","name",formName);
+        modelForm=new ModelForm(formElement,delegator.getModelReader(),dispatcher.getDispatchContext());
+        modelForm.setFormLocation(resourceName);
+        formWebappCache.put(cacheKey,modelForm);
       }
     }
   }
-  ModelForm modelForm=(ModelForm)modelFormMap.get(formName);
   if (modelForm == null) {
     throw new IllegalArgumentException("Could not find form with name [" + formName + "] in webapp resource ["+ resourceName+ "] in the webapp ["+ webappName+ "]");
   }
