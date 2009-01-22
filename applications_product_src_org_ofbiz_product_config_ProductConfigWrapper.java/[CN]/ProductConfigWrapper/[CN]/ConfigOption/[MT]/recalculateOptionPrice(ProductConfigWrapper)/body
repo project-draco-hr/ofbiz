@@ -1,6 +1,8 @@
 {
+  optionListPrice=BigDecimal.ZERO;
   optionPrice=BigDecimal.ZERO;
   for (  GenericValue oneComponent : componentList) {
+    BigDecimal listPrice=BigDecimal.ZERO;
     BigDecimal price=BigDecimal.ZERO;
     GenericValue oneComponentProduct=oneComponent.getRelatedOne("ProductProduct");
     String variantProductId=componentOptions.get(oneComponent.getString("productId"));
@@ -9,6 +11,7 @@
     }
     Map<String,Object> fieldMap=UtilMisc.toMap("product",oneComponentProduct,"prodCatalogId",pcw.catalogId,"webSiteId",pcw.webSiteId,"currencyUomId",pcw.currencyUomId,"productPricePurposeId","COMPONENT_PRICE","autoUserLogin",pcw.autoUserLogin);
     Map<String,Object> priceMap=dispatcher.runSync("calculateProductPrice",fieldMap);
+    BigDecimal componentListPrice=(BigDecimal)priceMap.get("listPrice");
     BigDecimal componentPrice=(BigDecimal)priceMap.get("price");
     Boolean validPriceFound=(Boolean)priceMap.get("validPriceFound");
     BigDecimal mult=BigDecimal.ONE;
@@ -18,17 +21,27 @@
     if (mult.compareTo(BigDecimal.ZERO) == 0) {
       mult=BigDecimal.ONE;
     }
-    if (componentPrice != null && validPriceFound.booleanValue()) {
-      price=componentPrice;
+    if (validPriceFound.booleanValue()) {
+      if (componentListPrice != null) {
+        listPrice=componentListPrice;
+      }
+      if (componentPrice != null) {
+        price=componentPrice;
+      }
     }
  else {
       fieldMap.put("productPricePurposeId","PURCHASE");
       Map<String,Object> purchasePriceResultMap=dispatcher.runSync("calculateProductPrice",fieldMap);
+      BigDecimal purchaseListPrice=(BigDecimal)purchasePriceResultMap.get("listPrice");
       BigDecimal purchasePrice=(BigDecimal)purchasePriceResultMap.get("price");
+      if (purchaseListPrice != null) {
+        listPrice=purchaseListPrice;
+      }
       if (purchasePrice != null) {
         price=purchasePrice;
       }
     }
+    optionListPrice=optionListPrice.add(listPrice.multiply(mult));
     optionPrice=optionPrice.add(price.multiply(mult));
   }
 }
