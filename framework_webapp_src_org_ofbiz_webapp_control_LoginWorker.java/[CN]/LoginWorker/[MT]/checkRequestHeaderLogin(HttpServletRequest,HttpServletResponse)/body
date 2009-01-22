@@ -1,33 +1,13 @@
 {
   String httpHeader=UtilProperties.getPropertyValue("security.properties","security.login.http.header",null);
   if (UtilValidate.isNotEmpty(httpHeader)) {
-    HttpSession session=request.getSession();
-    GenericValue currentUserLogin=(GenericValue)session.getAttribute("userLogin");
-    if (currentUserLogin != null) {
-      String hasLoggedOut=currentUserLogin.getString("hasLoggedOut");
-      if (hasLoggedOut != null && "Y".equals(hasLoggedOut)) {
-        currentUserLogin=null;
-      }
-    }
-    if (currentUserLogin == null) {
+    if (!LoginWorker.isUserLoggedIn(request)) {
       String headerValue=request.getHeader(httpHeader);
       if (UtilValidate.isNotEmpty(headerValue)) {
-        GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
-        try {
-          GenericValue userLogin=delegator.findOne("UserLogin",false,"userLoginId",headerValue);
-          if (userLogin != null) {
-            String enabled=userLogin.getString("enabled");
-            if (enabled == null || "Y".equals(enabled)) {
-              userLogin.set("hasLoggedOut","N");
-              userLogin.store();
-              Map<String,Object> ulSessionMap=LoginServices.getUserLoginSession(userLogin);
-              return doMainLogin(request,response,userLogin,ulSessionMap);
-            }
-          }
-        }
- catch (        GeneralException e) {
-          Debug.logError(e,module);
-        }
+        return LoginWorker.loginUserWithUserLoginId(request,response,headerValue);
+      }
+ else {
+        return "error";
       }
     }
   }
