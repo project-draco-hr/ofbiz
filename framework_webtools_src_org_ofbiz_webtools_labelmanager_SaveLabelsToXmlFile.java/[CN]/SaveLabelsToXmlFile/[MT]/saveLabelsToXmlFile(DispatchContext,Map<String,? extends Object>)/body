@@ -14,8 +14,6 @@
       String uri=(String)fileNamesFound.get(fileName);
       Document resourceDocument=UtilXml.makeEmptyXmlDocument("resource");
       Element resourceElem=resourceDocument.getDocumentElement();
-      Comment comment=resourceDocument.createComment("A Document Comment");
-      resourceElem.getParentNode().insertBefore(comment,resourceElem);
       resourceElem.setAttribute("xmlns:xsi","http://www.w3.org/2001/XMLSchema-instance");
       for (      String labelKey : labelsList) {
         LabelInfo labelInfo=(LabelInfo)labels.get(labelKey);
@@ -32,7 +30,33 @@
           }
         }
       }
-      UtilCache.clearCache("properties.UtilPropertiesBundleCache");
+      if (UtilValidate.isNotEmpty(resourceElem) && UtilValidate.isNotEmpty(uri)) {
+        File outFile=new File(new URI(uri));
+        FileOutputStream fos=new FileOutputStream(outFile);
+        OutputFormat format=new OutputFormat(resourceDocument.getDocumentElement().getOwnerDocument(),"UTF-8",true);
+        try {
+          format.setIndent(4);
+          format.setOmitXMLDeclaration(true);
+          UtilXml.writeXmlDocument(fos,resourceElem,format);
+        }
+  finally {
+          if (UtilValidate.isNotEmpty(fos)) {
+            fos.close();
+            String outBuffer=FileUtil.readString("UTF-8",outFile);
+            String basePath=System.getProperty("ofbiz.home");
+            if (UtilValidate.isNotEmpty(basePath)) {
+              String apacheHeaderFileName=basePath + "/framework/webtools/config/APACHE2_HEADER_FOR_XML";
+              String apacheHeaderBuffer="";
+              File apacheHeaderFile=new File(apacheHeaderFileName);
+              if (UtilValidate.isNotEmpty(apacheHeaderFile)) {
+                apacheHeaderBuffer=FileUtil.readString("UTF-8",apacheHeaderFile);
+              }
+              FileUtil.writeString("UTF-8",apacheHeaderBuffer + outBuffer,outFile);
+              UtilCache.clearCache("properties.UtilPropertiesBundleCache");
+            }
+          }
+        }
+      }
     }
   }
  catch (  Exception e) {
