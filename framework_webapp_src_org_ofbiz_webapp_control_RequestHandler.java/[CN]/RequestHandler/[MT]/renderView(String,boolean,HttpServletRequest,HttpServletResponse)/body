@@ -14,10 +14,12 @@
   }
   if (Debug.verboseOn())   Debug.logVerbose("[Getting View Map]: " + view + " sessionId="+ UtilHttp.getSessionId(req),module);
   req.setAttribute("_CURRENT_VIEW_",view);
-  String viewType=requestManager.getViewType(view);
-  String tempView=requestManager.getViewPage(view);
+  ConfigXMLReader.ViewMap viewMap=view == null ? null : controllerConfig.viewMapMap.get(view);
+  if (viewMap == null) {
+    throw new RequestHandlerException("No defitinition found for view with name [" + view + "]");
+  }
   String nextPage;
-  if (tempView == null) {
+  if (viewMap.page == null) {
     if (!allowExtView) {
       throw new RequestHandlerException("No view to render.");
     }
@@ -26,12 +28,12 @@
     }
   }
  else {
-    nextPage=tempView;
+    nextPage=viewMap.page;
   }
   if (Debug.verboseOn())   Debug.logVerbose("[Mapped To]: " + nextPage + " sessionId="+ UtilHttp.getSessionId(req),module);
   long viewStartTime=System.currentTimeMillis();
   String charset=UtilFormatOut.checkEmpty(getServletContext().getInitParameter("charset"),req.getCharacterEncoding(),"UTF-8");
-  String viewCharset=requestManager.getViewEncoding(view);
+  String viewCharset=this.controllerConfig.viewMapMap.get(view).encoding;
   if (UtilValidate.isNotEmpty(viewCharset)) {
     charset=viewCharset;
   }
@@ -47,7 +49,7 @@ catch (    IllegalStateException e) {
     }
   }
   String contentType="text/html";
-  String viewContentType=requestManager.getViewContentType(view);
+  String viewContentType=viewMap.contentType;
   if (UtilValidate.isNotEmpty(viewContentType)) {
     contentType=viewContentType;
   }
@@ -59,9 +61,9 @@ catch (    IllegalStateException e) {
   }
   if (Debug.verboseOn())   Debug.logVerbose("The ContentType for the " + view + " view is: "+ contentType,module);
   try {
-    if (Debug.verboseOn())     Debug.logVerbose("Rendering view [" + nextPage + "] of type ["+ viewType+ "]",module);
-    ViewHandler vh=viewFactory.getViewHandler(viewType);
-    vh.render(view,nextPage,requestManager.getViewInfo(view),contentType,charset,req,resp);
+    if (Debug.verboseOn())     Debug.logVerbose("Rendering view [" + nextPage + "] of type ["+ viewMap.type+ "]",module);
+    ViewHandler vh=viewFactory.getViewHandler(viewMap.type);
+    vh.render(view,nextPage,viewMap.info,contentType,charset,req,resp);
   }
  catch (  ViewHandlerException e) {
     Throwable throwable=e.getNested() != null ? e.getNested() : e;
