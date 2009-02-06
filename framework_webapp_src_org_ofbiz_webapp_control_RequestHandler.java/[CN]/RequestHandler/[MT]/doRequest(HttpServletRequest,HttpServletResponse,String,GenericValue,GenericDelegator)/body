@@ -85,7 +85,7 @@
       if (visit != null) {
         for (        ConfigXMLReader.Event event : controllerConfig.firstVisitEventList) {
           try {
-            String returnString=this.runEvent(request,response,event.type,event.path,event.invoke);
+            String returnString=this.runEvent(request,response,event.type,event.path,event.invoke,"firstvisit");
             if (returnString != null && !returnString.equalsIgnoreCase("success")) {
               throw new EventHandlerException("First-Visit event did not return 'success'.");
             }
@@ -101,7 +101,7 @@
     }
     for (    ConfigXMLReader.Event event : controllerConfig.preprocessorEventList) {
       try {
-        String returnString=this.runEvent(request,response,event.type,event.path,event.invoke);
+        String returnString=this.runEvent(request,response,event.type,event.path,event.invoke,"preprocessor");
         if (returnString != null && !returnString.equalsIgnoreCase("success")) {
           if (!returnString.contains(":_protect_:")) {
             throw new EventHandlerException("Pre-Processor event did not return 'success'.");
@@ -132,17 +132,17 @@
     }
   }
   if (interruptRequest) {
-    if (Debug.infoOn())     Debug.logInfo("[Pre-Processor Interrupted Request, not running: " + requestMap.uri + " sessionId="+ UtilHttp.getSessionId(request),module);
+    if (Debug.infoOn())     Debug.logInfo("[Pre-Processor Interrupted Request, not running: [" + requestMap.uri + "], sessionId="+ UtilHttp.getSessionId(request),module);
     return;
   }
-  if (Debug.infoOn())   Debug.logInfo("[Processing Request]: " + requestMap.uri + " sessionId="+ UtilHttp.getSessionId(request),module);
+  if (Debug.verboseOn())   Debug.logVerbose("[Processing Request]: " + requestMap.uri + " sessionId="+ UtilHttp.getSessionId(request),module);
   request.setAttribute("thisRequestUri",requestMap.uri);
   if (requestMap.securityAuth) {
-    Debug.logVerbose("[RequestHandler]: AuthRequired. Running security check." + " sessionId=" + UtilHttp.getSessionId(request),module);
+    if (Debug.verboseOn())     Debug.logVerbose("[RequestHandler]: AuthRequired. Running security check. sessionId=" + UtilHttp.getSessionId(request),module);
     ConfigXMLReader.Event checkLoginEvent=controllerConfig.requestMapMap.get("checkLogin").event;
     String checkLoginReturnString=null;
     try {
-      checkLoginReturnString=this.runEvent(request,response,checkLoginEvent.type,checkLoginEvent.path,checkLoginEvent.invoke);
+      checkLoginReturnString=this.runEvent(request,response,checkLoginEvent.type,checkLoginEvent.path,checkLoginEvent.invoke,"security-auth");
     }
  catch (    EventHandlerException e) {
       throw new RequestHandlerException(e.getMessage(),e);
@@ -164,7 +164,7 @@
     if (requestMap.event.type != null && requestMap.event.path != null && requestMap.event.invoke != null) {
       try {
         long eventStartTime=System.currentTimeMillis();
-        eventReturn=this.runEvent(request,response,requestMap.event.type,requestMap.event.path,requestMap.event.invoke);
+        eventReturn=this.runEvent(request,response,requestMap.event.type,requestMap.event.path,requestMap.event.invoke,"request");
         if (this.trackStats(request)) {
           ServerHitBin.countEvent(cname + "." + requestMap.event.invoke,request,eventStartTime,System.currentTimeMillis() - eventStartTime,userLogin,delegator);
         }
@@ -200,7 +200,7 @@
       }
     }
   }
- else {
+ else   if (eventReturn != null) {
     Debug.logWarning("Could not find response in request [" + requestMap.uri + "] for event return ["+ eventReturn+ "]",module);
   }
   if (eventReturnBasedRequestResponse != null && (!"success".equals(eventReturnBasedRequestResponse.name) || "none".equals(eventReturnBasedRequestResponse.type)))   nextRequestResponse=eventReturnBasedRequestResponse;
@@ -260,7 +260,7 @@
  else {
     for (    ConfigXMLReader.Event event : this.controllerConfig.postprocessorEventList) {
       try {
-        String returnString=this.runEvent(request,response,event.type,event.path,event.invoke);
+        String returnString=this.runEvent(request,response,event.type,event.path,event.invoke,"postprocessor");
         if (returnString != null && !returnString.equalsIgnoreCase("success")) {
           throw new EventHandlerException("Post-Processor event did not return 'success'.");
         }
@@ -270,29 +270,29 @@
       }
     }
     if ("url".equals(nextRequestResponse.type)) {
-      Debug.logInfo("[RequestHandler.doRequest]: Response is a URL redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a URL redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
       callRedirect(nextRequestResponse.value,response,request);
     }
  else     if ("cross-redirect".equals(nextRequestResponse.type)) {
-      Debug.logInfo("[RequestHandler.doRequest]: Response is a Cross-Application redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a Cross-Application redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
       String url=nextRequestResponse.value.startsWith("/") ? nextRequestResponse.value : "/" + nextRequestResponse.value;
       callRedirect(url + this.makeQueryString(request,nextRequestResponse),response,request);
     }
  else     if ("request-redirect".equals(nextRequestResponse.type)) {
-      Debug.logInfo("[RequestHandler.doRequest]: Response is a Request redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a Request redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
       callRedirect(makeLinkWithQueryString(request,response,"/" + nextRequestResponse.value,nextRequestResponse),response,request);
     }
  else     if ("request-redirect-noparam".equals(nextRequestResponse.type)) {
-      Debug.logInfo("[RequestHandler.doRequest]: Response is a Request redirect with no parameters." + " sessionId=" + UtilHttp.getSessionId(request),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a Request redirect with no parameters." + " sessionId=" + UtilHttp.getSessionId(request),module);
       callRedirect(makeLink(request,response,nextRequestResponse.value),response,request);
     }
  else     if ("view".equals(nextRequestResponse.type)) {
-      Debug.logInfo("[RequestHandler.doRequest]: Response is a view." + " sessionId=" + UtilHttp.getSessionId(request),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a view." + " sessionId=" + UtilHttp.getSessionId(request),module);
       String viewName=(UtilValidate.isNotEmpty(overrideViewUri) && (eventReturn == null || "success".equals(eventReturn))) ? overrideViewUri : nextRequestResponse.value;
       renderView(viewName,requestMap.securityExternalView,request,response);
     }
  else     if ("none".equals(nextRequestResponse.type)) {
-      Debug.logInfo("[RequestHandler.doRequest]: Response is handled by the event." + " sessionId=" + UtilHttp.getSessionId(request),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is handled by the event." + " sessionId=" + UtilHttp.getSessionId(request),module);
     }
   }
 }
