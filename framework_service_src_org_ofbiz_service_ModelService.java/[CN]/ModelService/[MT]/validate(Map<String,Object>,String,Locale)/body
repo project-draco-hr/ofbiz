@@ -2,9 +2,9 @@
   Map<String,String> requiredInfo=FastMap.newInstance();
   Map<String,String> optionalInfo=FastMap.newInstance();
   boolean verboseOn=Debug.verboseOn();
-  if (verboseOn)   Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : Validating context - "+ test,module);
-  if (mode.equals(OUT_PARAM) && test != null && test.containsKey(RESPONSE_MESSAGE)) {
-    if (RESPOND_ERROR.equals(test.get(RESPONSE_MESSAGE)) || RESPOND_FAIL.equals(test.get(RESPONSE_MESSAGE))) {
+  if (verboseOn)   Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : Validating context - "+ context,module);
+  if (mode.equals(OUT_PARAM) && context != null && context.containsKey(RESPONSE_MESSAGE)) {
+    if (RESPOND_ERROR.equals(context.get(RESPONSE_MESSAGE)) || RESPOND_FAIL.equals(context.get(RESPONSE_MESSAGE))) {
       if (verboseOn)       Debug.logVerbose("[ModelService.validate] : {" + this.name + "} : response was an error, not validating.",module);
       return;
     }
@@ -21,8 +21,8 @@
   }
   Map<String,Object> requiredTest=FastMap.newInstance();
   Map<String,Object> optionalTest=FastMap.newInstance();
-  if (test == null)   test=FastMap.newInstance();
-  requiredTest.putAll(test);
+  if (context == null)   context=FastMap.newInstance();
+  requiredTest.putAll(context);
   List<String> requiredButNull=FastList.newInstance();
   List<String> keyList=FastList.newInstance();
   keyList.addAll(requiredTest.keySet());
@@ -67,5 +67,24 @@
  catch (  ServiceValidationException e) {
     Debug.logError("[ModelService.validate] : {" + name + "} : ("+ mode+ ") Required test error: "+ e.toString(),module);
     throw e;
+  }
+  if ("IN".equals(mode)) {
+    List<String> errorMessageList=FastList.newInstance();
+    for (    ModelParam modelParam : this.contextInfo.values()) {
+      if (context.get(modelParam.name) != null && ("String".equals(modelParam.type) || "java.lang.String".equals(modelParam.type)) && !"any".equals(modelParam.allowHtml) && ("INOUT".equals(modelParam.mode) || "IN".equals(modelParam.mode))) {
+        String value=(String)context.get(modelParam.name);
+        if ("none".equals(modelParam.allowHtml)) {
+          value=StringUtil.checkStringForHtmlStrictNone(modelParam.name,value,errorMessageList);
+          context.put(modelParam.name,value);
+        }
+ else         if ("safe".equals(modelParam.allowHtml)) {
+          value=StringUtil.checkStringForHtmlSafeOnly(modelParam.name,value,errorMessageList);
+          context.put(modelParam.name,value);
+        }
+      }
+    }
+    if (errorMessageList.size() > 0) {
+      throw new ServiceValidationException(errorMessageList,this,mode);
+    }
   }
 }
