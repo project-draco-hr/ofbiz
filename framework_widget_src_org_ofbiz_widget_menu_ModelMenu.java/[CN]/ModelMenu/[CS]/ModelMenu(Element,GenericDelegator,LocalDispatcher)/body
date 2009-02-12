@@ -106,7 +106,31 @@
   }
   List<? extends Element> itemElements=UtilXml.childElementList(menuElement,"menu-item");
   for (  Element itemElement : itemElements) {
-    ModelMenuItem modelMenuItem=new ModelMenuItem(itemElement,this);
-    modelMenuItem=this.addUpdateMenuItem(modelMenuItem);
+    String portalResource=itemElement.getAttribute("portal-page");
+    if (UtilValidate.isNotEmpty(portalResource)) {
+      ModelMenuItem modelMenuItem=new ModelMenuItem(itemElement,this);
+      List<GenericValue> portalPages=null;
+      List exprs=UtilMisc.toList(EntityCondition.makeCondition("portalPageId",EntityOperator.EQUALS,portalResource),EntityCondition.makeCondition("parentPortalPageId",EntityOperator.EQUALS,portalResource));
+      EntityCondition cond=EntityCondition.makeCondition(exprs,EntityOperator.OR);
+      try {
+        portalPages=delegator.findList("PortalPage",cond,null,UtilMisc.toList("sequenceNum"),null,false);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError("Could not retrieve portalpages in the menu:" + e.getMessage(),module);
+      }
+      for (      GenericValue portalPage : portalPages) {
+        if (UtilValidate.isNotEmpty(portalPage.getString("portalPageName"))) {
+          modelMenuItem.setName(portalPage.getString("portalPageName"));
+          modelMenuItem.setTitle(portalPage.getString("portalPageName"));
+          modelMenuItem.link=new Link(itemElement,modelMenuItem);
+          modelMenuItem.link.setTarget("showPortalPage?portalPageId=" + portalPage.getString("portalPageId"));
+          modelMenuItem=this.addUpdateMenuItem(modelMenuItem);
+        }
+      }
+    }
+ else {
+      ModelMenuItem modelMenuItem=new ModelMenuItem(itemElement,this);
+      modelMenuItem=this.addUpdateMenuItem(modelMenuItem);
+    }
   }
 }
