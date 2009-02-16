@@ -15,7 +15,27 @@
     BigDecimal currentTotal=orderHeader.getBigDecimal("grandTotal");
     BigDecimal currentSubTotal=orderHeader.getBigDecimal("remainingSubTotal");
     BigDecimal updatedTotal=orh.getOrderGrandTotal();
-    BigDecimal remainingSubTotal=updatedTotal.subtract(orh.getOrderReturnedTotal()).subtract(orh.getOrderNonReturnedTaxAndShipping());
+    String productStoreId=orderHeader.getString("productStoreId");
+    String showPricesWithVatTax=null;
+    if (UtilValidate.isNotEmpty(productStoreId)) {
+      GenericValue productStore=null;
+      try {
+        productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
+      }
+ catch (      GenericEntityException e) {
+        String errorMessage=UtilProperties.getMessage(resource_error,"OrderErrorCouldNotFindProductStoreWithID",UtilMisc.toMap("productStoreId",productStoreId),(Locale)context.get("locale")) + e.toString();
+        Debug.logError(e,errorMessage,module);
+        return ServiceUtil.returnError(errorMessage + e.getMessage() + ").");
+      }
+      showPricesWithVatTax=productStore.getString("showPricesWithVatTax");
+    }
+    BigDecimal remainingSubTotal=ZERO;
+    if (UtilValidate.isNotEmpty(productStoreId) && "Y".equalsIgnoreCase(showPricesWithVatTax)) {
+      remainingSubTotal=updatedTotal.subtract(orh.getOrderReturnedTotal()).subtract(orh.getShippingTotal());
+    }
+ else {
+      remainingSubTotal=updatedTotal.subtract(orh.getOrderReturnedTotal()).subtract(orh.getOrderNonReturnedTaxAndShipping());
+    }
     if (currentTotal == null || currentSubTotal == null || updatedTotal.compareTo(currentTotal) != 0 || remainingSubTotal.compareTo(currentSubTotal) != 0) {
       orderHeader.set("grandTotal",updatedTotal);
       orderHeader.set("remainingSubTotal",remainingSubTotal);
