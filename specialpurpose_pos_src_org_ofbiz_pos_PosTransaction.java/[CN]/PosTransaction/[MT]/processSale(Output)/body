@@ -6,18 +6,39 @@
     throw new IllegalStateException();
   }
   cart.setOrderPartyId(partyId);
+  cart.setShipmentMethodTypeId("NO_SHIPPING");
   output.print(UtilProperties.getMessage(PosTransaction.resource,"PosValidating",defaultLocale));
   Map valRes=ch.validatePaymentMethods();
   if (valRes != null && ServiceUtil.isError(valRes)) {
     throw new GeneralException(ServiceUtil.getErrorMessage(valRes));
   }
-  output.print(UtilProperties.getMessage(PosTransaction.resource,"PosSaving",defaultLocale));
-  Map orderRes=ch.createOrder(session.getUserLogin());
-  if (orderRes != null && ServiceUtil.isError(orderRes)) {
-    throw new GeneralException(ServiceUtil.getErrorMessage(orderRes));
+  if (UtilValidate.isEmpty(this.orderId)) {
+    output.print(UtilProperties.getMessage(PosTransaction.resource,"Saving",defaultLocale));
+    Map orderRes=ch.createOrder(session.getUserLogin());
+    if (orderRes != null && ServiceUtil.isError(orderRes)) {
+      throw new GeneralException(ServiceUtil.getErrorMessage(orderRes));
+    }
+ else     if (orderRes != null) {
+      this.orderId=(String)orderRes.get("orderId");
+    }
   }
- else   if (orderRes != null) {
-    this.orderId=(String)orderRes.get("orderId");
+ else {
+    Map changeMap=UtilMisc.toMap("itemReasonMap",UtilMisc.toMap("reasonEnumId","EnumIdHere"),"itemCommentMap",UtilMisc.toMap("changeComments","change Comments here"));
+    Map svcCtx=FastMap.newInstance();
+    svcCtx.put("userLogin",session.getUserLogin());
+    svcCtx.put("orderId",orderId);
+    svcCtx.put("shoppingCart",cart);
+    svcCtx.put("locale",this.locale);
+    svcCtx.put("changeMap",changeMap);
+    Map svcRes=null;
+    try {
+      LocalDispatcher dispatcher=session.getDispatcher();
+      svcRes=dispatcher.runSync("saveUpdatedCartToOrder",svcCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      throw new GeneralException(ServiceUtil.getErrorMessage(svcRes));
+    }
   }
   output.print(UtilProperties.getMessage(PosTransaction.resource,"PosProcessing",defaultLocale));
   Map payRes=null;
@@ -32,7 +53,7 @@
     throw new GeneralException(ServiceUtil.getErrorMessage(payRes));
   }
   BigDecimal change=grandTotal.subtract(paymentAmt);
-  output.print(UtilProperties.getMessage(PosTransaction.resource,"PosChange",defaultLocale) + " " + UtilFormatOut.formatPrice(this.getTotalDue().negate().doubleValue()));
+  output.print(UtilProperties.getMessage(PosTransaction.resource,"PosChange",defaultLocale) + " " + UtilFormatOut.formatPrice(this.getTotalDue().negate()));
   final PosTransaction currentTrans=this;
   final SwingWorker worker=new SwingWorker(){
     public Object construct(){
