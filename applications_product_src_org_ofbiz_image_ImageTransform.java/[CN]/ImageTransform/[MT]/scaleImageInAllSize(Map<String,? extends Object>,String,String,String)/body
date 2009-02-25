@@ -1,4 +1,5 @@
 {
+  Locale locale=(Locale)context.get("locale");
   List<String> sizeTypeList=UtilMisc.toList("small","medium","large","detail");
   List<String> extensionList=UtilMisc.toList("jpeg","jpg","png");
   int index;
@@ -12,12 +13,12 @@
   Map<String,Object> resultScaleImgMap=FastMap.newInstance();
   Map<String,Object> result=FastMap.newInstance();
   String imgPropertyFullPath=System.getProperty("ofbiz.home") + "/applications/product/config/ImageProperties.xml";
-  resultXMLMap.putAll((Map<String,Object>)getXMLValue(imgPropertyFullPath));
+  resultXMLMap.putAll((Map<String,Object>)getXMLValue(imgPropertyFullPath,locale));
   if (resultXMLMap.containsKey("responseMessage") && resultXMLMap.get("responseMessage").equals("success")) {
     imgPropertyMap.putAll((Map<String,Map<String,String>>)resultXMLMap.get("xml"));
   }
  else {
-    String errMsg="Impossible to parse ImageProperties.xml ";
+    String errMsg=UtilProperties.getMessage(resource,"ImageTransform.unable_to_parse",locale) + " : ImageProperties.xml";
     Debug.logError(errMsg,module);
     result.put("errorMessage",errMsg);
     return result;
@@ -47,13 +48,13 @@
   if (fileLocation.lastIndexOf("/") != -1) {
     filePathPrefix=fileLocation.substring(0,fileLocation.lastIndexOf("/") + 1);
   }
-  resultBufImgMap.putAll(this.getBufferedImage(imageServerPath + "/" + filePathPrefix+ filenameToUse));
+  resultBufImgMap.putAll(this.getBufferedImage(imageServerPath + "/" + filePathPrefix+ filenameToUse,locale));
   if (resultBufImgMap.containsKey("responseMessage") && resultBufImgMap.get("responseMessage").equals("success")) {
     bufImg=(BufferedImage)resultBufImgMap.get("bufferedImage");
     imgHeight=(double)bufImg.getHeight();
     imgWidth=(double)bufImg.getWidth();
     if (imgHeight == 0.0 || imgWidth == 0.0) {
-      String errMsg="Any current image dimension is null : imgHeight = " + imgHeight + " ; imgWidth = "+ imgWidth+ ";";
+      String errMsg=UtilProperties.getMessage(resource,"ImageTransform.one_current_image_dimension_is_null",locale) + " : imgHeight = " + imgHeight+ " ; imgWidth = "+ imgWidth;
       Debug.logError(errMsg,module);
       result.put("errorMessage",errMsg);
       return result;
@@ -66,7 +67,7 @@
     Iterator<String> sizeIter=sizeTypeList.iterator();
     while (sizeIter.hasNext()) {
       String sizeType=sizeIter.next();
-      resultScaleImgMap.putAll(this.scaleImage(bufImg,imgHeight,imgWidth,imgPropertyMap,sizeType));
+      resultScaleImgMap.putAll(this.scaleImage(bufImg,imgHeight,imgWidth,imgPropertyMap,sizeType,locale));
       if (resultScaleImgMap.containsKey("responseMessage") && resultScaleImgMap.get("responseMessage").equals("success")) {
         bufNewImg=(BufferedImage)resultScaleImgMap.get("bufferedImage");
         Double scaleFactorDb=(Double)resultScaleImgMap.get("scaleFactor");
@@ -87,7 +88,7 @@
           op=new AffineTransformOp(tx,rh);
         }
  catch (        ImagingOpException e) {
-          String errMsg="The transform is non-invertible" + e.toString();
+          String errMsg=UtilProperties.getMessage(resource,"ImageTransform.transform_is_non_invertible",locale) + e.toString();
           Debug.logError(errMsg,module);
           result.put("errorMessage",errMsg);
           return result;
@@ -115,21 +116,22 @@
         if (!targetDir.exists()) {
           boolean created=targetDir.mkdirs();
           if (!created) {
-            Debug.logFatal("Unable to create target directory - " + targetDirectory,module);
-            return ServiceUtil.returnError("Unable to create target directory - " + targetDirectory);
+            String errMsg=UtilProperties.getMessage(resource,"ImageTransform.unable_to_create_target_directory",locale) + " - " + targetDirectory;
+            Debug.logFatal(errMsg,module);
+            return ServiceUtil.returnError(errMsg);
           }
         }
         try {
           ImageIO.write(op.filter(bufImg,bufNewImg),imgExtension,new File(imageServerPath + "/" + newFilePathPrefix+ filenameToUse));
         }
  catch (        IllegalArgumentException e) {
-          String errMsg="Any parameter is null" + e.toString();
+          String errMsg=UtilProperties.getMessage(resource,"ImageTransform.one_parameter_is_null",locale) + e.toString();
           Debug.logError(errMsg,module);
           result.put("errorMessage",errMsg);
           return result;
         }
 catch (        IOException e) {
-          String errMsg="An error occurs during writing" + e.toString();
+          String errMsg=UtilProperties.getMessage(resource,"ImageTransform.error_occurs_during_writing",locale) + e.toString();
           Debug.logError(errMsg,module);
           result.put("errorMessage",errMsg);
           return result;
@@ -144,7 +146,7 @@ catch (        IOException e) {
     return result;
   }
  else {
-    String errMsg="Impossible to scale original image : " + filenameToUse;
+    String errMsg=UtilProperties.getMessage(resource,"ImageTransform.unable_to_scale_original_image",locale) + " : " + filenameToUse;
     Debug.logError(errMsg,module);
     result.put("errorMessage",errMsg);
     return ServiceUtil.returnError(errMsg);
