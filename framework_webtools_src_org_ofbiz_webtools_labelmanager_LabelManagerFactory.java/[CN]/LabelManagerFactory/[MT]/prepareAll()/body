@@ -7,50 +7,62 @@
   references=null;
   int duplicatedLocales=0;
   try {
+    boolean sharkComponent=false;
     Collection<ComponentConfig> componentConfigs=ComponentConfig.getAllComponents();
     for (    ComponentConfig componentConfig : componentConfigs) {
       String componentName=componentConfig.getComponentName();
       List<File> resourceFiles=FileUtil.findXmlFiles(componentConfig.getRootLocation(),null,"resource",null);
-      for (      File resourceFile : resourceFiles) {
-        String fileName=resourceFile.getName();
-        Document resourceDocument=UtilXml.readXmlDocument(resourceFile.toURI().toURL());
-        Element resourceElem=resourceDocument.getDocumentElement();
-        String labelKeyComment="";
-        for (        Node propertyNode : UtilXml.childNodeList(resourceElem.getFirstChild())) {
-          if (propertyNode instanceof Element) {
-            Element propertyElem=(Element)propertyNode;
-            String labelKey=StringUtil.htmlSpecialChars(propertyElem.getAttribute("key"),true,true,false);
-            String labelComment="";
-            for (            Node valueNode : UtilXml.childNodeList(propertyElem.getFirstChild())) {
-              if (valueNode instanceof Element) {
-                Element valueElem=(Element)valueNode;
-                String localeName=valueElem.getAttribute("xml:lang");
-                String labelValue=StringUtil.htmlSpecialChars(UtilXml.nodeValue(valueElem.getFirstChild()),true,true,false);
-                LabelInfo label=(LabelInfo)labels.get(labelKey + keySeparator + fileName);
-                if (UtilValidate.isEmpty(label)) {
-                  label=new LabelInfo(labelKey,labelKeyComment,fileName,componentName,localeName,labelValue,labelComment);
-                  labels.put(labelKey + keySeparator + fileName,label);
-                }
- else {
-                  if (label.setLabelValue(localeName,labelValue,labelComment,false)) {
-                    duplicatedLocales++;
+      boolean cycle=true;
+      while (cycle) {
+        for (        File resourceFile : resourceFiles) {
+          String fileName=resourceFile.getName();
+          Document resourceDocument=UtilXml.readXmlDocument(resourceFile.toURI().toURL());
+          Element resourceElem=resourceDocument.getDocumentElement();
+          String labelKeyComment="";
+          for (          Node propertyNode : UtilXml.childNodeList(resourceElem.getFirstChild())) {
+            if (propertyNode instanceof Element) {
+              Element propertyElem=(Element)propertyNode;
+              String labelKey=StringUtil.htmlSpecialChars(propertyElem.getAttribute("key"),true,true,false);
+              String labelComment="";
+              for (              Node valueNode : UtilXml.childNodeList(propertyElem.getFirstChild())) {
+                if (valueNode instanceof Element) {
+                  Element valueElem=(Element)valueNode;
+                  String localeName=valueElem.getAttribute("xml:lang");
+                  String labelValue=StringUtil.htmlSpecialChars(UtilXml.nodeValue(valueElem.getFirstChild()),true,true,false);
+                  LabelInfo label=(LabelInfo)labels.get(labelKey + keySeparator + fileName);
+                  if (UtilValidate.isEmpty(label)) {
+                    label=new LabelInfo(labelKey,labelKeyComment,fileName,componentName,localeName,labelValue,labelComment);
+                    labels.put(labelKey + keySeparator + fileName,label);
                   }
+ else {
+                    if (label.setLabelValue(localeName,labelValue,labelComment,false)) {
+                      duplicatedLocales++;
+                    }
+                  }
+                  localesFound.add(localeName);
+                  componentNamesFound.add(componentName);
+                  fileNamesFound.put(fileName,resourceFile.toURI().toString());
+                  fileComponent.put(fileName,componentName);
+                  labelComment="";
                 }
-                localesFound.add(localeName);
-                componentNamesFound.add(componentName);
-                fileNamesFound.put(fileName,resourceFile.toURI().toString());
-                fileComponent.put(fileName,componentName);
-                labelComment="";
+ else                 if (valueNode instanceof Comment) {
+                  labelComment=labelComment + StringUtil.htmlSpecialChars(valueNode.getNodeValue(),true,true,false);
+                }
               }
- else               if (valueNode instanceof Comment) {
-                labelComment=labelComment + StringUtil.htmlSpecialChars(valueNode.getNodeValue(),true,true,false);
-              }
+              labelKeyComment="";
             }
-            labelKeyComment="";
+ else             if (propertyNode instanceof Comment) {
+              labelKeyComment=labelKeyComment + StringUtil.htmlSpecialChars(propertyNode.getNodeValue(),true,true,false);
+            }
           }
- else           if (propertyNode instanceof Comment) {
-            labelKeyComment=labelKeyComment + StringUtil.htmlSpecialChars(propertyNode.getNodeValue(),true,true,false);
-          }
+        }
+        if (!sharkComponent) {
+          componentName="shark";
+          resourceFiles=FileUtil.findXmlFiles(System.getProperty("ofbiz.home") + "/specialpurpose/shark",null,"resource",null);
+          sharkComponent=true;
+        }
+ else {
+          cycle=false;
         }
       }
     }
