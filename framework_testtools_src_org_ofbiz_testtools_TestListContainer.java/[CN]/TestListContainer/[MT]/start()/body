@@ -1,13 +1,5 @@
 {
-  FileOutputStream fout;
-  try {
-    fout=new FileOutputStream(outputLocation + ".tmp");
-  }
- catch (  IOException e) {
-    Debug.logError(e,module);
-    throw (IllegalArgumentException)new IllegalArgumentException(e.getMessage()).initCause(e);
-  }
-  PrintStream pout=new PrintStream(fout);
+  List<FoundTest> foundTests=FastList.newInstance();
   for (  ComponentConfig.TestSuiteInfo testSuiteInfo : ComponentConfig.getAllTestSuiteInfos(null)) {
     String componentName=testSuiteInfo.componentConfig.getComponentName();
     ResourceHandler testSuiteResource=testSuiteInfo.createResourceHandler();
@@ -16,7 +8,7 @@
       Element documentElement=testSuiteDocument.getDocumentElement();
       for (      Element testCaseElement : UtilXml.childElementList(documentElement,UtilMisc.toSet("test-case","test-group"))) {
         String caseName=testCaseElement.getAttribute("case-name");
-        pout.println(componentName + ":" + caseName);
+        foundTests.add(new FoundTest(componentName,caseName));
       }
     }
  catch (    GenericConfigException e) {
@@ -26,6 +18,28 @@
     }
   }
   try {
+    FileOutputStream fout=new FileOutputStream(outputLocation + ".tmp");
+    PrintStream pout=new PrintStream(fout);
+    if ("text".equals(mode)) {
+      for (      FoundTest foundTest : foundTests) {
+        pout.format("%s:%s\n",foundTest.componentName,foundTest.caseName);
+      }
+    }
+ else     if ("ant".equals(mode)) {
+      pout.println("<project default=\"all-tests\">");
+      pout.print(" <target name=\"all-tests\" depends=\"");
+      for (int i=0; i < foundTests.size(); i++) {
+        if (i != 0)         pout.print(',');
+        FoundTest foundTest=foundTests.get(i);
+        pout.format("%s:%s",foundTest.componentName,foundTest.caseName.replace(' ','_'));
+      }
+      pout.println("\"/>\n");
+      for (int i=0; i < foundTests.size(); i++) {
+        FoundTest foundTest=foundTests.get(i);
+        pout.format(" <target name=\"%1$s:%2$s\">\n  <ant antfile=\"build.xml\" target=\"run-single-test\">\n   <property name=\"test.component\" value=\"%1$s\"/>\n   <property name=\"test.case\" value=\"%3$s\"/>\n  </ant>\n </target>\n",foundTest.componentName,foundTest.caseName.replace(' ','_'),foundTest.caseName);
+      }
+      pout.println("</project>");
+    }
     pout.close();
     fout.close();
     new File(outputLocation + ".tmp").renameTo(new File(outputLocation));
