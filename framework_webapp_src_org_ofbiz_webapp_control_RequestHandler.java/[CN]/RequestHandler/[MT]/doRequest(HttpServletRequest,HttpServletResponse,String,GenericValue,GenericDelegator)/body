@@ -48,15 +48,23 @@
         requestMap=controllerConfig.requestMapMap.get(controllerConfig.defaultRequest);
       }
     }
-    if (!request.isSecure() && requestMap.securityHttps && !request.getMethod().equalsIgnoreCase("POST")) {
-      StringBuilder urlBuf=new StringBuilder();
-      urlBuf.append(request.getPathInfo());
-      if (request.getQueryString() != null) {
-        urlBuf.append("?").append(request.getQueryString());
+    if (!request.isSecure() && requestMap.securityHttps) {
+      if (request.getMethod().equalsIgnoreCase("POST")) {
+        Locale locale=UtilHttp.getLocale(request);
+        String errMsg=UtilProperties.getMessage("WebappUiLabels","requestHandler.InsecureFormPostToSecureRequest",locale);
+        Debug.logError("Got a insecure (non-https) form POST to a secure (http) request [" + requestMap.uri + "], returning error",module);
+        throw new RequestHandlerException(errMsg);
       }
-      String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString());
-      if (newUrl.toUpperCase().startsWith("HTTPS")) {
-        callRedirect(newUrl,response,request);
+ else {
+        StringBuilder urlBuf=new StringBuilder();
+        urlBuf.append(request.getPathInfo());
+        if (request.getQueryString() != null) {
+          urlBuf.append("?").append(request.getQueryString());
+        }
+        String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString());
+        if (newUrl.toUpperCase().startsWith("HTTPS")) {
+          callRedirect(newUrl,response,request);
+        }
       }
     }
     if (request.isSecure() && requestMap.securityCert) {
@@ -92,7 +100,7 @@
       if (visit != null) {
         for (        ConfigXMLReader.Event event : controllerConfig.firstVisitEventList) {
           try {
-            String returnString=this.runEvent(request,response,event.type,event.path,event.invoke,"firstvisit");
+            String returnString=this.runEvent(request,response,event,null,"firstvisit");
             if (returnString != null && !returnString.equalsIgnoreCase("success")) {
               throw new EventHandlerException("First-Visit event did not return 'success'.");
             }
@@ -108,7 +116,7 @@
     }
     for (    ConfigXMLReader.Event event : controllerConfig.preprocessorEventList) {
       try {
-        String returnString=this.runEvent(request,response,event.type,event.path,event.invoke,"preprocessor");
+        String returnString=this.runEvent(request,response,event,null,"preprocessor");
         if (returnString != null && !returnString.equalsIgnoreCase("success")) {
           if (!returnString.contains(":_protect_:")) {
             throw new EventHandlerException("Pre-Processor event did not return 'success'.");
@@ -149,7 +157,7 @@
     ConfigXMLReader.Event checkLoginEvent=controllerConfig.requestMapMap.get("checkLogin").event;
     String checkLoginReturnString=null;
     try {
-      checkLoginReturnString=this.runEvent(request,response,checkLoginEvent.type,checkLoginEvent.path,checkLoginEvent.invoke,"security-auth");
+      checkLoginReturnString=this.runEvent(request,response,checkLoginEvent,null,"security-auth");
     }
  catch (    EventHandlerException e) {
       throw new RequestHandlerException(e.getMessage(),e);
@@ -171,7 +179,7 @@
     if (requestMap.event.type != null && requestMap.event.path != null && requestMap.event.invoke != null) {
       try {
         long eventStartTime=System.currentTimeMillis();
-        eventReturn=this.runEvent(request,response,requestMap.event.type,requestMap.event.path,requestMap.event.invoke,"request");
+        eventReturn=this.runEvent(request,response,requestMap.event,requestMap,"request");
         if (this.trackStats(request)) {
           ServerHitBin.countEvent(cname + "." + requestMap.event.invoke,request,eventStartTime,System.currentTimeMillis() - eventStartTime,userLogin,delegator);
         }
@@ -183,7 +191,7 @@
         if (requestMap.requestResponseMap.containsKey("error")) {
           eventReturn="error";
           Locale locale=UtilHttp.getLocale(request);
-          String errMsg=UtilProperties.getMessage(RequestHandler.err_resource,"requestHandler.error_call_event",locale);
+          String errMsg=UtilProperties.getMessage("WebappUiLabels","requestHandler.error_call_event",locale);
           request.setAttribute("_ERROR_MESSAGE_",errMsg + ": " + e.toString());
         }
  else {
@@ -271,7 +279,7 @@
  else {
     for (    ConfigXMLReader.Event event : controllerConfig.postprocessorEventList) {
       try {
-        String returnString=this.runEvent(request,response,event.type,event.path,event.invoke,"postprocessor");
+        String returnString=this.runEvent(request,response,event,requestMap,"postprocessor");
         if (returnString != null && !returnString.equalsIgnoreCase("success")) {
           throw new EventHandlerException("Post-Processor event did not return 'success'.");
         }
@@ -308,11 +316,11 @@
       Map<String,Object> urlParams=null;
       if (session.getAttribute("_SAVED_VIEW_NAME_") != null) {
         viewName=(String)session.getAttribute("_SAVED_VIEW_NAME_");
-        urlParams=(Map<String,Object>)session.getAttribute("_SAVED_VIEW_PARAMS_");
+        urlParams=(Map<String,Object>)UtilGenerics.<String,Object>checkMap(session.getAttribute("_SAVED_VIEW_PARAMS_"));
       }
  else       if (session.getAttribute("_LAST_VIEW_NAME_") != null) {
         viewName=(String)session.getAttribute("_LAST_VIEW_NAME_");
-        urlParams=(Map<String,Object>)session.getAttribute("_LAST_VIEW_PARAMS_");
+        urlParams=(Map<String,Object>)UtilGenerics.<String,Object>checkMap(session.getAttribute("_LAST_VIEW_PARAMS_"));
       }
       if (urlParams != null) {
         for (        Map.Entry<String,Object> urlParamEntry : urlParams.entrySet()) {
