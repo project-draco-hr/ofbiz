@@ -1,0 +1,49 @@
+{
+  Writer writer=null;
+  try {
+    boolean useOutputStreamNotWriter=false;
+    if (this.servletContext != null) {
+      useOutputStreamNotWriter=UtilJ2eeCompat.useOutputStreamNotWriter(this.servletContext);
+    }
+    if (useOutputStreamNotWriter) {
+      ServletOutputStream ros=response.getOutputStream();
+      writer=new OutputStreamWriter(ros,UtilProperties.getPropertyValue("widget",getName() + ".default.contenttype","UTF-8"));
+    }
+ else {
+      writer=response.getWriter();
+    }
+    if (UtilValidate.isEmpty(encoding)) {
+      encoding=UtilProperties.getPropertyValue("widget",getName() + ".default.encoding","none");
+    }
+    boolean compressOutput="compressed".equals(encoding);
+    if (!compressOutput && this.servletContext != null) {
+      compressOutput="true".equals((String)this.servletContext.getAttribute("compressHTML"));
+    }
+    if (compressOutput) {
+      writer=new StandardCompress().getWriter(writer,null);
+    }
+    ScreenStringRenderer screenStringRenderer=new MacroScreenRenderer(UtilProperties.getPropertyValue("widget",getName() + ".screenrenderer"),writer);
+    FormStringRenderer formStringRenderer=new MacroFormRenderer(UtilProperties.getPropertyValue("widget",getName() + ".formrenderer"),writer);
+    ScreenRenderer screens=new ScreenRenderer(writer,null,screenStringRenderer);
+    screens.populateContextForRequest(request,response,servletContext);
+    screens.getContext().put("formStringRenderer",formStringRenderer);
+    screens.render(page);
+    writer.flush();
+  }
+ catch (  TemplateException e) {
+    Debug.logError(e,"Error initializing screen renderer",module);
+    throw new ViewHandlerException(e.getMessage());
+  }
+catch (  IOException e) {
+    throw new ViewHandlerException("Error in the response writer/output stream: " + e.toString(),e);
+  }
+catch (  SAXException e) {
+    throw new ViewHandlerException("XML Error rendering page: " + e.toString(),e);
+  }
+catch (  ParserConfigurationException e) {
+    throw new ViewHandlerException("XML Error rendering page: " + e.toString(),e);
+  }
+catch (  GeneralException e) {
+    throw new ViewHandlerException("Lower level error rendering page: " + e.toString(),e);
+  }
+}
