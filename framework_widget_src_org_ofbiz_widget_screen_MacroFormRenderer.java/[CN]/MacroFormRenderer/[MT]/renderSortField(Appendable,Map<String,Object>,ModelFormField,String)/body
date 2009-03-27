@@ -1,0 +1,77 @@
+{
+  boolean ajaxEnabled=false;
+  ModelForm modelForm=modelFormField.getModelForm();
+  List<ModelForm.UpdateArea> updateAreas=modelForm.getOnPaginateUpdateAreas();
+  String targetService=modelForm.getPaginateTarget(context);
+  if (this.javaScriptEnabled) {
+    if (UtilValidate.isNotEmpty(updateAreas)) {
+      ajaxEnabled=true;
+    }
+  }
+  if (targetService == null) {
+    targetService="${targetService}";
+  }
+  if (UtilValidate.isEmpty(targetService) && updateAreas == null) {
+    Debug.logWarning("Cannot sort because TargetService is empty for the form: " + modelForm.getName(),module);
+    return;
+  }
+  String str=(String)context.get("_QBESTRING_");
+  String oldSortField=modelForm.getSortField(context);
+  String sortFieldStyle=modelFormField.getSortFieldStyle();
+  String columnField=modelFormField.getEntryName();
+  if (UtilValidate.isEmpty(columnField)) {
+    columnField=modelFormField.getFieldName();
+  }
+  String newSortField=columnField;
+  if (UtilValidate.isNotEmpty(oldSortField)) {
+    if (oldSortField.equals(columnField)) {
+      newSortField="-" + columnField;
+      sortFieldStyle=modelFormField.getSortFieldStyleDesc();
+    }
+ else     if (oldSortField.equals("-" + columnField)) {
+      newSortField=columnField;
+      sortFieldStyle=modelFormField.getSortFieldStyleAsc();
+    }
+  }
+  HashSet<String> paramName=new HashSet<String>();
+  paramName.add("sortField");
+  String queryString=UtilHttp.stripNamedParamsFromQueryString(str,paramName);
+  String urlPath=UtilHttp.removeQueryStringFromTarget(targetService);
+  String prepLinkText=UtilHttp.getQueryStringFromTarget(targetService);
+  if (prepLinkText == null) {
+    prepLinkText="";
+  }
+  if (prepLinkText.indexOf("?") < 0) {
+    prepLinkText+="?";
+  }
+ else   if (!prepLinkText.endsWith("?")) {
+    prepLinkText+="&amp;";
+  }
+  if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
+    prepLinkText+=queryString + "&amp;";
+  }
+  prepLinkText+="sortField" + "=" + newSortField;
+  if (ajaxEnabled) {
+    prepLinkText=prepLinkText.replace("?","");
+    prepLinkText=prepLinkText.replace("&amp;","&");
+  }
+  String linkUrl="";
+  if (ajaxEnabled) {
+    linkUrl=createAjaxParamsFromUpdateAreas(updateAreas,prepLinkText,context);
+  }
+ else {
+    linkUrl=rh.makeLink(this.request,this.response,urlPath + prepLinkText);
+  }
+  StringWriter sr=new StringWriter();
+  sr.append("<@renderSortField ");
+  sr.append(" style=\"");
+  sr.append(sortFieldStyle);
+  sr.append("\" title=\"");
+  sr.append(titleText);
+  sr.append("\" linkUrl=\"");
+  sr.append(linkUrl);
+  sr.append("\" ajaxEnabled=");
+  sr.append(Boolean.toString(ajaxEnabled));
+  sr.append(" />");
+  executeMacro(writer,sr.toString());
+}
