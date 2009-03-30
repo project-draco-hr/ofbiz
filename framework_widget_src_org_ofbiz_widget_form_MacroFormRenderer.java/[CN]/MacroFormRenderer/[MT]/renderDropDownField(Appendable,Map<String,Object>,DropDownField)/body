@@ -2,10 +2,11 @@
   ModelFormField modelFormField=dropDownField.getModelFormField();
   ModelForm modelForm=modelFormField.getModelForm();
   String currentValue=modelFormField.getEntry(context);
-  List allOptionValues=dropDownField.getAllOptionValues(context,modelForm.getDelegator(context));
+  List<ModelFormField.OptionValue> allOptionValues=dropDownField.getAllOptionValues(context,modelForm.getDelegator(context));
   ModelFormField.AutoComplete autoComplete=dropDownField.getAutoComplete();
   String event=modelFormField.getEvent();
   String action=modelFormField.getAction(context);
+  boolean ajaxEnabled=autoComplete != null && this.javaScriptEnabled;
   String className="";
   String alert="false";
   String name=modelFormField.getParameterName(context);
@@ -19,10 +20,20 @@
   String explicitDescription="";
   String allowEmpty="";
   StringBuilder options=new StringBuilder();
+  StringBuilder ajaxOptions=new StringBuilder();
   if (UtilValidate.isNotEmpty(modelFormField.getWidgetStyle())) {
     className=modelFormField.getWidgetStyle();
     if (modelFormField.shouldBeRed(context)) {
       alert="true";
+    }
+  }
+  String currentDescription=null;
+  if (UtilValidate.isNotEmpty(currentValue)) {
+    for (    ModelFormField.OptionValue optionValue : allOptionValues) {
+      if (optionValue.getKey().equals(currentValue)) {
+        currentDescription=optionValue.getDescription();
+        break;
+      }
     }
   }
   int otherFieldSize=dropDownField.getOtherFieldSize();
@@ -31,16 +42,18 @@
   }
   if (UtilValidate.isNotEmpty(currentValue) && "first-in-list".equals(dropDownField.getCurrent())) {
     firstInList="first-in-list";
-    explicitDescription=dropDownField.getCurrentDescription(context);
-    if (UtilValidate.isEmpty(explicitDescription)) {
-      explicitDescription=(ModelFormField.FieldInfoWithOptions.getDescriptionForOptionKey(currentValue,allOptionValues));
-    }
+  }
+  explicitDescription=(currentDescription != null ? currentDescription : dropDownField.getCurrentDescription(context));
+  ;
+  if (UtilValidate.isEmpty(explicitDescription)) {
+    explicitDescription=(ModelFormField.FieldInfoWithOptions.getDescriptionForOptionKey(currentValue,allOptionValues));
   }
   if (dropDownField.isAllowEmpty()) {
     allowEmpty="&nbsp;";
   }
   options.append("[");
   Iterator<ModelFormField.OptionValue> optionValueIter=allOptionValues.iterator();
+  int count=0;
   while (optionValueIter.hasNext()) {
     ModelFormField.OptionValue optionValue=(ModelFormField.OptionValue)optionValueIter.next();
     if (options.length() > 1) {
@@ -52,6 +65,14 @@
     options.append(",'description':'");
     options.append(optionValue.getDescription());
     options.append("'}");
+    if (ajaxEnabled) {
+      count++;
+      ajaxOptions.append(optionValue.getKey()).append(": ");
+      ajaxOptions.append(" '").append(optionValue.getDescription()).append("'");
+      if (count != allOptionValues.size()) {
+        ajaxOptions.append(", ");
+      }
+    }
   }
   options.append("]");
   String noCurrentSelectedKey=dropDownField.getNoCurrentSelectedKey(context);
@@ -64,6 +85,24 @@
     }
     Object otherValueObj=dataMap.get(otherFieldName);
     otherValue=(otherValueObj == null) ? "" : otherValueObj.toString();
+  }
+  String frequency="";
+  String minChars="";
+  String choices="";
+  String autoSelect="";
+  String partialSearch="";
+  String partialChars="";
+  String ignoreCase="";
+  String fullSearch="";
+  if (ajaxEnabled) {
+    frequency=autoComplete.getFrequency();
+    minChars=autoComplete.getMinChars();
+    choices=autoComplete.getChoices();
+    autoSelect=autoComplete.getAutoSelect();
+    partialSearch=autoComplete.getPartialSearch();
+    partialChars=autoComplete.getPartialChars();
+    ignoreCase=autoComplete.getIgnoreCase();
+    fullSearch=autoComplete.getFullSearch();
   }
   StringWriter sr=new StringWriter();
   sr.append("<@renderDropDownField ");
@@ -82,7 +121,7 @@
   sr.append("\" otherFieldName=\"");
   sr.append(otherFieldName);
   sr.append("\" event=\"");
-  sr.append(event);
+  sr.append(event == null ? "" : event);
   sr.append("\" action=\"");
   sr.append(action == null ? "" : action);
   sr.append("\" size=\"");
@@ -105,7 +144,31 @@
   sr.append(otherValue);
   sr.append("\" otherFieldSize=");
   sr.append(Integer.toString(otherFieldSize));
-  sr.append(" />");
+  sr.append(" dDFCurrent=\"");
+  sr.append(dDFCurrent);
+  sr.append("\" ajaxEnabled=");
+  sr.append(Boolean.toString(ajaxEnabled));
+  sr.append(" noCurrentSelectedKey=\"");
+  sr.append(noCurrentSelectedKey);
+  sr.append("\" ajaxOptions=\"");
+  sr.append(ajaxOptions.toString());
+  sr.append("\" frequency=\"");
+  sr.append(frequency);
+  sr.append("\" minChars=\"");
+  sr.append(minChars);
+  sr.append("\" choices=\"");
+  sr.append(choices);
+  sr.append("\" autoSelect=\"");
+  sr.append(autoSelect);
+  sr.append("\" partialSearch=\"");
+  sr.append(partialSearch);
+  sr.append("\" partialChars=\"");
+  sr.append(partialChars);
+  sr.append("\" ignoreCase=\"");
+  sr.append(ignoreCase);
+  sr.append("\" fullSearch=\"");
+  sr.append(fullSearch);
+  sr.append("\" />");
   executeMacro(writer,sr.toString());
   ModelFormField.SubHyperlink subHyperlink=dropDownField.getSubHyperlink();
   if (subHyperlink != null && subHyperlink.shouldUse(context)) {
