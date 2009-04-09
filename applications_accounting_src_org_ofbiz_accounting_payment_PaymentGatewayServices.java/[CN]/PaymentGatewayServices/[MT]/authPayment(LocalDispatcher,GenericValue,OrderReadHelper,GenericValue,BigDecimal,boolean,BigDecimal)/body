@@ -1,14 +1,22 @@
 {
   String paymentConfig=null;
   String serviceName=null;
+  String paymentGatewayConfigId=null;
   String serviceType=AUTH_SERVICE_TYPE;
   if (reauth) {
     serviceType=REAUTH_SERVICE_TYPE;
   }
   GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPreference,serviceType,false);
   if (paymentSettings != null) {
-    serviceName=paymentSettings.getString("paymentService");
+    String customMethodId=paymentSettings.getString("paymentCustomMethodId");
+    if (UtilValidate.isNotEmpty(customMethodId)) {
+      serviceName=getPaymentCustomMethod(orh.getOrderHeader().getDelegator(),customMethodId);
+    }
+    if (UtilValidate.isEmpty(serviceName)) {
+      serviceName=paymentSettings.getString("paymentService");
+    }
     paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+    paymentGatewayConfigId=paymentSettings.getString("paymentGatewayConfigId");
   }
  else {
     throw new GeneralException("Could not find any valid payment settings for order with ID [" + orh.getOrderId() + "], and payment operation (serviceType) ["+ serviceType+ "]");
@@ -16,7 +24,7 @@
   if (serviceName == null) {
     throw new GeneralException("Invalid payment processor, serviceName is null: " + paymentSettings);
   }
-  Map processContext=new HashMap();
+  Map<String,Object> processContext=FastMap.newInstance();
   GenericValue orderHeader=orh.getOrderHeader();
   String visitId=orderHeader.getString("visitId");
   GenericValue visit=null;
@@ -37,6 +45,7 @@
   processContext.put("orderItems",orh.getOrderItems());
   processContext.put("shippingAddress",EntityUtil.getFirst(orh.getShippingLocations()));
   processContext.put("paymentConfig",paymentConfig);
+  processContext.put("paymentGatewayConfigId",paymentGatewayConfigId);
   processContext.put("currency",orh.getCurrency());
   processContext.put("orderPaymentPreference",paymentPreference);
   if (paymentPreference.get("securityCode") != null) {
@@ -56,7 +65,7 @@
   processAmount=processAmount.setScale(decimals,rounding);
   if (Debug.verboseOn())   Debug.logVerbose("Charging amount: " + processAmount,module);
   processContext.put("processAmount",processAmount);
-  Map processorResult=null;
+  Map<String,Object> processorResult=null;
   try {
     GenericValue creditCard=(GenericValue)processContext.get("creditCard");
     boolean tryOtherExpDates="Y".equals(productStore.getString("autoOrderCcTryExp")) && creditCard != null && UtilValidate.isNotEmpty(orderHeader.getString("autoOrderShoppingListId"));
