@@ -10,15 +10,17 @@
   }
   GenericValue paymentConfig=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStore.getString("productStoreId"),"EXT_PAYPAL",null,true);
   String configString=null;
+  String paymentGatewayConfigId=null;
   if (paymentConfig != null) {
+    paymentGatewayConfigId=paymentConfig.getString("paymentGatewayConfigId");
     configString=paymentConfig.getString("paymentPropertiesPath");
   }
   if (configString == null) {
     configString="payment.properties";
   }
-  String confirmUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.confirm");
-  String redirectUrl=UtilProperties.getPropertyValue(configString,"payment.paypal.redirect");
-  if (confirmUrl == null || redirectUrl == null) {
+  String confirmUrl=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"confirmUrl",configString,"payment.paypal.confirm");
+  String redirectUrl=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"redirectUrl",configString,"payment.paypal.redirect");
+  if (UtilValidate.isEmpty(confirmUrl) || UtilValidate.isEmpty(redirectUrl)) {
     Debug.logError("Payment properties is not configured properly, no confirm URL defined!",module);
     request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"payPalEvents.problemsGettingMerchantConfiguration",locale));
     return "error";
@@ -43,18 +45,20 @@
  catch (  IOException e) {
     Debug.logError(e,"Problems sending verification message",module);
   }
-  if (confirmResp.trim().equals("VERIFIED")) {
-    Debug.logInfo("Got verification from PayPal, processing..",module);
-  }
- else {
-    Debug.logError("###### PayPal did not verify this request, need investigation!",module);
-    Set<String> keySet=parametersMap.keySet();
-    Iterator<String> i=keySet.iterator();
-    while (i.hasNext()) {
-      String name=(String)i.next();
-      String value=request.getParameter(name);
-      Debug.logError("### Param: " + name + " => "+ value,module);
+  Debug.logInfo("Got verification from PayPal, processing..",module);
+  boolean verified=false;
+  Set<String> keySet=parametersMap.keySet();
+  Iterator<String> i=keySet.iterator();
+  while (i.hasNext()) {
+    String name=(String)i.next();
+    String value=request.getParameter(name);
+    Debug.logError("### Param: " + name + " => "+ value,module);
+    if (UtilValidate.isNotEmpty(name) && "payer_status".equalsIgnoreCase(name) && UtilValidate.isNotEmpty(value)&& "verified".equalsIgnoreCase(value)) {
+      verified=true;
     }
+  }
+  if (!verified) {
+    Debug.logError("###### PayPal did not verify this request, need investigation!",module);
   }
   GenericValue userLogin=null;
   String userLoginId=request.getParameter("custom");
