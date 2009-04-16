@@ -79,6 +79,8 @@
     contentType="multipart/mixed";
   }
   results.put("contentType",contentType);
+  Session session;
+  MimeMessage mail;
   try {
     Properties props=System.getProperties();
     props.put(sendType,sendVia);
@@ -98,10 +100,10 @@
     if (useSmtpAuth) {
       props.put("mail.smtp.auth","true");
     }
-    Session session=Session.getInstance(props);
+    session=Session.getInstance(props);
     boolean debug=UtilProperties.propertyValueEqualsIgnoreCase("general.properties","mail.debug.on","Y");
     session.setDebug(debug);
-    MimeMessage mail=new MimeMessage(session);
+    mail=new MimeMessage(session);
     if (messageId != null) {
       mail.setHeader("In-Reply-To",messageId);
       mail.setHeader("References",messageId);
@@ -155,6 +157,20 @@
       }
       mail.saveChanges();
     }
+  }
+ catch (  MessagingException e) {
+    String errMsg="MessagingException when creating message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
+    Debug.logError(e,errMsg,module);
+    Debug.logError("Email message that could not be created to [" + sendTo + "] had context: "+ context,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  IOException e) {
+    String errMsg="IOExcepton when creating message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
+    Debug.logError(e,errMsg,module);
+    Debug.logError("Email message that could not be created to [" + sendTo + "] had context: "+ context,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  try {
     Transport trans=session.getTransport("smtp");
     if (!useSmtpAuth) {
       trans.connect();
@@ -166,10 +182,16 @@
     results.put("messageId",mail.getMessageID());
     trans.close();
   }
- catch (  Exception e) {
-    String errMsg="Cannot send email message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
+ catch (  SendFailedException e) {
+    String errMsg="[ADDRERR] Address error when sending message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
     Debug.logError(e,errMsg,module);
-    Debug.logError(e,"Email message that could not be sent to [" + sendTo + "] had context: "+ context,module);
+    Debug.logError("Email message that could not be sent to [" + sendTo + "] had context: "+ context,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  MessagingException e) {
+    String errMsg="[CON] Connection error when sending message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
+    Debug.logError(e,errMsg,module);
+    Debug.logError("Email message that could not be sent to [" + sendTo + "] had context: "+ context,module);
     return ServiceUtil.returnError(errMsg);
   }
   return results;
