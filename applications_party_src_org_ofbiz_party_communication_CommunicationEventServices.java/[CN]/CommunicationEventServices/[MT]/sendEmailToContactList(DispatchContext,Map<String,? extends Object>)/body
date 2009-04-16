@@ -56,12 +56,37 @@
  else         if (contactListCommStatusRecord.get("statusId") != null && contactListCommStatusRecord.getString("statusId").equals("COM_COMPLETE")) {
           continue;
         }
-        Map<String,Object> tmpResult=null;
-        tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+        Map<String,Object> tmpResult=dispatcher.runSync("sendMail",sendMailParams,360,true);
         if (tmpResult == null || ServiceUtil.isError(tmpResult)) {
-          Debug.logError(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult),module);
-          errorMessages.add(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult));
-          continue;
+          if (ServiceUtil.getErrorMessage(tmpResult).startsWith("[ADDRERR]")) {
+            communicationEvent.set("statusId","COM_BOUNCED");
+            contactListCommStatusRecord.set("statusId","COM_BOUNCED");
+            try {
+              communicationEvent.store();
+              contactListCommStatusRecord.store();
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,module);
+              errorMessages.add(e.getMessage());
+            }
+            try {
+              GenericValue contactListParty=contactListPartyAndContactMech.getRelatedOne("ContactListParty");
+              if (contactListParty != null) {
+                contactListParty.set("statusId","CLPT_INVALID");
+                contactListParty.store();
+              }
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,module);
+              errorMessages.add(e.getMessage());
+            }
+            continue;
+          }
+ else {
+            Debug.logError(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult),module);
+            errorMessages.add(errorCallingSendMailService + ": " + ServiceUtil.getErrorMessage(tmpResult));
+            continue;
+          }
         }
         if ("Y".equals(contactList.get("singleUse"))) {
           tmpResult=dispatcher.runSync("updateContactListParty",UtilMisc.toMap("contactListId",lastContactListPartyACM.get("contactListId"),"partyId",partyId,"fromDate",lastContactListPartyACM.get("fromDate"),"thruDate",UtilDateTime.nowTimestamp(),"userLogin",userLogin));

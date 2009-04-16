@@ -48,9 +48,21 @@
       sendMailParams.put("communicationEventId",communicationEventId);
       sendMailParams.put("sendTo",sendTo);
       sendMailParams.put("partyId",communicationEvent.getString("partyIdTo"));
-      Map<String,Object> tmpResult=dispatcher.runSync("sendMail",sendMailParams);
+      Map<String,Object> tmpResult=dispatcher.runSync("sendMail",sendMailParams,360,true);
       if (ServiceUtil.isError(tmpResult)) {
-        errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+        if (ServiceUtil.getErrorMessage(tmpResult).startsWith("[ADDRERR]")) {
+          communicationEvent.set("statusId","COM_BOUNCED");
+          try {
+            communicationEvent.store();
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+        }
+ else {
+          errorMessages.add(ServiceUtil.getErrorMessage(tmpResult));
+        }
       }
  else {
         String messageId=(String)tmpResult.get("messageId");
