@@ -1,0 +1,40 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTrans=(GenericValue)context.get("authTrans");
+  BigDecimal amount=(BigDecimal)context.get("captureAmount");
+  String paymentGatewayConfigId=(String)context.get("paymentGatewayConfigId");
+  String configString=(String)context.get("paymentConfig");
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  if (authTrans == null) {
+    authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  }
+  if (authTrans == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot capture");
+  }
+  String refNum=authTrans.getString("referenceNum");
+  Map<String,String> data=UtilMisc.toMap("ORIGID",refNum);
+  data.put("TRXTYPE","D");
+  data.put("TENDER","C");
+  String orderId=paymentPref.getString("orderId");
+  data.put("COMMENT1",orderId);
+  data.put("AMT",amount.toString());
+  PayflowAPI pfp=init(delegator,paymentGatewayConfigId,configString,context);
+  StringBuffer params=makeBaseParams(delegator,paymentGatewayConfigId,configString);
+  params.append("&").append(parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp;
+  if (!comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"enableTransmit",configString,"payment.verisign.enable_transmit","false")) {
+    resp=pfp.submitTransaction(params.toString(),pfp.generateRequestId());
+  }
+ else {
+    resp="RESULT=0&AUTHCODE=T&PNREF=" + (new Date()).getTime() + "&RESPMSG=Testing";
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Response from Verisign: " + resp,module);
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  parseCaptureResponse(resp,result);
+  result.put("captureAmount",amount);
+  return result;
+}
