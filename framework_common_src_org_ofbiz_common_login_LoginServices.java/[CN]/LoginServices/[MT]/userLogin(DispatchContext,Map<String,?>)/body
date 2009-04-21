@@ -1,5 +1,9 @@
 {
+  LocalDispatcher dispatcher=ctx.getDispatcher();
   Locale locale=(Locale)context.get("locale");
+  if (!AuthHelper.authenticatorsLoaded()) {
+    AuthHelper.loadAuthenticators(dispatcher);
+  }
   if ("true".equals(UtilProperties.getPropertyValue("security","security.ldap.enable"))) {
     if (!LdapAuthenticationServices.userLogin(ctx,context)) {
       String errMsg=UtilProperties.getMessage(resource,"loginservices.ldap_authentication_failed",locale);
@@ -40,6 +44,20 @@
  catch (      GenericEntityException e) {
         Debug.logWarning(e,"",module);
       }
+      if (userLogin == null) {
+        try {
+          AuthHelper.syncUser(username);
+        }
+ catch (        AuthenticatorException e) {
+          Debug.logWarning(e,module);
+        }
+        try {
+          userLogin=delegator.findOne("UserLogin",isServiceAuth,"userLoginId",username);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logWarning(e,"",module);
+        }
+      }
       if (userLogin != null) {
         String encodedPassword=useEncryption ? HashCrypt.getDigestHash(password,getHashType()) : password;
         String encodedPasswordOldFunnyHexEncode=useEncryption ? HashCrypt.getDigestHashOldFunnyHexEncode(password,getHashType()) : password;
@@ -74,7 +92,16 @@
           if (!isSystem) {
             userLogin.set("enabled","Y");
           }
-          if ((userLogin.get("currentPassword") != null && (HashCrypt.removeHashTypePrefix(encodedPassword).equals(HashCrypt.removeHashTypePrefix(currentPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordOldFunnyHexEncode).equals(HashCrypt.removeHashTypePrefix(currentPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordUsingDbHashType).equals(HashCrypt.removeHashTypePrefix(currentPassword))|| ("true".equals(UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain")) && password.equals(userLogin.getString("currentPassword")))))) {
+          boolean authFatalError=false;
+          boolean externalAuth=false;
+          try {
+            externalAuth=AuthHelper.authenticate(username,password,isServiceAuth);
+          }
+ catch (          AuthenticatorException e) {
+            Debug.logWarning(e,module);
+            authFatalError=true;
+          }
+          if ((!authFatalError && externalAuth) || (userLogin.get("currentPassword") != null && (HashCrypt.removeHashTypePrefix(encodedPassword).equals(HashCrypt.removeHashTypePrefix(currentPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordOldFunnyHexEncode).equals(HashCrypt.removeHashTypePrefix(currentPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordUsingDbHashType).equals(HashCrypt.removeHashTypePrefix(currentPassword))|| ("true".equals(UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain")) && password.equals(userLogin.getString("currentPassword")))))) {
             Debug.logVerbose("[LoginServices.userLogin] : Password Matched",module);
             if (hasLoggedOut) {
               userLogin.set("hasLoggedOut","N");
@@ -99,7 +126,7 @@
           }
  else {
             Debug.logInfo("Entered password [" + encodedPassword + "], Entered password OldFunnyHexEncode ["+ encodedPasswordOldFunnyHexEncode+ "], db password ["+ userLogin.getString("currentPassword")+ "]",module);
-            if (isServiceAuth && passNumber <= 1) {
+            if (!authFatalError && isServiceAuth && passNumber <= 1) {
               delegator.clearCacheLine("UserLogin",UtilMisc.toMap("userLoginId",username));
               repeat=true;
               continue;
@@ -223,8 +250,26 @@
         }
       }
  else {
-        errMsg=UtilProperties.getMessage(resource,"loginservices.user_not_found",locale);
-        Debug.logInfo("[LoginServices.userLogin] : Invalid User : " + errMsg,module);
+        boolean externalAuth=false;
+        try {
+          externalAuth=AuthHelper.authenticate(username,password,isServiceAuth);
+        }
+ catch (        AuthenticatorException e) {
+          errMsg=e.getMessage();
+          Debug.logError(e,"External Authenticator had fatal exception : " + e.getMessage(),module);
+        }
+        if (externalAuth) {
+          userLogin=delegator.makeValue("UserLogin");
+          userLogin.set("userLoginId",username);
+          userLogin.set("enabled","Y");
+          userLogin.set("hasLoggedOut","N");
+          result.put("userLogin",userLogin);
+          result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+        }
+ else {
+          errMsg=UtilProperties.getMessage(resource,"loginservices.user_not_found",locale);
+          Debug.logInfo("[LoginServices.userLogin] : Invalid User : " + errMsg,module);
+        }
       }
     }
   }

@@ -4,6 +4,9 @@
   Security security=ctx.getSecurity();
   GenericValue loggedInUserLogin=(GenericValue)context.get("userLogin");
   Locale locale=(Locale)context.get("locale");
+  if (!AuthHelper.authenticatorsLoaded()) {
+    AuthHelper.loadAuthenticators(ctx.getDispatcher());
+  }
   boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
   boolean adminUser=false;
   String userLoginId=(String)context.get("userLoginId");
@@ -20,6 +23,10 @@
  else {
     adminUser=true;
   }
+  String currentPassword=(String)context.get("currentPassword");
+  String newPassword=(String)context.get("newPassword");
+  String newPasswordVerify=(String)context.get("newPasswordVerify");
+  String passwordHint=(String)context.get("passwordHint");
   GenericValue userLoginToUpdate=null;
   try {
     userLoginToUpdate=delegator.findOne("UserLogin",false,"userLoginId",userLoginId);
@@ -30,14 +37,33 @@
     return ServiceUtil.returnError(errMsg);
   }
   if (userLoginToUpdate == null) {
-    Map<String,String> messageMap=UtilMisc.toMap("userLoginId",userLoginId);
-    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_userlogin_with_id_not_exist",messageMap,locale);
-    return ServiceUtil.returnError(errMsg);
+    boolean authenticated=false;
+    try {
+      authenticated=AuthHelper.authenticate(userLoginId,currentPassword,true);
+    }
+ catch (    AuthenticatorException e) {
+      Debug.logWarning(e,e.getMessage(),module);
+    }
+    if (authenticated) {
+      try {
+        AuthHelper.updatePassword(userLoginId,currentPassword,newPassword);
+      }
+ catch (      AuthenticatorException e) {
+        Debug.logError(e,e.getMessage(),module);
+        Map<String,String> messageMap=UtilMisc.toMap("userLoginId",userLoginId);
+        errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_userlogin_with_id_not_exist",messageMap,locale);
+        return ServiceUtil.returnError(errMsg);
+      }
+      result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+      result.put("updatedUserLogin",userLoginToUpdate);
+      return result;
+    }
+ else {
+      Map<String,String> messageMap=UtilMisc.toMap("userLoginId",userLoginId);
+      errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_userlogin_with_id_not_exist",messageMap,locale);
+      return ServiceUtil.returnError(errMsg);
+    }
   }
-  String currentPassword=(String)context.get("currentPassword");
-  String newPassword=(String)context.get("newPassword");
-  String newPasswordVerify=(String)context.get("newPasswordVerify");
-  String passwordHint=(String)context.get("passwordHint");
   if ("true".equals(UtilProperties.getPropertyValue("security.properties","password.lowercase"))) {
     currentPassword=currentPassword.toLowerCase();
     newPassword=newPassword.toLowerCase();
@@ -50,17 +76,31 @@
   if (errorMessageList.size() > 0) {
     return ServiceUtil.returnError(errorMessageList);
   }
-  userLoginToUpdate.set("currentPassword",useEncryption ? HashCrypt.getDigestHash(newPassword,getHashType()) : newPassword,false);
-  userLoginToUpdate.set("passwordHint",passwordHint,false);
-  userLoginToUpdate.set("requirePasswordChange","N");
-  try {
-    userLoginToUpdate.store();
-    createUserLoginPasswordHistory(delegator,userLoginId,newPassword);
+  String externalAuthId=userLoginToUpdate.getString("externalAuthId");
+  if (UtilValidate.isNotEmpty(externalAuthId)) {
+    try {
+      AuthHelper.updatePassword(externalAuthId,currentPassword,newPassword);
+    }
+ catch (    AuthenticatorException e) {
+      Debug.logError(e,e.getMessage(),module);
+      Map<String,String> messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+      errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_write_failure",messageMap,locale);
+      return ServiceUtil.returnError(errMsg);
+    }
   }
- catch (  GenericEntityException e) {
-    Map<String,String> messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
-    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_write_failure",messageMap,locale);
-    return ServiceUtil.returnError(errMsg);
+ else {
+    userLoginToUpdate.set("currentPassword",useEncryption ? HashCrypt.getDigestHash(newPassword,getHashType()) : newPassword,false);
+    userLoginToUpdate.set("passwordHint",passwordHint,false);
+    userLoginToUpdate.set("requirePasswordChange","N");
+    try {
+      userLoginToUpdate.store();
+      createUserLoginPasswordHistory(delegator,userLoginId,newPassword);
+    }
+ catch (    GenericEntityException e) {
+      Map<String,String> messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+      errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_change_password_write_failure",messageMap,locale);
+      return ServiceUtil.returnError(errMsg);
+    }
   }
   result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
   result.put("updatedUserLogin",userLoginToUpdate);
