@@ -1,0 +1,55 @@
+{
+  Map<String,Serializable> createPersonUlMap=FastMap.newInstance();
+  createPersonUlMap.put("firstName",user.getUserAttributeMapper().getFirstName());
+  createPersonUlMap.put("lastName",user.getUserAttributeMapper().getLastName());
+  createPersonUlMap.put("externalAuthId",user.getName());
+  createPersonUlMap.put("externalId",user.getName());
+  createPersonUlMap.put("userLoginId",user.getName());
+  createPersonUlMap.put("currentPassword","[EXTERNAL]");
+  createPersonUlMap.put("currentPasswordVerify","[EXTERNAL]");
+  createPersonUlMap.put("userLogin",system);
+  Map<String,Object> createPersonResult;
+  try {
+    createPersonResult=dispatcher.runSync("createPersonAndUserLogin",createPersonUlMap);
+  }
+ catch (  GenericServiceException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  if (ServiceUtil.isError(createPersonResult)) {
+    throw new AuthenticatorException(ServiceUtil.getErrorMessage(createPersonResult));
+  }
+  String partyId=(String)createPersonResult.get("partyId");
+  Map<String,Serializable> createEmailMap=FastMap.newInstance();
+  createEmailMap.put("emailAddress",user.getUserAttributeMapper().getEmail());
+  createEmailMap.put("contactMechPurposeTypeId","PRIMARY_EMAIL");
+  createEmailMap.put("partyId",partyId);
+  createEmailMap.put("userLogin",system);
+  Map<String,Object> createEmailResult;
+  try {
+    createEmailResult=dispatcher.runSync("createPartyEmailAddress",createEmailMap);
+  }
+ catch (  GenericServiceException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  if (ServiceUtil.isError(createEmailResult)) {
+    throw new AuthenticatorException(ServiceUtil.getErrorMessage(createEmailResult));
+  }
+  Timestamp now=UtilDateTime.nowTimestamp();
+  for (  String securityGroup : user.getUserGroupMapper().getSecurityGroups()) {
+    Map<String,Serializable> createSecGrpMap=FastMap.newInstance();
+    createSecGrpMap.put("userLoginId",user.getName());
+    createSecGrpMap.put("groupId",securityGroup);
+    createSecGrpMap.put("fromDate",now);
+    createSecGrpMap.put("userLogin",system);
+    Map<String,Object> createSecGrpResult;
+    try {
+      createSecGrpResult=dispatcher.runSync("addUserLoginToSecurityGroup",createSecGrpMap);
+    }
+ catch (    GenericServiceException e) {
+      throw new AuthenticatorException(e.getMessage(),e);
+    }
+    if (ServiceUtil.isError(createSecGrpResult)) {
+      throw new AuthenticatorException(ServiceUtil.getErrorMessage(createSecGrpResult));
+    }
+  }
+}

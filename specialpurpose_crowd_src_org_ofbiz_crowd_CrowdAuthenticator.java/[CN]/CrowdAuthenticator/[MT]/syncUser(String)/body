@@ -1,0 +1,64 @@
+{
+  UserWrapper user;
+  try {
+    user=callGetUser(username);
+  }
+ catch (  RemoteException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  GenericValue system;
+  try {
+    system=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId","system"),true);
+  }
+ catch (  GenericEntityException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  GenericValue userLogin;
+  try {
+    userLogin=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId",user.getName()),false);
+  }
+ catch (  GenericEntityException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  Transaction parentTx=null;
+  boolean beganTransaction=false;
+  try {
+    try {
+      parentTx=TransactionUtil.suspend();
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Could not suspend transaction: " + e.getMessage(),module);
+    }
+    try {
+      beganTransaction=TransactionUtil.begin();
+      if (userLogin == null) {
+        createUser(user,system);
+      }
+ else {
+        updateUser(user,system,userLogin);
+      }
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Could not suspend transaction: " + e.getMessage(),module);
+    }
+ finally {
+      try {
+        TransactionUtil.commit(beganTransaction);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not commit nested transaction: " + e.getMessage(),module);
+      }
+    }
+  }
+  finally {
+    if (parentTx != null) {
+      try {
+        TransactionUtil.resume(parentTx);
+        Debug.logVerbose("Resumed the parent transaction.",module);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not resume parent nested transaction: " + e.getMessage(),module);
+      }
+    }
+  }
+}
