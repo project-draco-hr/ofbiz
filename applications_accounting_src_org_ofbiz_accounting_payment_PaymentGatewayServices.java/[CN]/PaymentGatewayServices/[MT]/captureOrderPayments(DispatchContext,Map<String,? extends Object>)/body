@@ -1,0 +1,184 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  String invoiceId=(String)context.get("invoiceId");
+  String billingAccountId=(String)context.get("billingAccountId");
+  BigDecimal amountToCapture=(BigDecimal)context.get("captureAmount");
+  amountToCapture=amountToCapture.setScale(decimals,rounding);
+  GenericValue orderHeader=null;
+  List<GenericValue> paymentPrefs=null;
+  List<GenericValue> paymentPrefsBa=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    Map<String,String> lookupMap=UtilMisc.toMap("orderId",orderId,"statusId","PAYMENT_AUTHORIZED");
+    List<String> orderList=UtilMisc.toList("-maxAmount");
+    paymentPrefs=delegator.findByAnd("OrderPaymentPreference",lookupMap,orderList);
+    if (UtilValidate.isNotEmpty(billingAccountId)) {
+      lookupMap=UtilMisc.toMap("orderId",orderId,"paymentMethodTypeId","EXT_BILLACT","statusId","PAYMENT_NOT_RECEIVED");
+      paymentPrefsBa=delegator.findByAnd("OrderPaymentPreference",lookupMap,orderList);
+    }
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logError(gee,"Problems getting entity record(s), see stack trace",module);
+    return ServiceUtil.returnError("ERROR: Could not get order information (" + gee.toString() + ").");
+  }
+  if (orderHeader == null) {
+    return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  BigDecimal orderGrandTotal=orh.getOrderGrandTotal();
+  orderGrandTotal=orderGrandTotal.setScale(decimals,rounding);
+  BigDecimal totalPayments=PaymentWorker.getPaymentsTotal(orh.getOrderPayments());
+  totalPayments=totalPayments.setScale(decimals,rounding);
+  BigDecimal remainingTotal=orderGrandTotal.subtract(totalPayments);
+  if (Debug.infoOn()) {
+    Debug.logInfo("The Remaining Total for order: " + orderId + " is: "+ remainingTotal,module);
+  }
+  amountToCapture=amountToCapture.min(remainingTotal);
+  if (Debug.infoOn()) {
+    Debug.logInfo("Actual Expected Capture Amount : " + amountToCapture,module);
+  }
+  if (UtilValidate.isNotEmpty(paymentPrefsBa)) {
+    Iterator<GenericValue> paymentsBa=paymentPrefsBa.iterator();
+    while (paymentsBa.hasNext()) {
+      GenericValue paymentPref=(GenericValue)paymentsBa.next();
+      BigDecimal authAmount=paymentPref.getBigDecimal("maxAmount");
+      if (authAmount == null)       authAmount=ZERO;
+      authAmount=authAmount.setScale(decimals,rounding);
+      if (authAmount.compareTo(ZERO) == 0) {
+        Debug.logInfo("Nothing to capture; authAmount = 0",module);
+        continue;
+      }
+      BigDecimal amountThisCapture=amountToCapture.min(authAmount);
+      amountToCapture=amountToCapture.subtract(amountThisCapture);
+      if (UtilValidate.isNotEmpty(invoiceId)) {
+        Map<String,Object> captureResult=null;
+        try {
+          captureResult=dispatcher.runSync("captureBillingAccountPayments",UtilMisc.<String,Object>toMap("invoiceId",invoiceId,"billingAccountId",billingAccountId,"captureAmount",amountThisCapture,"orderId",orderId,"userLogin",userLogin));
+          if (ServiceUtil.isError(captureResult)) {
+            return captureResult;
+          }
+        }
+ catch (        GenericServiceException ex) {
+          return ServiceUtil.returnError(ex.getMessage());
+        }
+        if (captureResult != null) {
+          BigDecimal amountCaptured=(BigDecimal)captureResult.get("captureAmount");
+          Debug.logInfo("Amount captured for order [" + orderId + "] from unapplied payments associated to billing account ["+ billingAccountId+ "] is: "+ amountCaptured,module);
+          amountCaptured=amountCaptured.setScale(decimals,rounding);
+          if (amountCaptured.compareTo(BigDecimal.ZERO) == 0) {
+            continue;
+          }
+          captureResult.put("invoiceId",invoiceId);
+          captureResult.put("captureResult",Boolean.TRUE);
+          captureResult.put("orderPaymentPreference",paymentPref);
+          captureResult.put("captureRefNum","");
+          try {
+            processResult(dctx,captureResult,userLogin,paymentPref);
+          }
+ catch (          GeneralException e) {
+            Debug.logError(e,"Trouble processing the result; captureResult: " + captureResult,module);
+            return ServiceUtil.returnError("Trouble processing the capture results");
+          }
+          if (authAmount.compareTo(amountCaptured) > 0) {
+            BigDecimal splitAmount=authAmount.subtract(amountCaptured);
+            try {
+              Map<String,Object> splitCtx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"orderPaymentPreference",paymentPref,"splitAmount",splitAmount);
+              dispatcher.addCommitService("processCaptureSplitPayment",splitCtx,true);
+            }
+ catch (            GenericServiceException e) {
+              Debug.logWarning(e,"Problem processing the capture split payment",module);
+            }
+            Debug.logInfo("Captured: " + amountThisCapture + " Remaining (re-auth): "+ splitAmount,module);
+          }
+        }
+ else {
+          Debug.logError("Payment not captured for order [" + orderId + "] from billing account ["+ billingAccountId+ "]",module);
+        }
+      }
+    }
+  }
+  if (UtilValidate.isNotEmpty(paymentPrefs)) {
+    Iterator<GenericValue> payments=paymentPrefs.iterator();
+    while (payments.hasNext()) {
+      GenericValue paymentPref=(GenericValue)payments.next();
+      GenericValue authTrans=getAuthTransaction(paymentPref);
+      if (authTrans == null) {
+        continue;
+      }
+      GenericValue captureTrans=getCaptureTransaction(paymentPref);
+      if (captureTrans != null) {
+        Debug.logWarning("Attempt to capture and already captured preference: " + captureTrans,module);
+        continue;
+      }
+      BigDecimal authAmount=authTrans.getBigDecimal("amount");
+      if (authAmount == null)       authAmount=ZERO;
+      authAmount=authAmount.setScale(decimals,rounding);
+      if (authAmount.compareTo(ZERO) == 0) {
+        Debug.logInfo("Nothing to capture; authAmount = 0",module);
+        continue;
+      }
+      BigDecimal amountThisCapture;
+      if (authAmount.compareTo(amountToCapture) >= 0) {
+        amountThisCapture=amountToCapture;
+      }
+ else       if (payments.hasNext()) {
+        amountThisCapture=authAmount;
+      }
+ else {
+        Debug.logError("The amount to capture was more then what was authorized; we only captured the authorized amount : " + paymentPref,module);
+        amountThisCapture=authAmount;
+      }
+      Map<String,Object> captureResult=capturePayment(dctx,userLogin,orh,paymentPref,amountThisCapture);
+      if (captureResult != null && !ServiceUtil.isError(captureResult)) {
+        BigDecimal amountCaptured=(BigDecimal)captureResult.get("captureAmount");
+        if (amountCaptured == null) {
+          amountCaptured=(BigDecimal)captureResult.get("processAmount");
+        }
+        amountCaptured=amountCaptured.setScale(decimals,rounding);
+        amountToCapture=amountToCapture.subtract(amountCaptured);
+        captureResult.put("invoiceId",invoiceId);
+        try {
+          processResult(dctx,captureResult,userLogin,paymentPref);
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,"Trouble processing the result; captureResult: " + captureResult,module);
+          return ServiceUtil.returnError("Trouble processing the capture results");
+        }
+        if (authAmount.compareTo(amountCaptured) > 0) {
+          BigDecimal splitAmount=authAmount.subtract(amountCaptured);
+          try {
+            Map<String,Object> splitCtx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"orderPaymentPreference",paymentPref,"splitAmount",splitAmount);
+            dispatcher.addCommitService("processCaptureSplitPayment",splitCtx,true);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logWarning(e,"Problem processing the capture split payment",module);
+          }
+          Debug.logInfo("Captured: " + amountThisCapture + " Remaining (re-auth): "+ splitAmount,module);
+        }
+      }
+ else {
+        Debug.logError("Payment not captured",module);
+      }
+    }
+  }
+  if (amountToCapture.compareTo(ZERO) == 1) {
+    GenericValue productStore=orh.getProductStore();
+    if (!UtilValidate.isEmpty(productStore)) {
+      boolean shipIfCaptureFails=UtilValidate.isEmpty(productStore.get("shipIfCaptureFails")) || "Y".equalsIgnoreCase(productStore.getString("shipIfCaptureFails"));
+      if (!shipIfCaptureFails) {
+        return ServiceUtil.returnError("Cannot ship order because credit card captures were unsuccessful");
+      }
+    }
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("processResult","FAILED");
+    return result;
+  }
+ else {
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("processResult","COMPLETE");
+    return result;
+  }
+}

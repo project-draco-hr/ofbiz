@@ -1,0 +1,75 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String currencyUomId=(String)context.get("currencyUomId");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  Boolean creditResponse=(Boolean)context.get("creditResult");
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue pgCredit=delegator.makeValue("PaymentGatewayResponse");
+  pgCredit.set("paymentGatewayResponseId",responseId);
+  pgCredit.set("paymentServiceTypeEnumId",CREDIT_SERVICE_TYPE);
+  pgCredit.set("orderPaymentPreferenceId",paymentPref.get("orderPaymentPreferenceId"));
+  pgCredit.set("paymentMethodTypeId",paymentPref.get("paymentMethodTypeId"));
+  pgCredit.set("paymentMethodId",paymentPref.get("paymentMethodId"));
+  pgCredit.set("transCodeEnumId","PGT_CREDIT");
+  pgCredit.set("amount",context.get("creditAmount"));
+  pgCredit.set("referenceNum",context.get("creditRefNum"));
+  pgCredit.set("altReference",context.get("creditAltRefNum"));
+  pgCredit.set("gatewayCode",context.get("creditCode"));
+  pgCredit.set("gatewayFlag",context.get("creditFlag"));
+  pgCredit.set("gatewayMessage",context.get("creditMessage"));
+  pgCredit.set("transactionDate",UtilDateTime.nowTimestamp());
+  pgCredit.set("currencyUomId",currencyUomId);
+  savePgr(dctx,pgCredit);
+  List<String> messages=UtilGenerics.cast(context.get("internalRespMsgs"));
+  if (UtilValidate.isNotEmpty(messages)) {
+    Iterator<String> i=messages.iterator();
+    while (i.hasNext()) {
+      GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg");
+      String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
+      String message=(String)i.next();
+      respMsg.set("paymentGatewayRespMsgId",respMsgId);
+      respMsg.set("paymentGatewayResponseId",responseId);
+      respMsg.set("pgrMessage",message);
+      savePgr(dctx,respMsg);
+    }
+  }
+  if (creditResponse != null && creditResponse.booleanValue()) {
+    paymentPref.set("statusId","PAYMENT_CANCELLED");
+    try {
+      paymentPref.store();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Problem storing updated payment preference; authorization was credit!",module);
+    }
+    List<GenericValue> paymentList=null;
+    try {
+      paymentList=paymentPref.getRelated("Payment");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Unable to get Payment records from OrderPaymentPreference : " + paymentPref,module);
+    }
+    if (paymentList != null) {
+      Iterator<GenericValue> pi=paymentList.iterator();
+      while (pi.hasNext()) {
+        GenericValue pay=(GenericValue)pi.next();
+        try {
+          Map<String,Object> cancelResults=dispatcher.runSync("setPaymentStatus",UtilMisc.toMap("userLogin",userLogin,"paymentId",pay.get("paymentId"),"statusId","PMNT_CANCELLED"));
+          if (ServiceUtil.isError(cancelResults)) {
+            throw new GenericServiceException(ServiceUtil.getErrorMessage(cancelResults));
+          }
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,"Unable to cancel Payment : " + pay,module);
+        }
+      }
+    }
+  }
+ else {
+    String errMsg="Credit failed for pref : " + paymentPref;
+    Debug.logError(errMsg,module);
+    return ServiceUtil.returnFailure(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

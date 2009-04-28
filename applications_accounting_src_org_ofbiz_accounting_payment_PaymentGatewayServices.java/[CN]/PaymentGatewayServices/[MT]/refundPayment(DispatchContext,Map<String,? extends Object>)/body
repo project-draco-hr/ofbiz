@@ -1,0 +1,91 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  BigDecimal refundAmount=(BigDecimal)context.get("refundAmount");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=paymentPref.getRelatedOne("OrderHeader");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get OrderHeader from OrderPaymentPreference",module);
+    return ServiceUtil.returnError("Problems getting OrderHeader from OrderPaymentPreference: " + e.toString());
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  GenericValue paymentSettings=null;
+  if (orderHeader != null) {
+    paymentSettings=getPaymentSettings(orderHeader,paymentPref,REFUND_SERVICE_TYPE,false);
+  }
+  String serviceName=null;
+  String paymentGatewayConfigId=null;
+  if (paymentSettings != null) {
+    String customMethodId=paymentSettings.getString("paymentCustomMethodId");
+    if (UtilValidate.isNotEmpty(customMethodId)) {
+      serviceName=getPaymentCustomMethod(orh.getOrderHeader().getDelegator(),customMethodId);
+    }
+    if (UtilValidate.isEmpty(serviceName)) {
+      serviceName=paymentSettings.getString("paymentService");
+    }
+    String paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+    paymentGatewayConfigId=paymentSettings.getString("paymentGatewayConfigId");
+    if (serviceName != null) {
+      Map<String,Object> serviceContext=FastMap.newInstance();
+      serviceContext.put("orderPaymentPreference",paymentPref);
+      serviceContext.put("paymentConfig",paymentConfig);
+      serviceContext.put("paymentGatewayConfigId",paymentGatewayConfigId);
+      serviceContext.put("currency",orh.getCurrency());
+      String payToPartyId=null;
+      try {
+        payToPartyId=getBillingInformation(orh,paymentPref,FastMap.<String,Object>newInstance());
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Problems getting billing information",module);
+        return ServiceUtil.returnError("Problems getting billing information");
+      }
+      BigDecimal processAmount=refundAmount.setScale(decimals,rounding);
+      serviceContext.put("refundAmount",processAmount);
+      serviceContext.put("userLogin",userLogin);
+      Map<String,Object> refundResponse=null;
+      try {
+        refundResponse=dispatcher.runSync(serviceName,serviceContext,TX_TIME,true);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem refunding payment through processor",module);
+        return ServiceUtil.returnError("Refund processor problems; see logs");
+      }
+      if (ServiceUtil.isError(refundResponse)) {
+        saveError(dispatcher,userLogin,paymentPref,refundResponse,REFUND_SERVICE_TYPE,"PGT_REFUND");
+        return ServiceUtil.returnError(ServiceUtil.getErrorMessage(refundResponse));
+      }
+      String payFromPartyId=getPayToPartyId(orderHeader);
+      Map<String,Object> refundResRes;
+      try {
+        ModelService model=dctx.getModelService("processRefundResult");
+        Map<String,Object> refundResCtx=model.makeValid(context,ModelService.IN_PARAM);
+        refundResCtx.put("currencyUomId",orh.getCurrency());
+        refundResCtx.put("payToPartyId",payToPartyId);
+        refundResCtx.put("payFromPartyId",payFromPartyId);
+        refundResCtx.put("refundRefNum",refundResponse.get("refundRefNum"));
+        refundResCtx.put("refundAltRefNum",refundResponse.get("refundAltRefNum"));
+        refundResCtx.put("refundMessage",refundResponse.get("refundMessage"));
+        refundResCtx.put("refundResult",refundResponse.get("refundResult"));
+        BigDecimal actualRefundAmount=(BigDecimal)refundResponse.get("refundAmount");
+        if (actualRefundAmount != null && actualRefundAmount.compareTo(BigDecimal.ZERO) > 0) {
+          refundResCtx.put("refundAmount",refundResponse.get("refundAmount"));
+        }
+        refundResRes=dispatcher.runSync(model.name,refundResCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError("Problem processing refund result: " + e.getMessage());
+      }
+      return refundResRes;
+    }
+ else {
+      return ServiceUtil.returnError("No refund service defined");
+    }
+  }
+ else {
+    return ServiceUtil.returnFailure("No payment settings found");
+  }
+}

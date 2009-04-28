@@ -1,0 +1,105 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  GenericValue paymentPref=null;
+  try {
+    paymentPref=delegator.findByPrimaryKey("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Problem getting OrderPaymentPreference for orderPaymentPreferenceId " + orderPaymentPreferenceId;
+    Debug.logWarning(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (paymentPref == null) {
+    String errMsg="Could not find OrderPaymentPreference with orderPaymentPreferenceId: " + orderPaymentPreferenceId;
+    Debug.logWarning(errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  GenericValue orderHeader=null;
+  String orderId=paymentPref.getString("orderId");
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Problem getting OrderHeader for orderId " + orderId;
+    Debug.logWarning(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (orderHeader == null) {
+    String errMsg="Could not find OrderHeader with orderId: " + orderId + "; not processing payments.";
+    Debug.logWarning(errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  String currency=orh.getCurrency();
+  String serviceName=null;
+  String paymentConfig=null;
+  String paymentGatewayConfigId=null;
+  GenericValue paymentSettings=getPaymentSettings(orderHeader,paymentPref,RELEASE_SERVICE_TYPE,false);
+  if (paymentSettings != null) {
+    String customMethodId=paymentSettings.getString("paymentCustomMethodId");
+    if (UtilValidate.isNotEmpty(customMethodId)) {
+      serviceName=getPaymentCustomMethod(orh.getOrderHeader().getDelegator(),customMethodId);
+    }
+    if (UtilValidate.isEmpty(serviceName)) {
+      serviceName=paymentSettings.getString("paymentService");
+    }
+    paymentConfig=paymentSettings.getString("paymentPropertiesPath");
+    paymentGatewayConfigId=paymentSettings.getString("paymentGatewayConfigId");
+    if (serviceName == null) {
+      String errMsg="No payment release service for - " + paymentPref.getString("paymentMethodTypeId");
+      Debug.logWarning(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+ else {
+    String errMsg="No payment release settings found for - " + paymentPref.getString("paymentMethodTypeId");
+    Debug.logWarning(errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (paymentConfig == null || paymentConfig.length() == 0) {
+    paymentConfig="payment.properties";
+  }
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  Map<String,Object> releaseContext=FastMap.newInstance();
+  releaseContext.put("orderPaymentPreference",paymentPref);
+  releaseContext.put("releaseAmount",authTransaction.getBigDecimal("amount"));
+  releaseContext.put("currency",currency);
+  releaseContext.put("paymentConfig",paymentConfig);
+  releaseContext.put("paymentGatewayConfigId",paymentGatewayConfigId);
+  releaseContext.put("userLogin",userLogin);
+  Map<String,Object> releaseResult=null;
+  try {
+    releaseResult=dispatcher.runSync(serviceName,releaseContext,TX_TIME,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Problem releasing payment";
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (releaseResult != null && !ServiceUtil.isError(releaseResult)) {
+    Map<String,Object> releaseResRes;
+    try {
+      ModelService model=dctx.getModelService("processReleaseResult");
+      releaseResult.put("orderPaymentPreference",paymentPref);
+      releaseResult.put("userLogin",userLogin);
+      Map<String,Object> resCtx=model.makeValid(releaseResult,ModelService.IN_PARAM);
+      releaseResRes=dispatcher.runSync(model.name,resCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError("Trouble processing the release results: " + e.getMessage());
+    }
+    if (releaseResRes != null && ServiceUtil.isError(releaseResRes)) {
+      return ServiceUtil.returnError(ServiceUtil.getErrorMessage(releaseResRes));
+    }
+  }
+ else   if (ServiceUtil.isError(releaseResult)) {
+    saveError(dispatcher,userLogin,paymentPref,releaseResult,RELEASE_SERVICE_TYPE,"PGT_RELEASE");
+    result=ServiceUtil.returnError(ServiceUtil.getErrorMessage(releaseResult));
+  }
+  return result;
+}

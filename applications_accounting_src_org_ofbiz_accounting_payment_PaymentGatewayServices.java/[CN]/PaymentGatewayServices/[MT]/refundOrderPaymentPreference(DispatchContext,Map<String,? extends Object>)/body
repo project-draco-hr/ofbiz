@@ -1,0 +1,28 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  GenericValue orderPaymentPreference=null;
+  try {
+    orderPaymentPreference=delegator.findOne("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId),false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Problems getting required information: orderPaymentPreference [" + orderPaymentPreferenceId + "]");
+  }
+  Map<String,Object> refundResponse=null;
+  try {
+    Map<String,Object> serviceContext=FastMap.newInstance();
+    serviceContext.put("orderPaymentPreference",orderPaymentPreference);
+    serviceContext.put("refundAmount",amount);
+    serviceContext.put("userLogin",userLogin);
+    refundResponse=dispatcher.runSync("refundPayment",serviceContext,TX_TIME,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem refunding payment through processor",module);
+    return ServiceUtil.returnError("Refund processor problems; see logs");
+  }
+  return refundResponse;
+}
