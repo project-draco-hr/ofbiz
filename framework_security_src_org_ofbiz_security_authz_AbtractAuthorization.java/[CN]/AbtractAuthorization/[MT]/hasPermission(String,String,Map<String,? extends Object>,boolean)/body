@@ -1,0 +1,51 @@
+{
+  String expandedPermission;
+  if (!expanded) {
+    expandedPermission=FlexibleStringExpander.expandString(permission,context);
+  }
+ else {
+    expandedPermission=permission;
+  }
+  String threadUid=uid.get();
+  if (!userId.equals(threadUid)) {
+    autoGrant.remove();
+    uid.remove();
+  }
+  String[] permSplit=expandedPermission.split(":");
+  StringBuffer joined=new StringBuffer();
+  int index=1;
+  if (permSplit != null && permSplit.length > 1) {
+    if (Debug.verboseOn())     Debug.logVerbose("Security 2.0 schema found -- walking tree : " + expandedPermission,module);
+    for (    String perm : permSplit) {
+      if (permSplit.length >= index) {
+        if (joined.length() > 0) {
+          joined.append(":");
+        }
+        joined.append(perm);
+        List<String> grantedPerms=autoGrant.get();
+        if (grantedPerms != null && grantedPerms.size() > 0) {
+          for (          String granted : grantedPerms) {
+            if (joined.toString().equals(granted)) {
+              handleAutoGrantPermissions(userId,expandedPermission,context);
+              return true;
+            }
+          }
+        }
+        if (hasStaticPermission(userId,joined.toString(),context)) {
+          handleAutoGrantPermissions(userId,expandedPermission,context);
+          return true;
+        }
+      }
+      index++;
+    }
+    if (hasDynamicPermission(userId,expandedPermission,context)) {
+      handleAutoGrantPermissions(userId,expandedPermission,context);
+      return true;
+    }
+  }
+ else {
+    Debug.logVerbose("Legacy permission detected; falling back to static permission check",module);
+    return hasStaticPermission(userId,expandedPermission,context);
+  }
+  return false;
+}
