@@ -11,7 +11,7 @@
   String communicationEventId=null;
   String contactMechIdFrom=null;
   String contactMechIdTo=null;
-  Map result=null;
+  Map<String,Object> result=null;
   try {
     String contentTypeRaw=message.getContentType();
     int idx=contentTypeRaw.indexOf(";");
@@ -39,7 +39,7 @@
       Debug.logInfo("Incoming Email message ignored, had not 'from' email address",module);
       return ServiceUtil.returnSuccess(" Message Ignored: no 'From' address specified");
     }
-    List commEvents;
+    List<GenericValue> commEvents;
     try {
       commEvents=delegator.findByAnd("CommunicationEvent",UtilMisc.toMap("messageId",messageId));
     }
@@ -54,12 +54,12 @@
  else {
       Debug.logInfo("Persisting New Email: " + aboutThisEmail,module);
     }
-    List toParties=buildListOfPartyInfoFromEmailAddresses(addressesTo,userLogin,dispatcher);
-    List ccParties=buildListOfPartyInfoFromEmailAddresses(addressesCC,userLogin,dispatcher);
-    List bccParties=buildListOfPartyInfoFromEmailAddresses(addressesBCC,userLogin,dispatcher);
+    List<Map<String,Object>> toParties=buildListOfPartyInfoFromEmailAddresses(addressesTo,userLogin,dispatcher);
+    List<Map<String,Object>> ccParties=buildListOfPartyInfoFromEmailAddresses(addressesCC,userLogin,dispatcher);
+    List<Map<String,Object>> bccParties=buildListOfPartyInfoFromEmailAddresses(addressesBCC,userLogin,dispatcher);
     if (!toParties.isEmpty()) {
-      Iterator itr=toParties.iterator();
-      Map firstAddressTo=(Map)itr.next();
+      Iterator<Map<String,Object>> itr=toParties.iterator();
+      Map<String,Object> firstAddressTo=itr.next();
       partyIdTo=(String)firstAddressTo.get("partyId");
       contactMechIdTo=(String)firstAddressTo.get("contactMechId");
     }
@@ -86,7 +86,7 @@
     result=getParyInfoFromEmailAddress(addressesFrom,userLogin,dispatcher);
     partyIdFrom=(String)result.get("partyId");
     contactMechIdFrom=(String)result.get("contactMechId");
-    Map commEventMap=FastMap.newInstance();
+    Map<String,Object> commEventMap=FastMap.newInstance();
     commEventMap.put("communicationEventTypeId","AUTO_EMAIL_COMM");
     commEventMap.put("contactMechTypeId","EMAIL_ADDRESS");
     commEventMap.put("messageId",messageId);
@@ -110,7 +110,7 @@
     if (inReplyTo != null && inReplyTo[0] != null) {
       GenericValue parentCommEvent=null;
       try {
-        List events=delegator.findByAnd("CommunicationEvent",UtilMisc.toMap("messageId",inReplyTo[0]));
+        List<GenericValue> events=delegator.findByAnd("CommunicationEvent",UtilMisc.toMap("messageId",inReplyTo[0]));
         parentCommEvent=EntityUtil.getFirst(events);
       }
  catch (      GenericEntityException e) {
@@ -124,10 +124,10 @@
         commEventMap.put("origCommEventId",orgCommEventId);
       }
     }
-    Set emailAddressesFrom=new TreeSet();
-    Set emailAddressesTo=new TreeSet();
-    Set emailAddressesCC=new TreeSet();
-    Set emailAddressesBCC=new TreeSet();
+    Set<String> emailAddressesFrom=new TreeSet<String>();
+    Set<String> emailAddressesTo=new TreeSet<String>();
+    Set<String> emailAddressesCC=new TreeSet<String>();
+    Set<String> emailAddressesBCC=new TreeSet<String>();
     for (int x=0; x < addressesFrom.length; x++) {
       emailAddressesFrom.add(((InternetAddress)addressesFrom[x]).getAddress());
     }
@@ -184,13 +184,13 @@
       commEventMap.put("note",commNote);
     }
     commEventMap.put("userLogin",userLogin);
-    String headerString="";
+    StringBuilder headerString=new StringBuilder();
     Enumeration headerLines=message.getAllHeaderLines();
     while (headerLines.hasMoreElements()) {
-      headerString+=System.getProperty("line.separator");
-      headerString+=headerLines.nextElement();
+      headerString.append(System.getProperty("line.separator"));
+      headerString.append(headerLines.nextElement());
     }
-    commEventMap.put("headerString",headerString);
+    commEventMap.put("headerString",headerString.toString());
     result=dispatcher.runSync("createCommunicationEvent",commEventMap);
     communicationEventId=(String)result.get("communicationEventId");
     if (messageContent instanceof Multipart) {
@@ -201,7 +201,7 @@
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,toParties,"ADDRESSEE");
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,ccParties,"CC");
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,bccParties,"BCC");
-    Map results=ServiceUtil.returnSuccess();
+    Map<String,Object> results=ServiceUtil.returnSuccess();
     results.put("communicationEventId",communicationEventId);
     results.put("statusId",commEventMap.get("statusId"));
     return results;
