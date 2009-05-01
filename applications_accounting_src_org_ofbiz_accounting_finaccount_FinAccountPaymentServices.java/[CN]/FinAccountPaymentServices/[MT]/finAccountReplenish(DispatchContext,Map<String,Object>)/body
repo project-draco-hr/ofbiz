@@ -1,0 +1,162 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String finAccountId=(String)context.get("finAccountId");
+  GenericValue finAccount;
+  try {
+    finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (finAccount == null) {
+    return ServiceUtil.returnError("Invalid financial account [" + finAccountId + "]");
+  }
+  String currency=finAccount.getString("currencyUomId");
+  String statusId=finAccount.getString("statusId");
+  GenericValue finAccountType;
+  try {
+    finAccountType=finAccount.getRelatedOne("FinAccountType");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String replenishEnumId=finAccountType.getString("replenishEnumId");
+  if (!"FARP_AUTOMATIC".equals(replenishEnumId)) {
+    return ServiceUtil.returnSuccess();
+  }
+  if (productStoreId == null) {
+    productStoreId=getLastProductStoreId(delegator,finAccountId);
+    if (productStoreId == null) {
+      return ServiceUtil.returnError("Cannot locate product store from previous deposits; product store cannot be empty");
+    }
+  }
+  GenericValue finAccountSettings;
+  Map<String,Object> psfasFindMap=UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",finAccount.getString("finAccountTypeId"));
+  try {
+    finAccountSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",psfasFindMap);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (finAccountSettings == null) {
+    Debug.logWarning("finAccountReplenish Warning: not replenishing FinAccount [" + finAccountId + "] because no ProductStoreFinActSetting record found for: "+ psfasFindMap,module);
+    return ServiceUtil.returnSuccess();
+  }
+  BigDecimal replenishThreshold=finAccountSettings.getBigDecimal("replenishThreshold");
+  if (replenishThreshold == null) {
+    Debug.logWarning("finAccountReplenish Warning: not replenishing FinAccount [" + finAccountId + "] because ProductStoreFinActSetting.replenishThreshold field was null for: "+ psfasFindMap,module);
+    return ServiceUtil.returnSuccess();
+  }
+  BigDecimal replenishLevel=finAccount.getBigDecimal("replenishLevel");
+  if (replenishLevel == null || replenishLevel.compareTo(BigDecimal.ZERO) == 0) {
+    Debug.logWarning("finAccountReplenish Warning: not replenishing FinAccount [" + finAccountId + "] because FinAccount.replenishLevel field was null or 0",module);
+    return ServiceUtil.returnSuccess();
+  }
+  BigDecimal balance=finAccount.getBigDecimal("actualBalance");
+  if (balance.compareTo(replenishThreshold) > -1) {
+    Debug.logInfo("finAccountReplenish Info: Not replenishing FinAccount [" + finAccountId + "] because balance ["+ balance+ "] is greater than the replenishThreshold ["+ replenishThreshold+ "]",module);
+    return ServiceUtil.returnSuccess();
+  }
+  if ("FNACT_NEGPENDREPL".equals(statusId)) {
+    try {
+      Map<String,Object> rollbackCtx=UtilMisc.toMap("userLogin",userLogin,"finAccountId",finAccountId,"statusId","FNACT_NEGPENDREPL");
+      dispatcher.addRollbackService("updateFinAccount",rollbackCtx,true);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  String replenishMethod=finAccountSettings.getString("replenishMethodEnumId");
+  BigDecimal depositAmount;
+  if (replenishMethod == null || "FARP_TOP_OFF".equals(replenishMethod)) {
+    depositAmount=replenishLevel.subtract(balance);
+  }
+ else   if ("FARP_REPLENISH_LEVEL".equals(replenishMethod)) {
+    depositAmount=replenishLevel;
+  }
+ else {
+    return ServiceUtil.returnError("Unknown replenish method found");
+  }
+  String ownerPartyId=finAccount.getString("ownerPartyId");
+  if (ownerPartyId == null) {
+    Debug.logWarning("finAccountReplenish Warning: No owner attached to financial account [" + finAccountId + "] cannot auto-replenish",module);
+    return ServiceUtil.returnSuccess();
+  }
+  String paymentMethodId=finAccount.getString("replenishPaymentId");
+  if (paymentMethodId == null) {
+    Debug.logWarning("finAccountReplenish Warning: No payment method (replenishPaymentId) attached to financial account [" + finAccountId + "] cannot auto-replenish",module);
+    return ServiceUtil.returnError("No payment method associated with replenish account");
+  }
+  GenericValue paymentMethod;
+  try {
+    paymentMethod=delegator.findByPrimaryKey("PaymentMethod",UtilMisc.toMap("paymentMethodId",paymentMethodId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (paymentMethod == null) {
+    Debug.logWarning("finAccountReplenish Warning: No payment method found for ID [" + paymentMethodId + "] for party ["+ ownerPartyId+ "] cannot auto-replenish",module);
+    return ServiceUtil.returnError("Cannot locate payment method ID [" + paymentMethodId + "]");
+  }
+  Map<String,Object> orderItemMap=UtilMisc.toMap("Auto-Replenishment FA #" + finAccountId,depositAmount);
+  Map<String,Object> replOrderCtx=FastMap.newInstance();
+  replOrderCtx.put("productStoreId",productStoreId);
+  replOrderCtx.put("paymentMethodId",paymentMethod.getString("paymentMethodId"));
+  replOrderCtx.put("currency",currency);
+  replOrderCtx.put("partyId",ownerPartyId);
+  replOrderCtx.put("itemMap",orderItemMap);
+  replOrderCtx.put("userLogin",userLogin);
+  Map<String,Object> replResp;
+  try {
+    replResp=dispatcher.runSync("createSimpleNonProductSalesOrder",replOrderCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(replResp)) {
+    return replResp;
+  }
+  String orderId=(String)replResp.get("orderId");
+  Map<String,Object> depositCtx=FastMap.newInstance();
+  depositCtx.put("productStoreId",productStoreId);
+  depositCtx.put("finAccountId",finAccountId);
+  depositCtx.put("currency",currency);
+  depositCtx.put("partyId",ownerPartyId);
+  depositCtx.put("orderId",orderId);
+  depositCtx.put("orderItemSeqId","00001");
+  depositCtx.put("amount",depositAmount);
+  depositCtx.put("reasonEnumId","FATR_REPLENISH");
+  depositCtx.put("userLogin",userLogin);
+  try {
+    Map<String,Object> depositResp=dispatcher.runSync("finAccountDeposit",depositCtx);
+    if (ServiceUtil.isError(depositResp)) {
+      return depositResp;
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if ("FNACT_NEGPENDREPL".equals(statusId)) {
+    try {
+      Map<String,Object> ufaResp=dispatcher.runSync("updateFinAccount",UtilMisc.<String,Object>toMap("finAccountId",finAccountId,"statusId","FNACT_ACTIVE","userLogin",userLogin));
+      if (ServiceUtil.isError(ufaResp)) {
+        return ufaResp;
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
