@@ -1,0 +1,72 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue creditCard=null;
+  try {
+    creditCard=delegator.getRelatedOne("CreditCard",orderPaymentPreference);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to obtain cc information from payment preference");
+  }
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot Refund");
+  }
+  context.put("creditCard",creditCard);
+  context.put("authTransaction",authTransaction);
+  Map<String,Object> results=ServiceUtil.returnSuccess();
+  Map<String,Object> request=FastMap.newInstance();
+  Properties props=buildAIMProperties(context,delegator);
+  buildMerchantInfo(context,props,request);
+  buildGatewayResponeConfig(context,props,request);
+  buildEmailSettings(context,props,request);
+  props.put("transType","CREDIT");
+  props.put("cardtype",(String)creditCard.get("cardType"));
+  buildRefundTransaction(context,props,request);
+  Map<String,Object> validateResults=validateRequest(context,props,request);
+  String respMsg=(String)validateResults.get(ModelService.RESPONSE_MESSAGE);
+  if (ModelService.RESPOND_ERROR.equals(respMsg)) {
+    results.put(ModelService.ERROR_MESSAGE,"Validation Failed - invalid values");
+    return results;
+  }
+  Map<String,Object> reply=processCard(request,props);
+  results.putAll(processRefundTransResult(reply));
+  boolean refundResult=((Boolean)results.get("refundResult")).booleanValue();
+  String refundFlag=(String)results.get("refundFlag");
+  if (!refundResult && isVoidableResponse(refundFlag)) {
+    boolean canDoVoid=false;
+    if (VOIDABLE_RESPONSES_TIME_LIMIT.contains(refundFlag)) {
+      Calendar startCalendar=UtilDateTime.toCalendar(UtilDateTime.nowTimestamp());
+      startCalendar.add(Calendar.DATE,-TIME_LIMIT_VERIFICATION_DAYS);
+      Timestamp startTimestamp=new java.sql.Timestamp(startCalendar.getTime().getTime());
+      Timestamp authTimestamp=authTransaction.getTimestamp("transactionDate");
+      if (startTimestamp.before(authTimestamp)) {
+        canDoVoid=true;
+      }
+    }
+ else {
+      canDoVoid=true;
+    }
+    if (canDoVoid) {
+      Debug.logWarning("Refund was unsuccessful; will now attempt a VOID transaction.",module);
+      BigDecimal authAmountObj=authTransaction.getBigDecimal("amount");
+      BigDecimal refundAmountObj=(BigDecimal)context.get("refundAmount");
+      BigDecimal authAmount=authAmountObj != null ? authAmountObj : BigDecimal.ZERO;
+      BigDecimal refundAmount=refundAmountObj != null ? refundAmountObj : BigDecimal.ZERO;
+      if (authAmount.compareTo(refundAmount) == 0) {
+        reply=voidTransaction(authTransaction,context,delegator);
+        if (ServiceUtil.isError(reply)) {
+          return reply;
+        }
+        results=ServiceUtil.returnSuccess();
+        results.putAll(processRefundTransResult(reply));
+        return results;
+      }
+ else {
+        return ServiceUtil.returnFailure("Cannot perform a VOID transaction: authAmount [" + authAmount + "] is different than voidAmount ["+ refundAmount+ "]");
+      }
+    }
+  }
+  return results;
+}
