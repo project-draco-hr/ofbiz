@@ -1,0 +1,91 @@
+{
+  Debug.logInfo("Running process bounced message check...",module);
+  MimeMessageWrapper wrapper=(MimeMessageWrapper)context.get("messageWrapper");
+  MimeMessage message=wrapper.getMessage();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  try {
+    Object content=message.getContent();
+    if (content instanceof Multipart) {
+      Multipart mp=(Multipart)content;
+      int parts=mp.getCount();
+      if (parts >= 3) {
+        BodyPart part2=mp.getBodyPart(1);
+        String contentType=part2.getContentType();
+        if (contentType != null && "message/delivery-status".equalsIgnoreCase(contentType)) {
+          Debug.logInfo("Delivery status report part found; processing...",module);
+          InputStream insPart2=(InputStream)part2.getInputStream();
+          int part2Size=part2.getSize();
+          byte[] part2Bytes=new byte[part2Size];
+          insPart2.read(part2Bytes,0,part2Size);
+          String part2Text=new String(part2Bytes);
+          Pattern p2=Pattern.compile("^Action: (.*)$",Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+          Matcher m2=p2.matcher(part2Text);
+          String action=null;
+          if (m2.find()) {
+            action=m2.group(1);
+          }
+          if (action != null && "failed".equalsIgnoreCase(action)) {
+            BodyPart part3=mp.getBodyPart(2);
+            InputStream insPart3=(InputStream)part3.getInputStream();
+            int part3Size=part3.getSize();
+            byte[] part3Bytes=new byte[part3Size];
+            insPart3.read(part3Bytes,0,part3Size);
+            String part3Text=new String(part3Bytes);
+            Pattern p3=Pattern.compile("^Message-Id: (.*)$",Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+            Matcher m3=p3.matcher(part3Text);
+            String messageId=null;
+            if (m3.find()) {
+              messageId=m3.group(1);
+            }
+            if (messageId != null) {
+              List<GenericValue> values;
+              try {
+                values=delegator.findByAnd("CommunicationEvent",UtilMisc.toMap("messageId",messageId));
+              }
+ catch (              GenericEntityException e) {
+                Debug.logError(e,module);
+                return ServiceUtil.returnError(e.getMessage());
+              }
+              if (values != null && values.size() > 0) {
+                GenericValue value=values.get(0);
+                Map<String,Object> updateCtx=FastMap.newInstance();
+                updateCtx.put("communicationEventId",value.getString("communicationEventId"));
+                updateCtx.put("statusId","COM_BOUNCED");
+                updateCtx.put("userLogin",context.get("userLogin"));
+                Map<String,Object> result;
+                try {
+                  result=dispatcher.runSync("updateCommunicationEvent",updateCtx);
+                }
+ catch (                GenericServiceException e) {
+                  Debug.logError(e,module);
+                  return ServiceUtil.returnError(e.getMessage());
+                }
+                if (ServiceUtil.isError(result)) {
+                  return ServiceUtil.returnError(ServiceUtil.getErrorMessage(result));
+                }
+              }
+ else {
+                if (Debug.infoOn()) {
+                  Debug.logInfo("Unable to find communication event with the matching messageId : " + messageId,module);
+                }
+              }
+            }
+ else {
+              Debug.logWarning("No message ID attached to part",module);
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  MessagingException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}
