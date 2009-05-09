@@ -1,0 +1,60 @@
+{
+  if (orderItemSeqId == null && productId != null) {
+    orderItemSeqId=this.findOrderItemSeqId(productId,orderId,shipGroupSeqId,quantity,locale);
+  }
+  Map<String,Object> inventoryLookupMap=FastMap.newInstance();
+  inventoryLookupMap.put("orderId",orderId);
+  inventoryLookupMap.put("orderItemSeqId",orderItemSeqId);
+  inventoryLookupMap.put("shipGroupSeqId",shipGroupSeqId);
+  List<GenericValue> reservations=this.getDelegator().findByAnd("OrderItemShipGrpInvRes",inventoryLookupMap,UtilMisc.toList("quantity DESC"));
+  if (UtilValidate.isEmpty(reservations)) {
+    throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNoInventoryReservationsAvailableCannotVerifyThisItem",locale));
+  }
+  if (reservations.size() == 1) {
+    GenericValue reservation=EntityUtil.getFirst(reservations);
+    int checkCode=this.checkRowForAdd(reservation,orderId,orderItemSeqId,shipGroupSeqId,productId,quantity);
+    this.createVerifyPickRow(checkCode,reservation,orderId,orderItemSeqId,shipGroupSeqId,productId,quantity,locale);
+  }
+ else {
+    Map<GenericValue,BigDecimal> reserveQtyMap=FastMap.newInstance();
+    BigDecimal qtyRemain=quantity;
+    for (    GenericValue reservation : reservations) {
+      if (qtyRemain.compareTo(ZERO) > 0) {
+        if (!productId.equals(reservation.getRelatedOne("InventoryItem").getString("productId"))) {
+          continue;
+        }
+        BigDecimal reservedQty=reservation.getBigDecimal("quantity");
+        BigDecimal resVerifiedQty=this.getVerifiedQuantity(orderId,orderItemSeqId,shipGroupSeqId,productId,reservation.getString("inventoryItemId"));
+        if (resVerifiedQty.compareTo(reservedQty) >= 0) {
+          continue;
+        }
+ else {
+          reservedQty=reservedQty.subtract(resVerifiedQty);
+        }
+        BigDecimal thisQty=reservedQty.compareTo(qtyRemain) > 0 ? qtyRemain : reservedQty;
+        int thisCheck=this.checkRowForAdd(reservation,orderId,orderItemSeqId,shipGroupSeqId,productId,thisQty);
+switch (thisCheck) {
+case 2:
+          reserveQtyMap.put(reservation,thisQty);
+        qtyRemain=qtyRemain.subtract(thisQty);
+      break;
+case 1:
+    qtyRemain=qtyRemain.subtract(thisQty);
+  break;
+case 0:
+break;
+}
+}
+}
+if (qtyRemain.compareTo(ZERO) == 0) {
+for (Map.Entry<GenericValue,BigDecimal> entry : reserveQtyMap.entrySet()) {
+GenericValue reservation=entry.getKey();
+BigDecimal qty=entry.getValue();
+this.createVerifyPickRow(2,reservation,orderId,orderItemSeqId,shipGroupSeqId,productId,qty,locale);
+}
+}
+ else {
+throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNotEnoughInventoryReservationAvailableCannotVerifyTheItem",locale));
+}
+}
+}

@@ -1,0 +1,48 @@
+{
+  if (quantity == null) {
+    quantity=this.getReadyToVerifyQty();
+  }
+  Map<String,Object> issueOrderItemMap=FastMap.newInstance();
+  issueOrderItemMap.put("shipmentId",shipmentId);
+  issueOrderItemMap.put("orderId",this.getOrderId());
+  issueOrderItemMap.put("orderItemSeqId",this.getOrderItemSeqId());
+  issueOrderItemMap.put("shipGroupSeqId",this.getShipGroupSeqId());
+  issueOrderItemMap.put("inventoryItemId",this.getInventoryItemId());
+  issueOrderItemMap.put("quantity",quantity);
+  issueOrderItemMap.put("userLogin",userLogin);
+  Map<String,Object> issueOrderItemResp=dispatcher.runSync("issueOrderItemShipGrpInvResToShipment",issueOrderItemMap);
+  if (ServiceUtil.isError(issueOrderItemResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(issueOrderItemResp));
+  }
+  String shipmentItemSeqId=(String)issueOrderItemResp.get("shipmentItemSeqId");
+  if (shipmentItemSeqId == null) {
+    throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorIssueItemDidNotReturnAValidShipmentItemSeqId",locale));
+  }
+ else {
+    this.setShipmentItemSeqId(shipmentItemSeqId);
+  }
+  if (picklistBinId != null) {
+    GenericDelegator delegator=dispatcher.getDelegator();
+    Map<String,Object> picklistItemMap=FastMap.newInstance();
+    picklistItemMap.put("picklistBinId",picklistBinId);
+    picklistItemMap.put("orderId",this.getOrderId());
+    picklistItemMap.put("orderItemSeqId",this.getOrderItemSeqId());
+    picklistItemMap.put("shipGroupSeqId",this.getShipGroupSeqId());
+    picklistItemMap.put("inventoryItemId",this.getInventoryItemId());
+    GenericValue picklistItem=delegator.findOne("PicklistItem",picklistItemMap,true);
+    if (UtilValidate.isNotEmpty(picklistItem)) {
+      BigDecimal itemQty=picklistItem.getBigDecimal("quantity");
+      if (itemQty.compareTo(quantity) == 0) {
+        picklistItemMap.put("itemStatusId","PICKITEM_COMPLETED");
+      }
+ else {
+        picklistItemMap.put("itemStatusId","PICKITEM_CANCELLED");
+      }
+      picklistItemMap.put("userLogin",userLogin);
+      Map<String,Object> picklistItemResp=dispatcher.runSync("updatePicklistItem",picklistItemMap);
+      if (ServiceUtil.isError(picklistItemResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(picklistItemResp));
+      }
+    }
+  }
+}

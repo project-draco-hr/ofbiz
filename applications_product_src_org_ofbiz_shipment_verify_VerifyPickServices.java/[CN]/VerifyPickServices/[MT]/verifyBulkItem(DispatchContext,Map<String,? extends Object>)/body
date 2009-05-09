@@ -1,9 +1,9 @@
 {
   GenericDelegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
   VerifyPickSession pickSession=(VerifyPickSession)context.get("verifyPickSession");
   String orderId=(String)context.get("orderId");
-  String facilityId=(String)context.get("facilityId");
   String shipGroupSeqId=(String)context.get("shipGroupSeqId");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   Map<String,?> selectedMap=UtilGenerics.checkMap(context.get("selectedMap"));
@@ -14,36 +14,10 @@
     for (    String rowKey : selectedMap.keySet()) {
       String orderItemSeqId=itemMap.get(rowKey);
       String productId=productMap.get(rowKey);
-      BigDecimal qtyToVerify=ZERO;
-      BigDecimal qtyToVerified=ZERO;
-      BigDecimal verifiedQuantity=ZERO;
-      BigDecimal readyToVerifyQty=ZERO;
       BigDecimal quantity=new BigDecimal(quantityMap.get(rowKey));
       if (quantity.compareTo(ZERO) > 0) {
         try {
-          GenericValue orderItem=delegator.findOne("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId),false);
-          BigDecimal orderedQuantity=orderItem.getBigDecimal("quantity");
-          List<GenericValue> shipments=delegator.findByAnd("Shipment",UtilMisc.toMap("primaryOrderId",orderId,"statusId","SHIPMENT_PICKED"));
-          for (          GenericValue shipment : shipments) {
-            List<GenericValue> orderShipments=shipment.getRelatedByAnd("OrderShipment",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId));
-            for (            GenericValue orderShipment : orderShipments) {
-              verifiedQuantity=verifiedQuantity.add(orderShipment.getBigDecimal("quantity"));
-            }
-          }
-          qtyToVerify=orderedQuantity.subtract(verifiedQuantity);
-          if (qtyToVerify.compareTo(quantity) > -1) {
-            readyToVerifyQty=pickSession.getReadyToVerifyQuantity(orderId,orderItemSeqId);
-            qtyToVerified=orderedQuantity.subtract(readyToVerifyQty);
-            if (qtyToVerified.compareTo(quantity) > -1) {
-              pickSession.createRow(orderId,orderItemSeqId,shipGroupSeqId,productId,quantity,facilityId,orderItem);
-            }
- else {
-              throw new GeneralException("Quantity to Verify is more than the Quantity left to Verify (orderedQuantity - readyToVerifiedQty)");
-            }
-          }
- else {
-            throw new GeneralException("Quantity to Verify is more than the Quantity left to Verify (orderedQuantity - verifiedQuantity)");
-          }
+          pickSession.createRow(orderId,orderItemSeqId,shipGroupSeqId,productId,quantity,locale);
         }
  catch (        Exception ex) {
           return ServiceUtil.returnError(ex.getMessage());

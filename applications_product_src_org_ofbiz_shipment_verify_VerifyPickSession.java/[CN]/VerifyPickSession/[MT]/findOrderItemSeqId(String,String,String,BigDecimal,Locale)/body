@@ -1,0 +1,31 @@
+{
+  Map<String,Object> orderItemLookupMap=FastMap.newInstance();
+  orderItemLookupMap.put("orderId",orderId);
+  orderItemLookupMap.put("productId",productId);
+  orderItemLookupMap.put("statusId","ITEM_APPROVED");
+  orderItemLookupMap.put("shipGroupSeqId",shipGroupSeqId);
+  List<GenericValue> orderItems=this.getDelegator().findByAnd("OrderItemAndShipGroupAssoc",orderItemLookupMap);
+  String orderItemSeqId=null;
+  if (orderItems != null) {
+    for (    GenericValue orderItem : orderItems) {
+      Map<String,Object> inventoryLookupMap=FastMap.newInstance();
+      inventoryLookupMap.put("orderId",orderId);
+      inventoryLookupMap.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+      inventoryLookupMap.put("shipGroupSeqId",shipGroupSeqId);
+      List<GenericValue> reservations=this.getDelegator().findByAnd("OrderItemShipGrpInvRes",inventoryLookupMap);
+      for (      GenericValue reservation : reservations) {
+        BigDecimal qty=reservation.getBigDecimal("quantity");
+        if (quantity.compareTo(qty) <= 0) {
+          orderItemSeqId=orderItem.getString("orderItemSeqId");
+          break;
+        }
+      }
+    }
+  }
+  if (orderItemSeqId != null) {
+    return orderItemSeqId;
+  }
+ else {
+    throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNoValidOrderItemFoundForProductWithEnteredQuantity",UtilMisc.toMap("productId",productId,"quantity",quantity),locale));
+  }
+}
