@@ -11,28 +11,29 @@
       if (UtilValidate.isNotEmpty(protectedViews)) {
         Long now=System.currentTimeMillis();
         List<GenericValue> tarpittedLoginViews=delegator.findByAnd("TarpittedLoginView",UtilMisc.toMap("userLoginId",userLoginId,"viewNameId",viewNameId));
+        String viewNameUserLoginId=viewNameId + userLoginId;
         if (UtilValidate.isNotEmpty(tarpittedLoginViews)) {
           GenericValue tarpittedLoginView=tarpittedLoginViews.get(0);
           Long tarpitReleaseDateTime=(Long)tarpittedLoginView.get("tarpitReleaseDateTime");
           if (now < tarpitReleaseDateTime) {
             String tarpittedMessage=UtilProperties.getMessage(resourceWebapp,"protectedviewevents.tarpitted_message",UtilHttp.getLocale(request));
-            hitsByViewAccessed.put(viewNameId,new Long(0));
+            hitsByViewAccessed.put(viewNameUserLoginId,new Long(0));
             return ":_protect_:" + tarpittedMessage;
           }
         }
         GenericValue protectedView=protectedViews.get(0);
-        if (UtilValidate.isEmpty(hitsByViewAccessed.get(viewNameId))) {
-          hitsByViewAccessed.put(viewNameId,one);
+        Long curMaxHits=(Long)hitsByViewAccessed.get(viewNameUserLoginId);
+        if (UtilValidate.isEmpty(curMaxHits)) {
+          hitsByViewAccessed.put(viewNameUserLoginId,one);
           Long maxHitsDuration=(Long)protectedView.get("maxHitsDuration") * 1000;
-          durationByViewAccessed.put(viewNameId,now + maxHitsDuration);
+          durationByViewAccessed.put(viewNameUserLoginId,now + maxHitsDuration);
         }
  else {
-          Long maxHits=protectedView.getLong("maxHits");
-          Long maxDuration=(Long)durationByViewAccessed.get(viewNameId);
-          Long newMaxHits=(Long)hitsByViewAccessed.get(viewNameId) + one;
-          hitsByViewAccessed.put(viewNameId,newMaxHits);
+          Long maxDuration=(Long)durationByViewAccessed.get(viewNameUserLoginId);
+          Long newMaxHits=(Long)curMaxHits + one;
+          hitsByViewAccessed.put(viewNameUserLoginId,newMaxHits);
           if (now < maxDuration) {
-            if (newMaxHits > maxHits) {
+            if (newMaxHits > protectedView.getLong("maxHits")) {
               String blockedMessage=UtilProperties.getMessage(resourceWebapp,"protectedviewevents.blocked_message",UtilHttp.getLocale(request));
               returnValue=":_protect_:" + blockedMessage;
               Long tarpitDuration=(Long)protectedView.get("tarpitDuration") * 1000;
@@ -49,9 +50,9 @@
             }
           }
  else {
-            hitsByViewAccessed.put(viewNameId,one);
+            hitsByViewAccessed.put(viewNameUserLoginId,one);
             Long maxHitsDuration=(Long)protectedView.get("maxHitsDuration") * 1000;
-            durationByViewAccessed.put(viewNameId,now + maxHitsDuration);
+            durationByViewAccessed.put(viewNameUserLoginId,now + maxHitsDuration);
           }
         }
       }
