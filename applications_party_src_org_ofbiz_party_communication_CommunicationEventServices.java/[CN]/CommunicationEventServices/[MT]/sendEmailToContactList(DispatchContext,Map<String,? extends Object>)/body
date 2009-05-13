@@ -10,6 +10,7 @@
   String skippingInvalidEmailAddress=UtilProperties.getMessage(resource,"commeventservices.skippingInvalidEmailAddress",locale);
   String contactListId=(String)context.get("contactListId");
   String communicationEventId=(String)context.get("communicationEventId");
+  EntityListIterator eli=null;
   try {
     GenericValue communicationEvent=delegator.findByPrimaryKey("CommunicationEvent",UtilMisc.toMap("communicationEventId",communicationEventId));
     GenericValue contactList=delegator.findByPrimaryKey("ContactList",UtilMisc.toMap("contactListId",contactListId));
@@ -22,9 +23,10 @@
     List<EntityCondition> conditionList=UtilMisc.toList(EntityCondition.makeCondition("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),EntityCondition.makeCondition("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr(),EntityUtil.getFilterByDateExpr("contactFromDate","contactThruDate"));
     EntityConditionList<EntityCondition> conditions=EntityCondition.makeCondition(conditionList,EntityOperator.AND);
     Set<String> fieldsToSelect=UtilMisc.toSet("infoString");
-    List<GenericValue> sendToEmails=delegator.findList("ContactListPartyAndContactMech",conditions,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true),false);
+    eli=delegator.find("ContactListPartyAndContactMech",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
     List<String> orderBy=UtilMisc.toList("-fromDate");
-    for (    GenericValue contactListPartyAndContactMech : sendToEmails) {
+    for (GenericValue contactListPartyAndContactMech; (contactListPartyAndContactMech=eli.next()) != null; ) {
+      Debug.logInfo("Contact info: " + contactListPartyAndContactMech,module);
       try {
         String emailAddress=contactListPartyAndContactMech.getString("infoString");
         if (UtilValidate.isEmpty(emailAddress))         continue;
@@ -36,16 +38,13 @@
         }
         List<EntityCondition> clpConditionList=UtilMisc.makeListWritable(conditionList);
         clpConditionList.add(EntityCondition.makeCondition("infoString",EntityOperator.EQUALS,emailAddress));
-        EntityConditionList clpConditions=EntityCondition.makeCondition(clpConditionList,EntityOperator.AND);
+        EntityConditionList<EntityCondition> clpConditions=EntityCondition.makeCondition(clpConditionList,EntityOperator.AND);
         List<GenericValue> emailCLPaCMs=delegator.findList("ContactListPartyAndContactMech",clpConditions,null,orderBy,null,true);
         GenericValue lastContactListPartyACM=EntityUtil.getFirst(emailCLPaCMs);
         if (lastContactListPartyACM == null)         continue;
         String partyId=lastContactListPartyACM.getString("partyId");
         sendMailParams.put("sendTo",emailAddress);
         sendMailParams.put("partyId",partyId);
-        if ("NEWSLETTER".equals(contactList.getString("contactListTypeId"))) {
-          sendMailParams.put("communicationEventId",communicationEventId);
-        }
         Map<String,String> contactListCommStatusRecordMap=UtilMisc.toMap("contactListId",contactListId,"communicationEventId",communicationEventId,"contactMechId",lastContactListPartyACM.getString("preferredContactMechId"));
         GenericValue contactListCommStatusRecord=delegator.findByPrimaryKey("ContactListCommStatus",contactListCommStatusRecordMap);
         if (contactListCommStatusRecord == null) {
@@ -57,13 +56,12 @@
  else         if (contactListCommStatusRecord.get("statusId") != null && contactListCommStatusRecord.getString("statusId").equals("COM_COMPLETE")) {
           continue;
         }
+        Debug.logInfo("Sending email to contact list [" + contactListId + "] party ["+ partyId+ "] : "+ emailAddress,module);
         Map<String,Object> tmpResult=dispatcher.runSync("sendMail",sendMailParams,360,true);
         if (tmpResult == null || ServiceUtil.isError(tmpResult)) {
           if (ServiceUtil.getErrorMessage(tmpResult).startsWith("[ADDRERR]")) {
-            communicationEvent.set("statusId","COM_BOUNCED");
             contactListCommStatusRecord.set("statusId","COM_BOUNCED");
             try {
-              communicationEvent.store();
               contactListCommStatusRecord.store();
             }
  catch (            GenericEntityException e) {
@@ -90,6 +88,12 @@
           }
         }
  else {
+          String thisCommEventId=(String)tmpResult.get("communicationEventId");
+          GenericValue thisCommEvent=delegator.findOne("CommunicationEvent",false,"communicationEventId",thisCommEventId);
+          if (thisCommEvent != null) {
+            thisCommEvent.set("parentCommEventId",communicationEventId);
+            thisCommEvent.store();
+          }
           String messageId=(String)tmpResult.get("messageId");
           contactListCommStatusRecord.set("messageId",messageId);
         }
@@ -116,6 +120,16 @@ catch (      GenericServiceException nonFatalGSE) {
   }
  catch (  GenericEntityException fatalGEE) {
     ServiceUtil.returnError(fatalGEE.getMessage());
+  }
+ finally {
+    if (eli != null) {
+      try {
+        eli.close();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+    }
   }
   return errorMessages.size() == 0 ? ServiceUtil.returnSuccess() : ServiceUtil.returnError(errorMessages);
 }
