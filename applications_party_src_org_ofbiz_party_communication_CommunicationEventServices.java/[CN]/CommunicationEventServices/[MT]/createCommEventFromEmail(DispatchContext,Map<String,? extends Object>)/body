@@ -1,0 +1,73 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String subject=(String)context.get("subject");
+  String sendFrom=(String)context.get("sendFrom");
+  String sendTo=(String)context.get("sendTo");
+  String partyId=(String)context.get("partyId");
+  String contentType=(String)context.get("contentType");
+  String statusId=(String)context.get("statusId");
+  if (statusId == null) {
+    statusId="COM_PENDING";
+  }
+  String contactMechIdFrom=null;
+  String partyIdFrom=null;
+  GenericValue fromCm;
+  try {
+    List<GenericValue> fromCms=delegator.findByAnd("PartyAndContactMech",UtilMisc.toMap("infoString",sendFrom),UtilMisc.toList("-fromDate"));
+    fromCms=EntityUtil.filterByDate(fromCms);
+    fromCm=EntityUtil.getFirst(fromCms);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (fromCm != null) {
+    contactMechIdFrom=fromCm.getString("contactMechId");
+    partyIdFrom=fromCm.getString("partyId");
+  }
+  String contactMechIdTo=null;
+  GenericValue toCm;
+  try {
+    List<GenericValue> toCms=delegator.findByAnd("PartyAndContactMech",UtilMisc.toMap("infoString",sendTo,"partyId",partyId),UtilMisc.toList("-fromDate"));
+    toCms=EntityUtil.filterByDate(toCms);
+    toCm=EntityUtil.getFirst(toCms);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (toCm != null) {
+    contactMechIdTo=toCm.getString("contactMechId");
+  }
+  Timestamp now=UtilDateTime.nowTimestamp();
+  Map<String,Object> commEventMap=FastMap.newInstance();
+  commEventMap.put("communicationEventTypeId","EMAIL_COMMUNICATION");
+  commEventMap.put("contactMechTypeId","EMAIL_ADDRESS");
+  commEventMap.put("contactMechIdFrom",contactMechIdFrom);
+  commEventMap.put("contactMechIdTo",contactMechIdTo);
+  commEventMap.put("statusId",statusId);
+  commEventMap.put("partyIdFrom",partyIdFrom);
+  commEventMap.put("partyIdTo",partyId);
+  commEventMap.put("datetimeStarted",now);
+  commEventMap.put("entryDate",now);
+  commEventMap.put("subject",subject);
+  commEventMap.put("userLogin",userLogin);
+  commEventMap.put("contentMimeTypeId",contentType);
+  Map<String,Object> createResult;
+  try {
+    createResult=dispatcher.runSync("createCommunicationEvent",commEventMap);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(createResult)) {
+    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(createResult));
+  }
+  String communicationEventId=(String)createResult.get("communicationEventId");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("communicationEventId",communicationEventId);
+  return result;
+}

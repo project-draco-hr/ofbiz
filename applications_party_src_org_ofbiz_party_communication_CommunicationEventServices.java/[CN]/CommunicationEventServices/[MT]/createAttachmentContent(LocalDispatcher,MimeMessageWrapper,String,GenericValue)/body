@@ -1,0 +1,44 @@
+{
+  String subject=wrapper.getSubject();
+  List<String> attachmentIndexes=wrapper.getAttachmentIndexes();
+  if (attachmentIndexes.size() > 0) {
+    Debug.logInfo("=== message has attachments [" + attachmentIndexes.size() + "] =====",module);
+    for (    String attachmentIdx : attachmentIndexes) {
+      Map<String,Object> attachmentMap=FastMap.newInstance();
+      attachmentMap.put("communicationEventId",communicationEventId);
+      attachmentMap.put("contentTypeId","DOCUMENT");
+      attachmentMap.put("mimeTypeId","text/html");
+      attachmentMap.put("userLogin",userLogin);
+      if (subject != null && subject.length() > 80) {
+        subject=subject.substring(0,80);
+      }
+      String attFileName=wrapper.getPartFilename(attachmentIdx);
+      String attContentType=wrapper.getPartContentType(attachmentIdx);
+      if (attContentType != null && attContentType.indexOf(";") > -1) {
+        attContentType=attContentType.toLowerCase().substring(0,attContentType.indexOf(";"));
+      }
+      if (!UtilValidate.isEmpty(attFileName)) {
+        attachmentMap.put("contentName",attFileName);
+        attachmentMap.put("description",subject + "-" + attachmentIdx);
+      }
+ else {
+        attachmentMap.put("contentName",subject + "-" + attachmentIdx);
+      }
+      attachmentMap.put("drMimeTypeId",attContentType);
+      if (attContentType.startsWith("text")) {
+        String text=wrapper.getPartText(attachmentIdx);
+        attachmentMap.put("drDataResourceTypeId","ELECTRONIC_TEXT");
+        attachmentMap.put("textData",text);
+      }
+ else {
+        ByteBuffer data=wrapper.getPartByteBuffer(attachmentIdx);
+        if (Debug.infoOn())         Debug.logInfo("Binary attachment size: " + data.limit(),module);
+        attachmentMap.put("drDataResourceName",attFileName);
+        attachmentMap.put("imageData",data);
+        attachmentMap.put("drDataResourceTypeId","IMAGE_OBJECT");
+        attachmentMap.put("_imageData_contentType",attContentType);
+      }
+      dispatcher.runSync("createCommContentDataResource",attachmentMap);
+    }
+  }
+}
