@@ -2,7 +2,6 @@
   GenericDelegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   MimeMessageWrapper wrapper=(MimeMessageWrapper)context.get("messageWrapper");
-  MimeMessage message=wrapper.getMessage();
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String partyIdTo=null;
@@ -13,23 +12,23 @@
   String contactMechIdTo=null;
   Map<String,Object> result=null;
   try {
-    String contentTypeRaw=message.getContentType();
+    String contentTypeRaw=wrapper.getContentType();
     int idx=contentTypeRaw.indexOf(";");
     if (idx == -1)     idx=contentTypeRaw.length();
     contentType=contentTypeRaw.substring(0,idx);
     if (contentType == null || contentType.equals(""))     contentType="text/html";
     contentType=contentType.toLowerCase();
-    Address[] addressesFrom=message.getFrom();
-    Address[] addressesTo=message.getRecipients(MimeMessage.RecipientType.TO);
-    Address[] addressesCC=message.getRecipients(MimeMessage.RecipientType.CC);
-    Address[] addressesBCC=message.getRecipients(MimeMessage.RecipientType.BCC);
-    String messageId=message.getMessageID();
+    Address[] addressesFrom=wrapper.getFrom();
+    Address[] addressesTo=wrapper.getTo();
+    Address[] addressesCC=wrapper.getCc();
+    Address[] addressesBCC=wrapper.getBcc();
+    String messageId=wrapper.getMessageId();
     String aboutThisEmail="message [" + messageId + "] from ["+ (addressesFrom[0] == null ? "not found" : addressesFrom[0].toString())+ "] to ["+ (addressesTo[0] == null ? "not found" : addressesTo[0].toString())+ "]";
     if (Debug.verboseOn())     Debug.logVerbose("Processing Incoming Email " + aboutThisEmail,module);
     String spamHeaderName=UtilProperties.getPropertyValue("general.properties","mail.spam.name","N");
     String configHeaderValue=UtilProperties.getPropertyValue("general.properties","mail.spam.value");
-    if (!spamHeaderName.equals("N") && message.getHeader(spamHeaderName) != null && message.getHeader(spamHeaderName).length > 0) {
-      String msgHeaderValue=message.getHeader(spamHeaderName)[0];
+    if (!spamHeaderName.equals("N") && wrapper.getHeader(spamHeaderName) != null && wrapper.getHeader(spamHeaderName).length > 0) {
+      String msgHeaderValue=wrapper.getHeader(spamHeaderName)[0];
       if (msgHeaderValue != null && msgHeaderValue.startsWith(configHeaderValue)) {
         Debug.logInfo("Incoming Email message ignored, was detected by external spam checker",module);
         return ServiceUtil.returnSuccess(" Message Ignored: detected by external spam checker");
@@ -63,9 +62,8 @@
       partyIdTo=(String)firstAddressTo.get("partyId");
       contactMechIdTo=(String)firstAddressTo.get("contactMechId");
     }
-    String deliveredTo=null;
-    if (message.getHeader("Delivered-To") != null) {
-      deliveredTo=message.getHeader("Delivered-To")[0];
+    String deliveredTo=wrapper.getFirstHeader("Delivered-To");
+    if (deliveredTo != null) {
       String dn=deliveredTo.substring(deliveredTo.indexOf("@") + 1,deliveredTo.length());
       if (deliveredTo.startsWith(dn)) {
         deliveredTo=deliveredTo.substring(dn.length() + 1,deliveredTo.length());
@@ -90,23 +88,21 @@
     commEventMap.put("communicationEventTypeId","AUTO_EMAIL_COMM");
     commEventMap.put("contactMechTypeId","EMAIL_ADDRESS");
     commEventMap.put("messageId",messageId);
-    String subject=message.getSubject();
+    String subject=wrapper.getSubject();
     commEventMap.put("subject",subject);
     commEventMap.put("entryDate",nowTimestamp);
-    commEventMap.put("datetimeStarted",UtilDateTime.toTimestamp(message.getSentDate()));
-    commEventMap.put("datetimeEnded",UtilDateTime.toTimestamp(message.getReceivedDate()));
+    commEventMap.put("datetimeStarted",UtilDateTime.toTimestamp(wrapper.getSentDate()));
+    commEventMap.put("datetimeEnded",UtilDateTime.toTimestamp(wrapper.getReceivedDate()));
     commEventMap.put("roleTypeIdFrom","_NA_");
     commEventMap.put("roleTypeIdTo","_NA_");
-    Object messageContent=message.getContent();
-    if (contentType.startsWith("text")) {
-      commEventMap.put("content",messageContent);
-      commEventMap.put("contentMimeTypeId",contentType);
+    String messageBodyContentType=wrapper.getMessageBodyContentType();
+    if (messageBodyContentType.indexOf(";") > -1) {
+      messageBodyContentType=messageBodyContentType.substring(0,messageBodyContentType.indexOf(";"));
     }
- else     if (messageContent instanceof Multipart) {
-      contentIndex="";
-      commEventMap=addMessageBody(commEventMap,(Multipart)messageContent);
-    }
-    String[] inReplyTo=message.getHeader("In-Reply-To");
+    String messageBody=wrapper.getMessageBody();
+    commEventMap.put("content",messageBody);
+    commEventMap.put("contentMimeTypeId",messageBodyContentType.toLowerCase());
+    String[] inReplyTo=wrapper.getHeader("In-Reply-To");
     if (inReplyTo != null && inReplyTo[0] != null) {
       GenericValue parentCommEvent=null;
       try {
@@ -185,7 +181,7 @@
     }
     commEventMap.put("userLogin",userLogin);
     StringBuilder headerString=new StringBuilder();
-    Enumeration headerLines=message.getAllHeaderLines();
+    Enumeration headerLines=wrapper.getMessage().getAllHeaderLines();
     while (headerLines.hasMoreElements()) {
       headerString.append(System.getProperty("line.separator"));
       headerString.append(headerLines.nextElement());
@@ -193,10 +189,46 @@
     commEventMap.put("headerString",headerString.toString());
     result=dispatcher.runSync("createCommunicationEvent",commEventMap);
     communicationEventId=(String)result.get("communicationEventId");
-    if (messageContent instanceof Multipart) {
-      Debug.logInfo("===message has attachments=====",module);
-      int attachmentCount=addAttachmentsToCommEvent((Multipart)messageContent,subject,communicationEventId,dispatcher,userLogin);
-      if (Debug.infoOn())       Debug.logInfo(attachmentCount + " attachments added to CommunicationEvent:" + communicationEventId,module);
+    List<String> attachmentIndexes=wrapper.getAttachmentIndexes();
+    if (attachmentIndexes.size() > 0) {
+      Debug.logInfo("=== message has attachments [" + attachmentIndexes.size() + "] =====",module);
+      for (      String attachmentIdx : attachmentIndexes) {
+        Map<String,Object> attachmentMap=FastMap.newInstance();
+        attachmentMap.put("communicationEventId",communicationEventId);
+        attachmentMap.put("contentTypeId","DOCUMENT");
+        attachmentMap.put("mimeTypeId","text/html");
+        attachmentMap.put("userLogin",userLogin);
+        if (subject != null && subject.length() > 80) {
+          subject=subject.substring(0,80);
+        }
+        String attFileName=wrapper.getPartFilename(attachmentIdx);
+        String attContentType=wrapper.getPartContentType(attachmentIdx);
+        if (attContentType != null && attContentType.indexOf(";") > -1) {
+          attContentType=attContentType.toLowerCase().substring(0,attContentType.indexOf(";"));
+        }
+        if (!UtilValidate.isEmpty(attFileName)) {
+          attachmentMap.put("contentName",attFileName);
+          attachmentMap.put("description",subject + "-" + attachmentIdx);
+        }
+ else {
+          attachmentMap.put("contentName",subject + "-" + attachmentIdx);
+        }
+        attachmentMap.put("drMimeTypeId",attContentType);
+        if (attContentType.startsWith("text")) {
+          String text=wrapper.getPartText(attachmentIdx);
+          attachmentMap.put("drDataResourceTypeId","ELECTRONIC_TEXT");
+          attachmentMap.put("textData",text);
+        }
+ else {
+          ByteBuffer data=wrapper.getPartByteBuffer(attachmentIdx);
+          if (Debug.infoOn())           Debug.logInfo("Binary attachment size: " + data.limit(),module);
+          attachmentMap.put("drDataResourceName",attFileName);
+          attachmentMap.put("imageData",data);
+          attachmentMap.put("drDataResourceTypeId","IMAGE_OBJECT");
+          attachmentMap.put("_imageData_contentType",attContentType);
+        }
+        dispatcher.runSync("createCommContentDataResource",attachmentMap);
+      }
     }
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,toParties,"ADDRESSEE");
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,ccParties,"CC");
@@ -211,10 +243,6 @@
     return ServiceUtil.returnError(e.getMessage());
   }
 catch (  GenericServiceException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(e.getMessage());
-  }
-catch (  IOException e) {
     Debug.logError(e,module);
     return ServiceUtil.returnError(e.getMessage());
   }
