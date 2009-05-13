@@ -17,7 +17,10 @@
  else {
     locale=(Locale)bodyParameters.get("locale");
   }
-  String partyId=(String)bodyParameters.get("partyId");
+  String partyId=(String)serviceContext.get("partyId");
+  if (partyId == null) {
+    partyId=(String)bodyParameters.get("partyId");
+  }
   if (UtilValidate.isNotEmpty(webSiteId)) {
     NotificationServices.setBaseUrl(dctx.getDelegator(),webSiteId,bodyParameters);
   }
@@ -131,12 +134,13 @@ catch (    ParserConfigurationException pe) {
   serviceContext.put("partyId",partyId);
   if (Debug.verboseOn())   Debug.logVerbose("sendMailFromScreen sendMail context: " + serviceContext,module);
   Map<String,Object> result=ServiceUtil.returnSuccess();
+  Map<String,Object> sendMailResult;
   try {
     if (isMultiPart) {
-      dispatcher.runSync("sendMailMultiPart",serviceContext);
+      sendMailResult=dispatcher.runSync("sendMailMultiPart",serviceContext);
     }
  else {
-      dispatcher.runSync("sendMail",serviceContext);
+      sendMailResult=dispatcher.runSync("sendMail",serviceContext);
     }
   }
  catch (  Exception e) {
@@ -144,6 +148,10 @@ catch (    ParserConfigurationException pe) {
     Debug.logError(e,errMsg,module);
     return ServiceUtil.returnError(errMsg);
   }
+  if (ServiceUtil.isError(sendMailResult)) {
+    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(sendMailResult));
+  }
+  result.put("messageWrapper",sendMailResult.get("messageWrapper"));
   result.put("body",bodyWriter.toString());
   return result;
 }
