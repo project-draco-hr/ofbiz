@@ -1,0 +1,101 @@
+{
+  Locale locale=UtilHttp.getLocale(request);
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  Map<String,Object> parametersMap=UtilHttp.getParameterMap(request);
+  String orderId=request.getParameter("cartId");
+  Set<String> keySet=parametersMap.keySet();
+  Iterator<String> i=keySet.iterator();
+  while (i.hasNext()) {
+    String name=(String)i.next();
+    String value=request.getParameter(name);
+    Debug.logError("### Param: " + name + " => "+ value,module);
+  }
+  if (userLogin == null) {
+    String userLoginId="system";
+    try {
+      userLogin=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId",userLoginId),false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot get UserLogin for: " + userLoginId + "; cannot continue",module);
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"worldPayEvents.problemsGettingAuthenticationUser",locale));
+      return "error";
+    }
+  }
+  GenericValue orderHeader=null;
+  if (UtilValidate.isNotEmpty(orderId)) {
+    try {
+      orderHeader=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"worldPayEvents.problemsGettingOrderHeader",locale));
+      return "error";
+    }
+  }
+ else {
+    Debug.logError("WorldPay did not callback with a valid orderId!",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"worldPayEvents.noValidOrderIdReturned",locale));
+    return "error";
+  }
+  if (orderHeader == null) {
+    Debug.logError("Cannot get the order header for order: " + orderId,module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"worldPayEvents.problemsGettingOrderHeader",locale));
+    return "error";
+  }
+  String paymentStatus=request.getParameter("transStatus");
+  boolean okay=true;
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    if ("Y".equals(paymentStatus)) {
+      okay=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
+    }
+ else     if ("C".equals(paymentStatus)) {
+      okay=OrderChangeHelper.cancelOrder(dispatcher,userLogin,orderId);
+    }
+    if (okay) {
+      okay=setPaymentPreferences(delegator,dispatcher,userLogin,orderId,request);
+    }
+  }
+ catch (  Exception e) {
+    String errMsg="Error handling WorldPay notification";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericTransactionException gte2) {
+      Debug.logError(gte2,"Unable to rollback transaction",module);
+    }
+  }
+ finally {
+    if (!okay) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"Failure in processing WorldPay callback",null);
+      }
+ catch (      GenericTransactionException gte) {
+        Debug.logError(gte,"Unable to rollback transaction",module);
+      }
+    }
+ else {
+      try {
+        TransactionUtil.commit(beganTransaction);
+      }
+ catch (      GenericTransactionException gte) {
+        Debug.logError(gte,"Unable to commit transaction",module);
+      }
+    }
+  }
+  if (okay) {
+    OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
+    Map<String,String> emailContext=UtilMisc.toMap("orderId",orderId,"userLogin",userLogin);
+    try {
+      dispatcher.runSync("sendOrderConfirmation",emailContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problems sending email confirmation",module);
+    }
+  }
+  return "success";
+}

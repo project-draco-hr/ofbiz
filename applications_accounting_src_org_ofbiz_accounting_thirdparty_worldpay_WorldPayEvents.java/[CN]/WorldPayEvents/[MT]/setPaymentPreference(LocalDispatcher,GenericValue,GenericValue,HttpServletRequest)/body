@@ -1,0 +1,68 @@
+{
+  Locale locale=UtilHttp.getLocale(request);
+  String paymentStatus=request.getParameter("transStatus");
+  String paymentAmount=request.getParameter("authAmount");
+  Long paymentDate=new Long(request.getParameter("transTime"));
+  String transactionId=request.getParameter("transId");
+  String gatewayFlag=request.getParameter("rawAuthCode");
+  String avs=request.getParameter("AVS");
+  List<GenericValue> toStore=new LinkedList<GenericValue>();
+  java.sql.Timestamp authDate=null;
+  try {
+    authDate=new java.sql.Timestamp(paymentDate.longValue());
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Cannot create date from long: " + paymentDate,module);
+    authDate=UtilDateTime.nowTimestamp();
+  }
+  paymentPreference.set("maxAmount",new BigDecimal(paymentAmount));
+  if ("Y".equals(paymentStatus)) {
+    paymentPreference.set("statusId","PAYMENT_RECEIVED");
+  }
+ else   if ("C".equals(paymentStatus)) {
+    paymentPreference.set("statusId","PAYMENT_CANCELLED");
+  }
+ else {
+    paymentPreference.set("statusId","PAYMENT_NOT_RECEIVED");
+  }
+  toStore.add(paymentPreference);
+  GenericDelegator delegator=paymentPreference.getDelegator();
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue response=delegator.makeValue("PaymentGatewayResponse");
+  response.set("paymentGatewayResponseId",responseId);
+  response.set("paymentServiceTypeEnumId","PRDS_PAY_EXTERNAL");
+  response.set("orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
+  response.set("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
+  response.set("paymentMethodId",paymentPreference.get("paymentMethodId"));
+  response.set("amount",new BigDecimal(paymentAmount));
+  response.set("referenceNum",transactionId);
+  response.set("gatewayCode",paymentStatus);
+  response.set("gatewayFlag",gatewayFlag);
+  response.set("transactionDate",authDate);
+  response.set("gatewayAvsResult",avs);
+  response.set("gatewayCvResult",avs.substring(0,1));
+  toStore.add(response);
+  try {
+    delegator.storeAll(toStore);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot set payment preference/payment info",module);
+    return false;
+  }
+  Map<String,Object> results=null;
+  try {
+    String comment=UtilProperties.getMessage(resource,"AccountingPaymentReceiveViaWorldPay",locale);
+    results=dispatcher.runSync("createPaymentFromPreference",UtilMisc.toMap("userLogin",userLogin,"orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"),"comments",comment));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Failed to execute service createPaymentFromPreference",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"worldPayEvents.failedToExecuteServiceCreatePaymentFromPreference",locale));
+    return false;
+  }
+  if ((results == null) || (results.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
+    Debug.logError((String)results.get(ModelService.ERROR_MESSAGE),module);
+    request.setAttribute("_ERROR_MESSAGE_",(String)results.get(ModelService.ERROR_MESSAGE));
+    return false;
+  }
+  return true;
+}
