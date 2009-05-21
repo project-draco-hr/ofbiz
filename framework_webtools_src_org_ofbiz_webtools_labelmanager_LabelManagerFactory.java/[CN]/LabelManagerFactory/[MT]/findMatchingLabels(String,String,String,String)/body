@@ -1,0 +1,49 @@
+{
+  if (UtilValidate.isEmpty(component) && UtilValidate.isEmpty(fileName) && UtilValidate.isEmpty(key)&& UtilValidate.isEmpty(locale)) {
+    return;
+  }
+  for (  LabelFile fileInfo : filesFound.values()) {
+    if (UtilValidate.isNotEmpty(component) && !component.equals(fileInfo.componentName)) {
+      continue;
+    }
+    if (UtilValidate.isNotEmpty(fileName) && !fileName.equals(fileInfo.getFileName())) {
+      continue;
+    }
+    Document resourceDocument=UtilXml.readXmlDocument(fileInfo.file.toURL(),false);
+    Element resourceElem=resourceDocument.getDocumentElement();
+    String labelKeyComment="";
+    for (    Node propertyNode : UtilXml.childNodeList(resourceElem.getFirstChild())) {
+      if (propertyNode instanceof Element) {
+        Element propertyElem=(Element)propertyNode;
+        String labelKey=StringUtil.defaultWebEncoder.canonicalize(propertyElem.getAttribute("key"));
+        String labelComment="";
+        for (        Node valueNode : UtilXml.childNodeList(propertyElem.getFirstChild())) {
+          if (valueNode instanceof Element) {
+            Element valueElem=(Element)valueNode;
+            String localeName=valueElem.getAttribute("xml:lang");
+            String labelValue=StringUtil.defaultWebEncoder.canonicalize(UtilXml.nodeValue(valueElem.getFirstChild()));
+            LabelInfo label=labels.get(labelKey + keySeparator + fileInfo.getFileName());
+            if (UtilValidate.isEmpty(label)) {
+              label=new LabelInfo(labelKey,labelKeyComment,fileInfo.getFileName(),localeName,labelValue,labelComment);
+              labels.put(labelKey + keySeparator + fileInfo.getFileName(),label);
+            }
+ else {
+              if (label.setLabelValue(localeName,labelValue,labelComment,false)) {
+                duplicatedLocalesLabelsList.add(label);
+              }
+            }
+            localesFound.add(localeName);
+            labelComment="";
+          }
+ else           if (valueNode instanceof Comment) {
+            labelComment=labelComment + StringUtil.defaultWebEncoder.canonicalize(valueNode.getNodeValue());
+          }
+        }
+        labelKeyComment="";
+      }
+ else       if (propertyNode instanceof Comment) {
+        labelKeyComment=labelKeyComment + StringUtil.defaultWebEncoder.canonicalize(propertyNode.getNodeValue());
+      }
+    }
+  }
+}

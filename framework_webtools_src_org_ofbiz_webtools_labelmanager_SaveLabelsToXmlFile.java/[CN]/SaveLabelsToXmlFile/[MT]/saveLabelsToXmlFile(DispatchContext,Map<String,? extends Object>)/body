@@ -1,24 +1,64 @@
 {
   Locale locale=(Locale)context.get("locale");
-  String labelFileName=(String)context.get("labelFileName");
+  String fileName=(String)context.get("fileName");
+  if (UtilValidate.isEmpty(fileName)) {
+    Debug.logError("labelFileName cannot be empty",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"saveLabelsToXmlFile.exceptionDuringSaveLabelsToXmlFile",locale));
+  }
+  String key=(String)context.get("key");
+  String keyComment=(String)context.get("keyComment");
+  String update_label=(String)context.get("update_label");
+  String confirm=(String)context.get("confirm");
+  String removeLabel=(String)context.get("removeLabel");
+  List<String> localeNames=UtilGenerics.cast(context.get("localeNames"));
+  List<String> localeValues=UtilGenerics.cast(context.get("localeValues"));
+  List<String> localeComments=UtilGenerics.cast(context.get("localeComments"));
   String apacheLicenseText=null;
   try {
-    apacheLicenseText=getApacheLicenseText();
+    apacheLicenseText=FileUtil.readString("UTF-8",FileUtil.getFile("component://webtools/config/APACHE2_HEADER_FOR_XML"));
   }
  catch (  IOException e) {
     Debug.logWarning(e,"Unable to read Apache License text file",module);
   }
   try {
-    LabelManagerFactory.getLabelManagerFactory(dctx.getDelegator().getDelegatorName());
-    Map<String,LabelInfo> labels=LabelManagerFactory.getLabels();
-    Map<String,String> fileNamesFound=LabelManagerFactory.getFileNamesFound();
-    Set<String> labelsList=LabelManagerFactory.getLabelsList();
-    Set<String> localesFound=LabelManagerFactory.getLocalesFound();
-    for (    String fileName : fileNamesFound.keySet()) {
-      if (UtilValidate.isNotEmpty(labelFileName) && !(labelFileName.equalsIgnoreCase(fileName))) {
-        continue;
+    LabelManagerFactory factory=LabelManagerFactory.getInstance();
+    LabelFile labelFile=factory.getLabelFile(fileName);
+    if (labelFile == null) {
+      Debug.logError("Invalid file name: " + fileName,module);
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"saveLabelsToXmlFile.exceptionDuringSaveLabelsToXmlFile",locale));
+    }
+synchronized (SaveLabelsToXmlFile.class) {
+      factory.findMatchingLabels(null,fileName,null,null);
+      Map<String,LabelInfo> labels=factory.getLabels();
+      Set<String> labelsList=factory.getLabelsList();
+      Set<String> localesFound=factory.getLocalesFound();
+      if (UtilValidate.isNotEmpty(removeLabel)) {
+        labels.remove(key + LabelManagerFactory.keySeparator + fileName);
       }
-      String uri=fileNamesFound.get(fileName);
+ else       if (UtilValidate.isNotEmpty(confirm)) {
+        LabelInfo label=labels.get(key + LabelManagerFactory.keySeparator + fileName);
+        if (update_label.equalsIgnoreCase("Y")) {
+          if (UtilValidate.isNotEmpty(label)) {
+            factory.updateLabelValue(localeNames,localeValues,localeComments,label,key,keyComment,fileName);
+          }
+        }
+ else {
+          if (UtilValidate.isNotEmpty(label)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"WebtoolsLabelManagerNewLabelExisting",UtilMisc.toMap("key",key,"fileName",fileName),locale));
+          }
+ else {
+            if (UtilValidate.isEmpty(key)) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"WebtoolsLabelManagerNewLabelEmptyKey",locale));
+            }
+ else {
+              int notEmptyLabels=factory.updateLabelValue(localeNames,localeValues,localeComments,null,key,keyComment,fileName);
+              if (notEmptyLabels == 0) {
+                return ServiceUtil.returnError(UtilProperties.getMessage(resource,"WebtoolsLabelManagerNewLabelEmpty",locale));
+              }
+            }
+          }
+        }
+      }
       Document resourceDocument=UtilXml.makeEmptyXmlDocument("resource");
       Element resourceElem=resourceDocument.getDocumentElement();
       resourceElem.setAttribute("xmlns:xsi","http://www.w3.org/2001/XMLSchema-instance");
@@ -55,10 +95,7 @@
             }
           }
         }
-      }
-      if (UtilValidate.isNotEmpty(uri)) {
-        File outFile=new File(new URI(uri));
-        FileOutputStream fos=new FileOutputStream(outFile);
+        FileOutputStream fos=new FileOutputStream(labelFile.file);
         try {
           if (apacheLicenseText != null) {
             fos.write(apacheLicenseText.getBytes());
