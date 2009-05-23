@@ -48,10 +48,7 @@
     }
     if (!commEvents.isEmpty()) {
       Debug.logInfo("Ignoring Duplicate Email: " + aboutThisEmail,module);
-      return ServiceUtil.returnSuccess(" Message Ignored: deplicate messageId");
-    }
- else {
-      Debug.logInfo("Persisting New Email: " + aboutThisEmail,module);
+      return ServiceUtil.returnSuccess(" Message Ignored: duplicate messageId");
     }
     List<Map<String,Object>> toParties=buildListOfPartyInfoFromEmailAddresses(addressesTo,userLogin,dispatcher);
     List<Map<String,Object>> ccParties=buildListOfPartyInfoFromEmailAddresses(addressesCC,userLogin,dispatcher);
@@ -99,7 +96,18 @@
     if (messageBodyContentType.indexOf(";") > -1) {
       messageBodyContentType=messageBodyContentType.substring(0,messageBodyContentType.indexOf(";"));
     }
-    String messageBody=wrapper.getMessageBody();
+    String messageBody=null;
+    if (wrapper.getMainPartCount() > 1) {
+      for (int ind=0; ind < wrapper.getMainPartCount(); ind++) {
+        BodyPart p=wrapper.getPart(ind + "");
+        if (p.getContentType().toLowerCase().indexOf("text/plain") > -1) {
+          messageBody=(String)p.getContent();
+        }
+      }
+    }
+    if (messageBody == null) {
+      messageBody=wrapper.getMessageBody();
+    }
     commEventMap.put("content",messageBody);
     commEventMap.put("contentMimeTypeId",messageBodyContentType.toLowerCase());
     String[] inReplyTo=wrapper.getHeader("In-Reply-To");
@@ -162,6 +170,7 @@
     commEventMap.put("headerString",headerString.toString());
     result=dispatcher.runSync("createCommunicationEvent",commEventMap);
     communicationEventId=(String)result.get("communicationEventId");
+    Debug.logInfo("Persisting New Email: " + aboutThisEmail + " into CommunicationEventId: "+ communicationEventId,module);
     createAttachmentContent(dispatcher,wrapper,communicationEventId,userLogin);
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,toParties,"ADDRESSEE");
     createCommEventRoles(userLogin,delegator,dispatcher,communicationEventId,ccParties,"CC");
