@@ -1,0 +1,64 @@
+{
+  Map<String,Object> lookupMap=FastMap.newInstance();
+  String cmId=null;
+  String entityName="PartyAndContactMech";
+  if (contactMechPurposeTypeId.startsWith("PHONE_")) {
+    lookupMap.put("partyId",cart.getOrderPartyId());
+    lookupMap.put("contactNumber",infoString);
+    entityName="PartyAndTelecomNumber";
+  }
+ else   if (contactMechPurposeTypeId.endsWith("_EMAIL")) {
+    lookupMap.put("partyId",cart.getOrderPartyId());
+    lookupMap.put("infoString",infoString);
+  }
+ else {
+    throw new GeneralException("Invalid contact mech type");
+  }
+  List<GenericValue> cmLookup;
+  try {
+    cmLookup=delegator.findByAnd(entityName,lookupMap,UtilMisc.toList("-fromDate"));
+    cmLookup=EntityUtil.filterByDate(cmLookup);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw e;
+  }
+  if (cmLookup != null && cmLookup.size() > 0) {
+    GenericValue v=EntityUtil.getFirst(cmLookup);
+    if (v != null) {
+      cmId=v.getString("contactMechId");
+    }
+  }
+ else {
+    lookupMap.put("contactMechPurposeTypeId",contactMechPurposeTypeId);
+    lookupMap.put("userLogin",system);
+    Map<String,Object> createResp=null;
+    if (contactMechPurposeTypeId.startsWith("PHONE_")) {
+      try {
+        createResp=dispatcher.runSync("createPartyTelecomNumber",lookupMap);
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,module);
+        throw e;
+      }
+    }
+ else     if (contactMechPurposeTypeId.endsWith("_EMAIL")) {
+      lookupMap.put("emailAddress",lookupMap.get("infoString"));
+      lookupMap.put("allowSolicitation","Y");
+      try {
+        createResp=dispatcher.runSync("createPartyEmailAddress",lookupMap);
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,module);
+        throw e;
+      }
+    }
+    if (createResp == null || ServiceUtil.isError(createResp)) {
+      throw new GeneralException("Unable to create the request contact mech");
+    }
+    cmId=(String)createResp.get("contactMechId");
+  }
+  if (cmId != null) {
+    cart.addContactMech(contactMechPurposeTypeId,cmId);
+  }
+}

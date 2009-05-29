@@ -1,0 +1,67 @@
+{
+  String externalId=info.getGoogleOrderNumber();
+  List<GenericValue> existingOrder=delegator.findByAnd("OrderHeader",UtilMisc.toMap("externalId",externalId));
+  if (existingOrder != null && existingOrder.size() > 0) {
+    throw new GeneralException("Google order #" + externalId + " already exists.");
+  }
+  ShoppingCart cart=new ShoppingCart(delegator,productStoreId,websiteId,locale,currencyUom);
+  cart.setUserLogin(system,dispatcher);
+  cart.setOrderType(ORDER_TYPE);
+  cart.setChannelType(SALES_CHANNEL);
+  cart.setExternalId(externalId);
+  Debug.logInfo("Created shopping cart for Google order: ",module);
+  Debug.logInfo("-- WebSite : " + websiteId,module);
+  Debug.logInfo("-- Product Store : " + productStoreId,module);
+  Debug.logInfo("-- Locale : " + locale.toString(),module);
+  Debug.logInfo("-- Google Order # : " + externalId,module);
+  Address shippingAddress=info.getBuyerShippingAddress();
+  Address billingAddress=info.getBuyerBillingAddress();
+  String[] partyInfo=getPartyInfo(shippingAddress,billingAddress);
+  if (partyInfo == null || partyInfo.length != 3) {
+    throw new GeneralException("Unable to parse/create party information, invalid number of parameters returned");
+  }
+  cart.setOrderPartyId(partyInfo[0]);
+  cart.setPlacingCustomerPartyId(partyInfo[0]);
+  cart.setShippingContactMechId(partyInfo[1]);
+  String shippingEmail=shippingAddress.getEmail();
+  if (UtilValidate.isNotEmpty(shippingEmail)) {
+    setContactInfo(cart,"PRIMARY_EMAIL",shippingEmail);
+  }
+  String billingEmail=billingAddress.getEmail();
+  if (UtilValidate.isNotEmpty(billingEmail)) {
+    setContactInfo(cart,"BILLING_EMAIL",billingEmail);
+  }
+  String shippingPhone=shippingAddress.getPhone();
+  if (UtilValidate.isNotEmpty(shippingPhone)) {
+    setContactInfo(cart,"PHONE_SHIPPING",shippingPhone);
+  }
+  String billingPhone=billingAddress.getPhone();
+  if (UtilValidate.isNotEmpty(billingPhone)) {
+    setContactInfo(cart,"PHONE_BILLING",billingPhone);
+  }
+  Collection<Item> items=info.getShoppingCart().getItems();
+  for (  Item item : items) {
+    try {
+      addItem(cart,item,null,0);
+    }
+ catch (    ItemNotFoundException e) {
+      Debug.logWarning(e,"Item was not found : " + item.getMerchantItemId(),module);
+    }
+  }
+  OrderAdjustment adjustment=info.getOrderAdjustment();
+  addAdjustments(cart,adjustment);
+  Shipping shipping=info.getOrderAdjustment().getShipping();
+  addShipInfo(cart,shipping);
+  cart.addPayment(PAYMENT_METHOD);
+  CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
+  Map validateResp=coh.validatePaymentMethods();
+  if (ServiceUtil.isError(validateResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(validateResp));
+  }
+  Map createResp=coh.createOrder(system);
+  String orderId=cart.getOrderId();
+  if (ServiceUtil.isError(createResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(createResp));
+  }
+  OrderChangeHelper.approveOrder(dispatcher,system,orderId,cart.getHoldOrder());
+}

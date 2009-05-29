@@ -1,0 +1,33 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  GoogleCheckoutHelper helper=new GoogleCheckoutHelper(dispatcher,delegator);
+  String xmlString=processGoogleCheckoutResponse(request,response);
+  Document document=null;
+  try {
+    document=Utils.newDocumentFromString(xmlString);
+  }
+ catch (  CheckoutException e) {
+    Debug.logError(e,module);
+  }
+  if (document != null) {
+    String nodeValue=document.getDocumentElement().getNodeName();
+    if ("new-order-notification".equals(nodeValue)) {
+      NewOrderNotification info=new NewOrderNotification(document);
+      String serialNumber=info.getSerialNumber();
+      try {
+        helper.createOrder(info,getProductStoreId(request),getWebsiteId(request),getCurrencyUom(request),getLocale(request));
+        sendResponse(response,serialNumber,false);
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,module);
+        sendResponse(response,serialNumber,true);
+        return null;
+      }
+    }
+ else {
+      Debug.logWarning("Unsupported document type submitted by Google; [" + nodeValue + "] has not yet been implemented.",module);
+    }
+  }
+  return null;
+}

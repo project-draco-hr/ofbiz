@@ -1,0 +1,30 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  GenericValue order=findGoogleOrder(delegator,orderId);
+  if (order != null) {
+    GenericValue orderItem=null;
+    try {
+      orderItem=delegator.findOne("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId),false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (orderItem != null) {
+      MerchantInfo mInfo=getMerchantInfo();
+      String externalId=order.getString("externalId");
+      if (UtilValidate.isNotEmpty(externalId)) {
+        CancelItemsRequest cir=new CancelItemsRequest(mInfo,externalId,"Item Cancelled","");
+        cir.addItem(orderItem.getString("productId"));
+        try {
+          cir.send();
+        }
+ catch (        CheckoutException e) {
+          Debug.logError(e,module);
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
