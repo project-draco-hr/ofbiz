@@ -89,26 +89,19 @@
       return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemCreatingReturnItemResponseRecord",locale));
     }
     String itemResponseId=(String)serviceResults.get("returnItemResponseId");
-    List toBeStored=new ArrayList();
     for (Iterator itemsIter=returnItems.iterator(); itemsIter.hasNext(); ) {
       GenericValue item=(GenericValue)itemsIter.next();
-      item.set("returnItemResponseId",itemResponseId);
-      item.set("statusId","RETURN_COMPLETED");
-      toBeStored.add(item);
-      String returnStatusId=delegator.getNextSeqId("ReturnStatus");
-      GenericValue returnStatus=delegator.makeValue("ReturnStatus",UtilMisc.toMap("returnStatusId",returnStatusId));
-      returnStatus.set("statusId",item.get("statusId"));
-      returnStatus.set("returnId",item.get("returnId"));
-      returnStatus.set("returnItemSeqId",item.get("returnItemSeqId"));
-      returnStatus.set("statusDatetime",now);
-      toBeStored.add(returnStatus);
-    }
-    try {
-      delegator.storeAll(toBeStored);
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,"Problem storing ReturnItem updates",module);
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemStoringReturnItemUpdates",locale));
+      Map returnItemMap=UtilMisc.toMap("returnItemResponseId",itemResponseId,"returnId",item.get("returnId"),"returnItemSeqId",item.get("returnItemSeqId"),"statusId","RETURN_COMPLETED","userLogin",userLogin);
+      try {
+        serviceResults=dispatcher.runSync("updateReturnItem",returnItemMap);
+        if (ServiceUtil.isError(serviceResults)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemStoringReturnItemUpdates",locale),null,null,serviceResults);
+        }
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem storing ReturnItem updates",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemStoringReturnItemUpdates",locale));
+      }
     }
     String paId=delegator.getNextSeqId("PaymentApplication");
     GenericValue pa=delegator.makeValue("PaymentApplication",UtilMisc.toMap("paymentApplicationId",paId));
