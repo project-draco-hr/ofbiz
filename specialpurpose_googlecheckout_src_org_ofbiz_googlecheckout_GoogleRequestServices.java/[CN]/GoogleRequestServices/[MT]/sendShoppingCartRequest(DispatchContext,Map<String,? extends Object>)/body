@@ -2,26 +2,39 @@
   ShoppingCart cart=(ShoppingCart)context.get("shoppingCart");
   String productStoreId=cart.getProductStoreId();
   GenericDelegator delegator=dctx.getDelegator();
-  MerchantInfo mInfo=getMerchantInfo();
+  GenericValue googleCfg=getGoogleConfiguration(delegator,productStoreId);
+  MerchantInfo mInfo=getMerchantInfo(delegator,productStoreId);
   if (mInfo == null) {
     Debug.logError("Invalid Google Chechout Merchant settings, check your configuration!",module);
     return ServiceUtil.returnError("Google checkout configuration error");
   }
   CheckoutShoppingCartRequest req=new CheckoutShoppingCartRequest(mInfo,300);
-  req.setRequestInitialAuthDetails(true);
+  String requestAuthStr=googleCfg.getString("requestAuthDetails");
+  if (requestAuthStr == null) {
+    requestAuthStr="Y";
+  }
+  boolean requestAuth="Y".equalsIgnoreCase(requestAuthStr) ? true : false;
+  req.setRequestInitialAuthDetails(requestAuth);
+  String sendPromoItemStr=googleCfg.getString("sendPromoItems");
+  if (sendPromoItemStr == null) {
+    sendPromoItemStr="Y";
+  }
+  boolean sendPromoItems="Y".equalsIgnoreCase(sendPromoItemStr) ? true : false;
   List<ShoppingCartItem> items=cart.items();
   for (  ShoppingCartItem item : items) {
-    Item i=new Item();
-    i.setItemName(item.getName());
-    i.setItemDescription(item.getDescription());
-    i.setMerchantItemId(item.getProductId());
-    i.setQuantity(item.getQuantity().intValue());
-    i.setUnitPriceAmount(item.getBasePrice().floatValue());
-    i.setUnitPriceCurrency(cart.getCurrency());
-    if (!item.taxApplies()) {
-      i.setTaxTableSelector("tax_exempt");
+    if (!item.getIsPromo() || sendPromoItems) {
+      Item i=new Item();
+      i.setItemName(item.getName());
+      i.setItemDescription(item.getDescription());
+      i.setMerchantItemId(item.getProductId());
+      i.setQuantity(item.getQuantity().intValue());
+      i.setUnitPriceAmount(item.getBasePrice().floatValue());
+      i.setUnitPriceCurrency(cart.getCurrency());
+      if (!item.taxApplies()) {
+        i.setTaxTableSelector("tax_exempt");
+      }
+      req.addItem(i);
     }
-    req.addItem(i);
   }
   String contShoppingUrl=UtilProperties.getPropertyValue("googleCheckout.properties","continueShoppingUrl");
   String editCartUrl=UtilProperties.getPropertyValue("googleCheckout.properties","editCartUrl");
@@ -80,7 +93,26 @@
       }
     }
   }
-  req.setRequestBuyerPhoneNumber(true);
+  String acceptCouponStr=googleCfg.getString("acceptCoupons");
+  if (acceptCouponStr == null) {
+    acceptCouponStr="N";
+  }
+  boolean acceptCoupons="Y".equalsIgnoreCase(acceptCouponStr) ? true : false;
+  String acceptCertStr=googleCfg.getString("acceptGiftCerts");
+  if (acceptCertStr == null) {
+    acceptCertStr="N";
+  }
+  boolean acceptGiftCerts="Y".equalsIgnoreCase(acceptCertStr) ? true : false;
+  if (acceptCoupons || acceptGiftCerts) {
+    req.setAcceptMerchantCoupons(acceptCoupons);
+    req.setAcceptMerchantGiftCertificates(acceptGiftCerts);
+  }
+  String requestPhoneStr=googleCfg.getString("requestPhone");
+  if (requestPhoneStr == null) {
+    requestPhoneStr="Y";
+  }
+  boolean requestPhone="Y".equalsIgnoreCase(requestPhoneStr) ? true : false;
+  req.setRequestBuyerPhoneNumber(requestPhone);
   CheckoutResponse resp=null;
   try {
     Debug.logInfo("Sending XML to Google:\n\n" + req.getXmlPretty() + "\n\n",module);
