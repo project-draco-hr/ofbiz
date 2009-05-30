@@ -1,0 +1,33 @@
+{
+  String externalId=info.getGoogleOrderNumber();
+  GenericValue order=null;
+  try {
+    List<GenericValue> orders=delegator.findByAnd("OrderHeader",UtilMisc.toMap("externalId",externalId,"salesChannelEnumId",SALES_CHANNEL));
+    order=EntityUtil.getFirst(orders);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (order != null) {
+    String orderId=order.getString("orderId");
+    FinancialOrderState oldFin=info.getPreviousFinancialOrderState();
+    FinancialOrderState newFin=info.getNewFinancialOrderState();
+    if (!oldFin.equals(newFin)) {
+      if (newFin.equals(FinancialOrderState.CANCELLED) || newFin.equals(FinancialOrderState.CANCELLED_BY_GOOGLE)) {
+        if (!"ORDER_CANCELLED".equals(order.getString("statusId"))) {
+          OrderChangeHelper.cancelOrder(dispatcher,system,orderId);
+        }
+      }
+ else       if (newFin.equals(FinancialOrderState.CHARGEABLE) && oldFin.equals(FinancialOrderState.REVIEWING)) {
+        if (!"ORDER_APPROVED".equals(order.getString("statusId"))) {
+          OrderChangeHelper.approveOrder(dispatcher,system,orderId,hasHoldOrderNotes(orderId));
+        }
+      }
+ else       if (newFin.equals(FinancialOrderState.PAYMENT_DECLINED)) {
+        if (!"ORDER_REJECTED".equals(order.getString("statusId"))) {
+          OrderChangeHelper.rejectOrder(dispatcher,system,orderId);
+        }
+      }
+    }
+  }
+}

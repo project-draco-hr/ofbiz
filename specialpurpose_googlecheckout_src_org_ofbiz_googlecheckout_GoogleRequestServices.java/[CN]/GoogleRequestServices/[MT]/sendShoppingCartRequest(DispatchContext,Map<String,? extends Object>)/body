@@ -1,0 +1,103 @@
+{
+  ShoppingCart cart=(ShoppingCart)context.get("shoppingCart");
+  String productStoreId=(String)context.get("productStoreId");
+  GenericDelegator delegator=dctx.getDelegator();
+  MerchantInfo mInfo=getMerchantInfo();
+  if (mInfo == null) {
+    Debug.logError("Invalid Google Chechout Merchant settings, check your configuration!",module);
+    return ServiceUtil.returnError("Google checkout configuration error");
+  }
+  CheckoutShoppingCartRequest req=new CheckoutShoppingCartRequest(mInfo,300);
+  req.setRequestInitialAuthDetails(true);
+  List<ShoppingCartItem> items=cart.items();
+  for (  ShoppingCartItem item : items) {
+    Item i=new Item();
+    i.setItemName(item.getName());
+    i.setItemDescription(item.getDescription());
+    i.setMerchantItemId(item.getProductId());
+    i.setQuantity(item.getQuantity().intValue());
+    i.setUnitPriceAmount(item.getItemSubTotal(new BigDecimal(1)).floatValue());
+    i.setUnitPriceCurrency(cart.getCurrency());
+    if (!item.taxApplies()) {
+      i.setTaxTableSelector("tax_exempt");
+    }
+    req.addItem(i);
+  }
+  String contShoppingUrl=UtilProperties.getPropertyValue("googleCheckout.properties","continueShoppingUrl");
+  String editCartUrl=UtilProperties.getPropertyValue("googleCheckout.properties","editCartUrl");
+  req.setContinueShoppingUrl(contShoppingUrl);
+  req.setEditCartUrl(editCartUrl);
+  TaxArea exemptArea=new TaxArea();
+  exemptArea.addWorldArea();
+  req.addAlternateTaxRule("tax_exempt",true,0,exemptArea);
+  List<GenericValue> shippingOptions=null;
+  try {
+    shippingOptions=delegator.findByAnd("GoogleShippingMethods",UtilMisc.toMap("productStoreId",productStoreId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (UtilValidate.isNotEmpty(shippingOptions)) {
+    for (    GenericValue option : shippingOptions) {
+      String shippingName=option.getString("shipmentMethodName");
+      Double amount=option.getDouble("amount");
+      if (amount == null) {
+        amount=0.0;
+      }
+      if ("GOOGLE_FLAT_RATE".equals(option.getString("methodTypeEnumId"))) {
+        req.addFlatRateShippingMethod(shippingName,amount.floatValue());
+      }
+ else       if ("GOOGLE_MERCHANT_CALC".equals(option.getString("methodTypeEnumId"))) {
+        req.addMerchantCalculatedShippingMethod(shippingName,amount.floatValue());
+      }
+ else       if ("GOOGLE_PICKUP".equals(option.getString("methodTypeEnumId"))) {
+        req.addPickupShippingMethod(shippingName,amount.floatValue());
+      }
+ else       if ("GOOGLE_CARRIER_CALC".equals(option.getString("methodTypeEnumId"))) {
+        String carrierPartyId=option.getString("carrierPartyId");
+        Double additionalAmount=option.getDouble("additionalAmount");
+        Double additionalPercent=option.getDouble("additionalPercent");
+        if (additionalAmount == null) {
+          additionalAmount=0.0;
+        }
+        if (additionalPercent == null) {
+          additionalPercent=0.0;
+        }
+        String shippingCompany=null;
+        if ("ups".equalsIgnoreCase(carrierPartyId)) {
+          shippingCompany="UPS";
+        }
+ else         if ("fedex".equalsIgnoreCase(carrierPartyId)) {
+          shippingCompany="FedEx";
+        }
+ else         if ("usps".equalsIgnoreCase(carrierPartyId)) {
+          shippingCompany="USPS";
+        }
+        if (shippingCompany == null) {
+          return ServiceUtil.returnError("Invalid Google Checkout Shipping Configuration! Carriers can only be UPS, FedEx or USPS.");
+        }
+        req.addCarrierCalculatedShippingOption(amount.floatValue(),shippingCompany,CarrierPickup.REGULAR_PICKUP,shippingName,additionalAmount.floatValue(),additionalPercent.floatValue());
+      }
+    }
+  }
+  req.setRequestBuyerPhoneNumber(true);
+  CheckoutResponse resp=null;
+  try {
+    Debug.logInfo("Sending XML to Google:\n\n" + req.getXmlPretty() + "\n\n",module);
+    resp=req.send();
+  }
+ catch (  CheckoutException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (resp == null) {
+    return ServiceUtil.returnError("Checkout response was null");
+  }
+  if (!resp.isValidRequest()) {
+    Debug.logError("Error returned from Google: " + resp.getErrorMessage(),module);
+    return ServiceUtil.returnError(resp.getErrorMessage());
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("redirect",resp.getRedirectUrl());
+  return result;
+}
