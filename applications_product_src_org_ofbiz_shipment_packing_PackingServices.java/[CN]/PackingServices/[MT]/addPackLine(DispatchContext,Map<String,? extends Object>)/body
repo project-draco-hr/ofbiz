@@ -1,7 +1,4 @@
 {
-  GenericDelegator delegator=dctx.getDelegator();
-  LocalDispatcher dispatcher=dctx.getDispatcher();
-  Locale locale=(Locale)context.get("locale");
   PackingSession session=(PackingSession)context.get("packingSession");
   String shipGroupSeqId=(String)context.get("shipGroupSeqId");
   String orderId=(String)context.get("orderId");
@@ -14,60 +11,19 @@
   String pickerPartyId=(String)context.get("pickerPartyId");
   session.setPickerPartyId(pickerPartyId);
   if (quantity == null) {
-    quantity=ZERO;
+    quantity=BigDecimal.ONE;
   }
   Debug.log("OrderId [" + orderId + "] ship group ["+ shipGroupSeqId+ "] Pack input ["+ productId+ "] @ ["+ quantity+ "] packageSeq ["+ packageSeq+ "] weight ["+ weight+ "]",module);
   if (weight == null) {
     Debug.logWarning("OrderId [" + orderId + "] ship group ["+ shipGroupSeqId+ "] product ["+ productId+ "] being packed without a weight, assuming 0",module);
-    weight=ZERO;
+    weight=BigDecimal.ZERO;
   }
-  List<String> orderItemSeqIds=FastList.newInstance();
-  BigDecimal qtyToPack=ZERO;
-  BigDecimal qtyToPacked=ZERO;
-  BigDecimal packedQuantity=ZERO;
-  BigDecimal readyToPackQty=ZERO;
-  int counter=0;
   try {
-    if (UtilValidate.isNotEmpty(productId)) {
-      List<GenericValue> orderItems=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId,"productId",productId));
-      if (UtilValidate.isNotEmpty(orderItems)) {
-        for (        GenericValue orderItem : orderItems) {
-          counter++;
-          if (quantity.compareTo(ZERO) > 0) {
-            BigDecimal orderedQuantity=orderItem.getBigDecimal("quantity");
-            List<GenericValue> shipments=delegator.findByAnd("Shipment",UtilMisc.toMap("primaryOrderId",orderId,"statusId","SHIPMENT_PACKED"));
-            for (            GenericValue shipment : shipments) {
-              List<GenericValue> itemIssuances=shipment.getRelatedByAnd("ItemIssuance",UtilMisc.toMap("shipmentId",shipment.getString("shipmentId"),"orderItemSeqId",orderItem.getString("orderItemSeqId")));
-              for (              GenericValue itemIssuance : itemIssuances) {
-                packedQuantity=packedQuantity.add(itemIssuance.getBigDecimal("quantity"));
-              }
-            }
-            qtyToPack=orderedQuantity.subtract(packedQuantity);
-            if (qtyToPack.compareTo(quantity) > -1) {
-              readyToPackQty=session.getPackedQuantity(orderId,orderItem.getString("orderItemSeqId"),shipGroupSeqId,productId);
-              qtyToPacked=orderedQuantity.subtract(readyToPackQty);
-              if (qtyToPacked.compareTo(quantity) > -1) {
-                session.addOrIncreaseLine(orderId,orderItem.getString("orderItemSeqId"),shipGroupSeqId,productId,quantity,packageSeq.intValue(),weight,false);
-                counter--;
-                break;
-              }
- else               if (orderItems.size() == counter) {
-                throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNoValidOrderItemFoundForProductWithEnteredQuantity",UtilMisc.toMap("productId",productId,"quantity",quantity),locale));
-              }
-            }
- else             if (orderItems.size() == counter) {
-              throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNoValidOrderItemFoundForProductWithEnteredQuantity",UtilMisc.toMap("productId",productId,"quantity",quantity),locale));
-            }
-          }
-        }
-      }
- else {
-        throw new GeneralException(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNoValidOrderItemFoundForProductWithEnteredQuantity",UtilMisc.toMap("productId",productId,"quantity",quantity),locale));
-      }
-    }
+    session.addOrIncreaseLine(orderId,null,shipGroupSeqId,productId,quantity,packageSeq.intValue(),weight,false);
   }
- catch (  Exception ex) {
-    return ServiceUtil.returnError(ex.getMessage());
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
   }
   return ServiceUtil.returnSuccess();
 }
