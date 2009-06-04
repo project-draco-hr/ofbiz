@@ -1,6 +1,7 @@
 {
   Map<String,Object> result=FastMap.newInstance();
   GenericDelegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
   Locale locale=(Locale)context.get("locale");
   String partyId=getPartyId(context);
   if (UtilValidate.isEmpty(partyId)) {
@@ -19,8 +20,10 @@
   if (person == null || party == null) {
     return ServiceUtil.returnError(UtilProperties.getMessage(resource,"person.update.not_found",locale));
   }
+  String oldStatusId=party.getString("statusId");
   person.setNonPKFields(context);
   party.setNonPKFields(context);
+  party.set("statusId",oldStatusId);
   try {
     person.store();
     party.store();
@@ -28,6 +31,15 @@
  catch (  GenericEntityException e) {
     Debug.logWarning(e.getMessage(),module);
     return ServiceUtil.returnError(UtilProperties.getMessage(resource,"person.update.write_failure",new Object[]{e.getMessage()},locale));
+  }
+  if (!context.get("statusId").equals(oldStatusId)) {
+    try {
+      dispatcher.runSync("setPartyStatus",UtilMisc.toMap("partyId",partyId,"statusId",context.get("statusId"),"userLogin",context.get("userLogin")));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logWarning(e.getMessage(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"person.update.write_failure",new Object[]{e.getMessage()},locale));
+    }
   }
   result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
   result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"person.update.success",locale));
