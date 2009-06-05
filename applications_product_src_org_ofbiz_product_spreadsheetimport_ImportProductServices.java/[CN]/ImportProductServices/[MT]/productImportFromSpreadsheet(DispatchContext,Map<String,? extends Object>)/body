@@ -1,6 +1,5 @@
 {
   GenericDelegator delegator=dctx.getDelegator();
-  Map<String,Object> responseMsgs=FastMap.newInstance();
   String path=System.getProperty("user.dir") + "/spreadsheet";
   List<File> fileItems=FastList.newInstance();
   if (path != null && path.length() > 0) {
@@ -14,17 +13,14 @@
       }
     }
  else {
-      Debug.logWarning("Directory not found or can't be read",module);
-      return responseMsgs;
+      return ServiceUtil.returnError("Directory not found or can not be read");
     }
   }
  else {
-    Debug.logWarning("No path specified, doing nothing",module);
-    return responseMsgs;
+    return ServiceUtil.returnError("No path specified, doing nothing");
   }
   if (fileItems.size() < 1) {
-    Debug.logWarning("No spreadsheet exists in " + path,module);
-    return responseMsgs;
+    return ServiceUtil.returnError("No spreadsheet exists in" + path);
   }
   for (  File item : fileItems) {
     List<Map<String,Object>> products=FastList.newInstance();
@@ -37,19 +33,19 @@
     }
  catch (    IOException e) {
       Debug.logError("Unable to read or create workbook from file",module);
-      return responseMsgs;
+      return ServiceUtil.returnError("Unable to read or create workbook from file");
     }
     HSSFSheet sheet=wb.getSheetAt(0);
     int sheetLastRowNumber=sheet.getLastRowNum();
     for (int j=1; j <= sheetLastRowNumber; j++) {
       HSSFRow row=sheet.getRow(j);
       if (row != null) {
-        HSSFCell cell1=row.getCell((int)1);
-        cell1.setCellType(HSSFCell.CELL_TYPE_STRING);
-        String productId=cell1.getRichStringCellValue().toString();
-        HSSFCell cell8=row.getCell((int)8);
+        HSSFCell cell2=row.getCell((int)2);
+        cell2.setCellType(HSSFCell.CELL_TYPE_STRING);
+        String productId=cell2.getRichStringCellValue().toString();
+        HSSFCell cell5=row.getCell((int)5);
         BigDecimal quantityOnHand=BigDecimal.ZERO;
-        if (cell8 != null && cell8.getCellType() == HSSFCell.CELL_TYPE_NUMERIC)         quantityOnHand=new BigDecimal(cell8.getNumericCellValue());
+        if (cell5 != null && cell5.getCellType() == HSSFCell.CELL_TYPE_NUMERIC)         quantityOnHand=new BigDecimal(cell5.getNumericCellValue());
         boolean productExists=ImportProductHelper.checkProductExists(productId,delegator);
         if (productId != null && !productId.trim().equalsIgnoreCase("") && !productExists) {
           products.add(ImportProductHelper.prepareProduct(productId));
@@ -57,7 +53,7 @@
  else           inventoryItems.add(ImportProductHelper.prepareInventoryItem(productId,BigDecimal.ZERO,delegator.getNextSeqId("InventoryItem")));
         }
         int rowNum=row.getRowNum() + 1;
-        if (row.toString() != null && !row.toString().trim().equalsIgnoreCase("") && products.size() > 0 && !productExists) {
+        if (row.toString() != null && !row.toString().trim().equalsIgnoreCase("") && productExists) {
           Debug.logWarning("Row number " + rowNum + " not imported from "+ item.getName(),module);
         }
       }
@@ -79,5 +75,5 @@
     int uploadedProducts=products.size() + 1;
     if (products.size() > 0)     Debug.logInfo("Uploaded " + uploadedProducts + " products from file "+ item.getName(),module);
   }
-  return responseMsgs;
+  return ServiceUtil.returnSuccess();
 }
