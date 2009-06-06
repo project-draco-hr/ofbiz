@@ -1,0 +1,23 @@
+{
+  List<GenericValue> shipmentItems=this.getDelegator().findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId));
+  for (  GenericValue shipmentItem : shipmentItems) {
+    for (    WeightPackageSessionLine packedLine : this.getPackedLines(orderId)) {
+      packedLine.setShipmentItemSeqId(shipmentItem.getString("shipmentItemSeqId"));
+    }
+  }
+  List<GenericValue> orderItems=this.getDelegator().findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId));
+  for (  GenericValue orderItem : orderItems) {
+    List<GenericValue> orderItemShipGrpInvReserves=orderItem.getRelated("OrderItemShipGrpInvRes");
+    if (UtilValidate.isEmpty(orderItemShipGrpInvReserves)) {
+      Map<String,Object> orderItemStatusMap=FastMap.newInstance();
+      orderItemStatusMap.put("orderId",orderId);
+      orderItemStatusMap.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+      orderItemStatusMap.put("userLogin",userLogin);
+      orderItemStatusMap.put("statusId","ITEM_COMPLETED");
+      Map<String,Object> orderItemStatusResult=this.getDispatcher().runSync("changeOrderItemStatus",orderItemStatusMap);
+      if (ServiceUtil.isError(orderItemStatusResult)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(orderItemStatusResult));
+      }
+    }
+  }
+}

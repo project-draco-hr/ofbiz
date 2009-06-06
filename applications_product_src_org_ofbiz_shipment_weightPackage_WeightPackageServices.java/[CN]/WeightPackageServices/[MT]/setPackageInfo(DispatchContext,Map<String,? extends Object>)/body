@@ -1,0 +1,40 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  WeightPackageSession weightPackageSession=(WeightPackageSession)context.get("weightPackageSession");
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  BigDecimal packageWeight=(BigDecimal)context.get("packageWeight");
+  BigDecimal packageLength=(BigDecimal)context.get("packageLength");
+  BigDecimal packageWidth=(BigDecimal)context.get("packageWidth");
+  BigDecimal packageHeight=(BigDecimal)context.get("packageHeight");
+  String shipmentBoxTypeId=(String)context.get("shipmentBoxTypeId");
+  if (UtilValidate.isNotEmpty(packageLength) || UtilValidate.isNotEmpty(packageWidth) || UtilValidate.isNotEmpty(packageHeight)) {
+    if (UtilValidate.isNotEmpty(shipmentBoxTypeId)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorEnteredBothDimensionAndPackageInputBoxField",locale));
+    }
+ else     if (!(UtilValidate.isNotEmpty(packageLength) && UtilValidate.isNotEmpty(packageWidth) && UtilValidate.isNotEmpty(packageHeight))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNotEnteredAllFieldsInDimension",locale));
+    }
+  }
+  if (UtilValidate.isEmpty(packageWeight) || packageWeight.compareTo(ZERO) <= 0) {
+    return ServiceUtil.returnError(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorPackageWeightCannotBeNullOrZero",locale));
+  }
+  try {
+    List<GenericValue> orderItems=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId));
+    BigDecimal orderedItemQty=ZERO;
+    for (    GenericValue orderItem : orderItems) {
+      orderedItemQty=orderedItemQty.add(orderItem.getBigDecimal("quantity"));
+    }
+    int packageQuantity=weightPackageSession.getPackedLines(orderId).size();
+    if ((orderedItemQty.intValue() - packageQuantity) > 0) {
+      weightPackageSession.createWeightPackageLine(orderId,packageWeight,packageLength,packageWidth,packageHeight,shipmentBoxTypeId);
+    }
+ else {
+      return ServiceUtil.returnError(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNumberOfPackageCannotBeGreaterThanTheNumberOfOrderedQuantity",locale));
+    }
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}
