@@ -148,6 +148,16 @@
         Debug.logInfo("Voice notification service will not be requested for COD shipmentId " + shipmentId + ", shipmentRouteSegmentId "+ shipmentRouteSegmentId+ " - destination address is not residential",module);
       }
     }
+    String currencyCode=null;
+    if (UtilValidate.isNotEmpty(shipmentRouteSegment.getString("currencyUomId"))) {
+      currencyCode=shipmentRouteSegment.getString("currencyUomId");
+    }
+ else     if (UtilValidate.isNotEmpty(shipment.getString("currencyUomId"))) {
+      currencyCode=shipment.getString("currencyUomId");
+    }
+ else {
+      currencyCode=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+    }
     Document shipmentConfirmRequestDoc=UtilXml.makeEmptyXmlDocument("ShipmentConfirmRequest");
     Element shipmentConfirmRequestElement=shipmentConfirmRequestDoc.getDocumentElement();
     shipmentConfirmRequestElement.setAttribute("xml:lang","en-US");
@@ -210,6 +220,21 @@
     UtilXml.addChildElementValue(shipFromAddressElement,"StateProvinceCode",originPostalAddress.getString("stateProvinceGeoId"),shipmentConfirmRequestDoc);
     UtilXml.addChildElementValue(shipFromAddressElement,"PostalCode",originPostalAddress.getString("postalCode"),shipmentConfirmRequestDoc);
     UtilXml.addChildElementValue(shipFromAddressElement,"CountryCode",originCountryGeo.getString("geoCode"),shipmentConfirmRequestDoc);
+    Element soldToElement=UtilXml.addChildElement(shipmentElement,"SoldTo",shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(soldToElement,"CompanyName",UtilValidate.isNotEmpty(destPostalAddress.getString("toName")) ? destPostalAddress.getString("toName") : "",shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(soldToElement,"AttentionName",UtilValidate.isNotEmpty(destPostalAddress.getString("attnName")) ? destPostalAddress.getString("attnName") : "",shipmentConfirmRequestDoc);
+    if (UtilValidate.isNotEmpty(destPhoneNumber)) {
+      UtilXml.addChildElementValue(soldToElement,"PhoneNumber",destPhoneNumber,shipmentConfirmRequestDoc);
+    }
+    Element soldToAddressElement=UtilXml.addChildElement(soldToElement,"Address",shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(soldToAddressElement,"AddressLine1",destPostalAddress.getString("address1"),shipmentConfirmRequestDoc);
+    if (UtilValidate.isNotEmpty(destPostalAddress.getString("address2"))) {
+      UtilXml.addChildElementValue(soldToAddressElement,"AddressLine2",destPostalAddress.getString("address2"),shipmentConfirmRequestDoc);
+    }
+    UtilXml.addChildElementValue(soldToAddressElement,"City",destPostalAddress.getString("city"),shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(soldToAddressElement,"StateProvinceCode",destPostalAddress.getString("stateProvinceGeoId"),shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(soldToAddressElement,"PostalCode",destPostalAddress.getString("postalCode"),shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(soldToAddressElement,"CountryCode",destCountryGeo.getString("geoCode"),shipmentConfirmRequestDoc);
     Element paymentInformationElement=UtilXml.addChildElement(shipmentElement,"PaymentInformation",shipmentConfirmRequestDoc);
     String thirdPartyAccountNumber=shipmentRouteSegment.getString("thirdPartyAccountNumber");
     if (UtilValidate.isEmpty(thirdPartyAccountNumber)) {
@@ -236,6 +261,27 @@
     }
     Element serviceElement=UtilXml.addChildElement(shipmentElement,"Service",shipmentConfirmRequestDoc);
     UtilXml.addChildElementValue(serviceElement,"Code",carrierShipmentMethod.getString("carrierServiceCode"),shipmentConfirmRequestDoc);
+    Element shipmentServiceOptionsElement=UtilXml.addChildElement(shipmentElement,"ShipmentServiceOptions",shipmentConfirmRequestDoc);
+    Element internationalFormsElement=UtilXml.addChildElement(shipmentServiceOptionsElement,"InternationalForms",shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(internationalFormsElement,"FormType","01",shipmentConfirmRequestDoc);
+    List<GenericValue> shipmentItems=shipment.getRelated("ShipmentItem");
+    for (    GenericValue shipmentItem : shipmentItems) {
+      Element productElement=UtilXml.addChildElement(internationalFormsElement,"Product",shipmentConfirmRequestDoc);
+      UtilXml.addChildElementValue(productElement,"Description","Product Description",shipmentConfirmRequestDoc);
+      Element unitElement=UtilXml.addChildElement(productElement,"Unit",shipmentConfirmRequestDoc);
+      BigDecimal productQuantity=shipmentItem.getBigDecimal("quantity").setScale(decimals,rounding);
+      UtilXml.addChildElementValue(unitElement,"Number",String.valueOf(productQuantity.intValue()),shipmentConfirmRequestDoc);
+      List<GenericValue> shipmentItemIssuances=shipmentItem.getRelated("ItemIssuance");
+      GenericValue orderItem=EntityUtil.getFirst(shipmentItemIssuances).getRelatedOne("OrderItem");
+      UtilXml.addChildElementValue(unitElement,"Value",orderItem.getBigDecimal("unitPrice").toString(),shipmentConfirmRequestDoc);
+      Element unitOfMeasurElement=UtilXml.addChildElement(unitElement,"UnitOfMeasurement",shipmentConfirmRequestDoc);
+      UtilXml.addChildElementValue(unitOfMeasurElement,"Code","EA",shipmentConfirmRequestDoc);
+      UtilXml.addChildElementValue(productElement,"OriginCountryCode","US",shipmentConfirmRequestDoc);
+    }
+    String invoiceDate=RecurrenceUtil.formatDate((Date)shipment.getTimestamp("createdDate"));
+    UtilXml.addChildElementValue(internationalFormsElement,"InvoiceDate",invoiceDate,shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(internationalFormsElement,"ReasonForExport","SALE",shipmentConfirmRequestDoc);
+    UtilXml.addChildElementValue(internationalFormsElement,"CurrencyCode",currencyCode,shipmentConfirmRequestDoc);
     ListIterator<GenericValue> shipmentPackageRouteSegIter=shipmentPackageRouteSegs.listIterator();
     while (shipmentPackageRouteSegIter.hasNext()) {
       GenericValue shipmentPackageRouteSeg=shipmentPackageRouteSegIter.next();
@@ -285,23 +331,10 @@
       }
       BigDecimal boxWeight=shipmentPackage.getBigDecimal("weight");
       UtilXml.addChildElementValue(packageWeightElement,"Weight",UtilValidate.isNotEmpty(boxWeight) ? "" + boxWeight.intValue() : "",shipmentConfirmRequestDoc);
-      Element referenceNumberElement=UtilXml.addChildElement(packageElement,"ReferenceNumber",shipmentConfirmRequestDoc);
-      UtilXml.addChildElementValue(referenceNumberElement,"Code","MK",shipmentConfirmRequestDoc);
-      UtilXml.addChildElementValue(referenceNumberElement,"Value",shipmentPackage.getString("shipmentPackageSeqId"),shipmentConfirmRequestDoc);
       if (carrierShipmentBoxType != null && carrierShipmentBoxType.get("oversizeCode") != null) {
         UtilXml.addChildElementValue(packageElement,"OversizePackage",carrierShipmentBoxType.getString("oversizeCode"),shipmentConfirmRequestDoc);
       }
       Element packageServiceOptionsElement=UtilXml.addChildElement(packageElement,"PackageServiceOptions",shipmentConfirmRequestDoc);
-      String currencyCode=null;
-      if (UtilValidate.isNotEmpty(shipmentRouteSegment.getString("currencyUomId"))) {
-        currencyCode=shipmentRouteSegment.getString("currencyUomId");
-      }
- else       if (UtilValidate.isNotEmpty(shipmentRouteSegment.getString("currencyUomId"))) {
-        currencyCode=shipment.getString("currencyUomId");
-      }
- else {
-        currencyCode=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
-      }
       BigDecimal insuredValue=shipmentPackage.getBigDecimal("insuredValue");
       if (!UtilValidate.isEmpty(insuredValue)) {
         Element insuredValueElement=UtilXml.addChildElement(packageServiceOptionsElement,"InsuredValue",shipmentConfirmRequestDoc);
