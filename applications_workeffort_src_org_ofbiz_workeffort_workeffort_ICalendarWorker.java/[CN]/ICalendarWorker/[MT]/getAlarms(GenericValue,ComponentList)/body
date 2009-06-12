@@ -1,0 +1,43 @@
+{
+  Description description=null;
+  if (workEffort.get("description") != null) {
+    description=new Description(workEffort.getString("description"));
+  }
+ else {
+    description=new Description(workEffort.getString("workEffortName"));
+  }
+  Summary summary=new Summary(UtilProperties.getMessage("WorkEffortUiLabels","WorkEffortEventReminder",Locale.getDefault()));
+  GenericDelegator delegator=workEffort.getDelegator();
+  List<GenericValue> reminderList=delegator.findList("WorkEffortEventReminder",EntityCondition.makeCondition("workEffortId",EntityOperator.EQUALS,workEffort.get("workEffortId")),null,null,null,false);
+  for (  GenericValue reminder : reminderList) {
+    VAlarm alarm=createAlarm(reminder);
+    PropertyList alarmProps=alarm.getProperties();
+    GenericValue contactMech=reminder.getRelatedOne("ContactMech");
+    if (contactMech != null && "EMAIL_ADDRESS".equals(contactMech.get("contactMechTypeId"))) {
+      try {
+        alarmProps.add(new Attendee(contactMech.getString("infoString")));
+        alarmProps.add(Action.EMAIL);
+        alarmProps.add(summary);
+        alarmProps.add(description);
+      }
+ catch (      URISyntaxException e) {
+        alarmProps.add(Action.DISPLAY);
+        alarmProps.add(new Description("Error encountered while creating iCalendar: " + e));
+      }
+    }
+ else {
+      alarmProps.add(Action.DISPLAY);
+      alarmProps.add(description);
+    }
+    if (Debug.verboseOn()) {
+      try {
+        alarm.validate(true);
+        Debug.logVerbose("iCalendar alarm passes validation",module);
+      }
+ catch (      ValidationException e) {
+        Debug.logVerbose("iCalendar alarm fails validation: " + e,module);
+      }
+    }
+    alarms.add(alarm);
+  }
+}

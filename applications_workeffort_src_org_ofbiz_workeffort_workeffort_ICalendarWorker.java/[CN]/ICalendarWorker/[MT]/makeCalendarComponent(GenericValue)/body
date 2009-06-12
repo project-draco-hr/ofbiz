@@ -9,7 +9,7 @@
   if (workEffort.getTimestamp("lastModifiedDate") != null) {
     eventProps.add(new LastModified(new DateTime(workEffort.getTimestamp("lastModifiedDate"))));
   }
-  eventProps.add(new XProperty(workEffortIdPropName,workEffort.getString("workEffortId")));
+  eventProps.add(new Uid(uidPrefix.concat(workEffortId)));
   eventProps.add(new Summary(workEffort.getString("workEffortName")));
   Status eventStatus=statusMap.get(workEffort.getString("currentStatusId"));
   if (eventStatus != null) {
@@ -30,10 +30,10 @@
     paramList.add(new Cn(partyName));
     try {
       if ("CAL_ORGANIZER~CAL_OWNER".contains(partyValue.getString("roleTypeId"))) {
-        eventProps.add(new Organizer(paramList,""));
+        eventProps.add(new Organizer("CN:".concat(partyName)));
       }
  else {
-        eventProps.add(new Attendee(paramList,""));
+        eventProps.add(new Attendee("CN:".concat(partyName)));
       }
     }
  catch (    Exception e) {
@@ -61,5 +61,27 @@
   if (workEffort.getString("description") != null) {
     eventProps.add(new Description(workEffort.getString("description")));
   }
-  return new VEvent(eventProps);
+  ComponentList alarms=null;
+  Component result=null;
+  if ("TASK".equals(workEffort.get("workEffortTypeId"))) {
+    VToDo toDo=new VToDo(eventProps);
+    alarms=toDo.getAlarms();
+    result=toDo;
+  }
+ else {
+    VEvent event=new VEvent(eventProps);
+    alarms=event.getAlarms();
+    result=event;
+  }
+  getAlarms(workEffort,alarms);
+  if (Debug.verboseOn()) {
+    try {
+      result.validate(true);
+      Debug.logVerbose("iCalendar component passes validation",module);
+    }
+ catch (    ValidationException e) {
+      Debug.logVerbose("iCalendar component fails validation: " + e,module);
+    }
+  }
+  return result;
 }
