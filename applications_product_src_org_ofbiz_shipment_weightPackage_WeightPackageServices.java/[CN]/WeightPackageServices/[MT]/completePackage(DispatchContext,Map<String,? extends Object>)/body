@@ -17,32 +17,21 @@
   weightPackageSession.setShipmentId(shipmentId);
   weightPackageSession.setInvoiceId(invoiceId);
   weightPackageSession.setEstimatedShipCost(estimatedShippingCost);
-  BigDecimal diffInShipCostInPerc=ZERO;
+  weightPackageSession.setActualShipCost(newEstimatedShippingCost);
   Map<String,Object> response=FastMap.newInstance();
   try {
-    String shipNow=(String)context.get("shipNow");
-    if (UtilValidate.isEmpty(shipNow)) {
-      shipNow="N";
+    String getActualShippingQuoteFromUps=UtilProperties.getPropertyValue("shipment.properties","shipment.ups.shipping","N");
+    String result="error";
+    if ("Y".equals(getActualShippingQuoteFromUps)) {
+      result=weightPackageSession.complete(orderId,locale,"Y");
     }
-    if ("N".equals(shipNow)) {
-      BigDecimal doEstimates=new BigDecimal(UtilProperties.getPropertyValue("shipment.properties","shipment.default.cost.actual_over_estimated_percent_allowed","10"));
-      if (estimatedShippingCost.compareTo(ZERO) > 0) {
-        diffInShipCostInPerc=(((newEstimatedShippingCost.subtract(estimatedShippingCost)).divide(estimatedShippingCost,2,rounding)).multiply(new BigDecimal(100))).abs();
-      }
  else {
-        diffInShipCostInPerc=newEstimatedShippingCost;
-      }
-      if (doEstimates.compareTo(diffInShipCostInPerc) == -1) {
-        response.put("showWarningForm",true);
-      }
- else       if (weightPackageSession.complete(orderId,locale)) {
-        response.put("shipmentId",shipmentId);
-      }
- else {
-        response=ServiceUtil.returnError(UtilProperties.getMessage("ProductErrorUiLabels","ProductErrorNoItemsCurrentlySetToBeShippedCannotComplete",locale));
-      }
+      result=weightPackageSession.complete(orderId,locale);
     }
- else     if (weightPackageSession.complete(orderId,locale)) {
+    if ("showWarningForm".equals(result)) {
+      response.put("showWarningForm",true);
+    }
+ else     if ("success".equals(result)) {
       response.put("shipmentId",shipmentId);
     }
  else {
