@@ -36,6 +36,79 @@
   if (helperName == null) {
     throw new ContainerException("Unable to locate the datasource helper for the group [" + groupNameToUse + "]");
   }
+  DatabaseUtil dbUtil=new DatabaseUtil(helperName);
+  Map<String,ModelEntity> modelEntities;
+  try {
+    modelEntities=delegator.getModelEntityMapByGroup(groupNameToUse);
+  }
+ catch (  GenericEntityException e) {
+    throw new ContainerException(e.getMessage(),e);
+  }
+  TreeSet<String> modelEntityNames=new TreeSet<String>(modelEntities.keySet());
+  if (dropConstraints) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Dropping foreign key indcies...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deleteForeignKeyIndices(modelEntity,messages);
+      }
+    }
+    Debug.logImportant("Dropping declared indices...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deleteDeclaredIndices(modelEntity,messages);
+      }
+    }
+    Debug.logImportant("Dropping foreign keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deleteForeignKeys(modelEntity,modelEntities,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+  if (dropPks) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Dropping primary keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deletePrimaryKey(modelEntity,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+  if (repairColumns) {
+    List<String> fieldsToRepair=FastList.newInstance();
+    List<String> messages=FastList.newInstance();
+    dbUtil.checkDb(modelEntities,fieldsToRepair,messages,false,false,false,false);
+    if (fieldsToRepair.size() > 0) {
+      messages=FastList.newInstance();
+      dbUtil.repairColumnSizeChanges(modelEntities,fieldsToRepair,messages);
+      if (messages.size() > 0) {
+        if (Debug.infoOn()) {
+          for (          String message : messages) {
+            Debug.logInfo(message,module);
+          }
+        }
+      }
+    }
+  }
   List<URL> urlList=null;
   if (readerNames != null) {
     urlList=EntityDataLoader.getUrlList(helperName,component,readerNames);
@@ -109,5 +182,53 @@
     }
   }
   Debug.logImportant("=-=-=-=-=-=-= Finished the data load with " + totalRowsChanged + " rows changed.",module);
+  if (createPks) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Creating primary keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createPrimaryKey(modelEntity,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+  if (createConstraints) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Creating foreign keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createForeignKeys(modelEntity,modelEntities,messages);
+      }
+    }
+    Debug.logImportant("Creating foreign key indcies...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createForeignKeyIndices(modelEntity,messages);
+      }
+    }
+    Debug.logImportant("Creating declared indices...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createDeclaredIndices(modelEntity,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
   return true;
 }
