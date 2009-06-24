@@ -1,0 +1,38 @@
+{
+  String iCalData=null;
+  GenericValue iCalValue=workEffort.getRelatedOne("WorkEffortIcalData");
+  if (iCalValue != null) {
+    iCalData=iCalValue.getString("icalData");
+  }
+  boolean newCalendar=true;
+  Calendar calendar=null;
+  if (iCalData == null) {
+    Debug.logVerbose("iCalendar Data not found, creating new Calendar",module);
+    calendar=new Calendar();
+  }
+ else {
+    Debug.logVerbose("iCalendar Data found, using saved Calendar",module);
+    StringReader reader=new StringReader(iCalData);
+    CalendarBuilder builder=new CalendarBuilder();
+    try {
+      calendar=builder.build(reader);
+      newCalendar=false;
+    }
+ catch (    Exception e) {
+      Debug.logError(e,"Error while parsing saved iCalendar, creating new iCalendar: ",module);
+      calendar=new Calendar();
+    }
+  }
+  PropertyList propList=calendar.getProperties();
+  replaceProperty(propList,prodId);
+  replaceProperty(propList,new XProperty(workEffortIdXPropName,workEffort.getString("workEffortId")));
+  if (newCalendar) {
+    propList.add(Version.VERSION_2_0);
+    propList.add(CalScale.GREGORIAN);
+    java.util.TimeZone tz=java.util.TimeZone.getDefault();
+    TimeZoneRegistry registry=TimeZoneRegistryFactory.getInstance().createRegistry();
+    net.fortuna.ical4j.model.TimeZone timezone=registry.getTimeZone(tz.getID());
+    calendar.getComponents().add(timezone.getVTimeZone());
+  }
+  return calendar;
+}

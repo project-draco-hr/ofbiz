@@ -1,0 +1,63 @@
+{
+  CalendarBuilder builder=new CalendarBuilder();
+  Calendar calendar=null;
+  try {
+    calendar=builder.build(is);
+  }
+ catch (  IOException e) {
+    Debug.logError(e,"Error while updating calendar: ",module);
+    throw e;
+  }
+ finally {
+    if (is != null) {
+      is.close();
+    }
+  }
+  Debug.logInfo("Processing calendar:\r\n" + calendar,module);
+  String workEffortId=fromXProperty(calendar.getProperties(),workEffortIdXPropName);
+  if (workEffortId == null) {
+    Debug.logWarning("Warning: Not an OFBiz calendar: \r\n" + calendar,module);
+    return;
+  }
+  if (!workEffortId.equals(context.get("workEffortId"))) {
+    Debug.logWarning("Spoof attempt: received calendar workEffortId " + workEffortId + " on URL workEffortId "+ context.get("workEffortId"),module);
+    return;
+  }
+  Map<String,? extends Object> serviceMap=UtilMisc.toMap("workEffortId",workEffortId,"icalData",calendar.toString());
+  GenericDelegator delegator=(GenericDelegator)context.get("delegator");
+  GenericValue publishProperties=delegator.findOne("WorkEffort",UtilMisc.toMap("workEffortId",workEffortId),false);
+  if (!isCalendarPublished(publishProperties)) {
+    Debug.logInfo("WorkEffort calendar is not published: " + workEffortId,module);
+    return;
+  }
+  GenericValue iCalData=publishProperties.getRelatedOne("WorkEffortIcalData");
+  if (iCalData == null) {
+    invokeService("createWorkEffortICalData",serviceMap,context);
+  }
+ else {
+    invokeService("updateWorkEffortICalData",serviceMap,context);
+  }
+  List<GenericValue> workEfforts=getRelatedWorkEfforts(publishProperties,context);
+  if (workEfforts == null || workEfforts.size() == 0) {
+    return;
+  }
+  Set validWorkEfforts=FastSet.newInstance();
+  for (  GenericValue workEffort : workEfforts) {
+    validWorkEfforts.add(workEffort.getString("workEffortId"));
+  }
+  List<Component> components=calendar.getComponents();
+  for (  Component component : components) {
+    if (Component.VEVENT.equals(component.getName()) || Component.VTODO.equals(component.getName())) {
+      workEffortId=fromXProperty(component.getProperties(),workEffortIdXPropName);
+      if (workEffortId != null) {
+        if (validWorkEfforts.contains(workEffortId)) {
+          storeWorkEffort(component,context);
+        }
+ else {
+          Debug.logWarning("Spoof attempt: unrelated workEffortId " + workEffortId + " on URL workEffortId "+ context.get("workEffortId"),module);
+          continue;
+        }
+      }
+    }
+  }
+}

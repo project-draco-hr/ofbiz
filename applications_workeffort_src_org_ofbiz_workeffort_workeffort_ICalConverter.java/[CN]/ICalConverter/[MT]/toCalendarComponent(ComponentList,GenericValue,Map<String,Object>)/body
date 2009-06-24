@@ -1,0 +1,99 @@
+{
+  GenericDelegator delegator=workEffort.getDelegator();
+  String workEffortId=workEffort.getString("workEffortId");
+  context.put("workEffortId",workEffortId);
+  String workEffortTypeId=workEffort.getString("workEffortTypeId");
+  GenericValue typeValue=delegator.findOne("WorkEffortType",UtilMisc.toMap("workEffortTypeId",workEffortTypeId),true);
+  boolean isTask=false;
+  boolean newComponent=true;
+  ComponentList resultList=null;
+  ComponentList alarms=null;
+  Component result=null;
+  if ("TASK".equals(workEffortTypeId) || (typeValue != null && "TASK".equals(typeValue.get("parentTypeId")))) {
+    isTask=true;
+    resultList=components.getComponents("VTODO");
+  }
+ else   if ("EVENT".equals(workEffortTypeId) || (typeValue != null && "EVENT".equals(typeValue.get("parentTypeId")))) {
+    resultList=components.getComponents("VEVENT");
+  }
+ else {
+    return;
+  }
+  Iterator<Component> i=resultList.iterator();
+  while (i.hasNext()) {
+    result=i.next();
+    Property xProperty=result.getProperty(workEffortIdXPropName);
+    if (xProperty != null && workEffortId.equals(xProperty.getValue())) {
+      newComponent=false;
+      break;
+    }
+  }
+  if (isTask) {
+    VToDo toDo=null;
+    if (newComponent) {
+      toDo=new VToDo();
+      result=toDo;
+    }
+ else {
+      toDo=(VToDo)result;
+    }
+    alarms=toDo.getAlarms();
+  }
+ else {
+    VEvent event=null;
+    if (newComponent) {
+      event=new VEvent();
+      result=event;
+    }
+ else {
+      event=(VEvent)result;
+    }
+    alarms=event.getAlarms();
+  }
+  if (newComponent) {
+    components.add(result);
+  }
+  PropertyList componentProps=result.getProperties();
+  loadWorkEffort(componentProps,workEffort);
+  if (isTask) {
+    replaceProperty(componentProps,toCompleted(workEffort.getTimestamp("actualCompletionDate")));
+    replaceProperty(componentProps,toPercentComplete(workEffort.getLong("percentComplete")));
+  }
+ else {
+    replaceProperty(componentProps,toDtEnd(workEffort.getTimestamp("estimatedCompletionDate")));
+  }
+  if (workEffort.get("estimatedCompletionDate") == null) {
+    replaceProperty(componentProps,toDuration(workEffort.getDouble("estimatedMilliSeconds")));
+  }
+  List<GenericValue> relatedParties=EntityUtil.filterByDate(delegator.findList("WorkEffortPartyAssignView",EntityCondition.makeCondition("workEffortId",EntityOperator.EQUALS,workEffortId),null,null,null,true));
+  if (relatedParties.size() > 0) {
+    loadRelatedParties(relatedParties,componentProps,context);
+  }
+  if (newComponent) {
+    DateRange range=new DateRange(workEffort.getTimestamp("estimatedStartDate"),workEffort.getTimestamp("estimatedCompletionDate"));
+    if (UtilValidate.isNotEmpty(workEffort.getString("tempExprId"))) {
+      TemporalExpression tempExpr=TemporalExpressionWorker.getTemporalExpression(delegator,workEffort.getString("tempExprId"));
+      if (tempExpr != null) {
+        try {
+          ICalRecurConverter.convert(tempExpr,componentProps);
+        }
+ catch (        Exception e) {
+          replaceProperty(componentProps,new Description("Error while converting recurrence: " + e));
+        }
+      }
+    }
+ else {
+      componentProps.add(new DtEnd(new DateTime(range.end())));
+    }
+    getAlarms(workEffort,alarms);
+  }
+  if (Debug.verboseOn()) {
+    try {
+      result.validate(true);
+      Debug.logVerbose("iCalendar component passes validation",module);
+    }
+ catch (    ValidationException e) {
+      Debug.logVerbose(e,"iCalendar component fails validation: ",module);
+    }
+  }
+}

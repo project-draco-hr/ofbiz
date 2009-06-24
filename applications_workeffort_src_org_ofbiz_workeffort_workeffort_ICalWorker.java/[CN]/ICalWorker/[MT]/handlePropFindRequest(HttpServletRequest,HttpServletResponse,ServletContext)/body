@@ -1,0 +1,62 @@
+{
+  setupRequest(request,response);
+  String workEffortId=(String)request.getAttribute("workEffortId");
+  if (workEffortId == null) {
+    Debug.logInfo("[sendProperties] workEffortId missing",module);
+    response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+    return;
+  }
+  Debug.logInfo("[sendProperties] workEffortId = " + workEffortId,module);
+  try {
+    Document requestDocument=WebDavUtil.getDocumentFromRequest(request);
+    ByteArrayOutputStream os=new ByteArrayOutputStream();
+    UtilXml.writeXmlDocument(os,requestDocument,"UTF-8",true,true);
+    Debug.logInfo("[sendProperties] PROPFIND body:\r\n" + os.toString(),module);
+    PropFindHelper helper=new PropFindHelper(requestDocument);
+    if (!helper.isAllProp() && !helper.isPropName()) {
+      Document responseDocument=helper.getResponseDocument();
+      List<Element> supportedProps=FastList.newInstance();
+      List<Element> unSupportedProps=FastList.newInstance();
+      List<Element> propElements=helper.getFindPropsList(ResponseHelper.DAV_NAMESPACE_URI);
+      for (      Element propElement : propElements) {
+        if ("getetag".equals(propElement.getLocalName())) {
+          Element etagElement=helper.createElementSetValue("D:getetag",String.valueOf(System.currentTimeMillis()));
+          supportedProps.add(etagElement);
+          continue;
+        }
+        if ("getlastmodified".equals(propElement.getLocalName())) {
+          Element lmElement=helper.createElementSetValue("D:getlastmodified",WebDavUtil.formatDate(WebDavUtil.RFC1123_DATE_FORMAT,new Date()));
+          supportedProps.add(lmElement);
+          continue;
+        }
+        unSupportedProps.add(responseDocument.createElementNS(propElement.getNamespaceURI(),propElement.getTagName()));
+      }
+      Element responseElement=helper.createResponseElement();
+      responseElement.appendChild(helper.createHrefElement("/" + workEffortId + "/"));
+      if (supportedProps.size() > 0) {
+        Element propElement=helper.createPropElement(supportedProps);
+        responseElement.appendChild(helper.createPropStatElement(propElement,ResponseHelper.STATUS_200));
+      }
+      if (unSupportedProps.size() > 0) {
+        Element propElement=helper.createPropElement(unSupportedProps);
+        responseElement.appendChild(helper.createPropStatElement(propElement,ResponseHelper.STATUS_404));
+      }
+      Element rootElement=helper.createMultiStatusElement();
+      rootElement.appendChild(responseElement);
+      responseDocument.appendChild(rootElement);
+      os=new ByteArrayOutputStream();
+      UtilXml.writeXmlDocument(os,responseDocument,"UTF-8",true,true);
+      Debug.logInfo("[sendProperties] PROPFIND response:\r\n" + os.toString(),module);
+      ResponseHelper.prepareResponse(response,207,"Multi-Status");
+      Writer writer=getWriter(response,context);
+      helper.writeResponse(writer);
+      writer.close();
+      return;
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"PROPFIND error: ",module);
+  }
+  response.setStatus(HttpServletResponse.SC_OK);
+  response.flushBuffer();
+}
