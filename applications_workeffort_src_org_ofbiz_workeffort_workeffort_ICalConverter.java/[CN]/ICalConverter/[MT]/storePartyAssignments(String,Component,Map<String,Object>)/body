@@ -1,0 +1,40 @@
+{
+  Map<String,Object> serviceMap=FastMap.newInstance();
+  List<Property> partyList=FastList.newInstance();
+  partyList.addAll(component.getProperties("ATTENDEE"));
+  partyList.addAll(component.getProperties("CONTACT"));
+  partyList.addAll(component.getProperties("ORGANIZER"));
+  for (  Property property : partyList) {
+    String partyId=fromXParameter(property.getParameters(),partyIdXParamName);
+    if (partyId == null) {
+      serviceMap.clear();
+      String address=property.getValue();
+      if (address.toUpperCase().startsWith("MAILTO:")) {
+        address=address.substring(7);
+      }
+      serviceMap.put("address",address);
+      Map<String,Object> result=invokeService("findPartyFromEmailAddress",serviceMap,context);
+      partyId=(String)result.get("partyId");
+      if (partyId == null) {
+        continue;
+      }
+      replaceParameter(property.getParameters(),toXParameter(partyIdXParamName,partyId));
+    }
+    serviceMap.clear();
+    serviceMap.put("workEffortId",workEffortId);
+    serviceMap.put("partyId",partyId);
+    serviceMap.put("roleTypeId",fromRoleMap.get(property.getName()));
+    GenericDelegator delegator=(GenericDelegator)context.get("delegator");
+    List<GenericValue> assignments=null;
+    try {
+      assignments=EntityUtil.filterByDate(delegator.findByAnd("WorkEffortPartyAssignment",serviceMap));
+      if (assignments.size() == 0) {
+        serviceMap.put("statusId","PRTYASGN_OFFERED");
+        serviceMap.put("fromDate",new Timestamp(System.currentTimeMillis()));
+        invokeService("assignPartyToWorkEffort",serviceMap,context);
+      }
+    }
+ catch (    GenericEntityException e) {
+    }
+  }
+}

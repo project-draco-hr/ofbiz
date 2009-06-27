@@ -18,8 +18,7 @@
   }
   String workEffortId=fromXProperty(calendar.getProperties(),workEffortIdXPropName);
   if (workEffortId == null) {
-    Debug.logWarning("Warning: Not an OFBiz calendar: \r\n" + calendar,module);
-    return;
+    workEffortId=(String)context.get("workEffortId");
   }
   if (!workEffortId.equals(context.get("workEffortId"))) {
     Debug.logWarning("Spoof attempt: received calendar workEffortId " + workEffortId + " on URL workEffortId "+ context.get("workEffortId"),module);
@@ -47,8 +46,18 @@
   for (  Component component : components) {
     if (Component.VEVENT.equals(component.getName()) || Component.VTODO.equals(component.getName())) {
       workEffortId=fromXProperty(component.getProperties(),workEffortIdXPropName);
+      if (workEffortId == null) {
+        Property uid=component.getProperty(Uid.UID);
+        if (uid != null) {
+          GenericValue workEffort=EntityUtil.getFirst(delegator.findByAnd("WorkEffort",UtilMisc.toMap("universalId",uid.getValue())));
+          if (workEffort != null) {
+            workEffortId=workEffort.getString("workEffortId");
+          }
+        }
+      }
       if (workEffortId != null) {
         if (validWorkEfforts.contains(workEffortId)) {
+          replaceProperty(component.getProperties(),toXProperty(workEffortIdXPropName,workEffortId));
           storeWorkEffort(component,context);
         }
  else {
