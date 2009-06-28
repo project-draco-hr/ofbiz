@@ -3,17 +3,20 @@
   GenericValue publishProperties=delegator.findOne("WorkEffort",UtilMisc.toMap("workEffortId",workEffortId),false);
   if (!isCalendarPublished(publishProperties)) {
     Debug.logInfo("WorkEffort calendar is not published: " + workEffortId,module);
-    return null;
+    return ICalWorker.createNotFoundResponse(null);
   }
   if (!"WES_PUBLIC".equals(publishProperties.get("scopeEnumId")) && !hasPermission(workEffortId,"VIEW",context)) {
-    return null;
+    return ICalWorker.createNotFoundResponse(null);
   }
   Calendar calendar=makeCalendar(publishProperties,context);
   ComponentList components=calendar.getComponents();
   List<GenericValue> workEfforts=getRelatedWorkEfforts(publishProperties,context);
   if (workEfforts != null) {
     for (    GenericValue workEffort : workEfforts) {
-      toCalendarComponent(components,workEffort,context);
+      ResponseProperties responseProps=toCalendarComponent(components,workEffort,context);
+      if (responseProps != null) {
+        return responseProps;
+      }
     }
   }
   if (Debug.verboseOn()) {
@@ -25,5 +28,5 @@
       Debug.logVerbose("iCalendar fails validation: " + e,module);
     }
   }
-  return calendar.toString();
+  return ICalWorker.createOkResponse(calendar.toString());
 }
