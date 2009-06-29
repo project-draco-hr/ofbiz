@@ -1,0 +1,91 @@
+{
+  if (!withPosition) {
+    return readXmlDocument(is,validate,docDescription);
+  }
+  if (is == null) {
+    Debug.logWarning("[UtilXml.readXmlDocument] InputStream was null, doing nothing",module);
+    return null;
+  }
+  long startTime=System.currentTimeMillis();
+  Document document=null;
+  DOMParser parser=new DOMParser(){
+    private XMLLocator locator;
+    private void setLineColumn(    Node node){
+      if (node.getUserData("startLine") != null) {
+        return;
+      }
+      node.setUserData("startLine",locator.getLineNumber(),null);
+      node.setUserData("startColumn",locator.getColumnNumber(),null);
+    }
+    private void setLineColumn(){
+      try {
+        Node node=(Node)getProperty("http://apache.org/xml/properties/dom/current-element-node");
+        if (node != null) {
+          setLineColumn(node);
+        }
+      }
+ catch (      SAXException ex) {
+        Debug.logWarning(ex,module);
+      }
+    }
+    private void setLastChildLineColumn(){
+      try {
+        Node node=(Node)getProperty("http://apache.org/xml/properties/dom/current-element-node");
+        if (node != null) {
+          setLineColumn(node.getLastChild());
+        }
+      }
+ catch (      SAXException ex) {
+        Debug.logWarning(ex,module);
+      }
+    }
+    public void startGeneralEntity(    String name,    XMLResourceIdentifier identifier,    String encoding,    Augmentations augs) throws XNIException {
+      super.startGeneralEntity(name,identifier,encoding,augs);
+      setLineColumn();
+    }
+    public void comment(    XMLString text,    Augmentations augs) throws XNIException {
+      super.comment(text,augs);
+      setLastChildLineColumn();
+    }
+    public void processingInstruction(    String target,    XMLString data,    Augmentations augs) throws XNIException {
+      super.processingInstruction(target,data,augs);
+      setLastChildLineColumn();
+    }
+    public void startDocument(    XMLLocator locator,    String encoding,    NamespaceContext namespaceContext,    Augmentations augs) throws XNIException {
+      super.startDocument(locator,encoding,namespaceContext,augs);
+      this.locator=locator;
+      setLineColumn();
+    }
+    public void doctypeDecl(    String rootElement,    String publicId,    String systemId,    Augmentations augs) throws XNIException {
+      super.doctypeDecl(rootElement,publicId,systemId,augs);
+    }
+    public void startElement(    QName elementQName,    XMLAttributes attrList,    Augmentations augs) throws XNIException {
+      super.startElement(elementQName,attrList,augs);
+      setLineColumn();
+    }
+    public void characters(    XMLString text,    Augmentations augs) throws XNIException {
+      super.characters(text,augs);
+      setLastChildLineColumn();
+    }
+    public void ignorableWhitespace(    XMLString text,    Augmentations augs) throws XNIException {
+      super.ignorableWhitespace(text,augs);
+      setLastChildLineColumn();
+    }
+  }
+;
+  parser.setFeature("http://xml.org/sax/features/namespaces",true);
+  parser.setFeature("http://xml.org/sax/features/validation",validate);
+  parser.setFeature("http://apache.org/xml/features/validation/schema",validate);
+  parser.setFeature("http://apache.org/xml/features/dom/defer-node-expansion",false);
+  if (validate) {
+    LocalResolver lr=new LocalResolver(new DefaultHandler());
+    ErrorHandler eh=new LocalErrorHandler(docDescription,lr);
+    parser.setEntityResolver(lr);
+    parser.setErrorHandler(eh);
+  }
+  parser.parse(new InputSource(is));
+  document=parser.getDocument();
+  double totalSeconds=(System.currentTimeMillis() - startTime) / 1000.0;
+  if (Debug.verboseOn())   Debug.logVerbose("XML Read " + totalSeconds + "s: "+ docDescription,module);
+  return document;
+}
