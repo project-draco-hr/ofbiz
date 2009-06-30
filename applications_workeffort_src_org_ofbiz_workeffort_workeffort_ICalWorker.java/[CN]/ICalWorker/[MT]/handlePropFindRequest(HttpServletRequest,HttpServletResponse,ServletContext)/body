@@ -6,11 +6,8 @@
   Debug.logInfo("[handlePropFindRequest] workEffortId = " + workEffortId,module);
   try {
     Document requestDocument=WebDavUtil.getDocumentFromRequest(request);
-    ByteArrayOutputStream os=null;
     if (Debug.verboseOn()) {
-      os=new ByteArrayOutputStream();
-      UtilXml.writeXmlDocument(os,requestDocument,"UTF-8",true,true);
-      Debug.logVerbose("[handlePropFindRequest] PROPFIND body:\r\n" + os.toString(),module);
+      Debug.logVerbose("[handlePropFindRequest] PROPFIND body:\r\n" + UtilXml.writeXmlDocument(requestDocument),module);
     }
     PropFindHelper helper=new PropFindHelper(requestDocument);
     if (!helper.isAllProp() && !helper.isPropName()) {
@@ -25,7 +22,8 @@
           continue;
         }
         if ("getlastmodified".equals(propElement.getLocalName())) {
-          Element lmElement=helper.createElementSetValue("D:getlastmodified",WebDavUtil.formatDate(WebDavUtil.RFC1123_DATE_FORMAT,new Date()));
+          Date lastModified=getLastModifiedDate(request);
+          Element lmElement=helper.createElementSetValue("D:getlastmodified",WebDavUtil.formatDate(WebDavUtil.RFC1123_DATE_FORMAT,lastModified));
           supportedProps.add(lmElement);
           continue;
         }
@@ -45,14 +43,16 @@
       rootElement.appendChild(responseElement);
       responseDocument.appendChild(rootElement);
       if (Debug.verboseOn()) {
-        os=new ByteArrayOutputStream();
-        UtilXml.writeXmlDocument(os,responseDocument,"UTF-8",true,true);
-        Debug.logVerbose("[handlePropFindRequest] PROPFIND response:\r\n" + os.toString(),module);
+        Debug.logVerbose("[handlePropFindRequest] PROPFIND response:\r\n" + UtilXml.writeXmlDocument(responseDocument),module);
       }
       ResponseHelper.prepareResponse(response,207,"Multi-Status");
       Writer writer=getWriter(response,context);
-      helper.writeResponse(writer);
-      writer.close();
+      try {
+        helper.writeResponse(response,writer);
+      }
+  finally {
+        writer.close();
+      }
       return;
     }
   }
