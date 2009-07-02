@@ -2,6 +2,10 @@
   if (modelEntity == null) {
     return null;
   }
+  ModelViewEntity modelViewEntity=null;
+  if (modelEntity instanceof ModelViewEntity) {
+    modelViewEntity=(ModelViewEntity)modelEntity;
+  }
   if (findOptions == null)   findOptions=new EntityFindOptions();
   boolean verboseOn=Debug.verboseOn();
   if (verboseOn) {
@@ -44,23 +48,33 @@
     entityCondWhereString=whereEntityCondition.makeWhereString(modelEntity,whereEntityConditionParams,this.datasourceInfo);
   }
   String viewClause=SqlJdbcUtil.makeViewWhereClause(modelEntity,datasourceInfo.joinStyle);
-  if (viewClause.length() > 0) {
-    if (entityCondWhereString.length() > 0) {
-      whereString.append("(");
-      whereString.append(entityCondWhereString);
-      whereString.append(") AND ");
+  String viewEntityCondWhereString=null;
+  if (modelViewEntity != null && modelViewEntity.getByConditionFinder() != null) {
+    EntityCondition viewWhereEntityCondition=modelViewEntity.getByConditionFinder().getWhereEntityCondition(FastMap.<String,Object>newInstance(),modelEntity,this.modelFieldTypeReader);
+    if (viewWhereEntityCondition != null) {
+      viewEntityCondWhereString=viewWhereEntityCondition.makeWhereString(modelEntity,whereEntityConditionParams,this.datasourceInfo);
     }
-    whereString.append(viewClause);
   }
- else {
+  if (entityCondWhereString.length() > 0) {
+    whereString.append("(");
     whereString.append(entityCondWhereString);
+    whereString.append(")");
+  }
+  if (UtilValidate.isNotEmpty(viewEntityCondWhereString)) {
+    if (whereString.length() > 0)     whereString.append(" AND ");
+    whereString.append("(");
+    whereString.append(viewEntityCondWhereString);
+    whereString.append(")");
+  }
+  if (viewClause.length() > 0) {
+    if (whereString.length() > 0)     whereString.append(" AND ");
+    whereString.append(viewClause);
   }
   if (whereString.length() > 0) {
     sqlBuffer.append(" WHERE ");
     sqlBuffer.append(whereString.toString());
   }
-  if (modelEntity instanceof ModelViewEntity) {
-    ModelViewEntity modelViewEntity=(ModelViewEntity)modelEntity;
+  if (modelViewEntity != null) {
     String groupByString=modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(selectFields),", ","",false);
     if (UtilValidate.isNotEmpty(groupByString)) {
       sqlBuffer.append(" GROUP BY ");
@@ -72,11 +86,40 @@
   if (havingEntityCondition != null) {
     entityCondHavingString=havingEntityCondition.makeWhereString(modelEntity,havingEntityConditionParams,this.datasourceInfo);
   }
-  if (entityCondHavingString.length() > 0) {
-    sqlBuffer.append(" HAVING ");
-    sqlBuffer.append(entityCondHavingString);
+  String viewEntityCondHavingString=null;
+  if (modelViewEntity != null && modelViewEntity.getByConditionFinder() != null) {
+    EntityCondition viewHavingEntityCondition=modelViewEntity.getByConditionFinder().getHavingEntityCondition(FastMap.<String,Object>newInstance(),modelEntity,this.modelFieldTypeReader);
+    if (viewHavingEntityCondition != null) {
+      viewEntityCondHavingString=viewHavingEntityCondition.makeWhereString(modelEntity,havingEntityConditionParams,this.datasourceInfo);
+    }
   }
-  sqlBuffer.append(SqlJdbcUtil.makeOrderByClause(modelEntity,orderBy,datasourceInfo));
+  StringBuilder havingString=new StringBuilder();
+  if (UtilValidate.isNotEmpty(entityCondHavingString)) {
+    havingString.append("(");
+    havingString.append(entityCondHavingString);
+    havingString.append(")");
+  }
+  if (UtilValidate.isNotEmpty(viewEntityCondHavingString)) {
+    if (havingString.length() > 0)     havingString.append(" AND ");
+    havingString.append("(");
+    havingString.append(viewEntityCondHavingString);
+    havingString.append(")");
+  }
+  if (havingString.length() > 0) {
+    sqlBuffer.append(" HAVING ");
+    sqlBuffer.append(havingString);
+  }
+  List<String> orderByExpanded=FastList.<String>newInstance();
+  if (orderBy != null) {
+    orderByExpanded.addAll(orderBy);
+  }
+  if (modelViewEntity != null && modelViewEntity.getByConditionFinder() != null) {
+    List<String> viewOrderBy=modelViewEntity.getByConditionFinder().getOrderByFieldList(FastMap.<String,Object>newInstance());
+    if (viewOrderBy != null && viewOrderBy.size() > 0) {
+      orderByExpanded.addAll(viewOrderBy);
+    }
+  }
+  sqlBuffer.append(SqlJdbcUtil.makeOrderByClause(modelEntity,orderByExpanded,datasourceInfo));
   String sql=sqlBuffer.toString();
   SQLProcessor sqlP=new SQLProcessor(helperName);
   sqlP.prepareStatement(sql,findOptions.getSpecifyTypeAndConcur(),findOptions.getResultSetType(),findOptions.getResultSetConcurrency(),findOptions.getFetchSize(),findOptions.getMaxRows());
