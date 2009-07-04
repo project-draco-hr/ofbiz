@@ -1,0 +1,49 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  Map resultMap=FastMap.newInstance();
+  String orderId=request.getParameter("orderId");
+  String[] orderItemSeqIds=request.getParameterValues("selectedItem");
+  if (orderItemSeqIds != null) {
+    for (    String orderItemSeqId : orderItemSeqIds) {
+      try {
+        GenericValue orderItem=delegator.findOne("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId),false);
+        List<GenericValue> orderItemShipGroupAssocs=orderItem.getRelated("OrderItemShipGroupAssoc");
+        for (        GenericValue orderItemShipGroupAssoc : orderItemShipGroupAssocs) {
+          GenericValue orderItemShipGroup=orderItemShipGroupAssoc.getRelatedOne("OrderItemShipGroup");
+          String shipGroupSeqId=orderItemShipGroup.getString("shipGroupSeqId");
+          Map contextMap=FastMap.newInstance();
+          contextMap.put("orderId",orderId);
+          contextMap.put("orderItemSeqId",orderItemSeqId);
+          contextMap.put("shipGroupSeqId",shipGroupSeqId);
+          contextMap.put("userLogin",userLogin);
+          try {
+            resultMap=dispatcher.runSync("cancelOrderItem",contextMap);
+            if (ServiceUtil.isError(resultMap)) {
+              String errorMessage=(String)resultMap.get("errorMessage");
+              Debug.logError(errorMessage,module);
+              request.setAttribute("_ERROR_MESSAGE_",errorMessage);
+              return "error";
+            }
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            request.setAttribute("_ERROR_MESSAGE_",resultMap.get("errorMessage"));
+            return "error";
+          }
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return "error";
+      }
+    }
+    return "success";
+  }
+ else {
+    request.setAttribute("_ERROR_MESSAGE_","No order item selected. Please select an order item to cancel");
+    return "error";
+  }
+}
