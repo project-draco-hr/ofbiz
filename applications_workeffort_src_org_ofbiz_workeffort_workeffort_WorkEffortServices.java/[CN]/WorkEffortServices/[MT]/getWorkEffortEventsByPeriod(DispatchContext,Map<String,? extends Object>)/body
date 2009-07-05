@@ -52,13 +52,14 @@
     entityExprList=getDefaultWorkEffortExprList(partyIds,facilityId,fixedAssetId,workEffortTypeId);
   }
   List<EntityCondition> cancelledCheckAndList=UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("currentStatusId",EntityOperator.NOT_EQUAL,"EVENT_CANCELLED"),EntityCondition.makeCondition("currentStatusId",EntityOperator.NOT_EQUAL,"CAL_CANCELLED"));
-  List<EntityCondition> periodCheckAndlList=UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualStartDate",EntityOperator.EQUALS,null),EntityCondition.makeCondition("estimatedStartDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("estimatedStartDate",EntityOperator.LESS_THAN_EQUAL_TO,endStamp)),EntityJoinOperator.AND),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualStartDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("actualStartDate",EntityOperator.LESS_THAN_EQUAL_TO,endStamp)),EntityJoinOperator.AND)),EntityJoinOperator.OR),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualCompletionDate",EntityOperator.EQUALS,null),EntityCondition.makeCondition("estimatedCompletionDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("estimatedCompletionDate",EntityOperator.GREATER_THAN_EQUAL_TO,startStamp)),EntityJoinOperator.AND),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualCompletionDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("actualCompletionDate",EntityOperator.GREATER_THAN_EQUAL_TO,startStamp)),EntityJoinOperator.AND)),EntityJoinOperator.OR));
+  EntityCondition startDateRequired=EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("estimatedStartDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("actualStartDate",EntityOperator.NOT_EQUAL,null)),EntityJoinOperator.OR);
+  List<EntityCondition> periodCheckAndlList=UtilMisc.<EntityCondition>toList(startDateRequired,EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualStartDate",EntityOperator.EQUALS,null),EntityCondition.makeCondition("estimatedStartDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("estimatedStartDate",EntityOperator.LESS_THAN_EQUAL_TO,endStamp)),EntityJoinOperator.AND),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualStartDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("actualStartDate",EntityOperator.LESS_THAN_EQUAL_TO,endStamp)),EntityJoinOperator.AND)),EntityJoinOperator.OR),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("estimatedCompletionDate",EntityOperator.EQUALS,null),EntityCondition.makeCondition("actualCompletionDate",EntityOperator.EQUALS,null)),EntityJoinOperator.AND),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualCompletionDate",EntityOperator.EQUALS,null),EntityCondition.makeCondition("estimatedCompletionDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("estimatedCompletionDate",EntityOperator.GREATER_THAN_EQUAL_TO,startStamp)),EntityJoinOperator.AND),EntityCondition.makeCondition(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("actualCompletionDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("actualCompletionDate",EntityOperator.GREATER_THAN_EQUAL_TO,startStamp)),EntityJoinOperator.AND)),EntityJoinOperator.OR));
   entityExprList.addAll(periodCheckAndlList);
   List<EntityCondition> recurringEvents=UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("tempExprId",EntityOperator.NOT_EQUAL,null));
   if (filterOutCanceledEvents.booleanValue()) {
     recurringEvents.addAll(cancelledCheckAndList);
   }
-  List<EntityCondition> publicEvents=UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("scopeEnumId",EntityOperator.EQUALS,"WES_PUBLIC"));
+  List<EntityCondition> publicEvents=UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("scopeEnumId",EntityOperator.EQUALS,"WES_PUBLIC"),startDateRequired);
   if (filterOutCanceledEvents.booleanValue()) {
     publicEvents.addAll(cancelledCheckAndList);
   }
@@ -69,18 +70,15 @@
       List<GenericValue> tempWorkEfforts=null;
       if (UtilValidate.isNotEmpty(partyIdsToUse)) {
         EntityConditionList<EntityCondition> ecl=EntityCondition.makeCondition(UtilMisc.toList(eclTotal,EntityCondition.makeCondition("partyId",EntityOperator.IN,partyIdsToUse)),EntityJoinOperator.AND);
-        Debug.log("=====conditions for party: " + ecl);
         tempWorkEfforts=EntityUtil.filterByDate(delegator.findList("WorkEffortAndPartyAssign",ecl,null,orderByList,null,false));
       }
  else       if (UtilValidate.isNotEmpty(fixedAssetId)) {
         EntityConditionList<EntityCondition> ecl=EntityCondition.makeCondition(UtilMisc.toList(eclTotal,EntityCondition.makeCondition("fixedAssetId",EntityOperator.EQUALS,fixedAssetId)),EntityJoinOperator.AND);
-        Debug.log("=====conditions for fixed asset: " + ecl);
         tempWorkEfforts=delegator.findList("WorkEffort",ecl,null,orderByList,null,false);
         tempWorkEfforts.addAll(EntityUtil.filterByDate(delegator.findList("WorkEffortAndFixedAssetAssign",ecl,null,orderByList,null,false)));
       }
  else {
         EntityConditionList<EntityCondition> ecl=EntityCondition.makeCondition(UtilMisc.toList(eclTotal,EntityCondition.makeCondition("facilityId",EntityOperator.EQUALS,facilityId)),EntityJoinOperator.AND);
-        Debug.log("=====conditions for facility: " + ecl);
         tempWorkEfforts=delegator.findList("WorkEffort",ecl,null,UtilMisc.toList("estimatedStartDate"),null,false);
       }
       validWorkEfforts=WorkEffortWorker.removeDuplicateWorkEfforts(tempWorkEfforts);
@@ -141,9 +139,16 @@
       List<Map<String,Object>> curWorkEfforts=FastList.newInstance();
       Map<String,Object> entry=FastMap.newInstance();
       for (      GenericValue workEffort : validWorkEfforts) {
-        if (workEffort.getTimestamp("actualStartDate") != null)         workEffort.put("estimatedStartDate",workEffort.getTimestamp("actualStartDate"));
-        if (workEffort.getTimestamp("actualCompletionDate") != null)         workEffort.put("estimatedCompletionDate",workEffort.getTimestamp("actualCompletionDate"));
-        DateRange weRange=new DateRange(workEffort.getTimestamp("estimatedStartDate"),workEffort.getTimestamp("estimatedCompletionDate"));
+        Timestamp startDate=workEffort.getTimestamp("estimatedStartDate");
+        if (workEffort.getTimestamp("actualStartDate") != null) {
+          startDate=workEffort.getTimestamp("actualStartDate");
+        }
+        Timestamp endDate=workEffort.getTimestamp("estimatedCompletionDate");
+        if (workEffort.getTimestamp("actualCompletionDate") != null) {
+          endDate=workEffort.getTimestamp("actualCompletionDate");
+        }
+        if (endDate == null)         endDate=startDate;
+        DateRange weRange=new DateRange(startDate,endDate);
         if (periodRange.intersectsRange(weRange)) {
           Map<String,Object> calEntry=FastMap.newInstance();
           calEntry.put("workEffort",workEffort);
