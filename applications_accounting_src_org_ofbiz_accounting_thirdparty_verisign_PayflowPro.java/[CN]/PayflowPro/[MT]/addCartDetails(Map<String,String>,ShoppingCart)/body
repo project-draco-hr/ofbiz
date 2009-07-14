@@ -1,0 +1,47 @@
+{
+  parameterMap.put("CURRENCY",cart.getCurrency());
+  int line=0;
+  for (  ShoppingCartItem item : cart.items()) {
+    parameterMap.put("L_NAME" + line,item.getName());
+    parameterMap.put("L_DESC" + line,item.getDescription());
+    parameterMap.put("L_AMT" + line,item.getBasePrice().setScale(2).toPlainString());
+    parameterMap.put("L_QTY" + line,item.getQuantity().toBigInteger().toString());
+    line++;
+    BigDecimal otherAdjustments=item.getOtherAdjustments();
+    if (otherAdjustments.compareTo(BigDecimal.ZERO) != 0) {
+      parameterMap.put("L_NAME" + line,item.getName() + " Adjustments");
+      parameterMap.put("L_DESC" + line,"Adjustments for item: " + item.getName());
+      parameterMap.put("L_AMT" + line,otherAdjustments.setScale(2).toPlainString());
+      parameterMap.put("L_QTY" + line,"1");
+      line++;
+    }
+  }
+  BigDecimal otherAdjustments=cart.getOrderOtherAdjustmentTotal();
+  if (otherAdjustments.compareTo(BigDecimal.ZERO) != 0) {
+    parameterMap.put("L_NAME" + line,"Order Adjustments");
+    parameterMap.put("L_AMT" + line,otherAdjustments.setScale(2).toPlainString());
+    parameterMap.put("L_QTY" + line,"1");
+    line++;
+  }
+  parameterMap.put("ITEMAMT",cart.getSubTotal().add(otherAdjustments).setScale(2).toPlainString());
+  parameterMap.put("TAXAMT",cart.getTotalSalesTax().setScale(2).toPlainString());
+  parameterMap.put("FREIGHTAMT",cart.getTotalShipping().setScale(2).toPlainString());
+  parameterMap.put("AMT",cart.getGrandTotal().setScale(2).toPlainString());
+  if (!cart.shippingApplies()) {
+    parameterMap.put("NOSHIPPING","1");
+  }
+ else {
+    GenericValue shippingAddress=cart.getShippingAddress();
+    parameterMap.put("ADDROVERRIDE","1");
+    parameterMap.put("SHIPTOSTREET",StringUtils.left(shippingAddress.getString("address1"),30));
+    parameterMap.put("SHIPTOSTREET2",StringUtils.left(shippingAddress.getString("address2"),30));
+    parameterMap.put("SHIPTOCITY",StringUtils.left(shippingAddress.getString("city"),40));
+    if (shippingAddress.getString("stateProvinceGeoId") != null && !"_NA_".equals(shippingAddress.getString("stateProvinceGeoId"))) {
+      GenericValue stateProvinceGeo=shippingAddress.getRelatedOne("StateProvinceGeo");
+      parameterMap.put("SHIPTOSTATE",StringUtils.left(stateProvinceGeo.getString("geoCode"),40));
+    }
+    parameterMap.put("SHIPTOZIP",StringUtils.left(shippingAddress.getString("postalCode"),16));
+    GenericValue countryGeo=shippingAddress.getRelatedOne("CountryGeo");
+    parameterMap.put("SHIPTOCOUNTRY",StringUtils.left(countryGeo.getString("geoCode"),2));
+  }
+}

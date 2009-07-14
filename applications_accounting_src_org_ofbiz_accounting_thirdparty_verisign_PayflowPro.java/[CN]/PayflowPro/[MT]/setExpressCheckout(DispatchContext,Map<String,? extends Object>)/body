@@ -1,0 +1,50 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  ShoppingCart cart=(ShoppingCart)context.get("cart");
+  Locale locale=cart.getLocale();
+  GenericValue payPalPaymentSetting=ProductStoreWorker.getProductStorePaymentSetting(delegator,cart.getProductStoreId(),"EXT_PAYPAL",null,true);
+  String paymentGatewayConfigId=payPalPaymentSetting.getString("paymentGatewayConfigId");
+  String configString="payment.properties";
+  if (cart == null || cart.items().size() <= 0) {
+    return ServiceUtil.returnError(UtilProperties.getMessage("AccountingErrorUiLabels","AccountingPayPalShoppingCartIsEmpty",locale));
+  }
+  Map<String,String> data=FastMap.newInstance();
+  data.put("TRXTYPE","O");
+  data.put("TENDER","P");
+  data.put("ACTION","S");
+  String token=(String)cart.getAttribute("payPalCheckoutToken");
+  if (UtilValidate.isNotEmpty(token)) {
+    data.put("TOKEN",token);
+  }
+  data.put("RETURNURL",getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"returnUrl",configString,"payment.verisign.returnUrl"));
+  data.put("CANCELURL",getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"cancelReturnUrl",configString,"payment.verisign.cancelReturnUrl"));
+  try {
+    addCartDetails(data,cart);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    ServiceUtil.returnError("An error occurred while retreiving cart details");
+  }
+  PayflowAPI pfp=init(delegator,paymentGatewayConfigId,null,context);
+  StringBuilder params=makeBaseParams(delegator,paymentGatewayConfigId,null);
+  params.append("&").append(parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp;
+  if (!comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"enableTransmit",configString,"payment.verisign.enable_transmit","false")) {
+    resp=pfp.submitTransaction(params.toString(),pfp.generateRequestId());
+  }
+ else {
+    resp="RESULT=0&TOKEN=" + (new Date()).getTime() + "&RESPMSG=Testing";
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Response from Verisign: " + resp,module);
+  Map<String,String> responseMap=parseResponse(resp);
+  String result=responseMap.get("RESULT");
+  if (!"0".equals(result)) {
+    String respMsg=responseMap.get("RESPMSG");
+    Debug.logError("A problem occurred while requesting an express checkout token from paypal: Result = " + result + ", Message = "+ respMsg,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage("AccountingErrorUiLabels","AccountingPayPalCommunicationError",locale));
+  }
+  token=responseMap.get("TOKEN");
+  cart.setAttribute("payPalCheckoutToken",token);
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,56 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  OrderReadHelper orh=new OrderReadHelper(delegator,paymentPref.getString("orderId"));
+  GenericValue payPalPaymentSetting=ProductStoreWorker.getProductStorePaymentSetting(delegator,orh.getProductStoreId(),"EXT_PAYPAL",null,true);
+  String paymentGatewayConfigId=payPalPaymentSetting.getString("paymentGatewayConfigId");
+  String configString="payment.properties";
+  GenericValue payPalPaymentMethod=null;
+  try {
+    payPalPaymentMethod=paymentPref.getRelatedOne("PaymentMethod");
+    payPalPaymentMethod=payPalPaymentMethod.getRelatedOne("PayPalPaymentMethod");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  BigDecimal processAmount=paymentPref.getBigDecimal("maxAmount");
+  Map<String,String> data=FastMap.newInstance();
+  data.put("TRXTYPE","O");
+  data.put("TENDER","P");
+  data.put("PAYERID",payPalPaymentMethod.getString("payerId"));
+  data.put("TOKEN",payPalPaymentMethod.getString("expressCheckoutToken"));
+  data.put("ACTION","D");
+  data.put("AMT",processAmount.setScale(2).toPlainString());
+  PayflowAPI pfp=init(delegator,paymentGatewayConfigId,null,context);
+  StringBuilder params=makeBaseParams(delegator,paymentGatewayConfigId,null);
+  params.append("&").append(parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp;
+  if (!comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"enableTransmit",configString,"payment.verisign.enable_transmit","false")) {
+    resp=pfp.submitTransaction(params.toString(),pfp.generateRequestId());
+  }
+ else {
+    resp="RESULT=0&PAYERID=" + (new Date()).getTime() + "&RESPMSG=Testing";
+  }
+  Map<String,String> responseMap=parseResponse(resp);
+  Map<String,Object> inMap=FastMap.newInstance();
+  inMap.put("userLogin",userLogin);
+  inMap.put("paymentMethodId",payPalPaymentMethod.get("paymentMethodId"));
+  inMap.put("transactionId",responseMap.get("PNREF"));
+  Map<String,Object> outMap=null;
+  try {
+    outMap=dispatcher.runSync("updatePayPalPaymentMethod",inMap);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (ServiceUtil.isError(outMap)) {
+    Debug.logError(ServiceUtil.getErrorMessage(outMap),module);
+    return outMap;
+  }
+  return ServiceUtil.returnSuccess();
+}

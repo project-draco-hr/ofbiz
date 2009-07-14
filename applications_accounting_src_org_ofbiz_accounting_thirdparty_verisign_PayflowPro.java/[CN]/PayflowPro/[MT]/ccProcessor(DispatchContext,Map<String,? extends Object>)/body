@@ -7,51 +7,64 @@
   BigDecimal processAmount=(BigDecimal)context.get("processAmount");
   GenericValue party=(GenericValue)context.get("billToParty");
   GenericValue cc=(GenericValue)context.get("creditCard");
+  GenericValue payPalPaymentMethod=(GenericValue)context.get("payPalPaymentMethod");
   GenericValue ps=(GenericValue)context.get("billingAddress");
   String paymentGatewayConfigId=(String)context.get("paymentGatewayConfigId");
   String configString=(String)context.get("paymentConfig");
   if (configString == null) {
     configString="payment.properties";
   }
-  if (authTrans == null) {
-    authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  boolean isPayPal=false;
+  if ("EXT_PAYPAL".equals(paymentPref.getString("paymentMethodTypeId"))) {
+    isPayPal=true;
   }
+  Map<String,String> data=FastMap.newInstance();
   boolean isReAuth=false;
-  Map<String,String> data=UtilMisc.toMap("COMMENT1",orderId);
-  data.put("PONUM",orderId);
-  data.put("CUSTCODE",party.getString("partyId"));
-  if (comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"preAuth",configString,"payment.verisign.preAuth","Y")) {
+  if (isPayPal) {
     data.put("TRXTYPE","A");
-    if (authTrans != null) {
-      String refNum=authTrans.getString("referenceNum");
-      data.put("ORIGID",refNum);
-      isReAuth=true;
-    }
+    data.put("TENDER","P");
+    data.put("ORIGID",payPalPaymentMethod.getString("transactionId"));
   }
  else {
-    data.put("TRXTYPE","S");
-  }
-  data.put("TENDER","C");
-  if (UtilValidate.isNotEmpty(cvv2)) {
-    data.put("CVV2",cvv2);
+    if (authTrans == null) {
+      authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+    }
+    data.put("COMMENT1",orderId);
+    data.put("PONUM",orderId);
+    data.put("CUSTCODE",party.getString("partyId"));
+    if (comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"preAuth",configString,"payment.verisign.preAuth","Y")) {
+      data.put("TRXTYPE","A");
+      if (authTrans != null) {
+        String refNum=authTrans.getString("referenceNum");
+        data.put("ORIGID",refNum);
+        isReAuth=true;
+      }
+    }
+ else {
+      data.put("TRXTYPE","S");
+    }
+    data.put("TENDER","C");
+    if (UtilValidate.isNotEmpty(cvv2)) {
+      data.put("CVV2",cvv2);
+    }
+    data.put("ACCT",cc.getString("cardNumber"));
+    String name=cc.getString("firstNameOnCard") + " " + cc.getString("lastNameOnCard");
+    data.put("FIRSTNAME",cc.getString("firstNameOnCard"));
+    data.put("LASTNAME",cc.getString("lastNameOnCard"));
+    data.put("COMMENT2",name);
+    if (cc.get("expireDate") != null) {
+      String exp=cc.getString("expireDate");
+      String expDate=exp.substring(0,2);
+      expDate=expDate + exp.substring(exp.length() - 2);
+      data.put("EXPDATE",expDate);
+    }
+    if (ps != null) {
+      String street=ps.getString("address1") + (ps.get("address2") != null && ps.getString("address2").length() > 0 ? " " + ps.getString("address2") : "");
+      data.put("STREET",street);
+      data.put("ZIP",ps.getString("postalCode"));
+    }
   }
   data.put("AMT",processAmount.toString());
-  data.put("ACCT",cc.getString("cardNumber"));
-  String name=cc.getString("firstNameOnCard") + " " + cc.getString("lastNameOnCard");
-  data.put("FIRSTNAME",cc.getString("firstNameOnCard"));
-  data.put("LASTNAME",cc.getString("lastNameOnCard"));
-  data.put("COMMENT2",name);
-  if (cc.get("expireDate") != null) {
-    String exp=cc.getString("expireDate");
-    String expDate=exp.substring(0,2);
-    expDate=expDate + exp.substring(exp.length() - 2);
-    data.put("EXPDATE",expDate);
-  }
-  if (ps != null) {
-    String street=ps.getString("address1") + (ps.get("address2") != null && ps.getString("address2").length() > 0 ? " " + ps.getString("address2") : "");
-    data.put("STREET",street);
-    data.put("ZIP",ps.getString("postalCode"));
-  }
   PayflowAPI pfp=init(delegator,paymentGatewayConfigId,configString,context);
   StringBuilder params=makeBaseParams(delegator,paymentGatewayConfigId,configString);
   params.append("&").append(parseContext(data));
@@ -66,8 +79,11 @@
   if (Debug.verboseOn()) {
     Debug.logVerbose("Response from Verisign: " + resp,module);
   }
+  if (isPayPal) {
+    resp+="&AVSADDR=" + payPalPaymentMethod.getString("avsAddr") + "&AVSZIP="+ payPalPaymentMethod.getString("avsZip");
+  }
   Map<String,Object> result=ServiceUtil.returnSuccess();
-  parseAuthResponse(delegator,paymentGatewayConfigId,resp,result,configString,isReAuth);
+  parseAuthResponse(delegator,paymentGatewayConfigId,resp,result,configString,isReAuth,isPayPal);
   result.put("processAmount",processAmount);
   return result;
 }

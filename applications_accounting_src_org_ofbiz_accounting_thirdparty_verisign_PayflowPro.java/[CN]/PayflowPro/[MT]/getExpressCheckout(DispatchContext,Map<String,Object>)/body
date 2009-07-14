@@ -1,0 +1,56 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  ShoppingCart cart=(ShoppingCart)context.get("cart");
+  Locale locale=cart.getLocale();
+  GenericValue payPalPaymentSetting=ProductStoreWorker.getProductStorePaymentSetting(delegator,cart.getProductStoreId(),"EXT_PAYPAL",null,true);
+  String paymentGatewayConfigId=payPalPaymentSetting.getString("paymentGatewayConfigId");
+  String configString="payment.properties";
+  Map<String,String> data=FastMap.newInstance();
+  data.put("TRXTYPE","O");
+  data.put("TENDER","P");
+  data.put("ACTION","G");
+  String token=(String)cart.getAttribute("payPalCheckoutToken");
+  if (UtilValidate.isNotEmpty(token)) {
+    data.put("TOKEN",token);
+  }
+  PayflowAPI pfp=init(delegator,paymentGatewayConfigId,null,context);
+  StringBuilder params=makeBaseParams(delegator,paymentGatewayConfigId,null);
+  params.append("&").append(parseContext(data));
+  if (Debug.verboseOn())   Debug.logVerbose("Sending to Verisign: " + params.toString(),module);
+  String resp;
+  if (!comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"enableTransmit",configString,"payment.verisign.enable_transmit","false")) {
+    resp=pfp.submitTransaction(params.toString(),pfp.generateRequestId());
+  }
+ else {
+    resp="RESULT=0&PAYERID=" + (new Date()).getTime() + "&RESPMSG=Testing";
+  }
+  Map<String,String> responseMap=parseResponse(resp);
+  if (!"0".equals(responseMap.get("RESULT"))) {
+    Debug.logError("A problem occurred while requesting the checkout details from paypal: Result = " + responseMap.get("RESULT") + ", Message = "+ responseMap.get("RESPMSG"),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage("AccountingErrorUiLabels","AccountingPayPalCommunicationError",locale));
+  }
+  Map<String,Object> inMap=FastMap.newInstance();
+  inMap.put("userLogin",cart.getUserLogin());
+  inMap.put("partyId",cart.getOrderPartyId());
+  inMap.put("contactMechId",cart.getShippingContactMechId());
+  inMap.put("fromDate",UtilDateTime.nowTimestamp());
+  inMap.put("payerId",responseMap.get("PAYERID"));
+  inMap.put("expressCheckoutToken",token);
+  inMap.put("payerStatus",responseMap.get("PAYERSTATUS"));
+  inMap.put("avsAddr",responseMap.get("AVSADDR"));
+  inMap.put("avsZip",responseMap.get("AVSZIP"));
+  inMap.put("correlationId",responseMap.get("CORRELATIONID"));
+  Map<String,Object> outMap=null;
+  try {
+    outMap=dispatcher.runSync("createPayPalPaymentMethod",inMap);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String paymentMethodId=(String)outMap.get("paymentMethodId");
+  cart.clearPayments();
+  cart.addPaymentAmount(paymentMethodId,cart.getGrandTotal(),true);
+  return ServiceUtil.returnSuccess();
+}
