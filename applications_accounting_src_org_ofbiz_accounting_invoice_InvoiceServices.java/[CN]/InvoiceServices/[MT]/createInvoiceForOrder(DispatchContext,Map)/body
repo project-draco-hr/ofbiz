@@ -50,8 +50,8 @@
     int invoiceTypeDecimals=UtilNumber.getBigDecimalScale("invoice." + invoiceType + ".decimals");
     if (invoiceTypeDecimals == -1)     invoiceTypeDecimals=decimals;
     OrderReadHelper orh=new OrderReadHelper(orderHeader);
-    GenericValue productStore=delegator.findByPrimaryKey("ProductStore",UtilMisc.toMap("productStoreId",orh.getProductStoreId()));
-    String prorateShipping=productStore.getString("prorateShipping");
+    GenericValue productStore=orh.getProductStore();
+    String prorateShipping=productStore != null ? productStore.getString("prorateShipping") : "Y";
     if (prorateShipping == null) {
       prorateShipping="Y";
     }
@@ -432,7 +432,7 @@
       invoiceItemSeqNum++;
       invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
     }
-    String prorateTaxes=productStore.getString("prorateTaxes");
+    String prorateTaxes=productStore != null ? productStore.getString("prorateTaxes") : "Y";
     if (prorateTaxes == null) {
       prorateTaxes="Y";
     }
@@ -484,12 +484,9 @@
         }
       }
     }
-    boolean autoApproveInvoice=UtilValidate.isEmpty(productStore.get("autoApproveInvoice")) || "Y".equals(productStore.getString("autoApproveInvoice"));
-    if (autoApproveInvoice) {
-      String nextStatusId="INVOICE_READY";
-      if (invoiceType.equals("PURCHASE_INVOICE")) {
-        nextStatusId="INVOICE_IN_PROCESS";
-      }
+    String autoApproveInvoice=productStore != null ? productStore.getString("autoApproveInvoice") : "Y";
+    if (!"N".equals(autoApproveInvoice)) {
+      String nextStatusId="PURCHASE_INVOICE".equals(invoiceType) ? "INVOICE_IN_PROCESS" : "INVOICE_READY";
       Map setInvoiceStatusResult=dispatcher.runSync("setInvoiceStatus",UtilMisc.<String,Object>toMap("invoiceId",invoiceId,"statusId",nextStatusId,"userLogin",userLogin));
       if (ServiceUtil.isError(setInvoiceStatusResult)) {
         return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,setInvoiceStatusResult);
