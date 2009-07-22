@@ -329,45 +329,28 @@
     paramMap.put("surveyResponses",surveyResponses);
   }
   GenericValue productStore=ProductStoreWorker.getProductStore(request);
-  String addToCartRemoveIncompat=productStore.getString("addToCartRemoveIncompat");
-  String addToCartReplaceUpsell=productStore.getString("addToCartReplaceUpsell");
-  try {
-    if ("Y".equals(addToCartRemoveIncompat)) {
-      List productAssocs=null;
-      EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId),EntityOperator.OR,EntityCondition.makeCondition("productIdTo",EntityOperator.EQUALS,productId)),EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_INCOMPATABLE")),EntityOperator.AND);
-      productAssocs=delegator.findList("ProductAssoc",cond,null,null,null,false);
-      productAssocs=EntityUtil.filterByDate(productAssocs);
-      List productList=FastList.newInstance();
-      Iterator iter=productAssocs.iterator();
-      while (iter.hasNext()) {
-        GenericValue productAssoc=(GenericValue)iter.next();
-        if (productId.equals(productAssoc.getString("productId"))) {
-          productList.add(productAssoc.getString("productIdTo"));
-          continue;
-        }
-        if (productId.equals(productAssoc.getString("productIdTo"))) {
-          productList.add(productAssoc.getString("productId"));
-          continue;
-        }
-      }
-      Iterator sciIter=cart.iterator();
-      while (sciIter.hasNext()) {
-        ShoppingCartItem sci=(ShoppingCartItem)sciIter.next();
-        if (productList.contains(sci.getProductId())) {
-          try {
-            cart.removeCartItem(sci,dispatcher);
+  if (productStore != null) {
+    String addToCartRemoveIncompat=productStore.getString("addToCartRemoveIncompat");
+    String addToCartReplaceUpsell=productStore.getString("addToCartReplaceUpsell");
+    try {
+      if ("Y".equals(addToCartRemoveIncompat)) {
+        List productAssocs=null;
+        EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId),EntityOperator.OR,EntityCondition.makeCondition("productIdTo",EntityOperator.EQUALS,productId)),EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_INCOMPATABLE")),EntityOperator.AND);
+        productAssocs=delegator.findList("ProductAssoc",cond,null,null,null,false);
+        productAssocs=EntityUtil.filterByDate(productAssocs);
+        List productList=FastList.newInstance();
+        Iterator iter=productAssocs.iterator();
+        while (iter.hasNext()) {
+          GenericValue productAssoc=(GenericValue)iter.next();
+          if (productId.equals(productAssoc.getString("productId"))) {
+            productList.add(productAssoc.getString("productIdTo"));
+            continue;
           }
- catch (          CartItemModifyException e) {
-            Debug.logError(e.getMessage(),module);
+          if (productId.equals(productAssoc.getString("productIdTo"))) {
+            productList.add(productAssoc.getString("productId"));
+            continue;
           }
         }
-      }
-    }
-    if ("Y".equals(addToCartReplaceUpsell)) {
-      List productList=null;
-      EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productIdTo",EntityOperator.EQUALS,productId),EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_UPGRADE")),EntityOperator.AND);
-      productList=delegator.findList("ProductAssoc",cond,UtilMisc.toSet("productId"),null,null,false);
-      if (productList != null) {
         Iterator sciIter=cart.iterator();
         while (sciIter.hasNext()) {
           ShoppingCartItem sci=(ShoppingCartItem)sciIter.next();
@@ -381,10 +364,29 @@
           }
         }
       }
+      if ("Y".equals(addToCartReplaceUpsell)) {
+        List productList=null;
+        EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productIdTo",EntityOperator.EQUALS,productId),EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_UPGRADE")),EntityOperator.AND);
+        productList=delegator.findList("ProductAssoc",cond,UtilMisc.toSet("productId"),null,null,false);
+        if (productList != null) {
+          Iterator sciIter=cart.iterator();
+          while (sciIter.hasNext()) {
+            ShoppingCartItem sci=(ShoppingCartItem)sciIter.next();
+            if (productList.contains(sci.getProductId())) {
+              try {
+                cart.removeCartItem(sci,dispatcher);
+              }
+ catch (              CartItemModifyException e) {
+                Debug.logError(e.getMessage(),module);
+              }
+            }
+          }
+        }
+      }
     }
-  }
- catch (  GenericEntityException e) {
-    Debug.logError(e.getMessage(),module);
+ catch (    GenericEntityException e) {
+      Debug.logError(e.getMessage(),module);
+    }
   }
   result=cartHelper.addToCart(catalogId,shoppingListId,shoppingListItemSeqId,productId,productCategoryId,itemType,itemDescription,price,amount,quantity,reservStart,reservLength,reservPersons,accommodationMapId,accommodationSpotId,shipBeforeDate,shipAfterDate,configWrapper,itemGroupNumber,paramMap,parentProductId);
   controlDirective=processResult(result,request);
