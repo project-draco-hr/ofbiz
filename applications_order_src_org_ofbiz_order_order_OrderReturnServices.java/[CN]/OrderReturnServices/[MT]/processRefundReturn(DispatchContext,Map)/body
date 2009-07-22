@@ -110,7 +110,7 @@
           orderPayPrefRefundedTotal=orderPayPrefRefundedTotal.add((BigDecimal)refundedTotalsByPaymentMethod.get(orderPayPrefKey)).setScale(decimals,rounding);
         }
         BigDecimal orderPayPrefAvailableTotal=orderPayPrefReceivedTotal.subtract(orderPayPrefRefundedTotal);
-        if (orderPayPrefAvailableTotal.compareTo(ZERO) == 1) {
+        if (orderPayPrefAvailableTotal.compareTo(ZERO) > 0) {
           Map orderPayPrefDetails=new HashMap();
           orderPayPrefDetails.put("orderPaymentPreference",orderPayPref);
           orderPayPrefDetails.put("availableTotal",orderPayPrefAvailableTotal);
@@ -157,6 +157,7 @@
             GenericValue orderPaymentPreference=(GenericValue)orderPaymentPrefDetails.get("orderPaymentPreference");
             BigDecimal orderPaymentPreferenceAvailable=(BigDecimal)orderPaymentPrefDetails.get("availableTotal");
             BigDecimal amountToRefund=orderPaymentPreferenceAvailable.min(amountLeftToRefund);
+            BigDecimal amountRefunded=amountToRefund;
             String paymentId=null;
             String returnItemStatusId="RETURN_COMPLETED";
             if (electronicTypes.contains(paymentMethodTypeId)) {
@@ -167,6 +168,7 @@
                   continue;
                 }
                 paymentId=(String)serviceResult.get("paymentId");
+                amountRefunded=(BigDecimal)serviceResult.get("refundAmount");
               }
  catch (              GenericServiceException e) {
                 Debug.logError(e,"Problem running the refundPayment service",module);
@@ -210,7 +212,7 @@
             }
             Map response=FastMap.newInstance();
             response.put("orderPaymentPreferenceId",orderPaymentPreference.getString("orderPaymentPreferenceId"));
-            response.put("responseAmount",amountToRefund.setScale(decimals,rounding));
+            response.put("responseAmount",amountRefunded.setScale(decimals,rounding));
             response.put("responseDate",now);
             response.put("userLogin",userLogin);
             response.put("paymentId",paymentId);
@@ -254,7 +256,7 @@
               Debug.logError(e,"Problem creating PaymentApplication records for return invoice",module);
               return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemUpdatingReturnItemReturnItemResponseId",locale));
             }
-            amountLeftToRefund=amountLeftToRefund.subtract(amountToRefund);
+            amountLeftToRefund=amountLeftToRefund.subtract(amountRefunded);
           }
         }
       }
