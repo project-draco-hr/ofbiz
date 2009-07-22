@@ -6,7 +6,13 @@
   BigDecimal splitAmount=(BigDecimal)context.get("splitAmount");
   String orderId=paymentPref.getString("orderId");
   OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
-  String statusId=("EXT_BILLACT".equals(paymentPref.getString("paymentMethodTypeId")) ? "PAYMENT_NOT_RECEIVED" : "PAYMENT_NOT_AUTH");
+  String statusId="PAYMENT_NOT_AUTH";
+  if ("EXT_BILLACT".equals(paymentPref.getString("paymentMethodTypeId"))) {
+    statusId="PAYMENT_NOT_RECEIVED";
+  }
+ else   if ("EXT_PAYPAL".equals(paymentPref.get("paymentMethodTypeId"))) {
+    statusId="PAYMENT_AUTHORIZED";
+  }
   Debug.logInfo("Creating payment preference split",module);
   String newPrefId=delegator.getNextSeqId("OrderPaymentPreference");
   GenericValue newPref=delegator.makeValue("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",newPrefId));
@@ -23,7 +29,16 @@
   Map<String,Object> processorResult=null;
   try {
     delegator.create(newPref);
-    if ("PAYMENT_NOT_AUTH".equals(statusId)) {
+    if ("EXT_PAYPAL".equals(paymentPref.get("paymentMethodTypeId"))) {
+      String newAuthId=delegator.getNextSeqId("PaymentGatewayResponse");
+      GenericValue authTrans=getAuthTransaction(paymentPref);
+      GenericValue newAuthTrans=delegator.makeValue("PaymentGatewayResponse",authTrans);
+      newAuthTrans.set("paymentGatewayResponseId",newAuthId);
+      newAuthTrans.set("orderPaymentPreferenceId",newPref.get("orderPaymentPreferenceId"));
+      newAuthTrans.set("amount",splitAmount);
+      savePgr(dctx,newAuthTrans);
+    }
+ else     if ("PAYMENT_NOT_AUTH".equals(statusId)) {
       processorResult=authPayment(dispatcher,userLogin,orh,newPref,splitAmount,false,null);
       if (processorResult != null) {
         boolean authResult=processResult(dctx,processorResult,userLogin,newPref);
