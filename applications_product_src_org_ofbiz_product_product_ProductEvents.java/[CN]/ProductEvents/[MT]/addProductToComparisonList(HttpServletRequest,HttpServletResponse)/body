@@ -1,0 +1,35 @@
+{
+  HttpSession session=request.getSession();
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
+  String productId=request.getParameter("productId");
+  GenericValue product=null;
+  if (UtilValidate.isNotEmpty(productId)) {
+    try {
+      product=ProductWorker.findProduct(delegator,productId);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (product == null) {
+    String errMsg=UtilProperties.getMessage(resource,"productevents.product_with_id_not_found",UtilMisc.toMap("productId",productId),UtilHttp.getLocale(request));
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  List<GenericValue> compareList=getProductCompareList(request);
+  boolean alreadyInList=false;
+  for (  GenericValue compProduct : compareList) {
+    if (product.getString("productId").equals(compProduct.getString("productId"))) {
+      alreadyInList=true;
+      break;
+    }
+  }
+  if (!alreadyInList) {
+    compareList.add(product);
+  }
+  session.setAttribute("productCompareList",compareList);
+  String productName=ProductContentWrapper.getProductContentAsText(product,"PRODUCT_NAME",request);
+  String eventMsg=UtilProperties.getMessage("ProductUiLabels","ProductAddToCompareListSuccess",UtilMisc.toMap("name",productName),UtilHttp.getLocale(request));
+  request.setAttribute("_EVENT_MESSAGE_",eventMsg);
+  return "success";
+}
