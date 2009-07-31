@@ -4,40 +4,25 @@
   if (shippableWeight.compareTo(BigDecimal.ZERO) == 0) {
     return ServiceUtil.returnFailure("shippableWeight must be greater than 0");
   }
-  String originationZip=null;
-  GenericValue productStore=ProductStoreWorker.getProductStore(((String)context.get("productStoreId")),delegator);
-  if (productStore != null && productStore.get("inventoryFacilityId") != null) {
-    GenericValue facilityContactMech=ContactMechWorker.getFacilityContactMechByPurpose(delegator,productStore.getString("inventoryFacilityId"),UtilMisc.toList("SHIP_ORIG_LOCATION","PRIMARY_LOCATION"));
-    if (facilityContactMech != null) {
-      try {
-        GenericValue shipFromAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",facilityContactMech.getString("contactMechId")));
-        if (shipFromAddress != null) {
-          originationZip=shipFromAddress.getString("postalCode");
-        }
-      }
- catch (      GenericEntityException e) {
-        Debug.logError(e,module);
-      }
-    }
-  }
-  if (UtilValidate.isEmpty(originationZip)) {
-    return ServiceUtil.returnError("Unable to determine the origination ZIP");
-  }
-  String destinationZip=null;
+  String destinationCountry=null;
   String shippingContactMechId=(String)context.get("shippingContactMechId");
   if (UtilValidate.isNotEmpty(shippingContactMechId)) {
     try {
       GenericValue shipToAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
-      if (shipToAddress != null) {
-        destinationZip=shipToAddress.getString("postalCode");
+      if ("USA".equals(shipToAddress.get("countryGeoId"))) {
+        return ServiceUtil.returnError("The USPS International Rate Calculation service is not applicable to US destinations, use uspsRateInquire");
+      }
+      if (shipToAddress != null && UtilValidate.isNotEmpty(shipToAddress.getString("countryGeoId"))) {
+        GenericValue countryGeo=shipToAddress.getRelatedOne("CountryGeo");
+        destinationCountry=countryGeo.getString("geoName");
       }
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
     }
   }
-  if (UtilValidate.isEmpty(destinationZip)) {
-    return ServiceUtil.returnError("Unable to determine the destination ZIP");
+  if (UtilValidate.isEmpty(destinationCountry)) {
+    return ServiceUtil.returnError("Unable to determine the destination country");
   }
   String serviceCode=null;
   try {
@@ -52,7 +37,6 @@
   if (UtilValidate.isEmpty(serviceCode)) {
     return ServiceUtil.returnError("Unable to determine the service code");
   }
-  Document requestDocument=createUspsRequestDocument("RateV2Request",true);
   BigDecimal maxWeight=new BigDecimal("70");
   String maxWeightStr=UtilProperties.getPropertyValue((String)context.get("serviceConfigProps"),"shipment.usps.max.estimate.weight","70");
   try {
@@ -65,6 +49,8 @@
   List<Map<String,Object>> shippableItemInfo=UtilGenerics.checkList(context.get("shippableItemInfo"));
   List<Map<String,BigDecimal>> packages=getPackageSplit(dctx,shippableItemInfo,maxWeight);
   boolean isOnePackage=packages.size() == 1;
+  Document requestDocument=createUspsRequestDocument("IntlRateRequest",false);
+  UtilXml.addChildElementValue(requestDocument.getDocumentElement(),"Country",destinationCountry,requestDocument);
   for (ListIterator<Map<String,BigDecimal>> li=packages.listIterator(); li.hasNext(); ) {
     Map<String,BigDecimal> packageMap=li.next();
     BigDecimal packageWeight=isOnePackage ? shippableWeight : calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
@@ -73,47 +59,54 @@
     }
     Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
     packageElement.setAttribute("ID",String.valueOf(li.nextIndex() - 1));
-    UtilXml.addChildElementValue(packageElement,"Service",serviceCode,requestDocument);
-    UtilXml.addChildElementValue(packageElement,"ZipOrigination",StringUtils.substring(originationZip,0,5),requestDocument);
-    UtilXml.addChildElementValue(packageElement,"ZipDestination",StringUtils.substring(destinationZip,0,5),requestDocument);
+    UtilXml.addChildElementValue(packageElement,"MailType","Package",requestDocument);
     BigDecimal weightPounds=packageWeight.setScale(0,BigDecimal.ROUND_FLOOR);
     if ("PARCEL".equals(serviceCode.toUpperCase()) && (weightPounds.compareTo(BigDecimal.ONE) < 0)) {
       weightPounds=BigDecimal.ONE;
       packageWeight=BigDecimal.ZERO;
     }
-    BigDecimal weightOunces=packageWeight.remainder(BigDecimal.ONE).multiply(new BigDecimal("16")).setScale(0,BigDecimal.ROUND_CEILING);
+    BigDecimal weightOunces=packageWeight.remainder(BigDecimal.ONE).multiply(new BigDecimal("16")).setScale(1,BigDecimal.ROUND_CEILING);
     UtilXml.addChildElementValue(packageElement,"Pounds",weightPounds.toPlainString(),requestDocument);
     UtilXml.addChildElementValue(packageElement,"Ounces",weightOunces.toPlainString(),requestDocument);
-    if ("Parcel".equalsIgnoreCase(serviceCode)) {
-      UtilXml.addChildElementValue(packageElement,"Container","None",requestDocument);
-    }
-    UtilXml.addChildElementValue(packageElement,"Size","Regular",requestDocument);
     UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
   }
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("RateV2",requestDocument);
+    responseDocument=sendUspsRequest("IntlRate",requestDocument);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnError("Error sending request for USPS Domestic Rate Calculation service: " + e.getMessage());
+    return ServiceUtil.returnError("Error sending request for USPS International Rate Calculation service: " + e.getMessage());
   }
   if (responseDocument == null) {
     return ServiceUtil.returnError("No rate available at this time");
   }
-  List<? extends Element> rates=UtilXml.childElementList(responseDocument.getDocumentElement(),"Package");
-  if (UtilValidate.isEmpty(rates)) {
+  List<? extends Element> packageElements=UtilXml.childElementList(responseDocument.getDocumentElement(),"Package");
+  if (UtilValidate.isEmpty(packageElements)) {
     return ServiceUtil.returnError("No rate available at this time");
   }
   BigDecimal estimateAmount=BigDecimal.ZERO;
-  for (  Element packageElement : rates) {
-    try {
-      Element postageElement=UtilXml.firstChildElement(packageElement,"Postage");
-      BigDecimal packageAmount=new BigDecimal(UtilXml.childElementValue(postageElement,"Rate"));
-      estimateAmount=estimateAmount.add(packageAmount);
+  for (  Element packageElement : packageElements) {
+    Element errorElement=UtilXml.firstChildElement(packageElement,"Error");
+    if (errorElement != null) {
+      String errorDescription=UtilXml.childElementValue(errorElement,"Description");
+      Debug.log("USPS International Rate Calculation returned a package error: " + errorDescription);
+      return ServiceUtil.returnError("No rate available at this time");
     }
- catch (    NumberFormatException e) {
-      Debug.log(e,module);
+    List<? extends Element> serviceElements=UtilXml.childElementList(packageElement,"Service");
+    for (    Element serviceElement : serviceElements) {
+      String respServiceCode=serviceElement.getAttribute("ID");
+      if (!serviceCode.equalsIgnoreCase(respServiceCode)) {
+        continue;
+      }
+      try {
+        BigDecimal packageAmount=new BigDecimal(UtilXml.childElementValue(serviceElement,"Postage"));
+        estimateAmount=estimateAmount.add(packageAmount);
+      }
+ catch (      NumberFormatException e) {
+        Debug.log("USPS International Rate Calculation returned an unparsable postage amount: " + UtilXml.childElementValue(serviceElement,"Postage"));
+        return ServiceUtil.returnError("No rate available at this time");
+      }
     }
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
