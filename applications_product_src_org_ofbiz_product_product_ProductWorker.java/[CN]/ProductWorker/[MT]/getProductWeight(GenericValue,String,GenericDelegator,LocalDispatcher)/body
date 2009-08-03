@@ -1,0 +1,33 @@
+{
+  BigDecimal weight=product.getBigDecimal("weight");
+  String weightUomId=product.getString("weightUomId");
+  if (weight == null) {
+    GenericValue parentProduct=getParentProduct(product.getString("productId"),delegator);
+    if (parentProduct != null) {
+      weight=parentProduct.getBigDecimal("weight");
+      weightUomId=parentProduct.getString("weightUomId");
+    }
+  }
+  if (weight == null) {
+    return null;
+  }
+ else {
+    if (desiredUomId != null && product.get("weightUomId") != null && !desiredUomId.equals(product.get("weightUomId"))) {
+      Map<String,Object> result=FastMap.newInstance();
+      try {
+        result=dispatcher.runSync("convertUom",UtilMisc.<String,Object>toMap("uomId",weightUomId,"uomIdTo","WT_lb","originalValue",weight));
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+      }
+      if (result.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_SUCCESS) && result.get("convertedValue") != null) {
+        weight=(BigDecimal)result.get("convertedValue");
+      }
+ else {
+        Debug.logError("Unsupported conversion from [" + weightUomId + "] to ["+ desiredUomId+ "]",module);
+        return null;
+      }
+    }
+    return weight;
+  }
+}

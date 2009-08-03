@@ -1,0 +1,42 @@
+{
+  BigDecimal quantity=shipmentPackageContent.getBigDecimal("quantity");
+  BigDecimal value=new BigDecimal("0");
+  List<GenericValue> issuances=null;
+  try {
+    GenericValue shipmentItem=shipmentPackageContent.getRelatedOne("ShipmentItem");
+    issuances=shipmentItem.getRelated("ItemIssuance");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  BigDecimal totalIssued=BigDecimal.ZERO;
+  BigDecimal totalValue=BigDecimal.ZERO;
+  if (UtilValidate.isNotEmpty(issuances)) {
+    for (    GenericValue issuance : issuances) {
+      BigDecimal issuanceQuantity=issuance.getBigDecimal("quantity");
+      BigDecimal issuanceCancelQuantity=issuance.getBigDecimal("cancelQuantity");
+      if (issuanceCancelQuantity != null) {
+        issuanceQuantity=issuanceQuantity.subtract(issuanceCancelQuantity);
+      }
+      GenericValue orderItem=null;
+      try {
+        orderItem=issuance.getRelatedOne("OrderItem");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (orderItem != null) {
+        BigDecimal selectedAmount=orderItem.getBigDecimal("selectedAmount");
+        if (selectedAmount == null || selectedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+          selectedAmount=BigDecimal.ONE;
+        }
+        BigDecimal unitPrice=orderItem.getBigDecimal("unitPrice");
+        BigDecimal itemValue=unitPrice.multiply(selectedAmount);
+        totalIssued=totalIssued.add(issuanceQuantity);
+        totalValue=totalValue.add(itemValue.multiply(issuanceQuantity));
+      }
+    }
+  }
+  value=totalValue.divide(totalIssued,10,BigDecimal.ROUND_HALF_EVEN).multiply(quantity);
+  return value;
+}

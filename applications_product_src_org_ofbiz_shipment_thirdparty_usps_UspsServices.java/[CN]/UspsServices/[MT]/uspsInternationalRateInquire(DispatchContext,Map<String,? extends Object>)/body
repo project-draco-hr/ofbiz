@@ -9,8 +9,8 @@
   if (UtilValidate.isNotEmpty(shippingContactMechId)) {
     try {
       GenericValue shipToAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
-      if ("USA".equals(shipToAddress.get("countryGeoId"))) {
-        return ServiceUtil.returnError("The USPS International Rate Calculation service is not applicable to US destinations, use uspsRateInquire");
+      if (domesticCountries.contains(shipToAddress.get("countryGeoId"))) {
+        return ServiceUtil.returnError("The USPS International Rate Calculation service is not applicable to US destinations (including Possesions), use uspsRateInquire");
       }
       if (shipToAddress != null && UtilValidate.isNotEmpty(shipToAddress.getString("countryGeoId"))) {
         GenericValue countryGeo=shipToAddress.getRelatedOne("CountryGeo");
@@ -50,25 +50,24 @@
   List<Map<String,BigDecimal>> packages=getPackageSplit(dctx,shippableItemInfo,maxWeight);
   boolean isOnePackage=packages.size() == 1;
   Document requestDocument=createUspsRequestDocument("IntlRateRequest",false);
-  UtilXml.addChildElementValue(requestDocument.getDocumentElement(),"Country",destinationCountry,requestDocument);
   for (ListIterator<Map<String,BigDecimal>> li=packages.listIterator(); li.hasNext(); ) {
     Map<String,BigDecimal> packageMap=li.next();
+    Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
+    packageElement.setAttribute("ID",String.valueOf(li.nextIndex() - 1));
     BigDecimal packageWeight=isOnePackage ? shippableWeight : calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
     if (packageWeight.compareTo(BigDecimal.ZERO) == 0) {
       continue;
     }
-    Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
-    packageElement.setAttribute("ID",String.valueOf(li.nextIndex() - 1));
-    UtilXml.addChildElementValue(packageElement,"MailType","Package",requestDocument);
-    BigDecimal weightPounds=packageWeight.setScale(0,BigDecimal.ROUND_FLOOR);
-    if ("PARCEL".equals(serviceCode.toUpperCase()) && (weightPounds.compareTo(BigDecimal.ONE) < 0)) {
-      weightPounds=BigDecimal.ONE;
-      packageWeight=BigDecimal.ZERO;
+    Integer[] weightPoundsOunces=convertPoundsToPoundsOunces(packageWeight);
+    if ("PARCEL".equals(serviceCode.toUpperCase()) && (weightPoundsOunces[0] < 1)) {
+      weightPoundsOunces[0]=1;
+      weightPoundsOunces[1]=0;
     }
-    BigDecimal weightOunces=packageWeight.remainder(BigDecimal.ONE).multiply(new BigDecimal("16")).setScale(1,BigDecimal.ROUND_CEILING);
-    UtilXml.addChildElementValue(packageElement,"Pounds",weightPounds.toPlainString(),requestDocument);
-    UtilXml.addChildElementValue(packageElement,"Ounces",weightOunces.toPlainString(),requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Pounds",weightPoundsOunces[0].toString(),requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Ounces",weightPoundsOunces[1].toString(),requestDocument);
     UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"MailType","Package",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Country",destinationCountry,requestDocument);
   }
   Document responseDocument=null;
   try {
