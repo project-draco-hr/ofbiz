@@ -64,10 +64,22 @@
   CheckOutHelper checkout=new CheckOutHelper(dispatcher,delegator,cart);
   Map orderCreateResult=checkout.createOrder(userLogin);
   String orderId=(String)orderCreateResult.get("orderId");
+  Map resultMap=ServiceUtil.returnSuccess();
   if (UtilValidate.isNotEmpty(orderId)) {
     Debug.logInfo("Created test order with id: " + orderId,module);
     boolean approved=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
     Debug.logInfo("Test order with id: " + orderId + " has been approved: "+ approved,module);
+    resultMap.put("orderId",orderId);
   }
-  return ServiceUtil.returnSuccess();
+  Boolean shipOrder=(Boolean)context.get("shipOrder");
+  if (shipOrder.booleanValue() && UtilValidate.isNotEmpty(orderId)) {
+    try {
+      Map outputMap=dispatcher.runSync("quickShipEntireOrder",UtilMisc.toMap("orderId",orderId,"userLogin",userLogin));
+      Debug.logInfo("Test sales order with id [" + orderId + "] has been shipped",module);
+    }
+ catch (    Exception exc) {
+      Debug.logWarning("Unable to quick ship test sales order with id [" + orderId + "] with error: "+ exc.getMessage(),module);
+    }
+  }
+  return resultMap;
 }
