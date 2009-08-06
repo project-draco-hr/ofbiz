@@ -1,0 +1,60 @@
+{
+  GenericValue content;
+  if (UtilValidate.isEmpty(contentId)) {
+    Debug.logError("No content ID found.",module);
+    return null;
+  }
+  if (cache) {
+    content=delegator.findByPrimaryKeyCache("Content",UtilMisc.toMap("contentId",contentId));
+  }
+ else {
+    content=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
+  }
+  if (content == null) {
+    throw new GeneralException("No content found for content ID [" + contentId + "]");
+  }
+  if ("WEB_SITE_PUB_PT".equals(content.get("contentTypeId")) && content.get("dataResourceId") == null) {
+    List<GenericValue> relContentIds=delegator.findByAnd("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",content.get("contentId"),"statusId","CTNT_PUBLISHED","caContentAssocTypeId","PUBLISH_LINK"),UtilMisc.toList("caFromDate"));
+    relContentIds=EntityUtil.filterByDate(relContentIds,UtilDateTime.nowTimestamp(),"caFromDate","caThruDate",true);
+    if (UtilValidate.isNotEmpty(relContentIds)) {
+      content=EntityUtil.getFirst(relContentIds);
+    }
+    if (content == null) {
+      throw new GeneralException("No related content found for publish point [" + contentId + "]");
+    }
+  }
+  if (locale != null) {
+    String thisLocaleString=(String)content.get("localeString");
+    String targetLocaleString=locale.toString();
+    thisLocaleString=(thisLocaleString != null) ? thisLocaleString : "";
+    if (targetLocaleString != null && !targetLocaleString.equalsIgnoreCase(thisLocaleString)) {
+      GenericValue altContent=ContentWorker.findAlternateLocaleContent(delegator,content,locale);
+      if (altContent != null) {
+        content=altContent;
+      }
+    }
+  }
+  if (partyId != null && roleTypeId != null) {
+    List alternateViews=null;
+    try {
+      alternateViews=content.getRelated("ContentAssocDataResourceViewTo",UtilMisc.toMap("caContentAssocTypeId","ALTERNATE_ROLE"),UtilMisc.toList("-caFromDate"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error finding alternate content: " + e.toString(),module);
+    }
+    alternateViews=EntityUtil.filterByDate(alternateViews,UtilDateTime.nowTimestamp(),"caFromDate","caThruDate",true);
+    Iterator alternateViewIter=alternateViews.iterator();
+    while (alternateViewIter.hasNext()) {
+      GenericValue thisView=(GenericValue)alternateViewIter.next();
+      GenericValue altContentRole=EntityUtil.getFirst(EntityUtil.filterByDate(thisView.getRelatedByAnd("ContentRole",UtilMisc.toMap("partyId",partyId,"roleTypeId",roleTypeId))));
+      GenericValue altContent=null;
+      if (UtilValidate.isNotEmpty(altContentRole)) {
+        altContent=altContentRole.getRelatedOne("Content");
+        if (altContent != null) {
+          content=altContent;
+        }
+      }
+    }
+  }
+  return content;
+}
