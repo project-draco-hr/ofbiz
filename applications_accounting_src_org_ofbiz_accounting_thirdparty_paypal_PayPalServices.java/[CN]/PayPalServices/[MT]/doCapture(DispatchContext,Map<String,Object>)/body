@@ -1,0 +1,46 @@
+{
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  BigDecimal captureAmount=(BigDecimal)context.get("captureAmount");
+  GenericValue payPalConfig=getPaymentMethodGatewayPayPal(dctx,context,PaymentGatewayServices.AUTH_SERVICE_TYPE);
+  GenericValue authTrans=(GenericValue)context.get("authTrans");
+  if (authTrans == null) {
+    authTrans=PaymentGatewayServices.getAuthTransaction(paymentPref);
+  }
+  NVPEncoder encoder=new NVPEncoder();
+  encoder.add("METHOD","DoCapture");
+  encoder.add("AUTHORIZATIONID",authTrans.getString("referenceNum"));
+  encoder.add("AMT",captureAmount.setScale(2,BigDecimal.ROUND_HALF_UP).toPlainString());
+  encoder.add("CURRENCYCODE",authTrans.getString("currencyUomId"));
+  encoder.add("COMPLETETYPE","NotComplete");
+  NVPDecoder decoder=null;
+  try {
+    decoder=sendNVPRequest(payPalConfig,encoder);
+  }
+ catch (  PayPalException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (decoder == null) {
+    return ServiceUtil.returnError("An unknown error occurred while contacting PayPal");
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  Map<String,String> errors=getErrorMessageMap(decoder);
+  if (UtilValidate.isNotEmpty(errors)) {
+    result.put("captureResult",false);
+    result.put("captureRefNum","N/A");
+    result.put("captureAmount",BigDecimal.ZERO);
+    if (errors.size() == 1) {
+      result.put("responseMessage",errors.get(0));
+    }
+ else {
+      result.put("responseMessage","Multiple errors occurred, please refer to the gateway response messages");
+      result.put("internalRespMsgs",errors);
+    }
+  }
+ else {
+    result.put("captureResult",true);
+    result.put("captureAmount",new BigDecimal(decoder.get("AMT")));
+    result.put("captureRefNum",decoder.get("AUTHORIZATIONID"));
+  }
+  return result;
+}
