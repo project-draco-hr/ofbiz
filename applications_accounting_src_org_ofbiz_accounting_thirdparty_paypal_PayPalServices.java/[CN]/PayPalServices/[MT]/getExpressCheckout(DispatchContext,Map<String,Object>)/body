@@ -216,9 +216,23 @@
     }
   }
   String shipMethod=decoder.get("SHIPPINGOPTIONNAME");
-  String[] shipMethodSplit=shipMethod.split("@");
-  cart.setShipmentMethodTypeId(shipMethodSplit[0]);
-  cart.setCarrierPartyId(shipMethodSplit[1]);
+  if ("Calculated Offline".equals(shipMethod)) {
+    cart.setCarrierPartyId("_NA_");
+    cart.setShipmentMethodTypeId("NO_SHIPPING");
+  }
+ else {
+    String[] shipMethodSplit=shipMethod.split(" - ");
+    cart.setCarrierPartyId(shipMethodSplit[0]);
+    String shippingMethodTypeDesc=StringUtils.join(shipMethodSplit," - ",1,shipMethodSplit.length);
+    try {
+      EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toMap("productStoreId",cart.getProductStoreId(),"partyId",shipMethodSplit[0],"roleTypeId","CARRIER","description",shippingMethodTypeDesc));
+      GenericValue shipmentMethod=EntityUtil.getFirst(delegator.findList("ProductStoreShipmentMethView",cond,null,null,null,false));
+      cart.setShipmentMethodTypeId(shipmentMethod.getString("shipmentMethodTypeId"));
+    }
+ catch (    GenericEntityException e1) {
+      Debug.logError(e1,module);
+    }
+  }
   List<CartShipInfo> shipGroups=cart.getShipGroups();
   for (int i=1; i < shipGroups.size(); i++) {
     Map<ShoppingCartItem,BigDecimal> items=cart.getShipGroupItems(i);

@@ -1,0 +1,123 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericDelegator delegator=dctx.getDelegator();
+  HttpServletRequest request=(HttpServletRequest)context.get("request");
+  HttpServletResponse response=(HttpServletResponse)context.get("response");
+  Map<String,Object> paramMap=UtilHttp.getParameterMap(request);
+  String token=(String)paramMap.get("TOKEN");
+  WeakReference<ShoppingCart> weakCart=tokenCartMap.get(new TokenWrapper(token));
+  ShoppingCart cart=null;
+  if (weakCart != null) {
+    cart=weakCart.get();
+  }
+  if (cart == null) {
+    Debug.logError("Could locate the ShoppingCart for token " + token,module);
+    return ServiceUtil.returnSuccess();
+  }
+  String contactMechId=null;
+  Map<String,Object> inMap=FastMap.newInstance();
+  inMap.put("address1",paramMap.get("SHIPTOSTREET"));
+  inMap.put("address2",paramMap.get("SHIPTOSTREET2"));
+  inMap.put("city",paramMap.get("SHIPTOCITY"));
+  inMap.put("stateProvinceGeoId",paramMap.get("SHIPTOSTATE"));
+  inMap.put("postalCode",paramMap.get("SHIPTOZIP"));
+  String countryGeoCode=(String)paramMap.get("SHIPTOCOUNTRY");
+  String countryGeoId=PayPalServices.getCountryGeoIdFromGeoCode(countryGeoCode,delegator);
+  if (countryGeoId == null) {
+    return ServiceUtil.returnSuccess();
+  }
+  inMap.put("countryGeoId",countryGeoId);
+  try {
+    GenericValue userLogin=delegator.findOne("UserLogin",true,UtilMisc.toMap("userLoginId","system"));
+    inMap.put("userLogin",userLogin);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  boolean beganTransaction=false;
+  Transaction parentTransaction=null;
+  try {
+    parentTransaction=TransactionUtil.suspend();
+    beganTransaction=TransactionUtil.begin();
+  }
+ catch (  GenericTransactionException e1) {
+    Debug.logError(e1,module);
+  }
+  try {
+    Map<String,Object> outMap=dispatcher.runSync("createPostalAddress",inMap);
+    contactMechId=(String)outMap.get("contactMechId");
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e.getMessage(),module);
+    return ServiceUtil.returnSuccess();
+  }
+  try {
+    TransactionUtil.commit(beganTransaction);
+    if (parentTransaction != null)     TransactionUtil.resume(parentTransaction);
+  }
+ catch (  GenericTransactionException e) {
+    Debug.logError(e,module);
+  }
+  CheckOutHelper coh=new CheckOutHelper(dispatcher,delegator,cart);
+  String oldShipAddress=cart.getShippingContactMechId();
+  coh.setCheckOutShippingAddress(contactMechId);
+  ShippingEstimateWrapper estWrapper=new ShippingEstimateWrapper(dispatcher,cart,0);
+  int line=0;
+  NVPEncoder encoder=new NVPEncoder();
+  encoder.add("METHOD","CallbackResponse");
+  for (  GenericValue shipMethod : estWrapper.getShippingMethods()) {
+    BigDecimal estimate=estWrapper.getShippingEstimate(shipMethod);
+    if (estimate == null || estimate.compareTo(BigDecimal.ZERO) < 0) {
+      continue;
+    }
+    cart.setShipmentMethodTypeId(shipMethod.getString("shipmentMethodTypeId"));
+    cart.setCarrierPartyId(shipMethod.getString("partyId"));
+    try {
+      coh.calcAndAddTax();
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      continue;
+    }
+    String estimateLabel=shipMethod.getString("partyId") + " - " + shipMethod.getString("description");
+    encoder.add("L_SHIPINGPOPTIONLABEL" + line,estimateLabel);
+    encoder.add("L_SHIPPINGOPTIONAMOUNT" + line,estimate.setScale(2,BigDecimal.ROUND_HALF_UP).toPlainString());
+    encoder.add("L_SHIPPINGOPTIONISDEFAULT" + line,line == 0 ? "true" : "false");
+    encoder.add("L_TAXAMT" + line,cart.getTotalSalesTax().setScale(2,BigDecimal.ROUND_HALF_UP).toPlainString());
+    line++;
+  }
+  String responseMsg=null;
+  try {
+    responseMsg=encoder.encode();
+  }
+ catch (  PayPalException e) {
+    Debug.logError(e,module);
+  }
+  if (responseMsg != null) {
+    try {
+      response.setContentLength(responseMsg.getBytes("UTF-8").length);
+    }
+ catch (    UnsupportedEncodingException e) {
+      Debug.logError(e,module);
+    }
+    try {
+      Writer writer=response.getWriter();
+      writer.write(responseMsg);
+      writer.close();
+    }
+ catch (    IOException e) {
+      Debug.logError(e,module);
+    }
+  }
+  try {
+    GenericValue postalAddress=delegator.findOne("PostalAddress",false,UtilMisc.toMap("contactMechId",contactMechId));
+    postalAddress.remove();
+    GenericValue contactMech=delegator.findOne("ContactMech",false,UtilMisc.toMap("contactMechId",contactMechId));
+    contactMech.remove();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  coh.setCheckOutShippingAddress(oldShipAddress);
+  return ServiceUtil.returnSuccess();
+}
