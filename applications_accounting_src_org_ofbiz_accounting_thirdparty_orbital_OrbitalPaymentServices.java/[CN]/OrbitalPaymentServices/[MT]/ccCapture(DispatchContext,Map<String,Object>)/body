@@ -1,0 +1,41 @@
+{
+  GenericDelegator delegator=ctx.getDelegator();
+  Map<String,Object> results=ServiceUtil.returnSuccess();
+  Map<String,Object> props=buildOrbitalProperties(context,delegator);
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue creditCard=null;
+  try {
+    creditCard=delegator.getRelatedOne("CreditCard",orderPaymentPreference);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to obtain cc information from payment preference");
+  }
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot Capture");
+  }
+  context.put("creditCard",creditCard);
+  context.put("authTransaction",authTransaction);
+  context.put("orderId",orderPaymentPreference.getString("orderId"));
+  props.put("transType","PRIOR_AUTH_CAPTURE");
+  try {
+    request=new Request(RequestIF.MARK_FOR_CAPTURE_TRANSACTION);
+  }
+ catch (  InitializationException e) {
+    Debug.logError("Error in request initialization",module);
+    e.printStackTrace();
+  }
+  buildCaptureTransaction(context,delegator,props,request,results);
+  Map<String,Object> validateResults=validateRequest(context,props,request);
+  String respMsg=(String)validateResults.get(ModelService.RESPONSE_MESSAGE);
+  if (ModelService.RESPOND_ERROR.equals(respMsg)) {
+    results.put(ModelService.ERROR_MESSAGE,"Validation Failed - invalid values");
+    return results;
+  }
+  initializeTransactionProcessor();
+  Map<String,Object> processCardResponseContext=processCard(request);
+  printTransResult((ResponseIF)processCardResponseContext.get("processCardResponse"));
+  processCaptureTransResult(processCardResponseContext,results);
+  return results;
+}

@@ -1,0 +1,78 @@
+{
+  GenericValue cc=(GenericValue)params.get("creditCard");
+  BigDecimal amount=(BigDecimal)params.get("processAmount");
+  String amountValue=amount.setScale(decimals,rounding).movePointRight(2).toPlainString();
+  String number=UtilFormatOut.checkNull(cc.getString("cardNumber"));
+  String expDate=UtilFormatOut.checkNull(cc.getString("expireDate"));
+  expDate=formatExpDateForOrbital(expDate);
+  String cardSecurityCode=(String)params.get("cardSecurityCode");
+  String orderId=UtilFormatOut.checkNull((String)params.get("orderId"));
+  String transType=props.get("transType").toString();
+  String messageType=null;
+  if ("AUTH_ONLY".equals(transType)) {
+    messageType="A";
+  }
+ else   if ("AUTH_CAPTURE".equals(transType)) {
+    messageType="AC";
+  }
+  try {
+    request.setFieldValue("IndustryType","EC");
+    request.setFieldValue("MessageType",UtilFormatOut.checkNull(messageType));
+    request.setFieldValue("MerchantID",UtilFormatOut.checkNull(props.get("merchantId").toString()));
+    request.setFieldValue("BIN",BIN_VALUE);
+    request.setFieldValue("OrderID",UtilFormatOut.checkNull(orderId));
+    request.setFieldValue("AccountNum",UtilFormatOut.checkNull(number));
+    request.setFieldValue("Amount",UtilFormatOut.checkNull(amountValue));
+    request.setFieldValue("Exp",UtilFormatOut.checkNull(expDate));
+    GenericValue creditCard=null;
+    if (params.get("orderPaymentPreference") != null) {
+      GenericValue opp=(GenericValue)params.get("orderPaymentPreference");
+      if ("CREDIT_CARD".equals(opp.getString("paymentMethodTypeId"))) {
+        creditCard=(GenericValue)params.get("creditCard");
+        if (creditCard == null || !(opp.get("paymentMethodId").equals(creditCard.get("paymentMethodId")))) {
+          creditCard=opp.getRelatedOne("CreditCard");
+        }
+      }
+      request.setFieldValue("AVSname","Demo Customer");
+      if (UtilValidate.isNotEmpty(creditCard.getString("contactMechId"))) {
+        GenericValue address=creditCard.getRelatedOne("PostalAddress");
+        if (address != null) {
+          request.setFieldValue("AVSaddress1",UtilFormatOut.checkNull(address.getString("address1")));
+          request.setFieldValue("AVScity",UtilFormatOut.checkNull(address.getString("city")));
+          request.setFieldValue("AVSstate",UtilFormatOut.checkNull(address.getString("stateProvinceGeoId")));
+          request.setFieldValue("AVSzip",UtilFormatOut.checkNull(address.getString("postalCode")));
+        }
+      }
+    }
+ else {
+      GenericValue cp=(GenericValue)params.get("billToParty");
+      GenericValue ba=(GenericValue)params.get("billingAddress");
+      request.setFieldValue("AVSname",UtilFormatOut.checkNull(cp.getString("firstName")) + UtilFormatOut.checkNull(cp.getString("lastName")));
+      request.setFieldValue("AVSaddress1",UtilFormatOut.checkNull(ba.getString("address1")));
+      request.setFieldValue("AVScity",UtilFormatOut.checkNull(ba.getString("city")));
+      request.setFieldValue("AVSstate",UtilFormatOut.checkNull(ba.getString("stateProvinceGeoId")));
+      request.setFieldValue("AVSzip",UtilFormatOut.checkNull(ba.getString("postalCode")));
+      request.setFieldValue("AVSCountryCode",UtilFormatOut.checkNull(ba.getString("countryGeoId")));
+    }
+    request.setFieldValue("Comments","This is building of request object");
+    String shippingRef=getShippingRefForOrder(orderId,delegator);
+    request.setFieldValue("ShippingRef",shippingRef);
+    request.setFieldValue("CardSecVal",UtilFormatOut.checkNull(cardSecurityCode));
+    if ("AUTH_ONLY".equals(transType)) {
+      Debug.log("\nAuth Request:\n ======== " + request.getXML());
+    }
+ else     if ("AUTH_CAPTURE".equals(transType)) {
+      Debug.log("\nAuth Capture Request:\n ======== " + request.getXML());
+    }
+    results.put("processAmount",amount);
+  }
+ catch (  InitializationException ie) {
+    Debug.logInfo("Unable to initialize request object",module);
+  }
+catch (  FieldNotFoundException fnfe) {
+    Debug.logError("Unable to find XML field in template",module);
+  }
+catch (  Exception e) {
+    e.printStackTrace();
+  }
+}
