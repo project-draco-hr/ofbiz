@@ -54,32 +54,34 @@
  catch (          Exception e) {
             throw new TransformerException("Error creating SAX parser/reader",e);
           }
-          SAXSource source=new SAXSource(reader,new InputSource("/home/hans/ofbiz/svn/applications/commonext/documents/ApacheOfbiz.xml"));
+          String fileName="/home/hans/ofbiz/svn/applications/commonext/documents/ApacheOfbiz.xml";
+          SAXSource source=new SAXSource(reader,new InputSource(fileName));
           Transformer transformer1=tfactory.newTransformer(new StreamSource("/home/hans/ofbiz/svn/applications/content/template/docbook/fo/docbook.xsl"));
           StringWriter sw=new StringWriter();
           StreamResult sr=new StreamResult(sw);
           transformer1.transform(source,sr);
-          java.io.FileWriter fw=new java.io.FileWriter(new java.io.File("/tmp/file1.fo"));
-          fw.write(sw.toString());
-          fw.close();
-          Debug.log("================start fo processor=============================");
-          ByteArrayOutputStream baos=new ByteArrayOutputStream();
-          StreamSource src=new StreamSource("/tmp/file1.fo");
           FopFactory fopFactory=FopFactory.newInstance();
           FOUserAgent foUserAgent=fopFactory.newFOUserAgent();
-          Fop fop=fopFactory.newFop(MimeConstants.MIME_PDF,foUserAgent,baos);
+          ByteArrayOutputStream out=new ByteArrayOutputStream();
+          Fop fop=fopFactory.newFop(MimeConstants.MIME_PDF,foUserAgent,out);
           TransformerFactory factory=TransformerFactory.newInstance();
           Transformer transformer=factory.newTransformer();
-          transformer.transform(src,new SAXResult(fop.getDefaultHandler()));
-          baos.flush();
-          baos.close();
-          writer.append(baos.toString());
-          java.io.FileWriter fend=new java.io.FileWriter(new java.io.File("/tmp/file1.pdf"));
-          fend.write(baos.toString());
-          fend.close();
+          Source src=new StreamSource(new ByteArrayInputStream(sw.toString().getBytes()));
+          Result result=new SAXResult(fop.getDefaultHandler());
+          transformer.transform(src,result);
+          out.flush();
+          out.close();
+          FileOutputStream fw=new FileOutputStream("/tmp/file.pdf");
+          fw.write(out.toByteArray());
+          fw.close();
+          HttpServletResponse response=(HttpServletResponse)context.get("response");
+          response.setContentType("application/pdf");
+          response.setContentLength(out.size());
+          response.setHeader("Content-Disposition","attachment;filename=" + fileName);
+          writer.append(new String(out.toByteArray()));
         }
  catch (        Exception e) {
-          Debug.logError("================================Exception: " + e,module);
+          Debug.logError("Exception converting from FO to PDF: " + e,module);
         }
       }
  else {
