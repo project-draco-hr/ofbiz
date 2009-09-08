@@ -1,0 +1,38 @@
+{
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    if (sequencer == null) {
+synchronized (this) {
+        if (sequencer == null) {
+          String helperName=this.getEntityHelperName("SequenceValueItem");
+          ModelEntity seqEntity=this.getModelEntity("SequenceValueItem");
+          sequencer=new SequenceUtil(helperName,seqEntity,"seqName","seqId");
+        }
+      }
+    }
+    ModelEntity seqModelEntity=this.getModelEntity(seqName);
+    Long newSeqId=sequencer == null ? null : sequencer.getNextSeqId(seqName,staggerMax,seqModelEntity);
+    return newSeqId;
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Failure in getNextSeqIdLong operation for seqName [" + seqName + "]: "+ e.toString()+ ". Rolling back transaction.";
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[GenericDelegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    throw new GeneralRuntimeException(errMsg,e);
+  }
+ finally {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e1) {
+      Debug.logError(e1,"[GenericDelegator] Could not commit transaction: " + e1.toString(),module);
+    }
+  }
+}
