@@ -1,0 +1,28 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String paymentId=(String)context.get("paymentId");
+  try {
+    GenericValue payment=delegator.findByPrimaryKey("Payment",UtilMisc.toMap("paymentId",paymentId));
+    if (payment == null)     throw new GenericServiceException("Payment with ID [" + paymentId + "] not found!");
+    List<GenericValue> paymentApplications=payment.getRelated("PaymentApplication");
+    if (UtilValidate.isEmpty(paymentApplications))     return ServiceUtil.returnSuccess();
+    for (    GenericValue paymentApplication : paymentApplications) {
+      String invoiceId=paymentApplication.getString("invoiceId");
+      if (invoiceId != null) {
+        Map<String,Object> serviceResult=dispatcher.runSync("checkInvoicePaymentApplications",UtilMisc.<String,Object>toMap("invoiceId",invoiceId,"userLogin",userLogin));
+        if (ServiceUtil.isError(serviceResult))         return serviceResult;
+      }
+    }
+    return ServiceUtil.returnSuccess();
+  }
+ catch (  GenericServiceException se) {
+    Debug.logError(se,se.getMessage(),module);
+    return ServiceUtil.returnError(se.getMessage());
+  }
+catch (  GenericEntityException ee) {
+    Debug.logError(ee,ee.getMessage(),module);
+    return ServiceUtil.returnError(ee.getMessage());
+  }
+}

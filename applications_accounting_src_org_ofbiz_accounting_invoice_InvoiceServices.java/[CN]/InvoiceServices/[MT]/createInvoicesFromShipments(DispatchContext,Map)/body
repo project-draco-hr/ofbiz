@@ -1,16 +1,15 @@
 {
   GenericDelegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
-  List shipmentIds=(List)context.get("shipmentIds");
+  List<String> shipmentIds=UtilGenerics.checkList(context.get("shipmentIds"));
   Locale locale=(Locale)context.get("locale");
   Boolean createSalesInvoicesForDropShipments=(Boolean)context.get("createSalesInvoicesForDropShipments");
   if (UtilValidate.isEmpty(createSalesInvoicesForDropShipments))   createSalesInvoicesForDropShipments=Boolean.FALSE;
   boolean salesShipmentFound=false;
   boolean purchaseShipmentFound=false;
   boolean dropShipmentFound=false;
-  List invoicesCreated=new ArrayList();
-  for (int i=0; i < shipmentIds.size(); i++) {
-    String tmpShipmentId=(String)shipmentIds.get(i);
+  List<String> invoicesCreated=FastList.newInstance();
+  for (  String tmpShipmentId : shipmentIds) {
     try {
       GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",tmpShipmentId));
       if ((shipment.getString("shipmentTypeId") != null) && (shipment.getString("shipmentTypeId").equals("PURCHASE_SHIPMENT"))) {
@@ -33,12 +32,12 @@
     }
   }
   EntityCondition shipmentIdsCond=EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds);
-  List items=null;
-  List orderItemAssocs=null;
+  List<GenericValue> items=null;
+  List<GenericValue> orderItemAssocs=null;
   try {
     if (purchaseShipmentFound) {
       items=delegator.findList("ShipmentReceipt",shipmentIdsCond,null,UtilMisc.toList("shipmentId"),null,false);
-      Iterator itemsIter=items.iterator();
+      Iterator<GenericValue> itemsIter=items.iterator();
       while (itemsIter.hasNext()) {
         GenericValue item=(GenericValue)itemsIter.next();
         GenericValue inventoryItem=item.getRelatedOne("InventoryItem");
@@ -49,8 +48,8 @@
       }
     }
  else     if (dropShipmentFound) {
-      List shipments=delegator.findList("Shipment",shipmentIdsCond,null,null,null,false);
-      List purchaseOrderIds=EntityUtil.getFieldListFromEntityList(shipments,"primaryOrderId",true);
+      List<GenericValue> shipments=delegator.findList("Shipment",shipmentIdsCond,null,null,null,false);
+      List<String> purchaseOrderIds=EntityUtil.getFieldListFromEntityList(shipments,"primaryOrderId",true);
       if (createSalesInvoicesForDropShipments) {
         orderItemAssocs=delegator.findList("OrderItemAssoc",EntityCondition.makeCondition("toOrderId",EntityOperator.IN,purchaseOrderIds),null,null,null,false);
         items=EntityUtil.getRelated("FromOrderItem",orderItemAssocs);
@@ -72,15 +71,13 @@
     Debug.logInfo("No items issued for shipments",module);
     return ServiceUtil.returnSuccess();
   }
-  Map shippedOrderItems=FastMap.newInstance();
-  Iterator itemsIter=items.iterator();
-  while (itemsIter.hasNext()) {
-    GenericValue item=(GenericValue)itemsIter.next();
+  Map<String,List<GenericValue>> shippedOrderItems=FastMap.newInstance();
+  for (  GenericValue item : items) {
     String orderId=item.getString("orderId");
     String orderItemSeqId=item.getString("orderItemSeqId");
-    List itemsByOrder=(List)shippedOrderItems.get(orderId);
+    List<GenericValue> itemsByOrder=shippedOrderItems.get(orderId);
     if (itemsByOrder == null) {
-      itemsByOrder=new ArrayList();
+      itemsByOrder=FastList.newInstance();
     }
     List<EntityCondition> billFields=FastList.newInstance();
     billFields.add(EntityCondition.makeCondition("orderId",orderId));
@@ -97,7 +94,7 @@
  else     if (item.getEntityName().equals("ShipmentReceipt")) {
       billFields.add(EntityCondition.makeCondition("shipmentReceiptId",item.getString("receiptId")));
     }
-    List itemBillings=null;
+    List<GenericValue> itemBillings=null;
     try {
       itemBillings=delegator.findList("OrderItemBillingAndInvoiceAndItem",EntityCondition.makeCondition(billFields,EntityOperator.AND),null,null,null,false);
     }
@@ -111,16 +108,12 @@
     }
     shippedOrderItems.put(orderId,itemsByOrder);
   }
-  Set orders=shippedOrderItems.keySet();
-  Iterator ordersIter=orders.iterator();
-  while (ordersIter.hasNext()) {
-    String orderId=(String)ordersIter.next();
-    List billItems=(List)shippedOrderItems.get(orderId);
-    List toBillItems=new ArrayList();
-    Map itemQtyAvail=new HashMap();
-    Iterator billIt=billItems.iterator();
-    while (billIt.hasNext()) {
-      GenericValue issue=(GenericValue)billIt.next();
+  Set<String> orders=shippedOrderItems.keySet();
+  for (  String orderId : orders) {
+    List<GenericValue> billItems=shippedOrderItems.get(orderId);
+    List<GenericValue> toBillItems=FastList.newInstance();
+    Map<String,BigDecimal> itemQtyAvail=FastMap.newInstance();
+    for (    GenericValue issue : billItems) {
       BigDecimal issueQty=ZERO;
       if (issue.getEntityName().equals("ShipmentReceipt")) {
         issueQty=issue.getBigDecimal("quantityAccepted");
@@ -135,7 +128,7 @@
         lookup.add(EntityCondition.makeCondition("orderItemSeqId",issue.get("orderItemSeqId")));
         lookup.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"INVOICE_CANCELLED"));
         GenericValue orderItem=null;
-        List billed=null;
+        List<GenericValue> billed=null;
         BigDecimal orderedQty=null;
         try {
           orderItem=issue.getEntityName().equals("OrderItem") ? issue : issue.getRelatedOne("OrderItem");
@@ -155,15 +148,13 @@
         }
         if (billed.size() > 0) {
           BigDecimal billedQuantity=ZERO;
-          Iterator bi=billed.iterator();
-          while (bi.hasNext()) {
-            GenericValue oib=(GenericValue)bi.next();
+          for (          GenericValue oib : billed) {
             BigDecimal qty=oib.getBigDecimal("quantity");
             if (qty != null) {
-              billedQuantity=billedQuantity.add(qty).setScale(decimals,rounding);
+              billedQuantity=billedQuantity.add(qty).setScale(DECIMALS,ROUNDING);
             }
           }
-          BigDecimal leftToBill=orderedQty.subtract(billedQuantity).setScale(decimals,rounding);
+          BigDecimal leftToBill=orderedQty.subtract(billedQuantity).setScale(DECIMALS,ROUNDING);
           billAvail=leftToBill;
         }
  else {
@@ -181,7 +172,7 @@
           billAvail=ZERO;
         }
  else {
-          billAvail=billAvail.subtract(issueQty).setScale(decimals,rounding);
+          billAvail=billAvail.subtract(issueQty).setScale(DECIMALS,ROUNDING);
         }
         toBillItems.add(issue);
       }
@@ -191,25 +182,25 @@
     GenericValue productStore=orh.getProductStore();
     String prorateShipping=productStore != null ? productStore.getString("prorateShipping") : "N";
     if ("N".equalsIgnoreCase(prorateShipping)) {
-      List invoiceableShipments=null;
+      List<GenericValue> invoiceableShipments=null;
       try {
         if (dropShipmentFound) {
-          List invoiceablePrimaryOrderIds=null;
+          List<String> invoiceablePrimaryOrderIds=null;
           if (createSalesInvoicesForDropShipments) {
-            List invoiceableLinkedOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
-            List reverseOrderItemAssocs=EntityUtil.filterByCondition(orderItemAssocs,EntityCondition.makeCondition("orderId",EntityOperator.IN,invoiceableLinkedOrderIds));
+            List<String> invoiceableLinkedOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
+            List<GenericValue> reverseOrderItemAssocs=EntityUtil.filterByCondition(orderItemAssocs,EntityCondition.makeCondition("orderId",EntityOperator.IN,invoiceableLinkedOrderIds));
             invoiceablePrimaryOrderIds=EntityUtil.getFieldListFromEntityList(reverseOrderItemAssocs,"toOrderId",true);
           }
  else {
             invoiceablePrimaryOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
           }
           if (!UtilValidate.isEmpty(invoiceablePrimaryOrderIds)) {
-            List invoiceableShipmentConds=UtilMisc.toList(EntityCondition.makeCondition("primaryOrderId",EntityOperator.IN,invoiceablePrimaryOrderIds),EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds));
+            List<EntityExpr> invoiceableShipmentConds=UtilMisc.toList(EntityCondition.makeCondition("primaryOrderId",EntityOperator.IN,invoiceablePrimaryOrderIds),EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds));
             invoiceableShipments=delegator.findList("Shipment",EntityCondition.makeCondition(invoiceableShipmentConds,EntityOperator.AND),null,null,null,false);
           }
         }
  else {
-          List invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
+          List<String> invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
           if (UtilValidate.isNotEmpty(invoiceableShipmentIds)) {
             invoiceableShipments=delegator.findList("Shipment",EntityCondition.makeCondition("shipmentId",EntityOperator.IN,invoiceableShipmentIds),null,null,null,false);
           }
@@ -220,25 +211,21 @@
         Debug.logError(e,errMsg,module);
         return ServiceUtil.returnError(errMsg);
       }
-      Map additionalShippingCharges=FastMap.newInstance();
+      Map<GenericValue,BigDecimal> additionalShippingCharges=FastMap.newInstance();
       BigDecimal totalAdditionalShippingCharges=ZERO;
       if (UtilValidate.isNotEmpty(invoiceableShipments)) {
-        Iterator isit=invoiceableShipments.iterator();
-        while (isit.hasNext()) {
-          GenericValue shipment=(GenericValue)isit.next();
+        for (        GenericValue shipment : invoiceableShipments) {
           if (shipment.get("additionalShippingCharge") == null)           continue;
-          BigDecimal shipmentAdditionalShippingCharges=shipment.getBigDecimal("additionalShippingCharge").setScale(decimals,rounding);
+          BigDecimal shipmentAdditionalShippingCharges=shipment.getBigDecimal("additionalShippingCharge").setScale(DECIMALS,ROUNDING);
           additionalShippingCharges.put(shipment,shipmentAdditionalShippingCharges);
           totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(shipmentAdditionalShippingCharges);
         }
       }
       if (totalAdditionalShippingCharges.signum() == 1) {
-        Iterator ascit=additionalShippingCharges.keySet().iterator();
-        while (ascit.hasNext()) {
-          GenericValue shipment=(GenericValue)ascit.next();
+        for (        GenericValue shipment : additionalShippingCharges.keySet()) {
           String shipmentId=shipment.getString("shipmentId");
           BigDecimal additionalShippingCharge=(BigDecimal)additionalShippingCharges.get(shipment);
-          Map createOrderAdjustmentContext=new HashMap();
+          Map<String,Object> createOrderAdjustmentContext=FastMap.newInstance();
           createOrderAdjustmentContext.put("orderId",orderId);
           createOrderAdjustmentContext.put("orderAdjustmentTypeId","SHIPPING_CHARGES");
           String addtlChargeDescription=shipment.getString("addtlShippingChargeDesc");
@@ -251,7 +238,7 @@
           createOrderAdjustmentContext.put("userLogin",context.get("userLogin"));
           String shippingOrderAdjustmentId=null;
           try {
-            Map createOrderAdjustmentResult=dispatcher.runSync("createOrderAdjustment",createOrderAdjustmentContext);
+            Map<String,Object> createOrderAdjustmentResult=dispatcher.runSync("createOrderAdjustment",createOrderAdjustmentContext);
             shippingOrderAdjustmentId=(String)createOrderAdjustmentResult.get("orderAdjustmentId");
           }
  catch (          GenericServiceException e) {
@@ -270,8 +257,8 @@
             Debug.logError(e,errMsg,module);
             return ServiceUtil.returnError(errMsg);
           }
-          List emptyList=new ArrayList();
-          Map calcTaxContext=new HashMap();
+          List<Object> emptyList=FastList.newInstance();
+          Map<String,Object> calcTaxContext=FastMap.newInstance();
           calcTaxContext.put("productStoreId",orh.getProductStoreId());
           calcTaxContext.put("payToPartyId",payToParty.getString("partyId"));
           calcTaxContext.put("billToPartyId",billToParty.getString("partyId"));
@@ -281,8 +268,7 @@
           calcTaxContext.put("itemAmountList",emptyList);
           calcTaxContext.put("itemPriceList",emptyList);
           calcTaxContext.put("itemShippingList",emptyList);
-          List orderAdjustments=null;
-          Map calcTaxResult=null;
+          Map<String,Object> calcTaxResult=null;
           try {
             calcTaxResult=dispatcher.runSync("calcTax",calcTaxContext);
           }
@@ -291,12 +277,10 @@
             Debug.logError(e,errMsg,module);
             return ServiceUtil.returnError(errMsg);
           }
-          orderAdjustments=(List)calcTaxResult.get("orderAdjustments");
+          List<GenericValue> orderAdjustments=UtilGenerics.checkList(calcTaxResult.get("orderAdjustments"));
           if (calcTaxResult != null && orderAdjustments != null) {
-            Iterator oait=orderAdjustments.iterator();
-            while (oait.hasNext()) {
-              GenericValue orderAdjustment=(GenericValue)oait.next();
-              totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(orderAdjustment.getBigDecimal("amount").setScale(decimals,rounding));
+            for (            GenericValue orderAdjustment : orderAdjustments) {
+              totalAdditionalShippingCharges=totalAdditionalShippingCharges.add(orderAdjustment.getBigDecimal("amount").setScale(DECIMALS,ROUNDING));
               orderAdjustment.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
               orderAdjustment.set("orderId",orderId);
               orderAdjustment.set("orderItemSeqId","_NA_");
@@ -312,7 +296,7 @@
               return ServiceUtil.returnError(errMsg);
             }
           }
-          List orderPaymentPreferences=null;
+          List<GenericValue> orderPaymentPreferences=null;
           try {
             orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId,"paymentMethodTypeId","CREDIT_CARD"));
           }
@@ -327,15 +311,13 @@
             paymentMethodId=cardOrderPaymentPref.getString("paymentMethodId");
           }
           if (paymentMethodId != null) {
-            BigDecimal totalNewAuthAmount=totalAdditionalShippingCharges.setScale(decimals,rounding);
-            Iterator oppit=orderPaymentPreferences.iterator();
-            while (oppit.hasNext()) {
-              GenericValue orderPaymentPreference=(GenericValue)oppit.next();
+            BigDecimal totalNewAuthAmount=totalAdditionalShippingCharges.setScale(DECIMALS,ROUNDING);
+            for (            GenericValue orderPaymentPreference : orderPaymentPreferences) {
               if (!(orderPaymentPreference.getString("statusId").equals("PAYMENT_SETTLED") || orderPaymentPreference.getString("statusId").equals("PAYMENT_CANCELLED"))) {
                 GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
                 if (authTransaction != null && authTransaction.get("amount") != null) {
-                  totalNewAuthAmount=totalNewAuthAmount.add(authTransaction.getBigDecimal("amount").setScale(decimals,rounding));
-                  Map prefReleaseResult=null;
+                  totalNewAuthAmount=totalNewAuthAmount.add(authTransaction.getBigDecimal("amount").setScale(DECIMALS,ROUNDING));
+                  Map<String,Object> prefReleaseResult=null;
                   try {
                     prefReleaseResult=dispatcher.runSync("releaseOrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreference.getString("orderPaymentPreferenceId"),"userLogin",context.get("userLogin")));
                   }
@@ -352,10 +334,10 @@
                 }
               }
             }
-            Map serviceContext=UtilMisc.toMap("orderId",orderId,"paymentMethodId",paymentMethodId,"paymentMethodTypeId","CREDIT_CARD","userLogin",context.get("userLogin"));
+            Map<String,Object> serviceContext=UtilMisc.toMap("orderId",orderId,"paymentMethodId",paymentMethodId,"paymentMethodTypeId","CREDIT_CARD","userLogin",context.get("userLogin"));
             String orderPaymentPreferenceId=null;
             try {
-              Map result=dispatcher.runSync("createOrderPaymentPreference",serviceContext);
+              Map<String,Object> result=dispatcher.runSync("createOrderPaymentPreference",serviceContext);
               orderPaymentPreferenceId=(String)result.get("orderPaymentPreferenceId");
             }
  catch (            GenericServiceException e) {
@@ -363,7 +345,7 @@
               Debug.logError(e,errMsg,module);
               return ServiceUtil.returnError(errMsg);
             }
-            Map authResult=null;
+            Map<String,Object> authResult=null;
             try {
               authResult=dispatcher.runSync("authOrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId,"overrideAmount",totalNewAuthAmount,"userLogin",context.get("userLogin")));
             }
@@ -399,10 +381,10 @@
       GenericValue shipmentItemBilling=EntityUtil.getFirst(shipmentItemBillings);
       invoiceId=shipmentItemBilling.getString("invoiceId");
     }
-    Map serviceContext=UtilMisc.toMap("orderId",orderId,"billItems",toBillItems,"invoiceId",invoiceId,"eventDate",context.get("eventDate"),"userLogin",context.get("userLogin"));
+    Map<String,Object> serviceContext=UtilMisc.toMap("orderId",orderId,"billItems",toBillItems,"invoiceId",invoiceId,"eventDate",context.get("eventDate"),"userLogin",context.get("userLogin"));
     try {
-      Map result=dispatcher.runSync("createInvoiceForOrder",serviceContext);
-      invoicesCreated.add(result.get("invoiceId"));
+      Map<String,Object> result=dispatcher.runSync("createInvoiceForOrder",serviceContext);
+      invoicesCreated.add((String)result.get("invoiceId"));
     }
  catch (    GenericServiceException e) {
       String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateInvoiceForOrderService",locale);
@@ -410,7 +392,7 @@
       return ServiceUtil.returnError(errMsg);
     }
   }
-  Map response=ServiceUtil.returnSuccess();
+  Map<String,Object> response=ServiceUtil.returnSuccess();
   response.put("invoicesCreated",invoicesCreated);
   return response;
 }

@@ -1,0 +1,80 @@
+{
+  GenericDelegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String shipmentId=(String)context.get("shipmentId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue shipment=null;
+  try {
+    shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg=UtilProperties.getMessage(resource,"AccountingTroubleGettingShipmentEntity",UtilMisc.toMap("shipmentId",shipmentId),locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  List<GenericValue> itemIssuances=FastList.newInstance();
+  try {
+    EntityFindOptions findOptions=new EntityFindOptions();
+    findOptions.setDistinct(true);
+    Set<String> fieldsToSelect=UtilMisc.toSet("orderId","shipmentId");
+    itemIssuances=delegator.findList("ItemIssuance",EntityCondition.makeCondition("shipmentId",shipmentId),fieldsToSelect,UtilMisc.toList("orderId"),findOptions,false);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg=UtilProperties.getMessage(resource,"AccountingProblemGettingItemsFromShipments",locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (itemIssuances.size() == 0) {
+    Debug.logInfo("No items issued for shipments",module);
+    return ServiceUtil.returnSuccess();
+  }
+  Map<String,Object> ordersWithInProcessInvoice=FastMap.newInstance();
+  for (  GenericValue itemIssuance : itemIssuances) {
+    String orderId=itemIssuance.getString("orderId");
+    Map<String,Object> billFields=FastMap.newInstance();
+    billFields.put("orderId",orderId);
+    List<GenericValue> orderItemBillings=FastList.newInstance();
+    try {
+      orderItemBillings=delegator.findByAnd("OrderItemBilling",billFields);
+    }
+ catch (    GenericEntityException e) {
+      String errMsg=UtilProperties.getMessage(resource,"AccountingProblemLookingUpOrderItemBilling",UtilMisc.toMap("billFields",billFields),locale);
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+    if (orderItemBillings.size() != 0) {
+      GenericValue orderItemBilling=EntityUtil.getFirst(orderItemBillings);
+      GenericValue invoice=null;
+      try {
+        invoice=orderItemBilling.getRelatedOne("Invoice");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      if (invoice != null) {
+        if ("INVOICE_IN_PROCESS".equals(invoice.getString("statusId"))) {
+          ordersWithInProcessInvoice.put(orderId,invoice);
+        }
+      }
+    }
+  }
+  Set<String> invoicesInProcess=ordersWithInProcessInvoice.keySet();
+  for (  String orderId : invoicesInProcess) {
+    GenericValue invoice=(GenericValue)ordersWithInProcessInvoice.get(orderId);
+    String invoiceId=invoice.getString("invoiceId");
+    Map<String,Object> setInvoiceStatusResult=FastMap.newInstance();
+    try {
+      setInvoiceStatusResult=dispatcher.runSync("setInvoiceStatus",UtilMisc.<String,Object>toMap("invoiceId",invoiceId,"statusId","INVOICE_READY","userLogin",userLogin));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (ServiceUtil.isError(setInvoiceStatusResult)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingInvoiceFromOrder",locale),null,null,setInvoiceStatusResult);
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
