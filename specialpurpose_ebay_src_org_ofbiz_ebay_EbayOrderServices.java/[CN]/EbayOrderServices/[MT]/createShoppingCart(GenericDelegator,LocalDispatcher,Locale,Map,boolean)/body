@@ -1,10 +1,10 @@
 {
   try {
-    String productStoreId=(String)parameters.get("productStoreId");
-    GenericValue userLogin=(GenericValue)parameters.get("userLogin");
-    String defaultCurrencyUomId="";
-    String payToPartyId="";
-    String facilityId="";
+    String productStoreId=(String)context.get("productStoreId");
+    GenericValue userLogin=(GenericValue)context.get("userLogin");
+    String defaultCurrencyUomId=null;
+    String payToPartyId=null;
+    String facilityId=null;
     if (productStoreId == null) {
       return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.productStoreIdIsMandatory",locale));
     }
@@ -20,14 +20,12 @@
       }
     }
     ShoppingCart cart=new ShoppingCart(delegator,productStoreId,locale,defaultCurrencyUomId);
-    String externalId=(String)parameters.get("externalId");
-    String transactionId=(String)parameters.get("transactionId");
+    String externalId=(String)context.get("externalId");
     if (UtilValidate.isNotEmpty(externalId)) {
-      if (externalOrderExists(delegator,externalId,transactionId) != null && create) {
+      if (externalOrderExists(delegator,externalId) != null && create) {
         return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.externalIdAlreadyExist",locale));
       }
       cart.setExternalId(externalId);
-      cart.setTransactionId(transactionId);
     }
  else {
       return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.externalIdNotAvailable",locale));
@@ -39,40 +37,34 @@
     if (UtilValidate.isNotEmpty(facilityId)) {
       cart.setFacilityId(facilityId);
     }
-    String amountStr=(String)parameters.get("amountPaid");
+    String amountStr=(String)context.get("amountPaid");
     BigDecimal amountPaid=BigDecimal.ZERO;
     if (UtilValidate.isNotEmpty(amountStr)) {
       amountPaid=new BigDecimal(amountStr);
     }
     cart.addPaymentAmount("EXT_EBAY",amountPaid,externalId,null,true,false,false);
     Timestamp orderDate=UtilDateTime.nowTimestamp();
-    if (UtilValidate.isNotEmpty((String)parameters.get("createdDate"))) {
+    if (UtilValidate.isNotEmpty((String)context.get("createdDate"))) {
       SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
-      Date createdDate=sdf.parse((String)parameters.get("createdDate"));
+      Date createdDate=sdf.parse((String)context.get("createdDate"));
       orderDate=new Timestamp(createdDate.getTime());
     }
     cart.setOrderDate(orderDate);
-    String productId=(String)parameters.get("productId");
-    if (UtilValidate.isEmpty(productId)) {
-      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.productIdNotAvailable",locale));
-    }
- else {
-      GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
-      if (UtilValidate.isEmpty(product)) {
-        return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.productIdDoesNotExist",locale));
-      }
-    }
-    String paidTime=(String)parameters.get("paidTime");
+    String paidTime=(String)context.get("paidTime");
     if (UtilValidate.isEmpty(paidTime)) {
       return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.paymentIsStillNotReceived",locale));
     }
-    BigDecimal unitPrice=new BigDecimal((String)parameters.get("transactionPrice"));
-    BigDecimal quantity=new BigDecimal((String)parameters.get("quantityPurchased"));
-    cart.addItemToEnd(productId,null,quantity,unitPrice,null,null,null,"PRODUCT_ORDER_ITEM",dispatcher,Boolean.FALSE,Boolean.FALSE);
+    List orderItemList=(List)context.get("orderItemList");
+    Iterator orderItemIter=orderItemList.iterator();
+    while (orderItemIter.hasNext()) {
+      Map orderItem=(Map)orderItemIter.next();
+      addItem(cart,orderItem,dispatcher,0);
+    }
     if (UtilValidate.isNotEmpty(payToPartyId)) {
       cart.setBillFromVendorPartyId(payToPartyId);
     }
-    String shippingCost=(String)parameters.get("shippingServiceCost");
+    Map<String,Object> shippingServiceSelectedCtx=(Map)context.get("shippingServiceSelectedCtx");
+    String shippingCost=(String)shippingServiceSelectedCtx.get("shippingServiceCost");
     if (UtilValidate.isNotEmpty(shippingCost)) {
       double shippingAmount=new Double(shippingCost).doubleValue();
       if (shippingAmount > 0) {
@@ -82,7 +74,7 @@
         }
       }
     }
-    String shippingTotalAdditionalCost=(String)parameters.get("shippingTotalAdditionalCost");
+    String shippingTotalAdditionalCost=(String)shippingServiceSelectedCtx.get("shippingTotalAdditionalCost");
     if (UtilValidate.isNotEmpty(shippingTotalAdditionalCost)) {
       double shippingAdditionalCost=new Double(shippingTotalAdditionalCost).doubleValue();
       if (shippingAdditionalCost > 0) {
@@ -92,8 +84,9 @@
         }
       }
     }
-    String salesTaxAmount=(String)parameters.get("salesTaxAmount");
-    String salesTaxPercent=(String)parameters.get("salesTaxPercent");
+    Map<String,Object> shippingDetailsCtx=(Map)context.get("shippingDetailsCtx");
+    String salesTaxAmount=(String)shippingDetailsCtx.get("salesTaxAmount");
+    String salesTaxPercent=(String)shippingDetailsCtx.get("salesTaxPercent");
     if (UtilValidate.isNotEmpty(salesTaxAmount)) {
       double salesTaxAmountTotal=new Double(salesTaxAmount).doubleValue();
       if (salesTaxAmountTotal > 0) {
@@ -110,27 +103,39 @@
     if (create) {
       Debug.logInfo("Importing new order from eBay",module);
       String partyId=null;
-      String contactMechId="";
+      String contactMechId=null;
       String emailContactMechId=null;
       String phoneContactMechId=null;
       GenericValue partyAttribute=null;
-      if (UtilValidate.isNotEmpty((String)parameters.get("eiasTokenBuyer"))) {
-        partyAttribute=EntityUtil.getFirst(delegator.findByAnd("PartyAttribute",UtilMisc.toMap("attrValue",(String)parameters.get("eiasTokenBuyer"))));
+      Map<String,Object> shippingAddressCtx=(Map)context.get("shippingAddressCtx");
+      if (UtilValidate.isNotEmpty(shippingAddressCtx)) {
+        String buyerName=(String)shippingAddressCtx.get("buyerName");
+        String firstName=(String)buyerName.substring(0,buyerName.indexOf(" "));
+        String lastName=(String)buyerName.substring(buyerName.indexOf(" ") + 1);
+        String country=(String)shippingAddressCtx.get("shippingAddressCountry");
+        String state=(String)shippingAddressCtx.get("shippingAddressStateOrProvince");
+        String city=(String)shippingAddressCtx.get("shippingAddressCityName");
+        EbayHelper.correctCityStateCountry(dispatcher,shippingAddressCtx,city,state,country);
+        List<GenericValue> shipInfo=PartyWorker.findMatchingPartyAndPostalAddress(delegator,shippingAddressCtx.get("shippingAddressStreet1").toString(),(UtilValidate.isEmpty(shippingAddressCtx.get("shippingAddressStreet2")) ? null : shippingAddressCtx.get("shippingAddressStreet2").toString()),city,state,shippingAddressCtx.get("shippingAddressPostalCode").toString(),null,country,firstName,null,lastName);
+        if (shipInfo != null && shipInfo.size() > 0) {
+          GenericValue first=EntityUtil.getFirst(shipInfo);
+          partyId=first.getString("partyId");
+          Debug.logInfo("Existing shipping address found for : (party: " + partyId + ")",module);
+        }
       }
-      if (UtilValidate.isNotEmpty(partyAttribute)) {
-        partyId=(String)partyAttribute.get("partyId");
+      if (UtilValidate.isNotEmpty(partyId)) {
         Debug.logInfo("Found existing party associated to the eBay buyer: " + partyId,module);
         GenericValue party=delegator.findByPrimaryKey("Party",UtilMisc.toMap("partyId",partyId));
-        contactMechId=EbayHelper.setShippingAddressContactMech(dispatcher,delegator,party,userLogin,parameters);
-        String emailBuyer=(String)parameters.get("emailBuyer");
+        contactMechId=EbayHelper.setShippingAddressContactMech(dispatcher,delegator,party,userLogin,shippingAddressCtx);
+        String emailBuyer=(String)context.get("emailBuyer");
         if (!(emailBuyer.equals("") || emailBuyer.equalsIgnoreCase("Invalid Request"))) {
-          String emailContactMech=EbayHelper.setEmailContactMech(dispatcher,delegator,party,userLogin,parameters);
+          String emailContactMech=EbayHelper.setEmailContactMech(dispatcher,delegator,party,userLogin,context);
         }
-        String phoneContactMech=EbayHelper.setPhoneContactMech(dispatcher,delegator,party,userLogin,parameters);
+        String phoneContactMech=EbayHelper.setPhoneContactMech(dispatcher,delegator,party,userLogin,shippingAddressCtx);
       }
       if (UtilValidate.isEmpty(partyId)) {
         Debug.logInfo("Creating new party for the eBay buyer.",module);
-        partyId=EbayHelper.createCustomerParty(dispatcher,(String)parameters.get("buyerName"),userLogin);
+        partyId=EbayHelper.createCustomerParty(dispatcher,(String)shippingAddressCtx.get("buyerName"),userLogin);
         if (UtilValidate.isEmpty(partyId)) {
           Debug.logWarning("Using admin party for the eBay buyer.",module);
           partyId="admin";
@@ -138,16 +143,16 @@
       }
       if (UtilValidate.isEmpty(contactMechId)) {
         Debug.logInfo("Creating new postal address for party: " + partyId,module);
-        contactMechId=EbayHelper.createAddress(dispatcher,partyId,userLogin,"SHIPPING_LOCATION",parameters);
+        contactMechId=EbayHelper.createAddress(dispatcher,partyId,userLogin,"SHIPPING_LOCATION",shippingAddressCtx);
         if (UtilValidate.isEmpty(contactMechId)) {
-          return ServiceUtil.returnFailure("Unable to create postalAddress with input map: " + parameters);
+          return ServiceUtil.returnFailure("Unable to create postalAddress with input map: " + shippingAddressCtx);
         }
         Debug.logInfo("Created postal address: " + contactMechId,module);
         Debug.logInfo("Creating new phone number for party: " + partyId,module);
-        EbayHelper.createPartyPhone(dispatcher,partyId,(String)parameters.get("shippingAddressPhone"),userLogin);
+        EbayHelper.createPartyPhone(dispatcher,partyId,(String)shippingAddressCtx.get("shippingAddressPhone"),userLogin);
         Debug.logInfo("Creating association to eBay buyer for party: " + partyId,module);
-        EbayHelper.createEbayCustomer(dispatcher,partyId,(String)parameters.get("ebayUserIdBuyer"),(String)parameters.get("eiasTokenBuyer"),userLogin);
-        String emailBuyer=(String)parameters.get("emailBuyer");
+        EbayHelper.createEbayCustomer(dispatcher,partyId,(String)context.get("ebayUserIdBuyer"),(String)context.get("eiasTokenBuyer"),userLogin);
+        String emailBuyer=(String)context.get("emailBuyer");
         if (UtilValidate.isNotEmpty(emailBuyer) && !emailBuyer.equalsIgnoreCase("Invalid Request")) {
           Debug.logInfo("Creating new email for party: " + partyId,module);
           EbayHelper.createPartyEmail(dispatcher,partyId,emailBuyer,userLogin);
@@ -161,8 +166,8 @@
       Debug.logInfo("Setting contact mech in cart: " + contactMechId,module);
       cart.setShippingContactMechId(contactMechId);
       cart.setMaySplit(Boolean.FALSE);
-      Debug.logInfo("Setting shipment method: " + (String)parameters.get("shippingService"),module);
-      EbayHelper.setShipmentMethodType(cart,(String)parameters.get("shippingService"));
+      Debug.logInfo("Setting shipment method: " + (String)shippingServiceSelectedCtx.get("shippingService"),module);
+      EbayHelper.setShipmentMethodType(cart,(String)shippingServiceSelectedCtx.get("shippingService"));
       cart.makeAllShipGroupInfos();
       Debug.logInfo("Creating CheckOutHelper.",module);
       CheckOutHelper checkout=new CheckOutHelper(dispatcher,delegator,cart);
