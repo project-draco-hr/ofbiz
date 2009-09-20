@@ -13,7 +13,7 @@ synchronized (DBCPConnectionFactory.class) {
     String dbUri=jotmJdbcElement.getAttribute("jdbc-uri");
     String dbUser=jotmJdbcElement.getAttribute("jdbc-username");
     String dbPass=jotmJdbcElement.getAttribute("jdbc-password");
-    int maxSize, minSize;
+    int maxSize, minSize, timeBetweenEvictionRunsMillis;
     try {
       maxSize=Integer.parseInt(jotmJdbcElement.getAttribute("pool-maxsize"));
     }
@@ -22,22 +22,33 @@ synchronized (DBCPConnectionFactory.class) {
       maxSize=20;
     }
 catch (    Exception e) {
-      Debug.logError(e,"Problems with pool settings",module);
+      Debug.logError("Problems with pool settings [pool-maxsize], using default of 20.",module);
       maxSize=20;
     }
     try {
       minSize=Integer.parseInt(jotmJdbcElement.getAttribute("pool-minsize"));
     }
  catch (    NumberFormatException nfe) {
-      Debug.logError("Problems with pool settings [pool-minsize=" + jotmJdbcElement.getAttribute("pool-minsize") + "]; the values MUST be numbers, using default of 5.",module);
+      Debug.logError("Problems with pool settings [pool-minsize=" + jotmJdbcElement.getAttribute("pool-minsize") + "]; the values MUST be numbers, using default of 2.",module);
       minSize=2;
     }
 catch (    Exception e) {
-      Debug.logError(e,"Problems with pool settings",module);
+      Debug.logError("Problems with pool settings [pool-minsize], using default of 2.",module);
       minSize=2;
     }
     int maxIdle=maxSize / 2;
     maxIdle=maxIdle > minSize ? maxIdle : minSize;
+    try {
+      timeBetweenEvictionRunsMillis=Integer.parseInt(jotmJdbcElement.getAttribute("timeBetweenEvictionRunsMillis"));
+    }
+ catch (    NumberFormatException nfe) {
+      Debug.logError("Problems with pool settings [timeBetweenEvictionRunsMillis=" + jotmJdbcElement.getAttribute("timeBetweenEvictionRunsMillis") + "]; the values MUST be numbers, using default of 600000.",module);
+      timeBetweenEvictionRunsMillis=600000;
+    }
+catch (    Exception e) {
+      Debug.logError("Problems with pool settings [timeBetweenEvictionRunsMillis], using default of 600000.",module);
+      timeBetweenEvictionRunsMillis=600000;
+    }
     Driver jdbcDriver;
     try {
       jdbcDriver=(Driver)Class.forName(driverName,true,Thread.currentThread().getContextClassLoader()).newInstance();
@@ -52,7 +63,7 @@ catch (    Exception e) {
     ConnectionFactory cf=new DriverConnectionFactory(jdbcDriver,dbUri,cfProps);
     XAConnectionFactory xacf=new LocalXAConnectionFactory(txMgr,cf);
     GenericObjectPool pool=new GenericObjectPool();
-    pool.setTimeBetweenEvictionRunsMillis(600000);
+    pool.setTimeBetweenEvictionRunsMillis(timeBetweenEvictionRunsMillis);
     pool.setMaxActive(maxSize);
     pool.setMaxIdle(maxIdle);
     pool.setMinIdle(minSize);
