@@ -2,7 +2,7 @@
   StringBuffer errorMessage=new StringBuffer();
   Map<String,Object> result=FastMap.newInstance();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
-  if (isGetSellerTransactionsCall && !isGetOrdersCall) {
+  if (isGetSellerTransactionsCall) {
     List getSellerTransactionList=readGetSellerTransactionResponse(responseMsg,locale,(String)context.get("productStoreId"),delegator,dispatcher,errorMessage,userLogin);
     if (UtilValidate.isNotEmpty(getSellerTransactionList)) {
       orderList.addAll(getSellerTransactionList);
@@ -12,8 +12,24 @@
   }
  else   if (isGetOrdersCall) {
     List getOrdersList=readGetOrdersResponse(responseMsg,locale,(String)context.get("productStoreId"),delegator,dispatcher,errorMessage,userLogin);
-    orderList.addAll(getOrdersList);
+    if (UtilValidate.isNotEmpty(getOrdersList)) {
+      orderList.addAll(getOrdersList);
+    }
     isGetOrdersCall=false;
+    return ServiceUtil.returnSuccess();
+  }
+ else   if (isGetMyeBaySellingCall) {
+    List eBayDeletedOrdersAndTransactionList=readGetMyeBaySellingResponse(responseMsg,locale,(String)context.get("productStoreId"),delegator,dispatcher,errorMessage,userLogin);
+    if (UtilValidate.isNotEmpty(eBayDeletedOrdersAndTransactionList)) {
+      Debug.logInfo("The value of getMyeBaySellingList" + eBayDeletedOrdersAndTransactionList,module);
+      Iterator orderListIter=orderList.iterator();
+      while (orderListIter.hasNext()) {
+        Map orderCtx=(Map)orderListIter.next();
+        if (eBayDeletedOrdersAndTransactionList.contains(orderCtx.get("externalId"))) {
+          orderList.remove(orderCtx);
+        }
+      }
+    }
   }
   if (orderList == null || orderList.size() == 0) {
     Debug.logError("No orders found",module);
