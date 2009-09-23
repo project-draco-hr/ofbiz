@@ -1,9 +1,13 @@
 {
   BigDecimal invoiceTotal=ZERO;
   BigDecimal invoiceTaxTotal=ZERO;
+  Map invoiceTaxByTaxAuthGeoAndPartyResult=getInvoiceTaxByTaxAuthGeoAndParty(invoice);
+  List taxByTaxAuthGeoAndPartyList=(List)invoiceTaxByTaxAuthGeoAndPartyResult.get("taxByTaxAuthGeoAndPartyList");
+  invoiceTaxTotal=(BigDecimal)invoiceTaxByTaxAuthGeoAndPartyResult.get("taxGrandTotal");
   List invoiceItems=null;
   try {
     invoiceItems=invoice.getRelated("InvoiceItem");
+    invoiceItems=EntityUtil.filterByAnd(invoiceItems,UtilMisc.toList(EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.NOT_EQUAL,"PINV_SALES_TAX"),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.NOT_EQUAL,"PITM_SALES_TAX"),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.NOT_EQUAL,"ITM_SALES_TAX"),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.NOT_EQUAL,"INV_SALES_TAX")));
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Trouble getting InvoiceItem list",module);
@@ -16,12 +20,7 @@
       BigDecimal quantity=invoiceItem.getBigDecimal("quantity");
       if (amount == null)       amount=ZERO;
       if (quantity == null)       quantity=BigDecimal.ONE;
-      if ("ITM_SALES_TAX".equals(invoiceItem.get("invoiceItemTypeId"))) {
-        invoiceTaxTotal=invoiceTaxTotal.add(amount.multiply(quantity)).setScale(taxDecimals,taxRounding);
-      }
- else {
-        invoiceTotal=invoiceTotal.add(amount.multiply(quantity)).setScale(decimals,rounding);
-      }
+      invoiceTotal=invoiceTotal.add(amount.multiply(quantity)).setScale(decimals,rounding);
     }
   }
   invoiceTotal=invoiceTotal.add(invoiceTaxTotal).setScale(decimals,rounding);

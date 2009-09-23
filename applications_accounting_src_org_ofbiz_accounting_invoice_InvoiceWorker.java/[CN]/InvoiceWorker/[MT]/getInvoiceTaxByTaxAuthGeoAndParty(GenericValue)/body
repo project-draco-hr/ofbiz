@@ -1,0 +1,49 @@
+{
+  BigDecimal taxGrandTotal=ZERO;
+  List<Map<String,Object>> taxByTaxAuthGeoAndPartyList=FastList.newInstance();
+  List<GenericValue> invoiceItems=null;
+  if (UtilValidate.isNotEmpty(invoice)) {
+    try {
+      invoiceItems=invoice.getRelated("InvoiceItem");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Trouble getting InvoiceItem list",module);
+    }
+    if ("SALES_INVOICE".equals(invoice.get("invoiceTypeId"))) {
+      invoiceItems=EntityUtil.filterByOr(invoiceItems,UtilMisc.toList(EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.EQUALS,"INV_SALES_TAX"),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.EQUALS,"ITM_SALES_TAX")));
+    }
+ else     if (("PURCHASE_INVOICE".equals(invoice.get("invoiceTypeId")))) {
+      invoiceItems=EntityUtil.filterByOr(invoiceItems,UtilMisc.toList(EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.EQUALS,"PINV_SALES_TAX"),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.EQUALS,"PITM_SALES_TAX")));
+    }
+ else {
+      invoiceItems=null;
+    }
+    if (UtilValidate.isNotEmpty(invoiceItems)) {
+      invoiceItems=EntityUtil.orderBy(invoiceItems,UtilMisc.toList("taxAuthGeoId","taxAuthPartyId"));
+      List<String> distinctTaxAuthGeoIdList=EntityUtil.getFieldListFromEntityList(invoiceItems,"taxAuthGeoId",true);
+      List<String> distinctTaxAuthPartyIdList=EntityUtil.getFieldListFromEntityList(invoiceItems,"taxAuthPartyId",true);
+      for (      String taxAuthGeoId : distinctTaxAuthGeoIdList) {
+        for (        String taxAuthPartyId : distinctTaxAuthPartyIdList) {
+          List<GenericValue> invoiceItemsByTaxAuthGeoAndPartyIds=EntityUtil.filterByAnd(invoiceItems,UtilMisc.toMap("taxAuthGeoId",taxAuthGeoId,"taxAuthPartyId",taxAuthPartyId));
+          if (UtilValidate.isNotEmpty(invoiceItemsByTaxAuthGeoAndPartyIds)) {
+            BigDecimal totalAmount=ZERO;
+            for (            GenericValue invoiceItem : invoiceItemsByTaxAuthGeoAndPartyIds) {
+              BigDecimal amount=invoiceItem.getBigDecimal("amount");
+              if (amount == null) {
+                amount=ZERO;
+              }
+              totalAmount=totalAmount.add(amount).setScale(taxDecimals,taxRounding);
+            }
+            totalAmount=totalAmount.setScale(UtilNumber.getBigDecimalScale("salestax.calc.decimals"),UtilNumber.getBigDecimalRoundingMode("salestax.rounding"));
+            taxByTaxAuthGeoAndPartyList.add(UtilMisc.<String,Object>toMap("taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"totalAmount",totalAmount));
+            taxGrandTotal=taxGrandTotal.add(totalAmount);
+          }
+        }
+      }
+    }
+  }
+  Map<String,Object> result=FastMap.newInstance();
+  result.put("taxByTaxAuthGeoAndPartyList",taxByTaxAuthGeoAndPartyList);
+  result.put("taxGrandTotal",taxGrandTotal);
+  return result;
+}

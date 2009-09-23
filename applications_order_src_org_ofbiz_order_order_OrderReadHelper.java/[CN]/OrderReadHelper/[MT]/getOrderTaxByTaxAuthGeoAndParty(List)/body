@@ -1,0 +1,32 @@
+{
+  BigDecimal taxGrandTotal=BigDecimal.ZERO;
+  List<Map<String,Object>> taxByTaxAuthGeoAndPartyList=FastList.newInstance();
+  if (UtilValidate.isNotEmpty(orderAdjustments)) {
+    orderAdjustments=EntityUtil.filterByAnd(orderAdjustments,UtilMisc.toMap("orderAdjustmentTypeId","SALES_TAX"));
+    orderAdjustments=EntityUtil.orderBy(orderAdjustments,UtilMisc.toList("taxAuthGeoId","taxAuthPartyId"));
+    List<String> distinctTaxAuthGeoIdList=EntityUtil.getFieldListFromEntityList(orderAdjustments,"taxAuthGeoId",true);
+    List<String> distinctTaxAuthPartyIdList=EntityUtil.getFieldListFromEntityList(orderAdjustments,"taxAuthPartyId",true);
+    for (    String taxAuthGeoId : distinctTaxAuthGeoIdList) {
+      for (      String taxAuthPartyId : distinctTaxAuthPartyIdList) {
+        List<GenericValue> orderAdjByTaxAuthGeoAndPartyIds=EntityUtil.filterByAnd(orderAdjustments,UtilMisc.toMap("taxAuthGeoId",taxAuthGeoId,"taxAuthPartyId",taxAuthPartyId));
+        if (UtilValidate.isNotEmpty(orderAdjByTaxAuthGeoAndPartyIds)) {
+          BigDecimal totalAmount=BigDecimal.ZERO;
+          for (          GenericValue orderAdjustment : orderAdjByTaxAuthGeoAndPartyIds) {
+            BigDecimal amount=orderAdjustment.getBigDecimal("amount");
+            if (amount == null) {
+              amount=ZERO;
+            }
+            totalAmount=totalAmount.add(amount).setScale(UtilNumber.getBigDecimalScale("salestax.calc.decimals"),taxRounding);
+          }
+          totalAmount=totalAmount.setScale(UtilNumber.getBigDecimalScale("salestax.final.decimals"),UtilNumber.getBigDecimalRoundingMode("salestax.rounding"));
+          taxByTaxAuthGeoAndPartyList.add(UtilMisc.<String,Object>toMap("taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"totalAmount",totalAmount));
+          taxGrandTotal=taxGrandTotal.add(totalAmount);
+        }
+      }
+    }
+  }
+  Map result=FastMap.newInstance();
+  result.put("taxByTaxAuthGeoAndPartyList",taxByTaxAuthGeoAndPartyList);
+  result.put("taxGrandTotal",taxGrandTotal);
+  return result;
+}
