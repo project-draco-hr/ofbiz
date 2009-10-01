@@ -6,6 +6,7 @@
     orderAdjustments=EntityUtil.orderBy(orderAdjustments,UtilMisc.toList("taxAuthGeoId","taxAuthPartyId"));
     List<String> distinctTaxAuthGeoIdList=EntityUtil.getFieldListFromEntityList(orderAdjustments,"taxAuthGeoId",true);
     List<String> distinctTaxAuthPartyIdList=EntityUtil.getFieldListFromEntityList(orderAdjustments,"taxAuthPartyId",true);
+    List<GenericValue> processedAdjustments=FastList.newInstance();
     for (    String taxAuthGeoId : distinctTaxAuthGeoIdList) {
       for (      String taxAuthPartyId : distinctTaxAuthPartyIdList) {
         List<GenericValue> orderAdjByTaxAuthGeoAndPartyIds=EntityUtil.filterByAnd(orderAdjustments,UtilMisc.toMap("taxAuthGeoId",taxAuthGeoId,"taxAuthPartyId",taxAuthPartyId));
@@ -16,14 +17,22 @@
             if (amount == null) {
               amount=ZERO;
             }
-            totalAmount=totalAmount.add(amount).setScale(UtilNumber.getBigDecimalScale("salestax.calc.decimals"),taxRounding);
+            totalAmount=totalAmount.add(amount).setScale(taxCalcScale,taxRounding);
+            processedAdjustments.add(orderAdjustment);
           }
-          totalAmount=totalAmount.setScale(UtilNumber.getBigDecimalScale("salestax.final.decimals"),UtilNumber.getBigDecimalRoundingMode("salestax.rounding"));
+          totalAmount=totalAmount.setScale(taxFinalScale,taxRounding);
           taxByTaxAuthGeoAndPartyList.add(UtilMisc.<String,Object>toMap("taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"totalAmount",totalAmount));
           taxGrandTotal=taxGrandTotal.add(totalAmount);
         }
       }
     }
+    List<GenericValue> missedAdjustments=FastList.newInstance();
+    missedAdjustments.addAll(orderAdjustments);
+    missedAdjustments.removeAll(processedAdjustments);
+    for (    GenericValue orderAdjustment : missedAdjustments) {
+      taxGrandTotal=taxGrandTotal.add(orderAdjustment.getBigDecimal("amount").setScale(taxCalcScale,taxRounding));
+    }
+    taxGrandTotal=taxGrandTotal.setScale(taxFinalScale,taxRounding);
   }
   Map result=FastMap.newInstance();
   result.put("taxByTaxAuthGeoAndPartyList",taxByTaxAuthGeoAndPartyList);
