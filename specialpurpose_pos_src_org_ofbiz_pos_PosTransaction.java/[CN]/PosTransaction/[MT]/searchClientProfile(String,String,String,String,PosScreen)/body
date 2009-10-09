@@ -1,0 +1,142 @@
+{
+  Delegator delegator=this.session.getDelegator();
+  LocalDispatcher dispatcher=session.getDispatcher();
+  GenericValue userLogin=session.getUserLogin();
+  Locale locale=defaultLocale;
+  List<GenericValue> partyList=null;
+  List<Map<String,String>> resultList=null;
+  DynamicViewEntity dynamicView=new DynamicViewEntity();
+  dynamicView.addMemberEntity("PT","Party");
+  dynamicView.addAlias("PT","partyId");
+  dynamicView.addAlias("PT","statusId");
+  dynamicView.addAlias("PT","partyTypeId");
+  dynamicView.addMemberEntity("PE","Person");
+  dynamicView.addAlias("PE","partyId");
+  dynamicView.addAlias("PE","lastName");
+  dynamicView.addAlias("PE","memberId");
+  dynamicView.addAlias("PE","lastNameLocal");
+  dynamicView.addViewLink("PT","PE",Boolean.FALSE,ModelKeyMap.makeKeyMapList("partyId"));
+  Boolean onlyPhone=UtilValidate.isEmpty(name) && UtilValidate.isEmpty(email) && UtilValidate.isNotEmpty(phone)&& UtilValidate.isEmpty(card);
+  if (!onlyPhone) {
+    dynamicView.addMemberEntity("PM","PartyContactMechPurpose");
+    dynamicView.addMemberEntity("CM","ContactMech");
+    dynamicView.addAlias("PM","contactMechId");
+    dynamicView.addAlias("PM","contactMechPurposeTypeId");
+    dynamicView.addAlias("PM","thruDate");
+    dynamicView.addAlias("CM","infoString");
+    dynamicView.addViewLink("PT","PM",Boolean.FALSE,ModelKeyMap.makeKeyMapList("partyId"));
+    dynamicView.addViewLink("PM","CM",Boolean.FALSE,ModelKeyMap.makeKeyMapList("contactMechId"));
+  }
+ else {
+    dynamicView.addMemberEntity("PM","PartyContactMechPurpose");
+    dynamicView.addMemberEntity("TN","TelecomNumber");
+    dynamicView.addAlias("PM","contactMechId");
+    dynamicView.addAlias("PM","thruDate");
+    dynamicView.addAlias("PM","contactMechPurposeTypeId");
+    dynamicView.addAlias("TN","contactNumber");
+    dynamicView.addViewLink("PT","PM",Boolean.FALSE,ModelKeyMap.makeKeyMapList("partyId"));
+    dynamicView.addViewLink("PM","TN",Boolean.FALSE,ModelKeyMap.makeKeyMapList("contactMechId"));
+  }
+  List<EntityCondition> andExprs=FastList.newInstance();
+  EntityCondition mainCond=null;
+  List<String> orderBy=FastList.newInstance();
+  List<String> fieldsToSelect=FastList.newInstance();
+  fieldsToSelect.add("partyId");
+  fieldsToSelect.add("lastName");
+  fieldsToSelect.add("memberId");
+  if (!onlyPhone) {
+    fieldsToSelect.add("infoString");
+  }
+ else {
+    fieldsToSelect.add("contactNumber");
+  }
+  andExprs.add(EntityCondition.makeCondition(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PARTY_DISABLED")));
+  andExprs.add(EntityCondition.makeCondition("partyTypeId",EntityOperator.EQUALS,"PERSON"));
+  if (UtilValidate.isNotEmpty(name)) {
+    andExprs.add(EntityCondition.makeCondition("lastName",EntityOperator.EQUALS,name));
+  }
+  if (UtilValidate.isNotEmpty(card)) {
+    andExprs.add(EntityCondition.makeCondition("memberId",EntityOperator.EQUALS,card));
+  }
+  if (UtilValidate.isNotEmpty(email)) {
+    andExprs.add(EntityCondition.makeCondition("infoString",EntityOperator.EQUALS,email));
+    andExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"PRIMARY_EMAIL"));
+    andExprs.add(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null));
+  }
+  if (onlyPhone) {
+    andExprs.add(EntityCondition.makeCondition("contactNumber",EntityOperator.EQUALS,phone));
+    andExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"PHONE_HOME"));
+    andExprs.add(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null));
+  }
+ else   if (UtilValidate.isEmpty(email)) {
+    andExprs.add(EntityCondition.makeCondition("infoString",EntityOperator.NOT_EQUAL,null));
+    andExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"PRIMARY_EMAIL"));
+    andExprs.add(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null));
+  }
+  mainCond=EntityCondition.makeCondition(andExprs,EntityOperator.AND);
+  orderBy.add("lastName");
+  Debug.logInfo("In searchClientProfile mainCond=" + mainCond,module);
+  Integer maxRows=Integer.MAX_VALUE;
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    try {
+      EntityFindOptions findOpts=new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,-1,maxRows,true);
+      EntityListIterator pli=delegator.findListIteratorByCondition(dynamicView,mainCond,null,fieldsToSelect,orderBy,findOpts);
+      partyList=pli.getPartialList(1,maxRows);
+      pli.close();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+    }
+  }
+ catch (  GenericTransactionException e) {
+    Debug.logError(e,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,e.getMessage(),e);
+    }
+ catch (    GenericTransactionException e2) {
+      Debug.logError(e2,"Unable to rollback transaction",module);
+      pos.showDialog("dialog/error/exception",e2.getMessage());
+    }
+    pos.showDialog("dialog/error/exception",e.getMessage());
+  }
+ finally {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Unable to commit transaction",module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+    }
+  }
+  if (partyList != null) {
+    resultList=FastList.newInstance();
+    for (    GenericValue party : partyList) {
+      Map partyMap=FastMap.newInstance();
+      partyMap.put("partyId",party.getString("partyId"));
+      partyMap.put("lastName",party.getString("lastName"));
+      partyMap.put("memberId",party.getString("memberId"));
+      if (!onlyPhone) {
+        partyMap.put("infoString",party.getString("infoString"));
+        partyMap.put("contactNumber","");
+      }
+ else {
+        partyMap.put("contactNumber",party.getString("contactNumber"));
+        partyMap.put("infoString","");
+      }
+      resultList.add(partyMap);
+    }
+    if (!onlyPhone) {
+      resultList=searchContactMechs(delegator,pos,resultList,phone,"TELECOM_NUMBER");
+    }
+ else {
+      resultList=searchContactMechs(delegator,pos,resultList,"","EMAIL_ADDRESS");
+    }
+  }
+ else {
+    resultList=FastList.newInstance();
+  }
+  return resultList;
+}

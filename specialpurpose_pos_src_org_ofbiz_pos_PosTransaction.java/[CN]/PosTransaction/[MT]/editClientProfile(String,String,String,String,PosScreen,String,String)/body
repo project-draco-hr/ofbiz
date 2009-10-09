@@ -1,0 +1,217 @@
+{
+  Delegator delegator=session.getDelegator();
+  LocalDispatcher dispatcher=session.getDispatcher();
+  GenericValue userLogin=session.getUserLogin();
+  String result=null;
+  Map<String,Object> svcCtx=FastMap.newInstance();
+  Map svcRes=null;
+  if ("create".equals(editType)) {
+    trace("Create a client profile");
+    svcCtx.put("memberId",card);
+    svcCtx.put("lastName",name);
+    svcCtx.put("firstName","");
+    svcCtx.put("userLogin",userLogin);
+    svcCtx.put("userLoginId",email);
+    svcCtx.put("currentPassword",card);
+    svcCtx.put("currentPasswordVerify",card);
+    svcCtx.put("passwordHint","Your card number is your password");
+    try {
+      svcRes=dispatcher.runSync("createPersonAndUserLogin",svcCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+      return result;
+    }
+    if (ServiceUtil.isError(svcRes)) {
+      pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+      return result;
+    }
+    partyId=(String)svcRes.get("partyId");
+    GenericValue newUserLogin=(GenericValue)svcRes.get("newUserLogin");
+    svcCtx.clear();
+    svcCtx.put("userLogin",newUserLogin);
+    svcCtx.put("emailAddress",email);
+    svcCtx.put("partyId",partyId);
+    svcCtx.put("contactMechPurposeTypeId","PRIMARY_EMAIL");
+    try {
+      svcRes=dispatcher.runSync("createPartyEmailAddress",svcCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+      return result;
+    }
+    if (ServiceUtil.isError(svcRes)) {
+      pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+      return result;
+    }
+    svcCtx.clear();
+    svcCtx.put("userLogin",newUserLogin);
+    svcCtx.put("contactNumber",phone);
+    svcCtx.put("partyId",partyId);
+    svcCtx.put("contactMechPurposeTypeId","PHONE_HOME");
+    try {
+      svcRes=dispatcher.runSync("createPartyTelecomNumber",svcCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+      return result;
+    }
+    if (ServiceUtil.isError(svcRes)) {
+      pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+      return result;
+    }
+    result=partyId;
+  }
+ else {
+    trace("Update a client profile");
+    List<GenericValue> userLogins=null;
+    try {
+      userLogins=session.getDelegator().findByAnd("UserLogin",UtilMisc.toMap("partyId",partyId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+      return result;
+    }
+    GenericValue partyLogin=userLogins.get(0);
+    GenericValue person=null;
+    try {
+      person=session.getDelegator().findByPrimaryKey("Person",UtilMisc.toMap("partyId",partyId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      pos.showDialog("dialog/error/exception",e.getMessage());
+      return result;
+    }
+    if (UtilValidate.isNotEmpty(name) && !person.getString("lastName").equals(name) || UtilValidate.isNotEmpty(card) && !person.getString("memberId").equals(card)) {
+      svcCtx.put("partyId",partyId);
+      svcCtx.put("firstName","");
+      svcCtx.put("userLogin",partyLogin);
+      if (UtilValidate.isNotEmpty(name)) {
+        svcCtx.put("lastName",name);
+      }
+      if (UtilValidate.isNotEmpty(card)) {
+        svcCtx.put("memberId",card);
+        if (!person.getString("memberId").equals(card)) {
+          UtilProperties.setPropertyValue("security.properties","password.accept.encrypted.and.plain","true");
+          try {
+            svcRes=dispatcher.runSync("updatePassword",UtilMisc.toMap("userLogin",partyLogin,"userLoginId",partyLogin.getString("userLoginId"),"currentPassword",partyLogin.getString("currentPassword"),"newPassword",card,"newPasswordVerify",card,"passwordHint","Your card number is your password"));
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,"Error calling updatePassword service",module);
+            pos.showDialog("dialog/error/exception",e.getMessage());
+            return result;
+          }
+          if (ServiceUtil.isError(svcRes)) {
+            pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+            return result;
+          }
+          UtilProperties.setPropertyValue("security.properties","password.accept.encrypted.and.plain","false");
+          partyLogin=(GenericValue)svcRes.get("updatedUserLogin");
+          svcCtx.put("userLogin",partyLogin);
+        }
+      }
+      try {
+        svcRes=dispatcher.runSync("updatePerson",svcCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/exception",e.getMessage());
+        return result;
+      }
+      if (ServiceUtil.isError(svcRes)) {
+        pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+        return result;
+      }
+    }
+    if (UtilValidate.isNotEmpty(email) && !partyLogin.getString("userLoginId").equals(email)) {
+      try {
+        svcRes=dispatcher.runSync("updateUserLoginId",UtilMisc.toMap("userLoginId",email,"userLogin",partyLogin));
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/exception",e.getMessage());
+        return result;
+      }
+      if (ServiceUtil.isError(svcRes)) {
+        pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+        return result;
+      }
+      partyLogin=(GenericValue)svcRes.get("newUserLogin");
+      svcCtx.clear();
+      svcCtx.put("partyId",partyId);
+      svcCtx.put("contactMechTypeId","EMAIL_ADDRESS");
+      svcCtx.put("thruDate",null);
+      List<GenericValue> PartyEmails=null;
+      try {
+        PartyEmails=session.getDelegator().findByAnd("PartyAndContactMech",svcCtx);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/exception",e.getMessage());
+        return result;
+      }
+      svcCtx.clear();
+      svcCtx.put("userLogin",partyLogin);
+      svcCtx.put("emailAddress",email);
+      svcCtx.put("partyId",partyId);
+      svcCtx.put("contactMechPurposeTypeId","PRIMARY_EMAIL");
+      if (UtilValidate.isNotEmpty(PartyEmails)) {
+        svcCtx.put("contactMechId",PartyEmails.get(0).getString("contactMechId"));
+      }
+      try {
+        svcRes=dispatcher.runSync("createUpdatePartyEmailAddress",svcCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/exception",e.getMessage());
+        return result;
+      }
+      if (ServiceUtil.isError(svcRes)) {
+        pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+        return result;
+      }
+    }
+    if (UtilValidate.isNotEmpty(phone)) {
+      svcCtx.clear();
+      svcCtx.put("partyId",partyId);
+      svcCtx.put("thruDate",null);
+      List<GenericValue> PartyTelecomNumbers=null;
+      try {
+        PartyTelecomNumbers=session.getDelegator().findByAnd("PartyAndTelecomNumber",svcCtx);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        pos.showDialog("dialog/error/exception",e.getMessage());
+        return result;
+      }
+      GenericValue PartyTelecomNumber=PartyTelecomNumbers.get(0);
+      String contactNumber=PartyTelecomNumber.getString("contactNumber");
+      if (!contactNumber.equals(phone)) {
+        String newContactMechId=PartyTelecomNumber.getString("contactMechId");
+        svcCtx.put("userLogin",partyLogin);
+        svcCtx.put("contactNumber",phone);
+        svcCtx.put("contactMechPurposeTypeId","PHONE_HOME");
+        if (UtilValidate.isNotEmpty(PartyTelecomNumbers)) {
+          svcCtx.put("contactMechId",newContactMechId);
+        }
+        try {
+          svcRes=dispatcher.runSync("createUpdatePartyTelecomNumber",svcCtx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          pos.showDialog("dialog/error/exception",e.getMessage());
+          return result;
+        }
+        if (ServiceUtil.isError(svcRes)) {
+          pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+          return result;
+        }
+      }
+    }
+  }
+  return result;
+}
