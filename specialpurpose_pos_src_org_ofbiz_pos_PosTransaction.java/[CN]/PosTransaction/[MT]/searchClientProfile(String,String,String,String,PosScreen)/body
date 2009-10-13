@@ -1,8 +1,5 @@
 {
   Delegator delegator=this.session.getDelegator();
-  LocalDispatcher dispatcher=session.getDispatcher();
-  GenericValue userLogin=session.getUserLogin();
-  Locale locale=defaultLocale;
   List<GenericValue> partyList=null;
   List<Map<String,String>> resultList=null;
   DynamicViewEntity dynamicView=new DynamicViewEntity();
@@ -10,17 +7,13 @@
   dynamicView.addAlias("PT","partyId");
   dynamicView.addAlias("PT","statusId");
   dynamicView.addAlias("PT","partyTypeId");
-  dynamicView.addMemberEntity("PUL","PartyAndUserLogin");
-  dynamicView.addAlias("PUL","userLoginId");
   dynamicView.addMemberEntity("PE","Person");
   dynamicView.addAlias("PE","partyId");
   dynamicView.addAlias("PE","lastName");
   dynamicView.addAlias("PE","memberId");
-  dynamicView.addAlias("PE","lastNameLocal");
   dynamicView.addViewLink("PT","PE",Boolean.FALSE,ModelKeyMap.makeKeyMapList("partyId"));
-  dynamicView.addViewLink("PT","PUL",Boolean.FALSE,ModelKeyMap.makeKeyMapList("partyId"));
   Boolean onlyPhone=UtilValidate.isEmpty(name) && UtilValidate.isEmpty(email) && UtilValidate.isNotEmpty(phone)&& UtilValidate.isEmpty(card);
-  if (!onlyPhone) {
+  if (UtilValidate.isNotEmpty(email)) {
     dynamicView.addMemberEntity("PM","PartyContactMechPurpose");
     dynamicView.addAlias("PM","contactMechId");
     dynamicView.addAlias("PM","contactMechPurposeTypeId");
@@ -30,7 +23,7 @@
     dynamicView.addViewLink("PT","PM",Boolean.FALSE,ModelKeyMap.makeKeyMapList("partyId"));
     dynamicView.addViewLink("PM","CM",Boolean.FALSE,ModelKeyMap.makeKeyMapList("contactMechId"));
   }
- else {
+ else   if (onlyPhone) {
     dynamicView.addMemberEntity("PM","PartyContactMechPurpose");
     dynamicView.addAlias("PM","contactMechId");
     dynamicView.addAlias("PM","thruDate");
@@ -47,17 +40,16 @@
   fieldsToSelect.add("partyId");
   fieldsToSelect.add("lastName");
   fieldsToSelect.add("memberId");
-  if (!onlyPhone) {
+  if (UtilValidate.isNotEmpty(email)) {
     fieldsToSelect.add("infoString");
   }
- else {
+ else   if (onlyPhone) {
     fieldsToSelect.add("contactNumber");
   }
   andExprs.add(EntityCondition.makeCondition(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PARTY_DISABLED")));
   andExprs.add(EntityCondition.makeCondition("partyTypeId",EntityOperator.EQUALS,"PERSON"));
-  andExprs.add(EntityCondition.makeCondition("userLoginId",EntityOperator.NOT_EQUAL,null));
   if (UtilValidate.isNotEmpty(name)) {
-    andExprs.add(EntityCondition.makeCondition("lastName",EntityOperator.EQUALS,name));
+    andExprs.add(EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("lastName"),EntityOperator.LIKE,EntityFunction.UPPER("%" + name + "%")));
   }
   if (UtilValidate.isNotEmpty(card)) {
     andExprs.add(EntityCondition.makeCondition("memberId",EntityOperator.EQUALS,card));
@@ -70,11 +62,6 @@
   if (onlyPhone) {
     andExprs.add(EntityCondition.makeCondition("contactNumber",EntityOperator.EQUALS,phone));
     andExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"PHONE_HOME"));
-    andExprs.add(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null));
-  }
- else   if (UtilValidate.isEmpty(email)) {
-    andExprs.add(EntityCondition.makeCondition("infoString",EntityOperator.NOT_EQUAL,null));
-    andExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"PRIMARY_EMAIL"));
     andExprs.add(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null));
   }
   mainCond=EntityCondition.makeCondition(andExprs,EntityOperator.AND);
@@ -122,8 +109,12 @@
       partyMap.put("partyId",party.getString("partyId"));
       partyMap.put("lastName",party.getString("lastName"));
       partyMap.put("memberId",party.getString("memberId"));
-      if (!onlyPhone) {
+      if (!onlyPhone && UtilValidate.isNotEmpty(email)) {
         partyMap.put("infoString",party.getString("infoString"));
+        partyMap.put("contactNumber","");
+      }
+ else       if (UtilValidate.isEmpty(email) && !onlyPhone) {
+        partyMap.put("infoString","");
         partyMap.put("contactNumber","");
       }
  else {
@@ -132,8 +123,12 @@
       }
       resultList.add(partyMap);
     }
-    if (!onlyPhone) {
+    if (!onlyPhone && UtilValidate.isNotEmpty(email)) {
       resultList=searchContactMechs(delegator,pos,resultList,phone,"TELECOM_NUMBER");
+    }
+ else     if (UtilValidate.isEmpty(email) && !onlyPhone) {
+      resultList=searchContactMechs(delegator,pos,resultList,"","TELECOM_NUMBER");
+      resultList=searchContactMechs(delegator,pos,resultList,"","EMAIL_ADDRESS");
     }
  else {
       resultList=searchContactMechs(delegator,pos,resultList,"","EMAIL_ADDRESS");
