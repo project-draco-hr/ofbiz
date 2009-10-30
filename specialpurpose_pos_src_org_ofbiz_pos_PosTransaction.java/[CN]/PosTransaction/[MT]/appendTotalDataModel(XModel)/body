@@ -2,7 +2,7 @@
   if (cart != null) {
     BigDecimal taxAmount=cart.getTotalSalesTax();
     BigDecimal total=cart.getGrandTotal();
-    List adjustments=cart.getAdjustments();
+    List<GenericValue> adjustments=cart.getAdjustments();
     BigDecimal itemsAdjustmentsAmount=BigDecimal.ZERO;
     Iterator i=cart.iterator();
     while (i.hasNext()) {
@@ -12,32 +12,23 @@
         itemsAdjustmentsAmount=itemsAdjustmentsAmount.add(adjustment);
       }
     }
-    if (UtilValidate.isNotEmpty(adjustments)) {
-      Iterator iter=adjustments.iterator();
-      while (iter.hasNext()) {
-        GenericValue orderAdjustment=(GenericValue)iter.next();
-        BigDecimal amount=orderAdjustment.getBigDecimal("amount");
+    for (    GenericValue orderAdjustment : adjustments) {
+      BigDecimal amount=orderAdjustment.getBigDecimal("amount");
+      BigDecimal sourcePercentage=orderAdjustment.getBigDecimal("sourcePercentage");
+      XModel adjustmentLine=Journal.appendNode(model,"tr","adjustment","");
+      Journal.appendNode(adjustmentLine,"td","sku","");
+      Journal.appendNode(adjustmentLine,"td","desc",UtilProperties.getMessage(resource,"PosSalesDiscount",locale));
+      if (UtilValidate.isNotEmpty(amount)) {
+        Journal.appendNode(adjustmentLine,"td","qty","");
+        Journal.appendNode(adjustmentLine,"td","price",UtilFormatOut.formatPrice(amount));
       }
-      iter=adjustments.iterator();
-      while (iter.hasNext()) {
-        GenericValue orderAdjustment=(GenericValue)iter.next();
-        BigDecimal amount=orderAdjustment.getBigDecimal("amount");
-        BigDecimal sourcePercentage=orderAdjustment.getBigDecimal("sourcePercentage");
-        XModel adjustmentLine=Journal.appendNode(model,"tr","adjustment","");
-        Journal.appendNode(adjustmentLine,"td","sku","");
-        Journal.appendNode(adjustmentLine,"td","desc",UtilProperties.getMessage(resource,"PosSalesDiscount",locale));
-        if (UtilValidate.isNotEmpty(amount)) {
-          Journal.appendNode(adjustmentLine,"td","qty","");
-          Journal.appendNode(adjustmentLine,"td","price",UtilFormatOut.formatPrice(amount));
-        }
- else         if (UtilValidate.isNotEmpty(sourcePercentage)) {
-          BigDecimal percentage=sourcePercentage.movePointLeft(2).negate();
-          Journal.appendNode(adjustmentLine,"td","qty",UtilFormatOut.formatPercentage(percentage));
-          amount=cart.getItemTotal().add(itemsAdjustmentsAmount).multiply(percentage);
-          Journal.appendNode(adjustmentLine,"td","price",UtilFormatOut.formatPrice(amount.negate()));
-        }
-        Journal.appendNode(adjustmentLine,"td","index","-1");
+ else       if (UtilValidate.isNotEmpty(sourcePercentage)) {
+        BigDecimal percentage=sourcePercentage.movePointLeft(2).negate();
+        Journal.appendNode(adjustmentLine,"td","qty",UtilFormatOut.formatPercentage(percentage));
+        amount=cart.getItemTotal().add(itemsAdjustmentsAmount).multiply(percentage);
+        Journal.appendNode(adjustmentLine,"td","price",UtilFormatOut.formatPrice(amount.negate()));
       }
+      Journal.appendNode(adjustmentLine,"td","index","-1");
     }
     XModel taxLine=Journal.appendNode(model,"tr","tax","");
     Journal.appendNode(taxLine,"td","sku","");

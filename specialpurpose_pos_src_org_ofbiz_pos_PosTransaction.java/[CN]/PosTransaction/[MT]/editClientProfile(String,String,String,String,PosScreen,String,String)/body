@@ -1,11 +1,10 @@
 {
-  Delegator delegator=session.getDelegator();
   LocalDispatcher dispatcher=session.getDispatcher();
   GenericValue userLogin=session.getUserLogin();
   GenericValue partyUserLogin=null;
   String result=null;
   Map<String,Object> svcCtx=FastMap.newInstance();
-  Map svcRes=null;
+  Map<String,Object> svcRes=null;
   if ("create".equals(editType)) {
     trace("Create a client profile");
     trace("createPersonAndUserLogin");
@@ -194,7 +193,7 @@
             try {
               passwordAcceptEncryptedAndPlain=UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain");
               UtilProperties.setPropertyValueInMemory("security.properties","password.accept.encrypted.and.plain","true");
-              svcRes=dispatcher.runSync("updatePassword",UtilMisc.toMap("userLogin",partyUserLogin,"userLoginId",partyUserLogin.getString("userLoginId"),"currentPassword",partyUserLogin.getString("currentPassword"),"newPassword",phone,"newPasswordVerify",phone));
+              svcRes=dispatcher.runSync("updatePassword",UtilMisc.toMap("userLogin",userLogin,"userLoginId",userLogin.getString("userLoginId"),"currentPassword",userLogin.getString("currentPassword"),"newPassword",phone,"newPasswordVerify",phone));
             }
  catch (            GenericServiceException e) {
               Debug.logError(e,"Error calling updatePassword service",module);
@@ -214,18 +213,18 @@
       }
     }
     if (UtilValidate.isNotEmpty(email)) {
+      String infoString=null;
       svcCtx.clear();
       svcCtx.put("partyId",partyId);
       svcCtx.put("thruDate",null);
       svcCtx.put("contactMechTypeId","EMAIL_ADDRESS");
-      String infoString=null;
       String contactMechId=null;
       try {
         List<GenericValue> PartyEmails=session.getDelegator().findByAnd("PartyAndContactMech",svcCtx);
         if (UtilValidate.isNotEmpty(PartyEmails)) {
           GenericValue PartyEmail=PartyEmails.get(0);
-          infoString=PartyEmail.getString("infoString");
           contactMechId=PartyEmail.getString("contactMechId");
+          infoString=PartyEmail.getString("infoString");
         }
       }
  catch (      GenericEntityException e) {
@@ -241,20 +240,22 @@
       if (UtilValidate.isNotEmpty(contactMechId)) {
         svcCtx.put("contactMechId",contactMechId);
       }
-      trace("createUpdatePartyEmailAddress");
-      try {
-        svcRes=dispatcher.runSync("createUpdatePartyEmailAddress",svcCtx);
+      if (UtilValidate.isNotEmpty(infoString) && !email.equals(infoString) || UtilValidate.isEmpty(infoString)) {
+        trace("createUpdatePartyEmailAddress");
+        try {
+          svcRes=dispatcher.runSync("createUpdatePartyEmailAddress",svcCtx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          pos.showDialog("dialog/error/exception",e.getMessage());
+          return null;
+        }
+        if (ServiceUtil.isError(svcRes)) {
+          pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
+          return null;
+        }
       }
- catch (      GenericServiceException e) {
-        Debug.logError(e,module);
-        pos.showDialog("dialog/error/exception",e.getMessage());
-        return null;
-      }
-      if (ServiceUtil.isError(svcRes)) {
-        pos.showDialog("dialog/error/exception",ServiceUtil.getErrorMessage(svcRes));
-        return null;
-      }
-      if (!newLogin) {
+      if (!newLogin && UtilValidate.isNotEmpty(infoString) && !email.equals(infoString)) {
         trace("updateUserLoginId");
         try {
           svcRes=dispatcher.runSync("updateUserLoginId",UtilMisc.toMap("userLoginId",email,"userLogin",userLogin));
