@@ -1,3 +1,27 @@
 {
+  String externalId=info.getGoogleOrderNumber();
+  List<GenericValue> orders=null;
+  GenericValue orderPaymentPreference=null;
+  try {
+    orders=delegator.findByAnd("OrderHeader",UtilMisc.toMap("externalId",externalId,"salesChannelEnumId",SALES_CHANNEL));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (UtilValidate.isNotEmpty(orders)) {
+    GenericValue order=EntityUtil.getFirst(orders);
+    List<GenericValue> orderPaymentPreferences=order.getRelated("OrderPaymentPreference");
+    if (UtilValidate.isNotEmpty(orderPaymentPreferences)) {
+      orderPaymentPreference=EntityUtil.getFirst(orderPaymentPreferences);
+      BigDecimal maxAmount=new BigDecimal(info.getAuthorizationAmount());
+      Map<String,Object> paymentPrefMap=UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreference.get("orderPaymentPreferenceId"),"maxAmount",maxAmount,"statusId","PAYMENT_AUTHORIZED","paymentMethodTypeId","EXT_GOOGLE_CHECKOUT");
+      updatePaymentPreference(paymentPrefMap);
+      Map<String,Object> newGatewayMap=UtilMisc.toMap("amount",maxAmount,"transCodeEnumId","PGT_AUTHORIZE","referenceNum",externalId,"gatewayAvsResult",info.getAvsResponse(),"currencyUomId",info.getCurrencyCode());
+      newGatewayMap.put("orderPaymentPreferenceId",orderPaymentPreference.get("orderPaymentPreferenceId"));
+      newGatewayMap.put("paymentMethodTypeId",orderPaymentPreference.get("paymentMethodTypeId"));
+      newGatewayMap.put("transactionDate",order.getTimestamp("orderDate"));
+      createPaymentGatewayResponse(newGatewayMap);
+    }
+  }
   return;
 }
