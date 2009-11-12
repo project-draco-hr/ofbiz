@@ -1,0 +1,50 @@
+{
+  String visitId=VisitHandler.getVisitId(session);
+  ProductSearchContext productSearchContext=new ProductSearchContext(delegator,visitId);
+  List<ProductSearchConstraint> productSearchConstraintList=ProductSearchOptions.getConstraintList(session);
+  if (UtilValidate.isNotEmpty(productSearchConstraintList)) {
+    productSearchContext.addProductSearchConstraints(productSearchConstraintList);
+  }
+  productSearchContext.finishKeywordConstraints();
+  productSearchContext.finishCategoryAndFeatureConstraints();
+  DynamicViewEntity dynamicViewEntity=productSearchContext.dynamicViewEntity;
+  List<EntityCondition> entityConditionList=productSearchContext.entityConditionList;
+  List<String> fieldsToSelect=FastList.newInstance();
+  dynamicViewEntity.addMemberEntity("PCMC","ProductCategoryMember");
+  dynamicViewEntity.addAlias("PCMC","pcmcProductCategoryId","productCategoryId",null,null,null,null);
+  dynamicViewEntity.addAlias("PCMC","pcmcFromDate","fromDate",null,null,null,null);
+  dynamicViewEntity.addAlias("PCMC","pcmcThruDate","thruDate",null,null,null,null);
+  dynamicViewEntity.addAlias("PCMC","categoryCount","productId",null,null,null,"count");
+  dynamicViewEntity.addViewLink("PROD","PCMC",Boolean.FALSE,ModelKeyMap.makeKeyMapList("productId"));
+  fieldsToSelect.add("categoryCount");
+  entityConditionList.add(EntityCondition.makeCondition(EntityCondition.makeCondition("pcmcThruDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("pcmcThruDate",EntityOperator.GREATER_THAN,productSearchContext.nowTimestamp)));
+  entityConditionList.add(EntityCondition.makeCondition("pcmcFromDate",EntityOperator.LESS_THAN,productSearchContext.nowTimestamp));
+  Set<String> productCategoryIdSet=FastSet.newInstance();
+  ProductSearch.getAllSubCategoryIds(productCategoryId,productCategoryIdSet,delegator,productSearchContext.nowTimestamp);
+  entityConditionList.add(EntityCondition.makeCondition("pcmcProductCategoryId",EntityOperator.IN,productCategoryIdSet));
+  EntityCondition whereCondition=EntityCondition.makeCondition(entityConditionList,EntityOperator.AND);
+  EntityFindOptions efo=new EntityFindOptions();
+  efo.setResultSetType(EntityFindOptions.TYPE_SCROLL_INSENSITIVE);
+  EntityListIterator eli=null;
+  try {
+    eli=delegator.findListIteratorByCondition(dynamicViewEntity,whereCondition,null,fieldsToSelect,productSearchContext.orderByList,efo);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error in product search",module);
+    return 0;
+  }
+  GenericValue searchResult=null;
+  Long categoryCount=Long.valueOf(0);
+  while ((searchResult=(GenericValue)eli.next()) != null) {
+    categoryCount=searchResult.getLong("categoryCount");
+  }
+  if (eli != null) {
+    try {
+      eli.close();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error closing ProductSearch EntityListIterator");
+    }
+  }
+  return categoryCount;
+}
