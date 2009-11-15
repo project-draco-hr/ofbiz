@@ -3,6 +3,33 @@
   if (mft == null) {
     throw new GenericModelException("definition fieldType " + curField.getType() + " not found, cannot getValue for field "+ entity.getEntityName()+ "."+ curField.getName()+ ".");
   }
+  Object sourceObject=null;
+  try {
+    sourceObject=rs.getObject(ind);
+    if (sourceObject == null) {
+      entity.dangerousSetNoCheckButFast(curField,null);
+      return;
+    }
+  }
+ catch (  SQLException e) {
+    throw new GenericEntityException(e);
+  }
+  Class<?> targetClass=mft.getJavaClass();
+  if (targetClass != null) {
+    if (targetClass.equals(sourceObject.getClass())) {
+      entity.dangerousSetNoCheckButFast(curField,sourceObject);
+      return;
+    }
+    try {
+      Converter<Object,Object> converter=(Converter<Object,Object>)Converters.getConverter(sourceObject.getClass(),targetClass);
+      entity.dangerousSetNoCheckButFast(curField,converter.convert(sourceObject));
+      return;
+    }
+ catch (    Exception e) {
+      Debug.logError(e,module);
+    }
+    Debug.logInfo("Unable to convert, falling back on switch statement",module);
+  }
   String fieldType=mft.getJavaType();
   try {
     int typeValue=getType(fieldType);
