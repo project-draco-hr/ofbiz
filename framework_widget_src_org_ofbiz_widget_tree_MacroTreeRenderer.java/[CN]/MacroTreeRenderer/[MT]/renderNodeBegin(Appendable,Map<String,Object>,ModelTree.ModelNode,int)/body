@@ -1,0 +1,81 @@
+{
+  String currentNodeTrailPiped=null;
+  List<String> currentNodeTrail=UtilGenerics.toList(context.get("currentNodeTrail"));
+  String style="";
+  if (node.isRootNode()) {
+    renderBeginningBoundaryComment(writer,"Tree Widget",node.getModelTree());
+    style="basic-tree";
+  }
+  StringWriter sr=new StringWriter();
+  sr.append("<@renderNodeBegin ");
+  sr.append(" style=\"");
+  sr.append(style);
+  sr.append("\" />");
+  executeMacro(sr.toString());
+  String pkName=node.getPkName();
+  String entityId=null;
+  String entryName=node.getEntryName();
+  if (UtilValidate.isNotEmpty(entryName)) {
+    Map map=(Map)context.get(entryName);
+    entityId=(String)map.get(pkName);
+  }
+ else {
+    entityId=(String)context.get(pkName);
+  }
+  boolean hasChildren=node.hasChildren(context);
+  ModelTree.ModelNode.Link expandCollapseLink=new ModelTree.ModelNode.Link();
+  if (hasChildren && node.isExpandCollapse()) {
+    String targetEntityId=null;
+    List<String> targetNodeTrail=UtilGenerics.toList(context.get("targetNodeTrail"));
+    if (depth < targetNodeTrail.size()) {
+      targetEntityId=targetNodeTrail.get(depth);
+    }
+    int openDepth=node.getModelTree().getOpenDepth();
+    if (depth >= openDepth && (targetEntityId == null || !targetEntityId.equals(entityId))) {
+      if (node.showPeers(depth,context)) {
+        context.put("processChildren",Boolean.FALSE);
+        currentNodeTrailPiped=StringUtil.join(currentNodeTrail,"|");
+        expandCollapseLink.setStyle("collapsed");
+        expandCollapseLink.setText(" ");
+        StringBuilder target=new StringBuilder(node.getModelTree().getExpandCollapseRequest(context));
+        String trailName=node.getModelTree().getTrailName(context);
+        if (target.indexOf("?") < 0) {
+          target.append("?");
+        }
+ else {
+          target.append("&");
+        }
+        target.append(trailName).append("=").append(currentNodeTrailPiped);
+        expandCollapseLink.setTarget(target.toString());
+      }
+    }
+ else {
+      context.put("processChildren",Boolean.TRUE);
+      String lastContentId=currentNodeTrail.remove(currentNodeTrail.size() - 1);
+      currentNodeTrailPiped=StringUtil.join(currentNodeTrail,"|");
+      if (currentNodeTrailPiped == null) {
+        currentNodeTrailPiped="";
+      }
+      expandCollapseLink.setStyle("expanded");
+      expandCollapseLink.setText(" ");
+      StringBuilder target=new StringBuilder(node.getModelTree().getExpandCollapseRequest(context));
+      String trailName=node.getModelTree().getTrailName(context);
+      if (target.indexOf("?") < 0) {
+        target.append("?");
+      }
+ else {
+        target.append("&");
+      }
+      target.append(trailName).append("=").append(currentNodeTrailPiped);
+      expandCollapseLink.setTarget(target.toString());
+      currentNodeTrail.add(lastContentId);
+    }
+    renderLink(writer,context,expandCollapseLink);
+  }
+ else   if (!hasChildren) {
+    context.put("processChildren",Boolean.FALSE);
+    expandCollapseLink.setStyle("leafnode");
+    expandCollapseLink.setText(" ");
+    renderLink(writer,context,expandCollapseLink);
+  }
+}
