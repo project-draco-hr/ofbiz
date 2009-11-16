@@ -1,0 +1,56 @@
+{
+  if (value instanceof FieldValue) {
+    FieldValue fv=(FieldValue)value;
+    return new ComplexAliasField(fv.getTableName(),fv.getFieldName(),null,null);
+  }
+ else   if (value instanceof FunctionCall) {
+    FunctionCall fc=(FunctionCall)value;
+    String name=fc.getName().toLowerCase();
+    if (fc.getArgCount() == 1) {
+      Value firstValue=fc.iterator().next();
+      if (firstValue instanceof FieldValue) {
+        FieldValue fv=(FieldValue)firstValue;
+        return new ComplexAliasField(fv.getTableName(),fv.getFieldName(),null,name);
+      }
+ else       if (firstValue instanceof FunctionCall) {
+        FunctionCall fc2=(FunctionCall)firstValue;
+        if (fc2.getName().equalsIgnoreCase("coalesce") && fc2.getArgCount() == 2) {
+          Iterator<Value> it=fc2.iterator();
+          Value f1=it.next(), f2=it.next();
+          if (f1 instanceof FieldValue) {
+            FieldValue fv=(FieldValue)f1;
+            if (f2 instanceof NumberValue) {
+              return new ComplexAliasField(fv.getTableName(),fv.getFieldName(),((NumberValue)f2).getNumber().toString(),name);
+            }
+ else             if (f2 instanceof StringValue) {
+              return new ComplexAliasField(fv.getTableName(),fv.getFieldName(),"'" + ((StringValue)f2).getString() + "'",name);
+            }
+          }
+        }
+      }
+    }
+ else     if (fc.getName().equalsIgnoreCase("coalesce") && fc.getArgCount() == 2) {
+      Iterator<Value> it=fc.iterator();
+      Value f1=it.next(), f2=it.next();
+      if (f1 instanceof FieldValue) {
+        FieldValue fv=(FieldValue)f1;
+        if (f2 instanceof NumberValue) {
+          return new ComplexAliasField(fv.getTableName(),fv.getFieldName(),((NumberValue)f2).getNumber().toString(),null);
+        }
+ else         if (f2 instanceof StringValue) {
+          return new ComplexAliasField(fv.getTableName(),fv.getFieldName(),"'" + ((StringValue)f2).getString() + "'",null);
+        }
+      }
+    }
+  }
+ else   if (value instanceof MathValue) {
+    MathValue mv=(MathValue)value;
+    List<ComplexAliasMember> members=FastList.newInstance();
+    ComplexAlias complexAlias=new ComplexAlias(mv.getOp());
+    for (    StaticValue staticValue : mv) {
+      complexAlias.addComplexAliasMember(buildComplexMember(value));
+    }
+    return complexAlias;
+  }
+  throw new UnsupportedOperationException(value + ":" + value.getClass());
+}
