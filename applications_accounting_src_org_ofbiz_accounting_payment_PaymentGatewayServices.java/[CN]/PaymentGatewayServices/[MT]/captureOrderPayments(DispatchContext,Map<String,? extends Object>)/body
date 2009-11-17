@@ -103,9 +103,10 @@
   if (UtilValidate.isNotEmpty(paymentPrefs)) {
     Iterator<GenericValue> payments=paymentPrefs.iterator();
     while (payments.hasNext()) {
-      GenericValue paymentPref=(GenericValue)payments.next();
+      GenericValue paymentPref=payments.next();
       GenericValue authTrans=getAuthTransaction(paymentPref);
       if (authTrans == null) {
+        Debug.logWarning("Authorized OrderPaymentPreference has no corresponding PaymentGatewayResponse, cannot capture payment: " + paymentPref,module);
         continue;
       }
       GenericValue captureTrans=getCaptureTransaction(paymentPref);
@@ -169,12 +170,15 @@
       }
     }
   }
-  if (amountToCapture.compareTo(ZERO) == 1) {
+  if (amountToCapture.compareTo(ZERO) > 0) {
     GenericValue productStore=orh.getProductStore();
     if (!UtilValidate.isEmpty(productStore)) {
       boolean shipIfCaptureFails=UtilValidate.isEmpty(productStore.get("shipIfCaptureFails")) || "Y".equalsIgnoreCase(productStore.getString("shipIfCaptureFails"));
       if (!shipIfCaptureFails) {
         return ServiceUtil.returnError("Cannot ship order because credit card captures were unsuccessful");
+      }
+ else {
+        Debug.logWarning("Payment capture failed, shipping order anyway as per ProductStore setting (shipIfCaptureFails)",module);
       }
     }
     Map<String,Object> result=ServiceUtil.returnSuccess();
