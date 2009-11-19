@@ -1,0 +1,30 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String paymentGatewayConfigId=(String)context.get("paymentGatewayConfigId");
+  GenericValue captureTransaction=(GenericValue)context.get("captureTransaction");
+  BigDecimal amount=(BigDecimal)context.get("refundAmount");
+  String orderId=(String)captureTransaction.get("altReference");
+  orderId="R" + orderId;
+  try {
+    Map<String,Object> paymentResult=dispatcher.runSync("SagePayPaymentRefund",UtilMisc.toMap("paymentGatewayConfigId",paymentGatewayConfigId,"vendorTxCode",orderId,"amount",amount.toString(),"currency","GBP","description",orderId,"relatedVPSTxId",captureTransaction.get("referenceNum"),"relatedVendorTxCode",captureTransaction.get("altReference"),"relatedSecurityKey",captureTransaction.get("gatewayFlag"),"relatedTxAuthNo",captureTransaction.get("gatewayCode")));
+    Debug.logInfo("SagePay - SagePayPaymentRefund result : " + paymentResult,module);
+    String status=(String)paymentResult.get("status");
+    String statusDetail=(String)paymentResult.get("statusDetail");
+    String vpsTxId=(String)paymentResult.get("vpsTxId");
+    String txAuthNo=(String)paymentResult.get("txAuthNo");
+    if (status != null && "OK".equals(status)) {
+      Debug.logInfo("SagePay Payment Refunded for Order : " + orderId,module);
+      result=SagePayUtil.buildCardRefundPaymentResponse(Boolean.TRUE,txAuthNo,amount,vpsTxId,orderId,statusDetail);
+    }
+ else {
+      Debug.logInfo("SagePay - Invalid status " + status + " received for order : "+ orderId,module);
+      result=SagePayUtil.buildCardRefundPaymentResponse(Boolean.FALSE,null,new BigDecimal("0.00"),status,orderId,statusDetail);
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error in calling SagePayPaymentRefund",module);
+    result=ServiceUtil.returnError("Exception in calling SagePayPaymentRefund : " + e.getMessage());
+  }
+  return result;
+}

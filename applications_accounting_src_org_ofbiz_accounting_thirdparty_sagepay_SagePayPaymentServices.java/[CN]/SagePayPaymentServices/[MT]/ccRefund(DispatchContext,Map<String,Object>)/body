@@ -1,0 +1,53 @@
+{
+  Debug.logInfo("SagePay - Entered ccRefund",module);
+  Debug.logInfo("SagePay ccRefund context : " + context,module);
+  Delegator delegator=ctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue captureTransaction=PaymentGatewayServices.getCaptureTransaction(orderPaymentPreference);
+  if (captureTransaction == null) {
+    return ServiceUtil.returnError("No captured transaction found for the OrderPaymentPreference; cannot Refund");
+  }
+  Debug.logInfo("SagePay ccRefund captureTransaction : " + captureTransaction,module);
+  GenericValue creditCard=null;
+  try {
+    creditCard=delegator.getRelatedOne("CreditCard",orderPaymentPreference);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting CreditCard for OrderPaymentPreference : " + orderPaymentPreference,module);
+    return ServiceUtil.returnError("Unable to obtain cc information from payment preference");
+  }
+  context.put("creditCard",creditCard);
+  context.put("captureTransaction",captureTransaction);
+  List<GenericValue> authTransactions=PaymentGatewayServices.getAuthTransactions(orderPaymentPreference);
+  EntityCondition authCondition=EntityCondition.makeCondition("paymentServiceTypeEnumId","PRDS_PAY_AUTH");
+  List<GenericValue> authTransactions1=EntityUtil.filterByCondition(authTransactions,authCondition);
+  GenericValue authTransaction=EntityUtil.getFirst(authTransactions1);
+  Timestamp authTime=authTransaction.getTimestamp("transactionDate");
+  Calendar authCal=Calendar.getInstance();
+  authCal.setTimeInMillis(authTime.getTime());
+  Timestamp nowTime=UtilDateTime.nowTimestamp();
+  Calendar nowCal=Calendar.getInstance();
+  nowCal.setTimeInMillis(nowTime.getTime());
+  Calendar yesterday=Calendar.getInstance();
+  yesterday.set(nowCal.get(Calendar.YEAR),nowCal.get(Calendar.MONTH),nowCal.get(Calendar.DATE),23,59,59);
+  yesterday.add(Calendar.DAY_OF_YEAR,-1);
+  Map<String,Object> response=null;
+  if (authCal.before(yesterday)) {
+    Debug.logInfo("SagePay - Calling Refund for Refund",module);
+    response=processCardRefundPayment(ctx,context);
+  }
+ else {
+    Calendar cal=Calendar.getInstance();
+    cal.set(nowCal.get(Calendar.YEAR),nowCal.get(Calendar.MONTH),nowCal.get(Calendar.DATE),23,49,59);
+    if (authCal.before(cal)) {
+      Debug.logInfo("SagePay - Calling Void for Refund",module);
+      response=processCardVoidPayment(ctx,context);
+    }
+ else {
+      Debug.logInfo("SagePay - Calling Refund for Refund",module);
+      response=processCardRefundPayment(ctx,context);
+    }
+  }
+  Debug.logInfo("SagePay ccRefund response : " + response,module);
+  return response;
+}

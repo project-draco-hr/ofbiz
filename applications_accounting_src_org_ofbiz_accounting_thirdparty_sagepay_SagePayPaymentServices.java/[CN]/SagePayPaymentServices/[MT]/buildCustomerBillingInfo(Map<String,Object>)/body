@@ -1,0 +1,85 @@
+{
+  Debug.logInfo("SagePay - Entered buildCustomerBillingInfo",module);
+  Debug.logInfo("SagePay buildCustomerBillingInfo context : " + context,module);
+  Map<String,String> billingInfo=FastMap.newInstance();
+  String orderId=null;
+  BigDecimal processAmount=null;
+  String currency=null;
+  String cardNumber=null;
+  String cardType=null;
+  String nameOnCard=null;
+  String expireDate=null;
+  String securityCode=null;
+  String postalCode=null;
+  String address=null;
+  try {
+    GenericValue opp=(GenericValue)context.get("orderPaymentPreference");
+    if (opp != null) {
+      if ("CREDIT_CARD".equals(opp.getString("paymentMethodTypeId"))) {
+        GenericValue creditCard=(GenericValue)context.get("creditCard");
+        if (creditCard == null || !(opp.get("paymentMethodId").equals(creditCard.get("paymentMethodId")))) {
+          creditCard=opp.getRelatedOne("CreditCard");
+        }
+        securityCode=opp.getString("securityCode");
+        GenericValue billingAddress=(GenericValue)context.get("billingAddress");
+        postalCode=billingAddress.getString("postalCode");
+        String address2=billingAddress.getString("address2");
+        if (address2 == null) {
+          address2="";
+        }
+        address=billingAddress.getString("address1") + " " + address2;
+        cardNumber=creditCard.getString("cardNumber");
+        String firstName=creditCard.getString("firstNameOnCard");
+        String middleName=creditCard.getString("middleNameOnCard");
+        String lastName=creditCard.getString("lastNameOnCard");
+        if (middleName == null) {
+          middleName="";
+        }
+        nameOnCard=firstName + " " + middleName+ " "+ lastName;
+        cardType=creditCard.getString("cardType");
+        if (cardType != null) {
+          if (cardType.equals("MasterCard")) {
+            cardType="MC";
+          }
+          if (cardType.equals("VisaElectron")) {
+            cardType="UKE";
+          }
+          if (cardType.equals("DinersClub")) {
+            cardType="DC";
+          }
+          if (cardType.equals("Switch")) {
+            cardType="MAESTRO";
+          }
+        }
+        expireDate=creditCard.getString("expireDate");
+        String month=expireDate.substring(0,2);
+        String year=expireDate.substring(5);
+        expireDate=month + year;
+        orderId=UtilFormatOut.checkNull((String)context.get("orderId"));
+        processAmount=(BigDecimal)context.get("processAmount");
+        currency=(String)context.get("currency");
+      }
+ else {
+        Debug.logWarning("Payment preference " + opp + " is not a credit card",module);
+      }
+    }
+  }
+ catch (  GenericEntityException ex) {
+    Debug.logError("Cannot build customer information for " + context + " due to error: "+ ex.getMessage(),module);
+    return null;
+  }
+  billingInfo.put("orderId",orderId);
+  billingInfo.put("amount",processAmount.toString());
+  billingInfo.put("currency",currency);
+  billingInfo.put("description",orderId);
+  billingInfo.put("cardNumber",cardNumber);
+  billingInfo.put("cardHolder",nameOnCard);
+  billingInfo.put("expiryDate",expireDate);
+  billingInfo.put("cardType",cardType);
+  billingInfo.put("cv2",securityCode);
+  billingInfo.put("billingPostCode",postalCode);
+  billingInfo.put("billingAddress",address);
+  Debug.logInfo("SagePay billingInfo : " + billingInfo,module);
+  Debug.logInfo("SagePay - Exiting buildCustomerBillingInfo",module);
+  return billingInfo;
+}

@@ -1,0 +1,51 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Map<String,String> billingInfo=buildCustomerBillingInfo(context);
+  String paymentGatewayConfigId=(String)context.get("paymentGatewayConfigId");
+  try {
+    Map<String,Object> paymentResult=dispatcher.runSync("SagePayPaymentAuthentication",UtilMisc.toMap("paymentGatewayConfigId",paymentGatewayConfigId,"vendorTxCode",billingInfo.get("orderId"),"cardHolder",billingInfo.get("cardHolder"),"cardNumber",billingInfo.get("cardNumber"),"expiryDate",billingInfo.get("expiryDate"),"cardType",billingInfo.get("cardType"),"cv2",billingInfo.get("cv2"),"description",billingInfo.get("description"),"amount",billingInfo.get("amount"),"currency",billingInfo.get("currency"),"billingAddress",billingInfo.get("billingAddress"),"billingPostCode",billingInfo.get("billingPostCode")));
+    Debug.logInfo("SagePay - SagePayPaymentAuthentication result : " + paymentResult,module);
+    String transactionType=(String)paymentResult.get("transactionType");
+    String status=(String)paymentResult.get("status");
+    String statusDetail=(String)paymentResult.get("statusDetail");
+    String vpsTxId=(String)paymentResult.get("vpsTxId");
+    String securityKey=(String)paymentResult.get("securityKey");
+    String txAuthNo=(String)paymentResult.get("txAuthNo");
+    String vendorTxCode=(String)paymentResult.get("vendorTxCode");
+    String amount=(String)paymentResult.get("amount");
+    if (status != null && "OK".equals(status)) {
+      Debug.logInfo("SagePay - Payment authorized for order : " + vendorTxCode,module);
+      result=SagePayUtil.buildCardAuthorisationPaymentResponse(Boolean.TRUE,txAuthNo,securityKey,new BigDecimal(amount),vpsTxId,vendorTxCode,statusDetail);
+      if ("PAYMENT".equals(transactionType)) {
+        Map<String,Object> captureResult=SagePayUtil.buildCardCapturePaymentResponse(Boolean.TRUE,txAuthNo,securityKey,new BigDecimal(amount),vpsTxId,vendorTxCode,statusDetail);
+        result.putAll(captureResult);
+      }
+    }
+ else     if (status != null && "INVALID".equals(status)) {
+      Debug.logInfo("SagePay - Invalid authorisation request for order : " + vendorTxCode,module);
+      result=SagePayUtil.buildCardAuthorisationPaymentResponse(Boolean.FALSE,null,null,new BigDecimal("0.00"),"INVALID",vendorTxCode,statusDetail);
+    }
+ else     if (status != null && "MALFORMED".equals(status)) {
+      Debug.logInfo("SagePay - Malformed authorisation request for order : " + vendorTxCode,module);
+      result=SagePayUtil.buildCardAuthorisationPaymentResponse(Boolean.FALSE,null,null,new BigDecimal("0.00"),"MALFORMED",vendorTxCode,statusDetail);
+    }
+ else     if (status != null && "NOTAUTHED".equals(status)) {
+      Debug.logInfo("SagePay - NotAuthed authorisation request for order : " + vendorTxCode,module);
+      result=SagePayUtil.buildCardAuthorisationPaymentResponse(Boolean.FALSE,null,securityKey,new BigDecimal("0.00"),vpsTxId,vendorTxCode,statusDetail);
+    }
+ else     if (status != null && "REJECTED".equals(status)) {
+      Debug.logInfo("SagePay - Rejected authorisation request for order : " + vendorTxCode,module);
+      result=SagePayUtil.buildCardAuthorisationPaymentResponse(Boolean.FALSE,null,securityKey,new BigDecimal(amount),vpsTxId,vendorTxCode,statusDetail);
+    }
+ else {
+      Debug.logInfo("SagePay - Invalid status " + status + " received for order : "+ vendorTxCode,module);
+      result=SagePayUtil.buildCardAuthorisationPaymentResponse(Boolean.FALSE,null,null,new BigDecimal("0.00"),"ERROR",vendorTxCode,statusDetail);
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error in calling SagePayPaymentAuthentication",module);
+    result=ServiceUtil.returnError("Exception in calling SagePayPaymentRegistration : " + e.getMessage());
+  }
+  return result;
+}

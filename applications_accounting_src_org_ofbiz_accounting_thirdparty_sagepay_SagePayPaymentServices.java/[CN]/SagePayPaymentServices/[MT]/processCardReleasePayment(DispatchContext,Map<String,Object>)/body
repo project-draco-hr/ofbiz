@@ -1,0 +1,28 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String paymentGatewayConfigId=(String)context.get("paymentGatewayConfigId");
+  BigDecimal amount=(BigDecimal)context.get("releaseAmount");
+  GenericValue authTransaction=(GenericValue)context.get("authTransaction");
+  String orderId=(String)authTransaction.get("altReference");
+  String refNum=(String)authTransaction.get("referenceNum");
+  try {
+    Map<String,Object> paymentResult=dispatcher.runSync("SagePayPaymentRelease",UtilMisc.toMap("paymentGatewayConfigId",paymentGatewayConfigId,"vendorTxCode",orderId,"releaseAmount",amount.toString(),"vpsTxId",refNum,"securityKey",authTransaction.get("gatewayFlag"),"txAuthNo",authTransaction.get("gatewayCode")));
+    Debug.logInfo("SagePay - SagePayPaymentRelease result : " + paymentResult,module);
+    String status=(String)paymentResult.get("status");
+    String statusDetail=(String)paymentResult.get("statusDetail");
+    if (status != null && "OK".equals(status)) {
+      Debug.logInfo("SagePay Payment Released for Order : " + orderId,module);
+      result=SagePayUtil.buildCardReleasePaymentResponse(Boolean.TRUE,null,amount,refNum,orderId,statusDetail);
+    }
+ else {
+      Debug.logInfo("SagePay - Invalid status " + status + " received for order : "+ orderId,module);
+      result=SagePayUtil.buildCardReleasePaymentResponse(Boolean.FALSE,null,amount,refNum,orderId,statusDetail);
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error in calling SagePayPaymentRelease",module);
+    result=ServiceUtil.returnError("Exception in calling SagePayPaymentRefund : " + e.getMessage());
+  }
+  return result;
+}

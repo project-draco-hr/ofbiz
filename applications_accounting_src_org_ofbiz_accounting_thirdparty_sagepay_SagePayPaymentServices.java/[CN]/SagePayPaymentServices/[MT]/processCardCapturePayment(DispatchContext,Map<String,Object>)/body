@@ -1,0 +1,30 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String paymentGatewayConfigId=(String)context.get("paymentGatewayConfigId");
+  GenericValue authTransaction=(GenericValue)context.get("authTransaction");
+  BigDecimal amount=(BigDecimal)context.get("captureAmount");
+  String vendorTxCode=(String)authTransaction.get("altReference");
+  String vpsTxId=(String)authTransaction.get("referenceNum");
+  String securityKey=(String)authTransaction.get("gatewayFlag");
+  String txAuthCode=(String)authTransaction.get("gatewayCode");
+  try {
+    Map<String,Object> paymentResult=dispatcher.runSync("SagePayPaymentAuthorisation",UtilMisc.toMap("paymentGatewayConfigId",paymentGatewayConfigId,"vendorTxCode",vendorTxCode,"vpsTxId",vpsTxId,"securityKey",securityKey,"txAuthNo",txAuthCode,"amount",amount.toString()));
+    Debug.logInfo("SagePay - SagePayPaymentAuthorisation result : " + paymentResult,module);
+    String status=(String)paymentResult.get("status");
+    String statusDetail=(String)paymentResult.get("statusDetail");
+    if (status != null && "OK".equals(status)) {
+      Debug.logInfo("SagePay Payment Released for Order : " + vendorTxCode,module);
+      result=SagePayUtil.buildCardCapturePaymentResponse(Boolean.TRUE,txAuthCode,securityKey,amount,vpsTxId,vendorTxCode,statusDetail);
+    }
+ else {
+      Debug.logInfo("SagePay - Invalid status " + status + " received for order : "+ vendorTxCode,module);
+      result=SagePayUtil.buildCardCapturePaymentResponse(Boolean.FALSE,txAuthCode,securityKey,amount,vpsTxId,vendorTxCode,statusDetail);
+    }
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Error in calling SagePayPaymentAuthorisation",module);
+    result=ServiceUtil.returnError("Exception in calling SagePayPaymentRegistration : " + e.getMessage());
+  }
+  return result;
+}
