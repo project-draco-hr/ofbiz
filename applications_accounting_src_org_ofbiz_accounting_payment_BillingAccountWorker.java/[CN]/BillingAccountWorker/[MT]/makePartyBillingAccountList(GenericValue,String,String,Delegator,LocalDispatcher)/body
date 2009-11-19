@@ -1,22 +1,24 @@
 {
-  List<Map<String,BigDecimal>> billingAccountList=FastList.newInstance();
-  Map<String,Object> agentResult=dispatcher.runSync("getRelatedParties",UtilMisc.<String,Object>toMap("userLogin",userLogin,"partyIdFrom",partyId,"roleTypeIdFrom","AGENT","roleTypeIdTo","CUSTOMER","partyRelationshipTypeId","AGENT","includeFromToSwitched","Y"));
+  List billingAccountList=FastList.newInstance();
+  Map agentResult=dispatcher.runSync("getRelatedParties",UtilMisc.<String,Object>toMap("userLogin",userLogin,"partyIdFrom",partyId,"roleTypeIdFrom","AGENT","roleTypeIdTo","CUSTOMER","partyRelationshipTypeId","AGENT","includeFromToSwitched","Y"));
   if (ServiceUtil.isError(agentResult)) {
     throw new GeneralException("Error while finding party BillingAccounts when getting Customers that this party is an agent of: " + ServiceUtil.getErrorMessage(agentResult));
   }
-  List<String> relatedPartyIdList=UtilGenerics.cast(agentResult.get("relatedPartyIdList"));
+  List relatedPartyIdList=(List)agentResult.get("relatedPartyIdList");
   EntityCondition barFindCond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("partyId",EntityOperator.IN,relatedPartyIdList),EntityCondition.makeCondition("roleTypeId",EntityOperator.EQUALS,"BILL_TO_CUSTOMER")),EntityOperator.AND);
   List<GenericValue> billingAccountRoleList=delegator.findList("BillingAccountRole",barFindCond,null,null,null,false);
   billingAccountRoleList=EntityUtil.filterByDate(billingAccountRoleList);
   if (billingAccountRoleList.size() > 0) {
     BigDecimal totalAvailable=BigDecimal.ZERO;
-    for (    GenericValue billingAccountRole : billingAccountRoleList) {
+    Iterator billingAcctIter=billingAccountRoleList.iterator();
+    while (billingAcctIter.hasNext()) {
+      GenericValue billingAccountRole=(GenericValue)billingAcctIter.next();
       GenericValue billingAccountVO=billingAccountRole.getRelatedOne("BillingAccount");
       java.sql.Timestamp thruDate=billingAccountVO.getTimestamp("thruDate");
       if ((thruDate != null) && UtilDateTime.nowTimestamp().after(thruDate))       continue;
       if (currencyUomId.equals(billingAccountVO.getString("accountCurrencyUomId"))) {
         BigDecimal accountBalance=BillingAccountWorker.getBillingAccountBalance(billingAccountVO);
-        Map<String,BigDecimal> billingAccount=new HashMap<String,BigDecimal>(UtilGenerics.<Map<String,BigDecimal>>cast(billingAccountVO));
+        Map billingAccount=new HashMap(billingAccountVO);
         BigDecimal accountLimit=getAccountLimit(billingAccountVO);
         billingAccount.put("accountBalance",accountBalance);
         BigDecimal accountAvailable=accountLimit.subtract(accountBalance);

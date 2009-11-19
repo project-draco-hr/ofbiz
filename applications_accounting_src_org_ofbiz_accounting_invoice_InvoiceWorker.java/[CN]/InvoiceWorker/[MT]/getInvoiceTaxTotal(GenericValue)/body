@@ -2,21 +2,25 @@
   BigDecimal invoiceTaxTotal=ZERO;
   BigDecimal ONE=BigDecimal.ONE;
   if (invoice == null)   throw new IllegalArgumentException("The invoiceId passed does not match an existing invoice");
-  List<GenericValue> invoiceTaxItems=null;
+  List invoiceTaxItems=null;
   try {
     Delegator delegator=invoice.getDelegator();
-    EntityConditionList<EntityCondition> condition=EntityCondition.makeCondition(UtilMisc.toList((EntityCondition)EntityCondition.makeCondition("invoiceId",invoice.get("invoiceId")),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.IN,getTaxableInvoiceItemTypeIds(delegator))),EntityOperator.AND);
+    EntityConditionList condition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("invoiceId",invoice.getString("invoiceId")),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.IN,getTaxableInvoiceItemTypeIds(delegator))),EntityOperator.AND);
     invoiceTaxItems=delegator.findList("InvoiceItem",condition,null,null,null,false);
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Trouble getting InvoiceItem list",module);
   }
-  for (  GenericValue invoiceItem : invoiceTaxItems) {
-    BigDecimal amount=invoiceItem.getBigDecimal("amount");
-    BigDecimal quantity=invoiceItem.getBigDecimal("quantity");
-    if (amount == null)     amount=ZERO;
-    if (quantity == null)     quantity=ONE;
-    invoiceTaxTotal=invoiceTaxTotal.add(amount.multiply(quantity)).setScale(decimals + 1,rounding);
+  if (UtilValidate.isNotEmpty(invoiceTaxItems)) {
+    Iterator invoiceItemsIter=invoiceTaxItems.iterator();
+    while (invoiceItemsIter.hasNext()) {
+      GenericValue invoiceItem=(GenericValue)invoiceItemsIter.next();
+      BigDecimal amount=invoiceItem.getBigDecimal("amount");
+      BigDecimal quantity=invoiceItem.getBigDecimal("quantity");
+      if (amount == null)       amount=ZERO;
+      if (quantity == null)       quantity=ONE;
+      invoiceTaxTotal=invoiceTaxTotal.add(amount.multiply(quantity)).setScale(decimals + 1,rounding);
+    }
   }
   return invoiceTaxTotal.setScale(decimals,rounding);
 }
