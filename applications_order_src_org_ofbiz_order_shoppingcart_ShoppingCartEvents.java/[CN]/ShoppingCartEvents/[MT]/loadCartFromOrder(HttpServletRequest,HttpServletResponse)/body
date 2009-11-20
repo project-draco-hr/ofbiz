@@ -2,6 +2,7 @@
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
   HttpSession session=request.getSession();
   GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
   String orderId=request.getParameter("orderId");
   ShoppingCart cart=null;
   try {
@@ -11,6 +12,44 @@
       return "error";
     }
     cart=(ShoppingCart)outMap.get("shoppingCart");
+    cart.removeAdjustmentByType("SALES_TAX");
+    cart.removeAdjustmentByType("PROMOTION_ADJUSTMENT");
+    String shipGroupSeqId=null;
+    long groupIndex=cart.getShipInfoSize();
+    List orderAdjustmentList=new ArrayList();
+    List orderAdjustments=new ArrayList();
+    orderAdjustments=cart.getAdjustments();
+    try {
+      orderAdjustmentList=delegator.findList("OrderAdjustment",EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId),null,null,null,false);
+    }
+ catch (    Exception e) {
+      Debug.logError(e,module);
+    }
+    for (long itr=1; itr <= groupIndex; itr++) {
+      shipGroupSeqId=UtilFormatOut.formatPaddedNumber(1,5);
+      List<GenericValue> duplicateAdjustmentList=new ArrayList<GenericValue>();
+      for (      GenericValue adjustment : (List<GenericValue>)orderAdjustmentList) {
+        if ("PROMOTION_ADJUSTMENT".equals(adjustment.get("orderAdjustmentTypeId"))) {
+          cart.addAdjustment(adjustment);
+        }
+        if ("SALES_TAX".equals(adjustment.get("orderAdjustmentTypeId"))) {
+          if (adjustment.get("description") != null && ((String)adjustment.get("description")).startsWith("Tax adjustment due")) {
+            cart.addAdjustment(adjustment);
+          }
+          if (adjustment.get("comments") != null && ((String)adjustment.get("comments")).startsWith("Added manually by")) {
+            cart.addAdjustment(adjustment);
+          }
+        }
+      }
+      for (      GenericValue orderAdjustment : (List<GenericValue>)orderAdjustments) {
+        if ("OrderAdjustment".equals(orderAdjustment.getEntityName())) {
+          if (("SHIPPING_CHARGES".equals(orderAdjustment.get("orderAdjustmentTypeId"))) && orderAdjustment.get("orderId").equals(orderId) && orderAdjustment.get("shipGroupSeqId").equals(shipGroupSeqId)&& orderAdjustment.get("comments") == null) {
+            duplicateAdjustmentList.add(orderAdjustment);
+          }
+        }
+      }
+      orderAdjustments.removeAll(duplicateAdjustmentList);
+    }
   }
  catch (  GenericServiceException exc) {
     request.setAttribute("_ERROR_MESSAGE_",exc.getMessage());
