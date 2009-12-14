@@ -1,0 +1,173 @@
+{
+  Map<String,Object> serviceContext=UtilMisc.makeMapWritable(context);
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String webSiteId=(String)serviceContext.remove("webSiteId");
+  String bodyText=(String)serviceContext.remove("bodyText");
+  String bodyScreenUri=(String)serviceContext.remove("bodyScreenUri");
+  String birtReportLocation=(String)serviceContext.remove("birtReportLocation");
+  String attachmentName=(String)serviceContext.remove("attachmentName");
+  Locale locale=(Locale)serviceContext.get("locale");
+  Map bodyParameters=(Map)serviceContext.remove("bodyParameters");
+  Locale birtLocale=(Locale)serviceContext.remove(BirtWorker.BIRT_LOCALE);
+  Map birtParameters=(Map)serviceContext.remove(BirtWorker.BIRT_PARAMETERS);
+  String birtImageDirectory=(String)serviceContext.remove(BirtWorker.BIRT_IMAGE_DIRECTORY);
+  String birtContentType=(String)serviceContext.remove(BirtWorker.BIRT_CONTENT_TYPE);
+  if (bodyParameters == null) {
+    bodyParameters=MapStack.create();
+  }
+  if (!bodyParameters.containsKey("locale")) {
+    bodyParameters.put("locale",locale);
+  }
+ else {
+    locale=(Locale)bodyParameters.get("locale");
+  }
+  String partyId=(String)bodyParameters.get("partyId");
+  if (UtilValidate.isNotEmpty(webSiteId)) {
+    NotificationServices.setBaseUrl(ctx.getDelegator(),webSiteId,bodyParameters);
+  }
+  String contentType=(String)serviceContext.remove("contentType");
+  if (UtilValidate.isEmpty(attachmentName)) {
+    attachmentName="Details.pdf";
+  }
+  StringWriter bodyWriter=new StringWriter();
+  MapStack screenContext=MapStack.create();
+  screenContext.put("locale",locale);
+  ScreenRenderer screens=new ScreenRenderer(bodyWriter,screenContext,htmlScreenRenderer);
+  screens.populateContextForService(ctx,bodyParameters);
+  screenContext.putAll(bodyParameters);
+  if (bodyScreenUri != null) {
+    try {
+      screens.render(bodyScreenUri);
+    }
+ catch (    GeneralException e) {
+      String errMsg="Error rendering screen for email: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    IOException e) {
+      String errMsg="Error I/O rendering screen for email: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    SAXException e) {
+      String errMsg="Error SAX rendering screen for email: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    ParserConfigurationException e) {
+      String errMsg="Error parser config rendering screen for email: " + e.toString();
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  boolean isMultiPart=false;
+  if (UtilValidate.isNotEmpty(birtReportLocation)) {
+    isMultiPart=true;
+    try {
+      ByteArrayOutputStream baos=new ByteArrayOutputStream();
+      Map birtContext=FastMap.newInstance();
+      if (birtLocale == null) {
+        birtLocale=locale;
+      }
+      birtContext.put(BirtWorker.BIRT_LOCALE,birtLocale);
+      if (birtParameters != null) {
+        birtContext.put(BirtWorker.BIRT_PARAMETERS,birtParameters);
+      }
+      if (birtImageDirectory != null) {
+        birtContext.put(BirtWorker.BIRT_IMAGE_DIRECTORY,birtImageDirectory);
+      }
+      if (birtContentType == null) {
+        birtContentType="application/pdf";
+      }
+      IReportEngine engine=BirtContainer.getReportEngine();
+      InputStream reportInputStream=BirtFactory.getReportInputStreamFromLocation(birtReportLocation);
+      IReportRunnable design=engine.openReportDesign(reportInputStream);
+      Debug.logInfo("Export report as content type:" + birtContentType,module);
+      BirtWorker.exportReport(design,context,birtContentType,baos);
+      baos.flush();
+      baos.close();
+      List bodyParts=FastList.newInstance();
+      if (bodyText != null) {
+        bodyText=FlexibleStringExpander.expandString(bodyText,screenContext,locale);
+        bodyParts.add(UtilMisc.toMap("content",bodyText,"type","text/html"));
+      }
+ else {
+        bodyParts.add(UtilMisc.toMap("content",bodyWriter.toString(),"type","text/html"));
+      }
+      bodyParts.add(UtilMisc.toMap("content",baos.toByteArray(),"type","application/pdf","filename",attachmentName));
+      serviceContext.put("bodyParts",bodyParts);
+    }
+ catch (    GeneralException ge) {
+      String errMsg="Error rendering " + birtContentType + " attachment for email: "+ ge.toString();
+      Debug.logError(ge,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    IOException ie) {
+      String errMsg="Error I/O rendering " + birtContentType + " attachment for email: "+ ie.toString();
+      Debug.logError(ie,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    FOPException fe) {
+      String errMsg="Error FOP rendering " + birtContentType + " attachment for email: "+ fe.toString();
+      Debug.logError(fe,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    SAXException se) {
+      String errMsg="Error SAX rendering " + birtContentType + " attachment for email: "+ se.toString();
+      Debug.logError(se,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    ParserConfigurationException pe) {
+      String errMsg="Error parser rendering " + birtContentType + " attachment for email: "+ pe.toString();
+      Debug.logError(pe,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    EngineException ee) {
+      String errMsg="Error rendering " + birtContentType + " attachment for email: "+ ee.toString();
+      Debug.logError(ee,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+catch (    SQLException se) {
+      String errMsg="Error SQL rendering " + birtContentType + " attachment for email: "+ se.toString();
+      Debug.logError(se,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+ else {
+    isMultiPart=false;
+    if (bodyText != null) {
+      bodyText=FlexibleStringExpander.expandString(bodyText,screenContext,locale);
+      serviceContext.put("body",bodyText);
+    }
+ else {
+      serviceContext.put("body",bodyWriter.toString());
+    }
+    if (contentType != null && contentType.equalsIgnoreCase("text/plain")) {
+      serviceContext.put("contentType","text/plain");
+    }
+ else {
+      serviceContext.put("contentType","text/html");
+    }
+  }
+  String subject=(String)serviceContext.remove("subject");
+  subject=FlexibleStringExpander.expandString(subject,screenContext,locale);
+  serviceContext.put("subject",subject);
+  serviceContext.put("partyId",partyId);
+  if (Debug.verboseOn())   Debug.logVerbose("sendMailFromScreen sendMail context: " + serviceContext,module);
+  Map result=ServiceUtil.returnSuccess();
+  try {
+    if (isMultiPart) {
+      dispatcher.runSync("sendMailMultiPart",serviceContext);
+    }
+ else {
+      dispatcher.runSync("sendMail",serviceContext);
+    }
+  }
+ catch (  Exception e) {
+    String errMsg="Error send email :" + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  result.put("body",bodyWriter.toString());
+  return result;
+}
