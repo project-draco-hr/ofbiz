@@ -1,6 +1,6 @@
 {
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
-  AxisServer axisServer;
+  GenericDelegator delegator=(GenericDelegator)request.getAttribute("delegator");
   String wsdlReq=request.getParameter("wsdl");
   if (wsdlReq == null) {
     wsdlReq=request.getParameter("WSDL");
@@ -62,132 +62,71 @@ catch (      WSDLException e) {
       }
     }
   }
-  try {
-    axisServer=AxisServer.getServer(UtilMisc.toMap("name","OFBiz/Axis Server","provider",null));
-  }
- catch (  AxisFault e) {
-    sendError(response,e);
-    throw new EventHandlerException("Problems with the AXIS server",e);
-  }
-  MessageContext mctx=new MessageContext(axisServer);
-  mctx.setEncodingStyle(Constants.URI_LITERAL_ENC);
-  Message msg=null;
-  try {
-    msg=new Message(request.getInputStream(),false,request.getHeader("Content-Type"),request.getHeader("Content-Location"));
-  }
- catch (  IOException ioe) {
-    sendError(response,"Problem processing the service");
-    throw new EventHandlerException("Cannot read the input stream",ioe);
-  }
-  if (msg == null) {
-    sendError(response,"No message");
-    throw new EventHandlerException("SOAP Message is null");
-  }
-  if (Debug.verboseOn()) {
-    try {
-      Debug.logInfo("Request Message:\n" + messageToString(msg) + "\n",module);
-    }
- catch (    Throwable t) {
-    }
-  }
-  mctx.setRequestMessage(msg);
-  SOAPEnvelope resEnv=new SOAPEnvelope();
   SOAPEnvelope reqEnv=null;
   try {
-    reqEnv=(SOAPEnvelope)msg.getSOAPPart().getEnvelope();
+    XMLStreamReader xmlReader=StAXUtils.createXMLStreamReader(request.getInputStream());
+    StAXSOAPModelBuilder builder=new StAXSOAPModelBuilder(xmlReader);
+    reqEnv=(SOAPEnvelope)builder.getDocumentElement();
+    if (Debug.verboseOn()) {
+      try {
+        Debug.logInfo("Request Message:\n" + reqEnv + "\n",module);
+      }
+ catch (      Throwable t) {
+      }
+    }
   }
- catch (  SOAPException e) {
+ catch (  Exception e) {
     sendError(response,"Problem processing the service");
     throw new EventHandlerException("Cannot get the envelope",e);
   }
-  List<Object> bodies=null;
-  try {
-    bodies=UtilGenerics.checkList(reqEnv.getBodyElements());
-  }
- catch (  AxisFault e) {
-    sendError(response,e);
-    throw new EventHandlerException(e.getMessage(),e);
-  }
   Debug.logVerbose("[Processing]: SOAP Event",module);
-  for (  Object o : bodies) {
-    if (o instanceof RPCElement) {
-      RPCElement body=(RPCElement)o;
-      String serviceName=body.getMethodName();
-      List<RPCParam> params=null;
-      try {
-        params=UtilGenerics.checkList(body.getParams());
-      }
- catch (      Exception e) {
-        sendError(response,e);
-        throw new EventHandlerException(e.getMessage(),e);
-      }
-      Map<String,Object> serviceContext=FastMap.newInstance();
-      for (      RPCParam param : params) {
-        if (Debug.verboseOn())         Debug.logVerbose("[Reading Param]: " + param.getName(),module);
-        serviceContext.put(param.getName(),param.getObjectValue());
-      }
-      try {
-        ModelService model=dispatcher.getDispatchContext().getModelService(serviceName);
-        if (model != null && model.export) {
-          Map<String,Object> result=dispatcher.runSync(serviceName,serviceContext);
-          Debug.logVerbose("[EventHandler] : Service invoked",module);
-          RPCElement resBody=new RPCElement(serviceName + "Response");
-          resBody.setPrefix(body.getPrefix());
-          resBody.setNamespaceURI(body.getNamespaceURI());
-          for (          Map.Entry<String,Object> entry : result.entrySet()) {
-            RPCParam par=new RPCParam(entry.getKey(),entry.getValue());
-            resBody.addParam(par);
-          }
-          resEnv.addBodyElement(resBody);
-          resEnv.setEncodingStyle(Constants.URI_LITERAL_ENC);
-        }
- else {
-          sendError(response,"Requested service not available");
-          throw new EventHandlerException("Service is not exported");
-        }
-      }
- catch (      GenericServiceException e) {
-        sendError(response,"Problem processing the service");
-        throw new EventHandlerException(e.getMessage(),e);
-      }
-catch (      javax.xml.soap.SOAPException e) {
-        sendError(response,"Problem processing the service");
-        throw new EventHandlerException(e.getMessage(),e);
-      }
-    }
-  }
-  Debug.logVerbose("[EventHandler] : Setting up response message",module);
-  msg=new Message(resEnv);
-  mctx.setResponseMessage(msg);
-  if (msg == null) {
-    sendError(response,"No response message available");
-    throw new EventHandlerException("No response message available");
-  }
-  if (Debug.verboseOn()) {
-    try {
-      Debug.log("Response Message:\n" + messageToString(msg) + "\n",module);
-    }
- catch (    Throwable t) {
-    }
-  }
   try {
-    response.setContentType(msg.getContentType(Constants.DEFAULT_SOAP_VERSION));
-    response.setContentLength(Integer.parseInt(Long.toString(msg.getContentLength())));
+    SOAPBody reqBody=reqEnv.getBody();
+    Iterator serviceIter=reqBody.getChildElements();
+    while (serviceIter.hasNext()) {
+      Object serviceObj=serviceIter.next();
+      if (serviceObj instanceof OMElement) {
+        OMElement serviceElement=(OMElement)serviceObj;
+        String serviceName=serviceElement.getLocalName();
+        Map<String,Object> parameters=(Map<String,Object>)XmlSerializer.deserialize(serviceElement.toString(),delegator);
+        try {
+          ModelService model=dispatcher.getDispatchContext().getModelService(serviceName);
+          if (model != null && model.export) {
+            Map<String,Object> results=dispatcher.runSync(serviceName,parameters);
+            Debug.logVerbose("[EventHandler] : Service invoked",module);
+            Debug.logVerbose("[EventHandler] : Setting up response message",module);
+            String xmlResults=XmlSerializer.serialize(results);
+            XMLStreamReader reader=XMLInputFactory.newInstance().createXMLStreamReader(new StringReader(xmlResults));
+            StAXOMBuilder resultsBuilder=new StAXOMBuilder(reader);
+            OMElement resultSer=resultsBuilder.getDocumentElement();
+            SOAPFactory factory=OMAbstractFactory.getSOAP11Factory();
+            SOAPEnvelope resEnv=factory.createSOAPEnvelope();
+            SOAPBody resBody=factory.createSOAPBody();
+            OMElement resService=factory.createOMElement(new QName(serviceName + "Response"));
+            resService.addChild(resultSer.getFirstElement());
+            resBody.addChild(resService);
+            resEnv.addChild(resBody);
+            if (Debug.verboseOn()) {
+              try {
+                Debug.log("Response Message:\n" + resEnv + "\n",module);
+              }
+ catch (              Throwable t) {
+              }
+            }
+            resEnv.serialize(response.getOutputStream());
+            response.getOutputStream().flush();
+          }
+        }
+ catch (        GenericServiceException e) {
+          sendError(response,"Problem processing the service");
+          throw new EventHandlerException(e.getMessage(),e);
+        }
+      }
+    }
   }
- catch (  AxisFault e) {
-    sendError(response,e);
+ catch (  Exception e) {
+    sendError(response,e.getMessage());
     throw new EventHandlerException(e.getMessage(),e);
   }
-  try {
-    msg.writeTo(response.getOutputStream());
-    response.flushBuffer();
-  }
- catch (  IOException e) {
-    throw new EventHandlerException("Cannot write to the output stream");
-  }
-catch (  SOAPException e) {
-    throw new EventHandlerException("Cannot write message to the output stream");
-  }
-  Debug.logVerbose("[EventHandler] : Message sent to requester",module);
   return null;
 }
