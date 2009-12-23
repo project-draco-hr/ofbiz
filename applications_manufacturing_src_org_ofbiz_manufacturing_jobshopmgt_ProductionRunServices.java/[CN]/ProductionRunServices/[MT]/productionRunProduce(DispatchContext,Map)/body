@@ -80,11 +80,19 @@
   }
   BigDecimal unitCost=ZERO;
   try {
-    Map outputMap=dispatcher.runSync("getProductionRunCost",UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",productionRunId));
-    BigDecimal totalCost=(BigDecimal)outputMap.get("totalCost");
-    unitCost=totalCost.divide(quantity,decimals,rounding);
+    GenericValue facility=productionRun.getGenericValue().getRelatedOne("Facility");
+    Map outputMap=dispatcher.runSync("getPartyAccountingPreferences",UtilMisc.<String,Object>toMap("userLogin",userLogin,"organizationPartyId",facility.getString("ownerPartyId")));
+    Map partyAccountingPreference=(Map)outputMap.get("partyAccountingPreference");
+    if (partyAccountingPreference == null) {
+      return ServiceUtil.returnError("Unable to find a currency for production run costs");
+    }
+    outputMap=dispatcher.runSync("getProductCost",UtilMisc.<String,Object>toMap("userLogin",userLogin,"productId",productionRun.getProductProduced().getString("productId"),"currencyUomId",(String)partyAccountingPreference.get("baseCurrencyUomId"),"costComponentTypePrefix","EST_STD"));
+    unitCost=(BigDecimal)outputMap.get("productCost");
+    if (unitCost == null) {
+      unitCost=ZERO;
+    }
   }
- catch (  GenericServiceException e) {
+ catch (  Exception e) {
     Debug.logWarning(e.getMessage(),module);
     return ServiceUtil.returnError(e.getMessage());
   }
