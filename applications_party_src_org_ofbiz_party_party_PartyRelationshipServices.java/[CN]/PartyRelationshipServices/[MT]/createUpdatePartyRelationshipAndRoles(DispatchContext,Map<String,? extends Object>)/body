@@ -1,0 +1,49 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  try {
+    List<GenericValue> partyRelationShipList=PartyRelationshipHelper.getActivePartyRelationships(delegator,context);
+    if (UtilValidate.isEmpty(partyRelationShipList)) {
+      String partyId=(String)context.get("partyId");
+      String partyIdFrom=(String)context.get("partyIdFrom");
+      String partyIdTo=(String)context.get("partyIdTo");
+      String roleTypeIdFrom=(String)context.get("roleTypeIdFrom");
+      String roleTypeIdTo=(String)context.get("roleTypeIdTo");
+      String partyRelationshipTypeId=(String)context.get("partyRelationshipTypeId");
+      GenericValue partyToRole=null;
+      partyToRole=delegator.findOne("PartyRole",UtilMisc.toMap("partyId",partyIdTo,"roleTypeId",roleTypeIdTo),false);
+      if (partyToRole == null) {
+        partyToRole=delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",partyIdTo,"roleTypeId",roleTypeIdTo));
+        partyToRole.create();
+      }
+      GenericValue partyFromRole=null;
+      partyFromRole=delegator.findOne("PartyRole",UtilMisc.toMap("partyId",partyIdFrom,"roleTypeId",roleTypeIdFrom),false);
+      if (partyFromRole == null) {
+        partyFromRole=delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",partyIdFrom,"roleTypeId",roleTypeIdFrom));
+        partyFromRole.create();
+      }
+      String sideChecked=partyIdFrom.equals(partyId) ? "partyIdFrom" : "partyIdTo";
+      partyRelationShipList=delegator.findByAnd("PartyRelationship",UtilMisc.toMap(sideChecked,partyId,"roleTypeIdFrom",roleTypeIdFrom,"roleTypeIdTo",roleTypeIdTo,"partyRelationshipTypeId",partyRelationshipTypeId));
+      partyRelationShipList=EntityUtil.filterByDate(partyRelationShipList);
+      GenericValue oldPartyRelationShip=EntityUtil.getFirst(partyRelationShipList);
+      if (UtilValidate.isNotEmpty(oldPartyRelationShip)) {
+        oldPartyRelationShip.setFields(UtilMisc.toMap("thruDate",UtilDateTime.nowTimestamp()));
+        oldPartyRelationShip.store();
+      }
+      try {
+        dispatcher.runSync("createPartyRelationship",context);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logWarning(e.getMessage(),module);
+        return ServiceUtil.returnError("Could not create party relationship (write failure): " + e.getMessage());
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError("Could not create party relationship (write failure): " + e.getMessage());
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}
