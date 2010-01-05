@@ -43,6 +43,7 @@
   String authPass=(String)context.get("authPass");
   String messageId=(String)context.get("messageId");
   String contentType=(String)context.get("contentType");
+  Boolean sendPartial=(Boolean)context.get("sendPartial");
   boolean useSmtpAuth=false;
   if (sendType == null || sendType.equals("mail.smtp.host")) {
     sendType="mail.smtp.host";
@@ -69,6 +70,9 @@
     }
     if (UtilValidate.isEmpty(socketFactoryFallback)) {
       socketFactoryFallback=UtilProperties.getPropertyValue("general.properties","mail.smtp.socketFactory.fallback","false");
+    }
+    if (sendPartial == null) {
+      sendPartial=UtilProperties.propertyValueEqualsIgnoreCase("general.properties","mail.smtp.sendpartial","true") ? true : false;
     }
   }
  else   if (sendVia == null) {
@@ -102,8 +106,9 @@
     if (useSmtpAuth) {
       props.put("mail.smtp.auth","true");
     }
-    boolean sendPartial=UtilProperties.propertyValueEqualsIgnoreCase("general.properties","mail.smtp.sendpartial","true");
-    props.put("mail.smtp.sendpartial",sendPartial ? "true" : "false");
+    if (sendPartial != null) {
+      props.put("mail.smtp.sendpartial",sendPartial ? "true" : "false");
+    }
     session=Session.getInstance(props);
     boolean debug=UtilProperties.propertyValueEqualsIgnoreCase("general.properties","mail.debug.on","Y");
     session.setDebug(debug);
@@ -137,6 +142,9 @@
           ByteArrayDataSource bads=new ByteArrayDataSource((byte[])bodyPartContent,(String)bodyPart.get("type"));
           Debug.logInfo("part of type: " + bodyPart.get("type") + " and size: "+ ((byte[])bodyPartContent).length,module);
           mbp.setDataHandler(new DataHandler(bads));
+        }
+ else         if (bodyPartContent instanceof DataHandler) {
+          mbp.setDataHandler((DataHandler)bodyPartContent);
         }
  else {
           mbp.setDataHandler(new DataHandler(bodyPartContent,(String)bodyPart.get("type")));
@@ -179,8 +187,9 @@ catch (  IOException e) {
     results.put("messageWrapper",new MimeMessageWrapper(session,mail));
     return results;
   }
+  Transport trans=null;
   try {
-    Transport trans=session.getTransport("smtp");
+    trans=session.getTransport("smtp");
     if (!useSmtpAuth) {
       trans.connect();
     }
@@ -195,8 +204,30 @@ catch (  IOException e) {
  catch (  SendFailedException e) {
     String errMsg="[ADDRERR] Address error when sending message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
     Debug.logError(e,errMsg,module);
-    Debug.logError("Email message that could not be sent to [" + sendTo + "] had context: "+ context,module);
-    return ServiceUtil.returnError(errMsg);
+    List<SMTPAddressFailedException> failedAddresses=FastList.newInstance();
+    Exception nestedException=null;
+    while ((nestedException=e.getNextException()) != null && nestedException instanceof MessagingException) {
+      if (nestedException instanceof SMTPAddressFailedException) {
+        SMTPAddressFailedException safe=(SMTPAddressFailedException)nestedException;
+        Debug.logError("Failed to send message to [" + safe.getAddress() + "], return code ["+ safe.getReturnCode()+ "], return message ["+ safe.getMessage()+ "]",errMsg);
+        failedAddresses.add(safe);
+      }
+    }
+    Boolean sendFailureNotification=(Boolean)context.get("sendFailureNotification");
+    if (sendFailureNotification == null || sendFailureNotification) {
+      sendFailureNotification(ctx,context,mail,failedAddresses);
+      results.put("messageWrapper",new MimeMessageWrapper(session,mail));
+      try {
+        results.put("messageId",mail.getMessageID());
+        trans.close();
+      }
+ catch (      MessagingException e1) {
+        Debug.logError(e1,module);
+      }
+    }
+ else {
+      return ServiceUtil.returnError(errMsg);
+    }
   }
 catch (  MessagingException e) {
     String errMsg="[CON] Connection error when sending message to [" + sendTo + "] from ["+ sendFrom+ "] cc ["+ sendCc+ "] bcc ["+ sendBcc+ "] subject ["+ subject+ "]";
