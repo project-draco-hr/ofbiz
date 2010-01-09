@@ -34,41 +34,41 @@
   }
   boolean hasCreatePermission=hasPermission(workEffortId,"CREATE",context);
   List<GenericValue> workEfforts=getRelatedWorkEfforts(publishProperties,context);
+  Set validWorkEfforts=FastSet.newInstance();
   if (UtilValidate.isNotEmpty(workEfforts)) {
-    Set validWorkEfforts=FastSet.newInstance();
     for (    GenericValue workEffort : workEfforts) {
       validWorkEfforts.add(workEffort.getString("workEffortId"));
     }
-    List<Component> components=calendar.getComponents();
-    ResponseProperties responseProps=null;
-    for (    Component component : components) {
-      if (Component.VEVENT.equals(component.getName()) || Component.VTODO.equals(component.getName())) {
-        workEffortId=fromXProperty(component.getProperties(),workEffortIdXPropName);
-        if (workEffortId == null) {
-          Property uid=component.getProperty(Uid.UID);
-          if (uid != null) {
-            GenericValue workEffort=EntityUtil.getFirst(delegator.findByAnd("WorkEffort",UtilMisc.toMap("universalId",uid.getValue())));
-            if (workEffort != null) {
-              workEffortId=workEffort.getString("workEffortId");
-            }
+  }
+  List<Component> components=calendar.getComponents();
+  ResponseProperties responseProps=null;
+  for (  Component component : components) {
+    if (Component.VEVENT.equals(component.getName()) || Component.VTODO.equals(component.getName())) {
+      workEffortId=fromXProperty(component.getProperties(),workEffortIdXPropName);
+      if (workEffortId == null) {
+        Property uid=component.getProperty(Uid.UID);
+        if (uid != null) {
+          GenericValue workEffort=EntityUtil.getFirst(delegator.findByAnd("WorkEffort",UtilMisc.toMap("universalId",uid.getValue())));
+          if (workEffort != null) {
+            workEffortId=workEffort.getString("workEffortId");
           }
         }
-        if (workEffortId != null) {
-          if (validWorkEfforts.contains(workEffortId)) {
-            replaceProperty(component.getProperties(),toXProperty(workEffortIdXPropName,workEffortId));
-            responseProps=storeWorkEffort(component,context);
-          }
+      }
+      if (workEffortId != null) {
+        if (validWorkEfforts.contains(workEffortId)) {
+          replaceProperty(component.getProperties(),toXProperty(workEffortIdXPropName,workEffortId));
+          responseProps=storeWorkEffort(component,context);
+        }
  else {
-            Debug.logWarning("Spoof attempt: unrelated workEffortId " + workEffortId + " on URL workEffortId "+ context.get("workEffortId"),module);
-            responseProps=ICalWorker.createForbiddenResponse(null);
-          }
+          Debug.logWarning("Spoof attempt: unrelated workEffortId " + workEffortId + " on URL workEffortId "+ context.get("workEffortId"),module);
+          responseProps=ICalWorker.createForbiddenResponse(null);
         }
- else         if (hasCreatePermission) {
-          responseProps=createWorkEffort(component,context);
-        }
-        if (responseProps != null) {
-          return responseProps;
-        }
+      }
+ else       if (hasCreatePermission) {
+        responseProps=createWorkEffort(component,context);
+      }
+      if (responseProps != null) {
+        return responseProps;
       }
     }
   }
