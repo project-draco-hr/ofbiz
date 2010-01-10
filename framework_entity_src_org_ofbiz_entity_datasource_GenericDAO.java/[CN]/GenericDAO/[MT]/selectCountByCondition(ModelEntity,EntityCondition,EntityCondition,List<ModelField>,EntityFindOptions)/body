@@ -1,0 +1,101 @@
+{
+  if (modelEntity == null) {
+    return 0;
+  }
+  if (findOptions == null) {
+    findOptions=new EntityFindOptions();
+  }
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn) {
+    Debug.logVerbose("Doing selectListIteratorByCondition with whereEntityCondition: " + whereEntityCondition,module);
+  }
+  boolean isGroupBy=false;
+  ModelViewEntity modelViewEntity=null;
+  String groupByString=null;
+  if (modelEntity instanceof ModelViewEntity) {
+    modelViewEntity=(ModelViewEntity)modelEntity;
+    groupByString=modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(),", ","",false);
+    if (UtilValidate.isNotEmpty(groupByString)) {
+      isGroupBy=true;
+    }
+  }
+  StringBuilder sqlBuffer=new StringBuilder("SELECT ");
+  if (isGroupBy) {
+    sqlBuffer.append("COUNT(1) FROM (SELECT ");
+  }
+  if (findOptions.getDistinct()) {
+    if (selectFields != null && selectFields.size() > 0) {
+      sqlBuffer.append("COUNT(DISTINCT ");
+      sqlBuffer.append(selectFields.get(0).getColName());
+      sqlBuffer.append(")");
+    }
+ else {
+      sqlBuffer.append("COUNT(DISTINCT *) ");
+    }
+  }
+ else {
+    sqlBuffer.append("COUNT(1) ");
+  }
+  List<EntityCondition> viewWhereConditions=null;
+  List<EntityCondition> viewHavingConditions=null;
+  List<String> viewOrderByList=null;
+  if (modelViewEntity != null) {
+    viewWhereConditions=FastList.newInstance();
+    viewHavingConditions=FastList.newInstance();
+    viewOrderByList=FastList.newInstance();
+    modelViewEntity.populateViewEntityConditionInformation(modelFieldTypeReader,viewWhereConditions,viewHavingConditions,viewOrderByList,null);
+  }
+  sqlBuffer.append(SqlJdbcUtil.makeFromClause(modelEntity,datasourceInfo));
+  List<EntityConditionParam> whereEntityConditionParams=FastList.newInstance();
+  StringBuilder whereString=makeConditionWhereString(modelEntity,whereEntityCondition,viewWhereConditions,whereEntityConditionParams);
+  if (whereString.length() > 0) {
+    sqlBuffer.append(" WHERE ");
+    sqlBuffer.append(whereString.toString());
+  }
+  if (isGroupBy) {
+    if (UtilValidate.isNotEmpty(groupByString)) {
+      sqlBuffer.append(" GROUP BY ");
+      sqlBuffer.append(groupByString);
+    }
+  }
+  List<EntityConditionParam> havingEntityConditionParams=FastList.newInstance();
+  StringBuilder havingString=makeConditionHavingString(modelEntity,havingEntityCondition,viewHavingConditions,havingEntityConditionParams);
+  if (havingString.length() > 0) {
+    sqlBuffer.append(" HAVING ");
+    sqlBuffer.append(havingString);
+  }
+  if (isGroupBy) {
+    sqlBuffer.append(") TEMP_NAME");
+  }
+  String sql=sqlBuffer.toString();
+  if (Debug.verboseOn())   Debug.logVerbose("Count select sql: " + sql,module);
+  SQLProcessor sqlP=new SQLProcessor(helperName);
+  sqlP.prepareStatement(sql,findOptions.getSpecifyTypeAndConcur(),findOptions.getResultSetType(),findOptions.getResultSetConcurrency(),findOptions.getFetchSize(),findOptions.getMaxRows());
+  if (verboseOn) {
+    Debug.logVerbose("Setting the whereEntityConditionParams: " + whereEntityConditionParams,module);
+  }
+  for (  EntityConditionParam whereEntityConditionParam : whereEntityConditionParams) {
+    SqlJdbcUtil.setValue(sqlP,whereEntityConditionParam.getModelField(),modelEntity.getEntityName(),whereEntityConditionParam.getFieldValue(),modelFieldTypeReader);
+  }
+  if (verboseOn) {
+    Debug.logVerbose("Setting the havingEntityConditionParams: " + havingEntityConditionParams,module);
+  }
+  for (  EntityConditionParam havingEntityConditionParam : havingEntityConditionParams) {
+    SqlJdbcUtil.setValue(sqlP,havingEntityConditionParam.getModelField(),modelEntity.getEntityName(),havingEntityConditionParam.getFieldValue(),modelFieldTypeReader);
+  }
+  try {
+    sqlP.executeQuery();
+    long count=0;
+    ResultSet resultSet=sqlP.getResultSet();
+    if (resultSet.next()) {
+      count=resultSet.getLong(1);
+    }
+    return count;
+  }
+ catch (  SQLException e) {
+    throw new GenericDataSourceException("Error getting count value",e);
+  }
+ finally {
+    sqlP.close();
+  }
+}
