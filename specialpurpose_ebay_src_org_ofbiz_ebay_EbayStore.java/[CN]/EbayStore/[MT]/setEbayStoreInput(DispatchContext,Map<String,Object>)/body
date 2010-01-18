@@ -1,0 +1,113 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Locale locale=(Locale)context.get("locale");
+  Delegator delegator=dctx.getDelegator();
+  SetStoreRequestType req=null;
+  StoreThemeArrayType returnedThemeArray=null;
+  SetStoreResponseType resp=null;
+  StoreType storeType=null;
+  try {
+    if (context.get("productStoreId") != null) {
+      SetStoreCall call=new SetStoreCall(EbayHelper.getApiContext((String)context.get("productStoreId"),locale,delegator));
+      req=new SetStoreRequestType();
+      storeType=new StoreType();
+      storeType.setName((String)context.get("storeName"));
+      storeType.setDescription((String)context.get("storeDesc"));
+      storeType.setURL((String)context.get("storeUrl"));
+      storeType.setURLPath("");
+      StoreLogoType storeLogo=new StoreLogoType();
+      if (context.get("storeLogoURL") == null) {
+        if (context.get("storeLogoId") != null)         storeLogo.setLogoID(Integer.parseInt((String)context.get("storeLogoId")));
+        storeLogo.setName((String)context.get("storeLogoName"));
+      }
+ else {
+        storeLogo.setURL((String)context.get("storeLogoURL"));
+      }
+      storeType.setLogo(storeLogo);
+      StoreThemeType storeTheme=new StoreThemeType();
+      StoreColorSchemeType storeColorScheme=null;
+      StoreColorType storecolor=null;
+      StoreFontType storeFont=null;
+      if (context.get("themeType").equals("Advanced")) {
+        storeColorScheme=new StoreColorSchemeType();
+        if (context.get("storeAdvancedThemeColor") != null)         storeColorScheme.setColorSchemeID(Integer.parseInt((String)context.get("storeAdvancedThemeColor")));
+        storecolor=new StoreColorType();
+        storecolor.setPrimary((String)context.get("storePrimaryColor"));
+        storecolor.setSecondary((String)context.get("storeSecondaryColor"));
+        storecolor.setAccent((String)context.get("storeAccentColor"));
+        storeColorScheme.setColor(storecolor);
+        storeTheme.setColorScheme(storeColorScheme);
+        storeTheme.setName(null);
+        storeTheme.setThemeID(Integer.parseInt((String)context.get("storeAdvancedTheme")));
+      }
+ else       if (context.get("themeType").equals("Basic")) {
+        storeColorScheme=new StoreColorSchemeType();
+        if (context.get("storeBasicTheme") != null) {
+          String storeBasicTheme=(String)context.get("storeBasicTheme");
+          String storeThemeId=null;
+          String storeColorSchemeId=null;
+          if (storeBasicTheme.indexOf("-") != -1) {
+            storeThemeId=storeBasicTheme.substring(0,storeBasicTheme.indexOf("-"));
+            storeColorSchemeId=storeBasicTheme.substring(storeBasicTheme.indexOf("-") + 1);
+          }
+          if (storeColorSchemeId != null)           storeColorScheme.setColorSchemeID(Integer.parseInt(storeColorSchemeId));
+          storecolor=new StoreColorType();
+          storecolor.setPrimary((String)context.get("storePrimaryColor"));
+          storecolor.setSecondary((String)context.get("storeSecondaryColor"));
+          storecolor.setAccent((String)context.get("storeAccentColor"));
+          storeColorScheme.setColor(storecolor);
+          storeFont=new StoreFontType();
+          storeFont.setNameColor((String)context.get("storeNameFontColor"));
+          storeFont.setNameFace(StoreFontFaceCodeType.valueOf((String)context.get("storeNameFont")));
+          storeFont.setNameSize(StoreFontSizeCodeType.valueOf((String)context.get("storeNameFontSize")));
+          storeFont.setTitleColor((String)context.get("storeTitleFontColor"));
+          storeFont.setTitleFace(StoreFontFaceCodeType.valueOf((String)context.get("storeTitleFont")));
+          storeFont.setTitleSize(StoreFontSizeCodeType.valueOf((String)context.get("storeTitleFontSize")));
+          storeFont.setDescColor((String)context.get("storeDescFontColor"));
+          storeFont.setDescFace(StoreFontFaceCodeType.valueOf((String)context.get("storeDescFont")));
+          storeFont.setDescSize(StoreFontSizeCodeType.valueOf((String)context.get("storeDescFontSize")));
+          storeColorScheme.setFont(storeFont);
+          storeTheme.setColorScheme(storeColorScheme);
+          storeTheme.setName(null);
+          storeTheme.setThemeID(Integer.parseInt(storeThemeId));
+        }
+      }
+      storeType.setTheme(storeTheme);
+      storeType.setHeaderStyle(StoreHeaderStyleCodeType.valueOf((String)context.get("storeHeaderStyle")));
+      storeType.setItemListLayout(StoreItemListLayoutCodeType.valueOf((String)context.get("storeItemLayout")));
+      storeType.setItemListSortOrder(StoreItemListSortOrderCodeType.valueOf((String)context.get("storeItemSortOrder")));
+      storeType.setMerchDisplay(MerchDisplayCodeType.valueOf((String)context.get("storeMerchDisplay")));
+      storeType.setSubscriptionLevel(StoreSubscriptionLevelCodeType.valueOf((String)context.get("storeSubscriptionDisplay")));
+      storeType.setCustomHeader((String)context.get("storeCustomHeader"));
+      storeType.setCustomHeaderLayout(StoreCustomHeaderLayoutCodeType.valueOf((String)context.get("storeCustomHeaderLayout")));
+      StoreCustomListingHeaderType storeCustomListingHeader=new StoreCustomListingHeaderType();
+      if (storeType == null)       throw new SdkException("StoreType property is not set.");
+      req.setStore(storeType);
+      resp=(SetStoreResponseType)call.execute(req);
+      if (resp != null && "SUCCESS".equals(resp.getAck().toString())) {
+        result=ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"EbayStoreSaveSuccess",locale));
+      }
+ else {
+        result=ServiceUtil.returnError(resp.getMessage());
+      }
+      LocalDispatcher dispatcher=dctx.getDispatcher();
+      Map<String,Object> results=dispatcher.runSync("getEbayStoreOutput",UtilMisc.toMap("productStoreId",(String)context.get("productStoreId"),"userLogin",context.get("userLogin")));
+      if (results != null) {
+        result.put("ebayStore",results.get("ebayStore"));
+      }
+    }
+  }
+ catch (  ApiException e) {
+    result=ServiceUtil.returnError(e.getMessage());
+  }
+catch (  SdkSoapException e) {
+    result=ServiceUtil.returnError(e.getMessage());
+  }
+catch (  SdkException e) {
+    result=ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    result=ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
