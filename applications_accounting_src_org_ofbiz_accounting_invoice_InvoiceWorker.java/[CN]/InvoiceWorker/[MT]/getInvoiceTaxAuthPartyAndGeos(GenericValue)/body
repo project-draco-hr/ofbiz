@@ -1,0 +1,32 @@
+{
+  Map<String,Set<String>> result=FastMap.newInstance();
+  if (invoice == null)   throw new IllegalArgumentException("Invoice cannot be null.");
+  List<GenericValue> invoiceTaxItems=null;
+  try {
+    Delegator delegator=invoice.getDelegator();
+    EntityConditionList<EntityExpr> condition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("invoiceId",invoice.getString("invoiceId")),EntityCondition.makeCondition("invoiceItemTypeId",EntityOperator.IN,getTaxableInvoiceItemTypeIds(delegator))),EntityOperator.AND);
+    invoiceTaxItems=delegator.findList("InvoiceItem",condition,null,null,null,false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Trouble getting InvoiceItem list",module);
+    return null;
+  }
+  if (invoiceTaxItems != null) {
+    for (    GenericValue invoiceItem : invoiceTaxItems) {
+      String taxAuthPartyId=invoiceItem.getString("taxAuthPartyId");
+      String taxAuthGeoId=invoiceItem.getString("taxAuthGeoId");
+      if (UtilValidate.isNotEmpty(taxAuthPartyId)) {
+        if (!result.containsKey(taxAuthPartyId)) {
+          Set<String> taxAuthGeos=FastSet.newInstance();
+          taxAuthGeos.add(taxAuthGeoId);
+          result.put(taxAuthPartyId,taxAuthGeos);
+        }
+ else {
+          Set<String> taxAuthGeos=result.get(taxAuthPartyId);
+          taxAuthGeos.add(taxAuthGeoId);
+        }
+      }
+    }
+  }
+  return result;
+}
