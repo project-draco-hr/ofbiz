@@ -1,6 +1,7 @@
 {
   HttpSession session=request.getSession();
   ConfigXMLReader.ControllerConfig controllerConfig=this.getControllerConfig();
+  Map<String,ConfigXMLReader.RequestMap> requestMapMap=controllerConfig.getRequestMapMap();
   String cname=UtilHttp.getApplicationName(request);
   String defaultRequestUri=RequestHandler.getRequestUri(request.getPathInfo());
   if (request.getAttribute("targetRequestUri") == null) {
@@ -15,11 +16,12 @@
   String requestMissingErrorMessage="Unknown request [" + defaultRequestUri + "]; this request does not exist or cannot be called directly.";
   ConfigXMLReader.RequestMap requestMap=null;
   if (defaultRequestUri != null) {
-    requestMap=controllerConfig.requestMapMap.get(defaultRequestUri);
+    requestMap=requestMapMap.get(defaultRequestUri);
   }
   if (requestMap == null) {
-    if (controllerConfig.defaultRequest != null) {
-      requestMap=controllerConfig.requestMapMap.get(controllerConfig.defaultRequest);
+    String defaultRequest=controllerConfig.getDefaultRequest();
+    if (defaultRequest != null) {
+      requestMap=requestMapMap.get(defaultRequest);
     }
   }
   if (requestMap == null) {
@@ -29,7 +31,7 @@
   boolean interruptRequest=false;
   if (chain != null) {
     String chainRequestUri=RequestHandler.getRequestUri(chain);
-    requestMap=controllerConfig.requestMapMap.get(chainRequestUri);
+    requestMap=requestMapMap.get(chainRequestUri);
     if (requestMap == null) {
       throw new RequestHandlerException("Unknown chained request [" + chainRequestUri + "]; this request does not exist");
     }
@@ -45,12 +47,13 @@
     if (!request.isSecure() && requestMap.securityCert) {
       throw new RequestHandlerException(requestMissingErrorMessage);
     }
-    if (!requestMap.securityDirectRequest && controllerConfig.defaultRequest != null) {
-      if (!controllerConfig.requestMapMap.get(controllerConfig.defaultRequest).securityDirectRequest) {
+    String defaultRequest=controllerConfig.getDefaultRequest();
+    if (!requestMap.securityDirectRequest && defaultRequest != null) {
+      if (!requestMapMap.get(defaultRequest).securityDirectRequest) {
         throw new RequestHandlerException(requestMissingErrorMessage);
       }
  else {
-        requestMap=controllerConfig.requestMapMap.get(controllerConfig.defaultRequest);
+        requestMap=requestMapMap.get(defaultRequest);
       }
     }
     boolean forceHttpSession="true".equals(context.getInitParameter("forceHttpSession"));
@@ -134,7 +137,7 @@
       if (Debug.infoOn())       Debug.logInfo("This is the first request in this visit." + " sessionId=" + UtilHttp.getSessionId(request),module);
       GenericValue visit=VisitHandler.getVisit(session);
       if (visit != null) {
-        for (        ConfigXMLReader.Event event : controllerConfig.firstVisitEventList.values()) {
+        for (        ConfigXMLReader.Event event : controllerConfig.getFirstVisitEventList().values()) {
           try {
             String returnString=this.runEvent(request,response,event,null,"firstvisit");
             if (returnString != null && !returnString.equalsIgnoreCase("success")) {
@@ -150,7 +153,7 @@
         }
       }
     }
-    for (    ConfigXMLReader.Event event : controllerConfig.preprocessorEventList.values()) {
+    for (    ConfigXMLReader.Event event : controllerConfig.getPreprocessorEventList().values()) {
       try {
         String returnString=this.runEvent(request,response,event,null,"preprocessor");
         if (returnString != null && !returnString.equalsIgnoreCase("success")) {
@@ -164,8 +167,9 @@
             }
             eventReturn="protect";
             if (!requestMap.requestResponseMap.containsKey("protect")) {
-              if (controllerConfig.protectView != null) {
-                overrideViewUri=controllerConfig.protectView;
+              String protectView=controllerConfig.getProtectView();
+              if (protectView != null) {
+                overrideViewUri=protectView;
               }
  else {
                 overrideViewUri=UtilProperties.getPropertyValue("security.properties","default.error.response.view");
@@ -190,7 +194,7 @@
   request.setAttribute("thisRequestUri",requestMap.uri);
   if (requestMap.securityAuth) {
     if (Debug.verboseOn())     Debug.logVerbose("[RequestHandler]: AuthRequired. Running security check. sessionId=" + UtilHttp.getSessionId(request),module);
-    ConfigXMLReader.Event checkLoginEvent=controllerConfig.requestMapMap.get("checkLogin").event;
+    ConfigXMLReader.Event checkLoginEvent=requestMapMap.get("checkLogin").event;
     String checkLoginReturnString=null;
     try {
       checkLoginReturnString=this.runEvent(request,response,checkLoginEvent,null,"security-auth");
@@ -200,7 +204,7 @@
     }
     if (!"success".equalsIgnoreCase(checkLoginReturnString)) {
       eventReturn=checkLoginReturnString;
-      requestMap=controllerConfig.requestMapMap.get("checkLogin");
+      requestMap=requestMapMap.get("checkLogin");
     }
   }
   if (request.getSession().getAttribute("_PREVIOUS_PARAM_MAP_FORM_") != null && request.getSession().getAttribute("_PREVIOUS_REQUEST_") == null) {
@@ -323,7 +327,7 @@
     doRequest(request,response,nextRequestResponse.value,userLogin,delegator);
   }
  else {
-    for (    ConfigXMLReader.Event event : controllerConfig.postprocessorEventList.values()) {
+    for (    ConfigXMLReader.Event event : controllerConfig.getPostprocessorEventList().values()) {
       try {
         String returnString=this.runEvent(request,response,event,requestMap,"postprocessor");
         if (returnString != null && !returnString.equalsIgnoreCase("success")) {
