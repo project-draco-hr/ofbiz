@@ -1,0 +1,65 @@
+{
+  try {
+    ValueAndState<T> container;
+    ValueAndState<T> nextContainer=null;
+    do {
+      do {
+        container=getContainer();
+switch (container.state) {
+case ERROR:
+case ERROR_INITIAL:
+          throw container.t;
+case VALID:
+        return container.getValue();
+case INVALID:
+      nextContainer=container.submit(getInitial(),State.GENERATING_INITIAL);
+    break;
+case REGENERATING:
+  if (!container.future.isDone()) {
+    return container.getValue();
+  }
+case GENERATING:
+case GENERATING_INITIAL:
+try {
+  try {
+    nextContainer=container.valid(container.future.get());
+  }
+ catch (  ExecutionException e) {
+    throw e.getCause();
+  }
+}
+ catch (Throwable t) {
+  nextContainer=container.error(t);
+}
+break;
+case REGEN:
+nextContainer=container.submit(container.getValue(),State.REGENERATING);
+break;
+case GENERATE:
+nextContainer=container.submit(container.getValue(),State.GENERATING);
+break;
+}
+}
+ while (!objectAccessor.compareAndSet(this,container,nextContainer));
+switch (nextContainer.state) {
+case GENERATING:
+case GENERATING_INITIAL:
+nextContainer.future.run();
+break;
+case REGENERATING:
+updateExecutor.submit(nextContainer.future);
+break;
+case ERROR_INITIAL:
+case ERROR:
+case VALID:
+ExecutionPool.removePulse(container.pulse);
+ExecutionPool.addPulse(nextContainer.pulse);
+break;
+}
+}
+ while (true);
+}
+ catch (Throwable e) {
+return ObjectException.<T>checkException(e);
+}
+}
