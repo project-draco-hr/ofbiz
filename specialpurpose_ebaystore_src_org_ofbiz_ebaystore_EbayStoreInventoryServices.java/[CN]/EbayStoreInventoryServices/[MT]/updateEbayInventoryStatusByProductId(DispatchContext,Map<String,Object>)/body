@@ -1,0 +1,60 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  String productStoreId=(String)context.get("productStoreId");
+  String facilityId=(String)context.get("facilityId");
+  String folderId=(String)context.get("folderId");
+  String productId=(String)context.get("productId");
+  String ebayProductId=null;
+  GetSellingManagerInventoryRequestType req=null;
+  GetSellingManagerInventoryResponseType resp=null;
+  GenericValue ebayProductStoreInventory=null;
+  if (context.get("ebayProductId") != null) {
+    ebayProductId=String.valueOf(context.get("ebayProductId"));
+  }
+  try {
+    if (productStoreId != null && ebayProductId != null) {
+      ebayProductStoreInventory=delegator.findByPrimaryKey("EbayProductStoreInventory",UtilMisc.toMap("productId",productId,"facilityId",facilityId,"productStoreId",productStoreId));
+      GetSellingManagerInventoryCall call=new GetSellingManagerInventoryCall(EbayStoreHelper.getApiContext(productStoreId,locale,delegator));
+      req=new GetSellingManagerInventoryRequestType();
+      resp=(GetSellingManagerInventoryResponseType)call.execute(req);
+      if (resp != null && "SUCCESS".equals(resp.getAck().toString())) {
+        SellingManagerProductType[] sellingManagerProductTypeList=resp.getSellingManagerProduct();
+        for (        SellingManagerProductType sellingManagerProductType : sellingManagerProductTypeList) {
+          SellingManagerProductDetailsType productDetail=sellingManagerProductType.getSellingManagerProductDetails();
+          if (String.valueOf(productDetail.getFolderID()).equals(folderId) && String.valueOf(productDetail.getProductID()).equals(ebayProductId) && String.valueOf(productDetail.getCustomLabel()).equals(productId)) {
+            SellingManagerProductInventoryStatusType prodInventoryStatus=sellingManagerProductType.getSellingManagerProductInventoryStatus();
+            ebayProductStoreInventory.put("activeListing",new BigDecimal(prodInventoryStatus.getQuantityActive()));
+            ebayProductStoreInventory.put("scheduled",new BigDecimal(prodInventoryStatus.getQuantityScheduled()));
+            ebayProductStoreInventory.put("sold",new BigDecimal(prodInventoryStatus.getQuantitySold()));
+            ebayProductStoreInventory.put("unSold",new BigDecimal(prodInventoryStatus.getQuantityUnsold()));
+            ebayProductStoreInventory.store();
+            result=ServiceUtil.returnSuccess("Updated inventory status of product ".concat(productId));
+            break;
+          }
+        }
+      }
+ else {
+        Debug.logError("The problem with get manage inventory detail from ebay site.",module);
+      }
+    }
+  }
+ catch (  ApiException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkSoapException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  GenericEntityException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+  result.put("productStoreId",context.get("productStoreId"));
+  result.put("facilityId",context.get("facilityId"));
+  result.put("folderId",context.get("folderId"));
+  result.put("productId",productId);
+  return result;
+}
