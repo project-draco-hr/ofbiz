@@ -3,30 +3,34 @@
   if (Debug.verboseOn()) {
     Debug.logVerbose("Getting converter: " + key,module);
   }
-  Converter<?,?> result=converterMap.get(key);
-  if (result == null) {
-    if (!noConversions.contains(key)) {
-synchronized (converterMap) {
-        for (        Converter<?,?> value : converterMap.values()) {
-          if (value.canConvert(sourceClass,targetClass)) {
-            converterMap.put(key,value);
-            return UtilGenerics.cast(value);
-          }
-        }
-        result=checkExtendsImplements(sourceClass,targetClass);
-        if (result != null) {
-          return UtilGenerics.cast(result);
-        }
-        if (nullConverter.canConvert(sourceClass,targetClass)) {
-          Converter passThruConverter=new PassThruConverter<S>(sourceClass);
-          converterMap.put(key,passThruConverter);
-          return UtilGenerics.cast(passThruConverter);
-        }
-        noConversions.add(key);
-        Debug.logWarning("*** No converter found, converting from " + sourceClass.getName() + " to "+ targetClass.getName()+ ". Please report this message to the developer community so "+ "a suitable converter can be created. ***",module);
+  OUTER:   do {
+    Converter<?,?> result=converterMap.get(key);
+    if (result != null) {
+      return UtilGenerics.cast(result);
+    }
+    if (noConversions.contains(key)) {
+      throw new ClassNotFoundException("No converter found for " + key);
+    }
+    for (    Converter<?,?> value : converterMap.values()) {
+      if (value.canConvert(sourceClass,targetClass)) {
+        converterMap.putIfAbsent(key,value);
+        continue OUTER;
       }
+    }
+    result=checkExtendsImplements(sourceClass,targetClass);
+    if (result != null) {
+      converterMap.putIfAbsent(key,result);
+      continue;
+    }
+    if (nullConverter.canConvert(sourceClass,targetClass)) {
+      Converter passThruConverter=new PassThruConverter<S>(sourceClass);
+      converterMap.putIfAbsent(key,passThruConverter);
+      continue;
+    }
+    if (noConversions.add(key)) {
+      Debug.logWarning("*** No converter found, converting from " + sourceClass.getName() + " to "+ targetClass.getName()+ ". Please report this message to the developer community so "+ "a suitable converter can be created. ***",module);
     }
     throw new ClassNotFoundException("No converter found for " + key);
   }
-  return UtilGenerics.cast(result);
+ while (true);
 }
