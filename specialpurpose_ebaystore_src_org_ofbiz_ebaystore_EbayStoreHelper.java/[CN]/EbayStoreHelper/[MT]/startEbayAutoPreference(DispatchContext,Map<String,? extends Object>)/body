@@ -1,0 +1,70 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String productStoreId=(String)context.get("productStoreId");
+  String autoPrefEnumId=(String)context.get("autoPrefEnumId");
+  String serviceName=(String)context.get("serviceName");
+  try {
+    GenericValue ebayProductPref=delegator.findByPrimaryKey("EbayProductStorePref",UtilMisc.toMap("productStoreId",productStoreId,"autoPrefEnumId",autoPrefEnumId));
+    String jobId=ebayProductPref.getString("autoPrefJobId");
+    if (UtilValidate.isNotEmpty(jobId)) {
+      GenericValue job=delegator.findByPrimaryKey("JobSandbox",UtilMisc.toMap("jobId",jobId));
+      job=EbayStoreHelper.getCurrentJob(delegator,userLogin,job);
+      if (!job.getString("statusId").equals("SERVICE_PENDING")) {
+        Map<String,Object> inMap=FastMap.newInstance();
+        inMap.put("jobId",jobId);
+        inMap.put("userLogin",userLogin);
+        dispatcher.runSync("resetScheduledJob",inMap);
+      }
+    }
+    if (UtilValidate.isEmpty(ebayProductPref.getString("autoPrefJobId"))) {
+      if (UtilValidate.isEmpty(serviceName))       return ServiceUtil.returnError("If you add a new job, you have to add serviec name.");
+      String runtimeDataId=null;
+      GenericValue runtimeData=delegator.makeValue("RuntimeData");
+      runtimeData=delegator.createSetNextSeqId(runtimeData);
+      runtimeDataId=runtimeData.getString("runtimeDataId");
+      String infoId=null;
+      String jobName=null;
+      long startTime=UtilDateTime.getNextDayStart(UtilDateTime.nowTimestamp()).getTime();
+      RecurrenceInfo info;
+      info=RecurrenceInfo.makeInfo(delegator,startTime,4,1,-1);
+      infoId=info.primaryKey();
+      GenericValue enumeration=delegator.findByPrimaryKey("Enumeration",UtilMisc.toMap("enumId",autoPrefEnumId));
+      jobName=enumeration.getString("description");
+      if (jobName == null) {
+        jobName=Long.toString((new Date().getTime()));
+      }
+      Map<String,Object> jFields=UtilMisc.<String,Object>toMap("jobName",jobName,"runTime",UtilDateTime.nowTimestamp(),"serviceName",serviceName,"statusId","SERVICE_PENDING","recurrenceInfoId",infoId,"runtimeDataId",runtimeDataId);
+      jFields.put("poolId",ServiceConfigUtil.getSendPool());
+      jFields.put("loaderName",JobManager.dispatcherName);
+      GenericValue jobV;
+      jobV=delegator.makeValue("JobSandbox",jFields);
+      GenericValue jobSandbox=delegator.createSetNextSeqId(jobV);
+      ebayProductPref.set("autoPrefJobId",jobSandbox.getString("jobId"));
+      ebayProductPref.store();
+      Map<String,Object> infoData=FastMap.newInstance();
+      infoData.put("jobId",jobSandbox.getString("jobId"));
+      runtimeData.set("runtimeInfo",XmlSerializer.serialize(infoData));
+      runtimeData.store();
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  SerializeException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  IOException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  RecurrenceInfoException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
