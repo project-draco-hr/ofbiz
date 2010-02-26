@@ -1,0 +1,60 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isEmpty(context.get("productStoreId"))) {
+    return ServiceUtil.returnFailure("Required productStoreId for get api context to connect with ebay site.");
+  }
+  String productStoreId=(String)context.get("productStoreId");
+  String isAutoFeedbackReminder="N";
+  int afterDays=0;
+  String isAlsoSendCopyToSeller="N";
+  GenericValue ebayProductStorePref=null;
+  List<String> list=FastList.newInstance();
+  String dateTimeFormat=UtilDateTime.DATE_TIME_FORMAT;
+  SimpleDateFormat formatter=new SimpleDateFormat(dateTimeFormat);
+  try {
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    ebayProductStorePref=delegator.findByPrimaryKey("EbayProductStorePref",UtilMisc.toMap("productStoreId",productStoreId,"autoPrefEnumId","EBAY_AUTO_FB_RMD"));
+    if (UtilValidate.isNotEmpty(ebayProductStorePref)) {
+      isAutoFeedbackReminder=ebayProductStorePref.getString("enabled");
+      if ("Y".equals(isAutoFeedbackReminder)) {
+        afterDays=Integer.parseInt(ebayProductStorePref.getString("condition1"));
+        isAlsoSendCopyToSeller=ebayProductStorePref.getString("condition2");
+        GetSellingManagerSoldListingsCall sellingManagerSoldListings=new GetSellingManagerSoldListingsCall(apiContext);
+        List<SellingManagerSoldOrderType> items=FastList.newInstance();
+        SellingManagerSoldOrderType[] sellingManagerSoldOrders=sellingManagerSoldListings.getSellingManagerSoldListings();
+        if (UtilValidate.isNotEmpty(sellingManagerSoldOrders)) {
+          for (          SellingManagerSoldOrderType solditem : sellingManagerSoldOrders) {
+            SellingManagerOrderStatusType orderStatus=solditem.getOrderStatus();
+            if (orderStatus != null && !orderStatus.isFeedbackSent()) {
+              SellingManagerPaidStatusCodeType paidStatus=orderStatus.getPaidStatus();
+              CommentTypeCodeType commentType=orderStatus.getFeedbackReceived();
+              SellingManagerShippedStatusCodeType shippedStatus=orderStatus.getShippedStatus();
+              if (SellingManagerPaidStatusCodeType.PAID.equals(paidStatus) && SellingManagerShippedStatusCodeType.SHIPPED.equals(shippedStatus)) {
+                Calendar right_now=Calendar.getInstance();
+                Calendar shippedTime=orderStatus.getShippedTime();
+                Calendar afterShippedTime=orderStatus.getShippedTime();
+                afterShippedTime.add(afterShippedTime.DAY_OF_MONTH,afterDays);
+                Debug.logInfo("Verify date for send reminder feedback eamil by auto service: buyer " + solditem.getBuyerID() + " seller shippedTime "+ ""+ formatter.format(shippedTime)+ " codition days "+ afterDays+ " after shippedTime :"+ formatter.format(afterShippedTime)+ " now date"+ formatter.format(right_now),module);
+                if (right_now.after(afterShippedTime))                 items.add(solditem);
+              }
+            }
+          }
+          GetUserCall getUserCall=new GetUserCall(apiContext);
+          String sellerUser=getUserCall.getUser().getUserID();
+          for (          SellingManagerSoldOrderType item : items) {
+            SellingManagerSoldTransactionType[] soldTrans=item.getSellingManagerSoldTransaction();
+            if (UtilValidate.isNotEmpty(soldTrans)) {
+              for (              SellingManagerSoldTransactionType soldTran : soldTrans) {
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnFailure("Problems to connect with ebay site message:" + e);
+  }
+  return ServiceUtil.returnSuccess();
+}
