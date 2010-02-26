@@ -1,0 +1,80 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isEmpty(context.get("productStoreId"))) {
+    return ServiceUtil.returnFailure("Required productStoreId for get api context to connect with ebay site.");
+  }
+  String productStoreId=(String)context.get("productStoreId");
+  String isAutoPositiveFeedback="N";
+  String feedbackEventCode=null;
+  GenericValue ebayProductStorePref=null;
+  List<String> list=FastList.newInstance();
+  try {
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    ebayProductStorePref=delegator.findByPrimaryKey("EbayProductStorePref",UtilMisc.toMap("productStoreId",productStoreId,"autoPrefEnumId","EBAY_AUTO_PIT_FB"));
+    if (UtilValidate.isNotEmpty(ebayProductStorePref)) {
+      isAutoPositiveFeedback=ebayProductStorePref.getString("enabled");
+      if ("Y".equals(isAutoPositiveFeedback)) {
+        feedbackEventCode=ebayProductStorePref.getString("condition1");
+        String storeComments=ebayProductStorePref.getString("condition2");
+        String comment=null;
+        if (UtilValidate.isNotEmpty(storeComments)) {
+          if (storeComments.indexOf("\\[,\\]") != -1) {
+            String[] strs=storeComments.split("\\[,\\]");
+            for (            String str : strs) {
+              list.add(str);
+            }
+          }
+        }
+        GetSellingManagerSoldListingsCall sellingManagerSoldListings=new GetSellingManagerSoldListingsCall(apiContext);
+        List<SellingManagerSoldOrderType> items=FastList.newInstance();
+        SellingManagerSoldOrderType[] sellingManagerSoldOrders=sellingManagerSoldListings.getSellingManagerSoldListings();
+        if (UtilValidate.isNotEmpty(sellingManagerSoldOrders)) {
+          for (          SellingManagerSoldOrderType solditem : sellingManagerSoldOrders) {
+            SellingManagerOrderStatusType orderStatus=solditem.getOrderStatus();
+            if (orderStatus != null && !orderStatus.isFeedbackSent()) {
+              SellingManagerPaidStatusCodeType paidStatus=orderStatus.getPaidStatus();
+              CommentTypeCodeType commentType=orderStatus.getFeedbackReceived();
+              if ("PAYMENT_RECEIVED".equals(feedbackEventCode) && SellingManagerPaidStatusCodeType.PAID.equals(paidStatus)) {
+                items.add(solditem);
+              }
+              if ("POSITIVE_FEEDBACK_RECEIVED".equals(feedbackEventCode) && CommentTypeCodeType.POSITIVE.equals(commentType) && SellingManagerPaidStatusCodeType.PAID.equals(paidStatus)) {
+                items.add(solditem);
+              }
+            }
+          }
+          GetUserCall getUserCall=new GetUserCall(apiContext);
+          String commentingUser=getUserCall.getUser().getUserID();
+          for (          SellingManagerSoldOrderType item : items) {
+            SellingManagerSoldTransactionType[] soldTrans=item.getSellingManagerSoldTransaction();
+            if (UtilValidate.isNotEmpty(soldTrans)) {
+              for (              SellingManagerSoldTransactionType soldTran : soldTrans) {
+                LeaveFeedbackCall leaveFeedbackCall=new LeaveFeedbackCall(apiContext);
+                FeedbackDetailType detail=new FeedbackDetailType();
+                if (list.size() > 0) {
+                  Collections.shuffle(list,new Random());
+                  comment=list.get(0);
+                }
+                detail.setCommentText(comment);
+                detail.setCommentingUser(commentingUser);
+                detail.setCommentType(CommentTypeCodeType.POSITIVE);
+                detail.setItemID(soldTran.getItemID());
+                detail.setItemPrice(soldTran.getItemPrice());
+                detail.setItemTitle(soldTran.getItemTitle());
+                leaveFeedbackCall.setFeedbackDetail(detail);
+                leaveFeedbackCall.setTargetUser(item.getBuyerID());
+                leaveFeedbackCall.setTransactionID(String.valueOf(soldTran.getTransactionID()));
+                leaveFeedbackCall.leaveFeedback();
+                Debug.logInfo("Auto leave feedback with site ".concat(apiContext.getSite().value()).concat("itemId ".concat(soldTran.getItemID())).concat(" comment is ".concat(comment)),module);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnFailure("Problems to connect with ebay site message:" + e);
+  }
+  return ServiceUtil.returnSuccess();
+}
