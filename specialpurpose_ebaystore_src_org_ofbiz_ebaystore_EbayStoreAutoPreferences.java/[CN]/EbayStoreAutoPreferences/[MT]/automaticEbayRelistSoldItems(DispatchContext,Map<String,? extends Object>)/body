@@ -1,0 +1,114 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String jobId=(String)context.get("jobId");
+  try {
+    GenericValue userLogin=delegator.findOne("UserLogin",false,"userLoginId","system");
+    Map<String,Object> serviceMap=FastMap.newInstance();
+    serviceMap.put("userLogin",userLogin);
+    List<GenericValue> stores=delegator.findByAnd("ProductStore",UtilMisc.toMap());
+    List<GenericValue> productStores=delegator.findByAnd("EbayProductStorePref",UtilMisc.toMap("autoPrefJobId",jobId));
+    if (productStores.size() != 0) {
+      String productStoreId=productStores.get(0).getString("productStoreId");
+      String condition1=productStores.get(0).getString("condition1");
+      String condition2=productStores.get(0).getString("condition2");
+      Timestamp fromDate=UtilDateTime.toTimestamp(condition1);
+      Timestamp thruDate=UtilDateTime.toTimestamp(condition2);
+      Timestamp nowTime=UtilDateTime.nowTimestamp();
+      if (nowTime.after(fromDate) && nowTime.before(thruDate)) {
+        serviceMap.put("productStoreId",productStoreId);
+        Map eBayUserLogin=dispatcher.runSync("getEbayStoreUser",serviceMap);
+        String eBayUserLoginId=(String)eBayUserLogin.get("userLoginId");
+        GenericValue party=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",eBayUserLoginId));
+        String partyId=party.getString("partyId");
+        Map resultService=dispatcher.runSync("getEbaySoldItems",serviceMap);
+        List soldItems=(List)resultService.get("soldItems");
+        if (soldItems.size() != 0) {
+          for (int itemCount=0; itemCount < soldItems.size(); itemCount++) {
+            Map soldItemMap=(Map)soldItems.get(itemCount);
+            if (UtilValidate.isNotEmpty(soldItemMap.get("itemId"))) {
+              GenericValue productCheck=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",soldItemMap.get("itemId")));
+              if (productCheck == null) {
+                Map<String,Object> inMap=FastMap.newInstance();
+                inMap.put("productId",soldItemMap.get("itemId"));
+                inMap.put("productTypeId","EBAY_ITEM");
+                inMap.put("internalName","eBay Item " + soldItemMap.get("title"));
+                inMap.put("userLogin",userLogin);
+                dispatcher.runSync("createProduct",inMap);
+                List productRole=delegator.findByAnd("ProductRole",UtilMisc.toMap("partyId",partyId,"productId",soldItemMap.get("itemId"),"roleTypeId","VENDOR"));
+                if (productRole.size() == 0) {
+                  Map<String,Object> addRole=FastMap.newInstance();
+                  addRole.put("productId",soldItemMap.get("itemId"));
+                  addRole.put("roleTypeId","VENDOR");
+                  addRole.put("partyId",partyId);
+                  addRole.put("fromDate",UtilDateTime.nowTimestamp());
+                  addRole.put("userLogin",userLogin);
+                  dispatcher.runSync("addPartyToProduct",addRole);
+                }
+              }
+            }
+          }
+        }
+        serviceMap=FastMap.newInstance();
+        serviceMap.put("userLogin",userLogin);
+        serviceMap.put("productStoreId",productStoreId);
+        resultService=dispatcher.runSync("getEbayActiveItems",serviceMap);
+        List activeItems=(List)resultService.get("activeItems");
+        List<String> activeItemMaps=FastList.newInstance();
+        if (activeItems.size() != 0) {
+          for (int itemCount=0; itemCount < activeItems.size(); itemCount++) {
+            Map activeItemMap=(Map)activeItems.get(itemCount);
+            if (UtilValidate.isNotEmpty(activeItemMap.get("itemId"))) {
+              activeItemMaps.add((String)activeItemMap.get("itemId"));
+            }
+          }
+        }
+        List<GenericValue> productRoles=delegator.findByAnd("ProductRole",UtilMisc.toMap("partyId",partyId,"roleTypeId","VENDOR"));
+        List<String> productRoleIds=FastList.newInstance();
+        if (productRoles.size() != 0) {
+          for (int itemCount=0; itemCount < productRoles.size(); itemCount++) {
+            String productId=productRoles.get(itemCount).getString("productId");
+            productRoleIds.add(productId);
+          }
+        }
+        List andExpr=FastList.newInstance();
+        EntityCondition activeItemCond=EntityCondition.makeCondition("productId",EntityOperator.NOT_IN,activeItemMaps);
+        andExpr.add(activeItemCond);
+        EntityCondition productTypeCond=EntityCondition.makeCondition("productTypeId",EntityOperator.EQUALS,"EBAY_ITEM");
+        andExpr.add(productTypeCond);
+        EntityCondition isVirtualCond=EntityCondition.makeCondition("isVirtual",EntityOperator.NOT_EQUAL,"Y");
+        andExpr.add(isVirtualCond);
+        EntityCondition productRole=EntityCondition.makeCondition("productId",EntityOperator.IN,productRoleIds);
+        andExpr.add(productRole);
+        EntityCondition andCond=EntityCondition.makeCondition(andExpr,EntityOperator.AND);
+        List itemsToRelist=delegator.findList("Product",andCond,null,null,null,false);
+        if (itemsToRelist.size() != 0) {
+          Map<String,Object> inMap=FastMap.newInstance();
+          inMap.put("productStoreId",productStoreId);
+          inMap.put("userLogin",userLogin);
+          Map<String,Object> resultUser=dispatcher.runSync("getEbayStoreUser",inMap);
+          String userID=(String)resultUser.get("userLoginId");
+          ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+          for (int itemRelist=0; itemRelist < itemsToRelist.size(); itemRelist++) {
+            RelistItemCall relistItemCall=new RelistItemCall(apiContext);
+            ItemType itemToBeRelisted=new ItemType();
+            GenericValue product=(GenericValue)itemsToRelist.get(itemRelist);
+            itemToBeRelisted.setItemID(product.getString("productId"));
+            relistItemCall.setItemToBeRelisted(itemToBeRelisted);
+            relistItemCall.relistItem();
+            GenericValue productStore=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",product.getString("productId")));
+            productStore.set("isVirtual","Y");
+            productStore.store();
+            Debug.logInfo("Relisted Item - " + product.getString("productId"),module);
+          }
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}
