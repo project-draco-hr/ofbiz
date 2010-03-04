@@ -1,6 +1,8 @@
 {
   Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
   Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
   if (UtilValidate.isEmpty(context.get("productStoreId")) && UtilValidate.isEmpty(context.get("jobId"))) {
     return ServiceUtil.returnFailure("Required productStoreId for get api context to connect with ebay site.");
   }
@@ -42,13 +44,28 @@
               }
             }
           }
-          GetUserCall getUserCall=new GetUserCall(apiContext);
-          String sellerUser=getUserCall.getUser().getUserID();
           for (          SellingManagerSoldOrderType item : items) {
-            SellingManagerSoldTransactionType[] soldTrans=item.getSellingManagerSoldTransaction();
-            if (UtilValidate.isNotEmpty(soldTrans)) {
-              for (              SellingManagerSoldTransactionType soldTran : soldTrans) {
-              }
+            Map<String,Object> sendMap=FastMap.newInstance();
+            GenericValue productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType","EBAY_FEEBACK_REMIN"));
+            String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+            sendMap.put("bodyScreenUri",bodyScreenLocation);
+            String subjectString=productStoreEmail.getString("subject");
+            sendMap.put("userLogin",userLogin);
+            sendMap.put("subject",subjectString);
+            sendMap.put("contentType",productStoreEmail.get("contentType"));
+            sendMap.put("sendFrom",productStoreEmail.get("fromAddress"));
+            sendMap.put("sendCc",productStoreEmail.get("ccAddress"));
+            sendMap.put("sendBcc",productStoreEmail.get("bccAddress"));
+            sendMap.put("sendTo",item.getBuyerEmail());
+            Map<String,Object> bodyParameters=FastMap.newInstance();
+            bodyParameters.put("buyerUserId",item.getBuyerID());
+            sendMap.put("bodyParameters",bodyParameters);
+            try {
+              dispatcher.runAsync("sendMailFromScreen",sendMap);
+            }
+ catch (            Exception e) {
+              Debug.logError(e,module);
+              return ServiceUtil.returnError(e.getMessage());
             }
           }
         }
