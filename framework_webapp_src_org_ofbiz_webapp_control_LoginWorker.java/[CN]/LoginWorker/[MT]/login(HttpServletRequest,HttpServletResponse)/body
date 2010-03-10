@@ -24,16 +24,49 @@
     request.setAttribute("_ERROR_MESSAGE_LIST_",unpwErrMsgList);
     return "error";
   }
-  String requirePasswordChange=request.getParameter("requirePasswordChange");
-  String visitId=VisitHandler.getVisitId(session);
+  boolean setupNewDelegatorEtc=false;
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
-  Map<String,Object> result=null;
-  if (UtilValidate.isNotEmpty(requirePasswordChange) && "Y".equals(requirePasswordChange)) {
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  String tenantId=request.getParameter("tenantId");
+  if (UtilValidate.isNotEmpty(tenantId)) {
+    String oldDelegatorName=delegator.getDelegatorName();
+    int delegatorNameHashIndex=oldDelegatorName.indexOf('#');
+    String currentDelegatorTenantId=null;
+    if (delegatorNameHashIndex > 0) {
+      currentDelegatorTenantId=oldDelegatorName.substring(delegatorNameHashIndex + 1);
+    }
+    if (delegatorNameHashIndex == -1 || (currentDelegatorTenantId != null && !tenantId.equals(currentDelegatorTenantId))) {
+      try {
+        List<GenericValue> tenantUserLoginList=delegator.findList("TenantUserLogin",EntityCondition.makeCondition(EntityOperator.AND,"tenantId",tenantId,"userLoginId",username),null,null,null,false);
+        if (tenantUserLoginList != null && tenantUserLoginList.size() > 0) {
+          ServletContext servletContext=session.getServletContext();
+          String delegatorName=delegator.getDelegatorName() + "#" + tenantId;
+          delegator=DelegatorFactory.getDelegator(delegatorName);
+          dispatcher=ContextFilter.makeWebappDispatcher(servletContext,delegator);
+          setupNewDelegatorEtc=true;
+        }
+ else {
+          String errMsg=UtilProperties.getMessage(resourceWebapp,"loginevents.unable_to_login_tenant",UtilHttp.getLocale(request));
+          request.setAttribute("_ERROR_MESSAGE_",errMsg);
+          return "error";
+        }
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="Error checking TenantUserLogin: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
+    }
+  }
+  String requirePasswordChange=request.getParameter("requirePasswordChange");
+  if ("Y".equals(requirePasswordChange)) {
     Map<String,Object> inMap=UtilMisc.<String,Object>toMap("login.username",username,"login.password",password,"locale",UtilHttp.getLocale(request));
     inMap.put("userLoginId",username);
     inMap.put("currentPassword",password);
     inMap.put("newPassword",request.getParameter("newPassword"));
     inMap.put("newPasswordVerify",request.getParameter("newPasswordVerify"));
+    Map<String,Object> result=null;
     try {
       result=dispatcher.runSync("updatePassword",inMap);
     }
@@ -58,7 +91,9 @@
       password=request.getParameter("newPassword");
     }
   }
+  Map<String,Object> result=null;
   try {
+    String visitId=VisitHandler.getVisitId(session);
     result=dispatcher.runSync("userLogin",UtilMisc.toMap("login.username",username,"login.password",password,"visitId",visitId,"locale",UtilHttp.getLocale(request)));
   }
  catch (  GenericServiceException e) {
@@ -69,6 +104,9 @@
     return "error";
   }
   if (ModelService.RESPOND_SUCCESS.equals(result.get(ModelService.RESPONSE_MESSAGE))) {
+    if (setupNewDelegatorEtc) {
+      setWebContextObjects(request,response,delegator,dispatcher);
+    }
     GenericValue userLogin=(GenericValue)result.get("userLogin");
     Map<String,Object> userLoginSession=checkMap(result.get("userLoginSession"),String.class,Object.class);
     if (userLogin != null && "Y".equals(userLogin.getString("requirePasswordChange"))) {
