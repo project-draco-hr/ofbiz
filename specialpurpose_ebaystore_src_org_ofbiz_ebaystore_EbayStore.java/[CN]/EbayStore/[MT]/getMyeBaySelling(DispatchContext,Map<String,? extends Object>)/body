@@ -1,0 +1,125 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String productStoreId=(String)context.get("productStoreId");
+  List unsoldItems=FastList.newInstance();
+  try {
+    Map<String,Object> inMap=FastMap.newInstance();
+    inMap.put("productStoreId",productStoreId);
+    inMap.put("userLogin",userLogin);
+    Map<String,Object> resultUser=dispatcher.runSync("getEbayStoreUser",inMap);
+    String userID=(String)resultUser.get("userLoginId");
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    GetMyeBaySellingCall api=new GetMyeBaySellingCall(apiContext);
+    ItemListCustomizationType itemListType=new ItemListCustomizationType();
+    itemListType.setInclude(Boolean.TRUE);
+    itemListType.setSort(ItemSortTypeCodeType.START_TIME_DESCENDING);
+    String entriesPerPage=(String)context.get("entriesPerPage");
+    String pageNumber=(String)context.get("pageNumber");
+    String listingType=(String)context.get("listingType");
+    PaginationType page=new PaginationType();
+    if (UtilValidate.isNotEmpty(entriesPerPage)) {
+      page.setEntriesPerPage(Integer.valueOf(entriesPerPage));
+    }
+    if (UtilValidate.isNotEmpty(pageNumber)) {
+      page.setPageNumber(Integer.valueOf(pageNumber));
+    }
+    itemListType.setPagination(page);
+    if (UtilValidate.isNotEmpty(listingType)) {
+      itemListType.setListingType(ListingTypeCodeType.valueOf(listingType));
+    }
+    DetailLevelCodeType[] detailLevels=new DetailLevelCodeType[]{DetailLevelCodeType.RETURN_ALL,DetailLevelCodeType.ITEM_RETURN_ATTRIBUTES,DetailLevelCodeType.ITEM_RETURN_DESCRIPTION};
+    api.setDetailLevel(detailLevels);
+    api.setActiveList(itemListType);
+    api.setScheduledList(itemListType);
+    api.setSoldList(itemListType);
+    api.getMyeBaySelling();
+    ItemType[] tempActiveItems=null;
+    if (api.getReturnedActiveList() != null)     tempActiveItems=(api.getReturnedActiveList().getItemArray()).getItem();
+    final ItemType[] activeItems=tempActiveItems;
+    TableModel dataModel=new AbstractTableModel(){
+      public int getColumnCount(){
+        return 0;
+      }
+      public int getRowCount(){
+        return activeItems == null ? 0 : activeItems.length;
+      }
+      public Map<String,Object> getValueAt(      int row,      int col){
+        ItemType item=activeItems[row];
+        return itemToColumns(item);
+      }
+    }
+;
+    List<Map> activeList=getDataModelToList(dataModel);
+    int activeSize=dataModel.getRowCount();
+    ItemType[] tempItems=null;
+    if (api.getReturnedScheduledList() != null)     tempItems=(api.getReturnedScheduledList().getItemArray()).getItem();
+    final ItemType[] scheItems=tempItems;
+    dataModel=new AbstractTableModel(){
+      public int getColumnCount(){
+        return 0;
+      }
+      public int getRowCount(){
+        return scheItems == null ? 0 : scheItems.length;
+      }
+      public Map<String,Object> getValueAt(      int row,      int col){
+        ItemType item=scheItems[row];
+        return schItemToColumns(item);
+      }
+    }
+;
+    List<Map> scheduledList=getDataModelToList(dataModel);
+    int scheduledSize=dataModel.getRowCount();
+    OrderTransactionType[] tempSoldItems=null;
+    if (api.getReturnedSoldList() != null)     tempSoldItems=(api.getReturnedSoldList().getOrderTransactionArray()).getOrderTransaction();
+    final OrderTransactionType[] soldItems=tempSoldItems;
+    dataModel=new AbstractTableModel(){
+      public int getColumnCount(){
+        return 0;
+      }
+      public int getRowCount(){
+        return soldItems == null ? 0 : soldItems.length;
+      }
+      public Map<String,Object> getValueAt(      int row,      int col){
+        OrderTransactionType orderTrans=soldItems[row];
+        return OrderToColumns(orderTrans);
+      }
+    }
+;
+    List<Map> soldList=getDataModelToList(dataModel);
+    int soldSize=dataModel.getRowCount();
+    ItemType[] tempUnSoldItems=null;
+    if (api.getReturnedUnsoldList() != null)     tempUnSoldItems=(api.getReturnedUnsoldList().getItemArray()).getItem();
+    final ItemType[] unSoldItems=tempUnSoldItems;
+    dataModel=new AbstractTableModel(){
+      public int getColumnCount(){
+        return 0;
+      }
+      public int getRowCount(){
+        return unSoldItems == null ? 0 : unSoldItems.length;
+      }
+      public Map<String,Object> getValueAt(      int row,      int col){
+        ItemType item=unSoldItems[row];
+        return unsoldItemToColumns(item);
+      }
+    }
+;
+    List<Map> unsoldList=getDataModelToList(dataModel);
+    int unsoldSize=dataModel.getRowCount();
+    result.put("activeItems",activeList);
+    result.put("soldItems",soldList);
+    result.put("unsoldItems",unsoldList);
+    result.put("scheduledItems",scheduledList);
+    result.put("activeSize",activeSize);
+    result.put("soldSize",soldSize);
+    result.put("unsoldeSize",unsoldSize);
+    result.put("scheduledSize",scheduledSize);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
