@@ -1,0 +1,43 @@
+{
+  if (UtilValidate.isEmpty(productPromoId) && UtilValidate.isNotEmpty(productPromo)) {
+    productPromoId=productPromo.getString("productPromoId");
+  }
+  if (UtilValidate.isEmpty(delegator) && UtilValidate.isNotEmpty(productPromo)) {
+    delegator=productPromo.getDelegator();
+  }
+  if (UtilValidate.isEmpty(mimeTypeId)) {
+    mimeTypeId="text/html";
+  }
+  if (UtilValidate.isEmpty(delegator)) {
+    throw new GeneralRuntimeException("Unable to find a delegator to use!");
+  }
+  String candidateFieldName=ModelUtil.dbNameToVarName(productPromoContentTypeId);
+  ModelEntity productModel=delegator.getModelEntity("ProductPromo");
+  if (productModel.isField(candidateFieldName)) {
+    if (UtilValidate.isEmpty(productPromo)) {
+      productPromo=delegator.findByPrimaryKeyCache("ProductPromo",UtilMisc.toMap("productPromoId",productPromoId));
+    }
+    if (UtilValidate.isNotEmpty(productPromo)) {
+      String candidateValue=productPromo.getString(candidateFieldName);
+      if (UtilValidate.isNotEmpty(candidateValue)) {
+        outWriter.write(candidateValue);
+        return;
+      }
+    }
+  }
+  List<EntityExpr> exprs=FastList.newInstance();
+  exprs.add(EntityCondition.makeCondition("productPromoId",EntityOperator.EQUALS,productPromoId));
+  exprs.add(EntityCondition.makeCondition("productPromoContentTypeId",EntityOperator.EQUALS,productPromoContentTypeId));
+  List<String> orderBy=UtilMisc.toList("-fromDate");
+  List<GenericValue> productPromoContentList=delegator.findList("ProductPromoContent",EntityCondition.makeCondition(exprs,EntityOperator.AND),null,orderBy,null,false);
+  GenericValue productPromoContent=null;
+  if (UtilValidate.isNotEmpty(productPromoContentList)) {
+    productPromoContent=EntityUtil.getFirst(EntityUtil.filterByDate(productPromoContentList));
+  }
+  if (UtilValidate.isNotEmpty(productPromoContent)) {
+    Map<String,Object> inContext=FastMap.newInstance();
+    inContext.put("productPromo",productPromo);
+    inContext.put("productPromoContent",productPromoContent);
+    ContentWorker.renderContentAsText(dispatcher,delegator,productPromoContent.getString("contentId"),outWriter,inContext,locale,mimeTypeId,partyId,roleTypeId,false);
+  }
+}

@@ -1,0 +1,120 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  Map<String,Object> requestParams=UtilHttp.getParameterMap(request);
+  Locale locale=UtilHttp.getLocale(request);
+  if (UtilValidate.isEmpty(requestParams.get("productStoreId"))) {
+    request.setAttribute("_ERROR_MESSAGE_","Required productStoreId and selected products.");
+    return "error";
+  }
+  List<String> productIds=(List<String>)requestParams.get("productIds");
+  if (UtilValidate.isNotEmpty(requestParams.get("productIds"))) {
+    productIds=(List<String>)requestParams.get("productIds");
+  }
+ else   if (UtilValidate.isNotEmpty(requestParams.get("selectResult"))) {
+    try {
+      productIds=(List<String>)requestParams.get("selectResult");
+    }
+ catch (    ClassCastException e) {
+      if (UtilValidate.isEmpty(productIds))       productIds=FastList.newInstance();
+      productIds.add((String)requestParams.get("selectResult"));
+    }
+  }
+ else {
+    request.setAttribute("_ERROR_MESSAGE_","Required productStoreId and selected products.");
+    return "error";
+  }
+  String productStoreId=(String)requestParams.get("productStoreId");
+  ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+  String webSiteUrl="http://demo.ofbiz.org";
+  Map<String,Object> addItemObject=getAddItemListingObject(request,apiContext);
+  List<Map<String,Object>> itemObjs=null;
+  if (UtilValidate.isNotEmpty(addItemObject.get("itemListings"))) {
+    itemObjs=(List<Map<String,Object>>)addItemObject.get("itemListings");
+  }
+ else {
+    itemObjs=FastList.newInstance();
+  }
+  if (UtilValidate.isNotEmpty(productIds)) {
+    try {
+      for (      String productId : productIds) {
+        for (        Map<String,Object> itObj : itemObjs) {
+          if (UtilValidate.isNotEmpty(itObj.get(productId.concat("_Obj")))) {
+            productIds.remove(productId);
+          }
+        }
+      }
+      Debug.log("run in with productIds " + productIds);
+      for (      String productId : productIds) {
+        AddItemCall addItemCall=new AddItemCall(apiContext);
+        ItemType item=new ItemType();
+        GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+        item.setTitle(product.getString("internalName"));
+        item.setCurrency(CurrencyCodeType.USD);
+        String productDescription="";
+        String description=product.getString("description");
+        String longDescription=product.getString("longDescription");
+        if (UtilValidate.isNotEmpty(description)) {
+          productDescription=description;
+        }
+ else         if (UtilValidate.isNotEmpty(longDescription)) {
+          productDescription=longDescription;
+        }
+ else         if (UtilValidate.isNotEmpty(product.getString("productName"))) {
+          productDescription=product.getString("productName");
+        }
+        item.setDescription(productDescription);
+        item.setSKU(product.getString("productId"));
+        item.setApplicationData(product.getString("productId"));
+        item.setCountry(CountryCodeType.US);
+        item.setQuantity(new Integer(1));
+        String smallImage=product.getString("smallImageUrl");
+        String mediumImage=product.getString("mediumImageUrl");
+        String largeImage=product.getString("largeImageUrl");
+        String ebayImage=null;
+        if (UtilValidate.isNotEmpty(largeImage)) {
+          ebayImage=largeImage;
+        }
+ else         if (UtilValidate.isNotEmpty(mediumImage)) {
+          ebayImage=mediumImage;
+        }
+ else         if (UtilValidate.isNotEmpty(smallImage)) {
+          ebayImage=smallImage;
+        }
+        if (UtilValidate.isNotEmpty(ebayImage)) {
+          PictureDetailsType pic=new PictureDetailsType();
+          String pictureUrl=webSiteUrl + ebayImage;
+          String[] picURL=new String[1];
+          picURL[0]=pictureUrl;
+          pic.setPictureURL(picURL);
+          item.setPictureDetails(pic);
+        }
+        item.setCategoryMappingAllowed(true);
+        item.setSite(apiContext.getSite());
+        addItemCall.setSite(apiContext.getSite());
+        addItemCall.setItem(item);
+        addItemCall.setWarningLevel(WarningLevelCodeType.HIGH);
+        Map<String,Object> itemListing=null;
+        for (        Map<String,Object> itemObj : itemObjs) {
+          if (UtilValidate.isNotEmpty(itemObj.get(productId.concat("_Obj")))) {
+            itemListing=(Map<String,Object>)itemObj.get(productId.concat("_Obj"));
+            itemListing.put("addItemCall",addItemCall);
+            itemListing.put("productId",productId);
+            break;
+          }
+        }
+        if (UtilValidate.isEmpty(itemListing)) {
+          itemListing=FastMap.newInstance();
+          itemListing.put("addItemCall",addItemCall);
+          itemListing.put("productId",productId);
+          itemObjs.add(itemListing);
+        }
+      }
+      addItemObject.put("itemListing",itemObjs);
+    }
+ catch (    Exception e) {
+      Debug.logError(e.getMessage(),module);
+      return "error";
+    }
+  }
+  return "success";
+}

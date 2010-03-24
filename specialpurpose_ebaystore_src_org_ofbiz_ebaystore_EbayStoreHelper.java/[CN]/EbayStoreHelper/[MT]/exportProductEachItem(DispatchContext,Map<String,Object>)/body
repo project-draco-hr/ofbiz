@@ -1,0 +1,38 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=(LocalDispatcher)dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Map<String,Object> itemObject=(Map<String,Object>)context.get("itemObject");
+  String productListingId=itemObject.get("productListingId").toString();
+  AddItemCall addItemCall=(AddItemCall)itemObject.get("addItemCall");
+  AddItemRequestType req=new AddItemRequestType();
+  AddItemResponseType resp=null;
+  try {
+    GenericValue userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+    ItemType item=addItemCall.getItem();
+    req.setItem(item);
+    resp=(AddItemResponseType)addItemCall.execute(req);
+    if (resp != null && "SUCCESS".equals(resp.getAck().toString()) || "WARNING".equals(resp.getAck().toString())) {
+      String itemId=resp.getItemID();
+      String listingXml=addItemCall.getRequestXml().toString();
+      Map<String,Object> updateItemMap=FastMap.newInstance();
+      updateItemMap.put("productListingId",productListingId);
+      updateItemMap.put("itemId",itemId);
+      updateItemMap.put("listingXml",listingXml);
+      updateItemMap.put("statusId","ITEM_APPROVED");
+      updateItemMap.put("userLogin",userLogin);
+      try {
+        dispatcher.runSync("updateEbayProductListing",updateItemMap);
+      }
+ catch (      GenericServiceException ex) {
+        Debug.logError(ex.getMessage(),module);
+        return ServiceUtil.returnError(ex.getMessage());
+      }
+    }
+    result=ServiceUtil.returnSuccess();
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}

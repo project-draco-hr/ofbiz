@@ -1,0 +1,238 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  HttpSession session=request.getSession(true);
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map<String,Object> requestParams=UtilHttp.getParameterMap(request);
+  Locale locale=UtilHttp.getLocale(request);
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  HashMap attributeMapList=new HashMap();
+  String id="";
+  if (UtilValidate.isNotEmpty(requestParams.get("listype"))) {
+    if ("auction".equals(requestParams.get("listype"))) {
+      id="_1";
+    }
+ else {
+      id="_2";
+    }
+  }
+  String startPrice="";
+  if (UtilValidate.isNotEmpty(requestParams.get("startPrice".concat(id)))) {
+    startPrice=(String)requestParams.get("startPrice".concat(id));
+  }
+  String buyItNowPrice="";
+  if (UtilValidate.isNotEmpty(requestParams.get("buyItNowPrice".concat(id)))) {
+    buyItNowPrice=(String)requestParams.get("buyItNowPrice".concat(id));
+  }
+  String productId=null;
+  if (UtilValidate.isNotEmpty(requestParams.get("productId"))) {
+    productId=requestParams.get("productId").toString();
+  }
+  String itemPkCateId=(String)requestParams.get("primaryCateId");
+  String shippingService=(String)requestParams.get("ShippingService");
+  String productStoreId=(String)requestParams.get("productStoreId");
+  try {
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    Map<String,Object> addItemObject=getAddItemListingObject(request,apiContext);
+    List<Map<String,Object>> listAddItem=null;
+    if (UtilValidate.isNotEmpty(addItemObject.get("itemListing"))) {
+      listAddItem=(List<Map<String,Object>>)addItemObject.get("itemListing");
+    }
+ else {
+      listAddItem=FastList.newInstance();
+    }
+    for (    Map<String,Object> itemObj : listAddItem) {
+      AddItemCall addItemCall=(AddItemCall)itemObj.get("addItemCall");
+      ItemType item=addItemCall.getItem();
+      String SKU=item.getSKU();
+      if (UtilValidate.isNotEmpty(productId)) {
+        if (productId.equals(SKU)) {
+          attributeMapList.put("Title",item.getTitle());
+          attributeMapList.put("SKU",SKU);
+          attributeMapList.put("Currency",item.getCurrency().value());
+          attributeMapList.put("Description",item.getDescription());
+          attributeMapList.put("ApplicationData",item.getApplicationData());
+          attributeMapList.put("Country",item.getCountry().value());
+          attributeMapList.put("PictureURL",item.getPictureDetails().getPictureURL(0));
+          attributeMapList.put("Site",item.getSite().value());
+          attributeMapList.put("UseTaxTable","false");
+          attributeMapList.put("BestOfferEnabled","true");
+          attributeMapList.put("AutoPayEnabled","true");
+          attributeMapList.put("CategoryID",item.getPrimaryCategory().getCategoryID());
+          attributeMapList.put("CategoryLevel",item.getPrimaryCategory().getCategoryLevel());
+          attributeMapList.put("CategoryName",item.getPrimaryCategory().getCategoryName());
+          attributeMapList.put("CategoryParentID",item.getPrimaryCategory().getCategoryParentID(0).toString());
+          attributeMapList.put("LeafCategory","true");
+          attributeMapList.put("LSD","true");
+          item.setUseTaxTable(false);
+          item.setDispatchTimeMax(3);
+          ReturnPolicyType policy=new ReturnPolicyType();
+          policy.setReturnsAcceptedOption("ReturnsNotAccepted");
+          item.setReturnPolicy(policy);
+          attributeMapList.put("ReturnsAcceptedOption","ReturnsNotAccepted");
+          String currencyId="";
+          if (UtilValidate.isNotEmpty(requestParams.get("currencyId".concat(id)))) {
+            currencyId=(String)requestParams.get("currencyId".concat(id));
+          }
+          if (UtilValidate.isNotEmpty(requestParams.get("enabledTheme")) && "Y".equals(requestParams.get("enabledTheme"))) {
+            ListingDesignerType designer=new ListingDesignerType();
+            String layoutId=(String)requestParams.get("themeGroup");
+            String themeIdImage=(String)requestParams.get("theme");
+            String themeId=themeIdImage.substring(0,themeIdImage.indexOf(":"));
+            designer.setLayoutID(Integer.parseInt(layoutId));
+            designer.setThemeID(Integer.parseInt(themeId));
+            item.setListingDesigner(designer);
+            attributeMapList.put("LayoutID",item.getListingDesigner().getLayoutID());
+            attributeMapList.put("ThemeID",item.getListingDesigner().getThemeID());
+          }
+          if ("_1".equals(id)) {
+            item.setListingType(ListingTypeCodeType.CHINESE);
+            AmountType amtStart=new AmountType();
+            amtStart.setCurrencyID(CurrencyCodeType.valueOf(currencyId));
+            amtStart.setValue(Double.parseDouble(startPrice));
+            item.setStartPrice(amtStart);
+            AmountType amtBIN=new AmountType();
+            amtBIN.setCurrencyID(CurrencyCodeType.valueOf(currencyId));
+            amtBIN.setValue(Double.parseDouble(buyItNowPrice));
+            item.setBuyItNowPrice(amtBIN);
+            attributeMapList.put("BuyItNowPrice",item.getBuyItNowPrice().getValue());
+            if (UtilValidate.isNotEmpty(requestParams.get("reservePrice".concat(id)))) {
+              AmountType amtResv=new AmountType();
+              amtResv.setCurrencyID(CurrencyCodeType.valueOf(currencyId));
+              amtResv.setValue(Double.parseDouble(requestParams.get("reservePrice".concat(id)).toString()));
+              item.setReservePrice(amtResv);
+              attributeMapList.put("ReservePrice",item.getReservePrice().getValue());
+            }
+          }
+ else           if ("_2".equals(id)) {
+            item.setListingType(ListingTypeCodeType.FIXED_PRICE_ITEM);
+            AmountType amtBIN=new AmountType();
+            amtBIN.setCurrencyID(CurrencyCodeType.valueOf(currencyId));
+            amtBIN.setValue(Double.parseDouble(startPrice));
+            item.setStartPrice(amtBIN);
+            if (UtilValidate.isNotEmpty(requestParams.get("enableBestOffer".concat(id)))) {
+              item.setBestOfferEnabled(new Boolean(requestParams.get("enableBestOffer".concat(id)).toString()));
+            }
+          }
+          attributeMapList.put("ListingType",item.getListingType().value());
+          attributeMapList.put("StartPrice",item.getStartPrice().getValue());
+          EbayStoreHelper.mappedPaymentMethods(requestParams,itemPkCateId,addItemObject,item,attributeMapList);
+          ShippingDetailsType shippingDetail=new ShippingDetailsType();
+          ShippingServiceOptionsType[] shippingOptions=new ShippingServiceOptionsType[1];
+          ShippingServiceOptionsType shippingOption=new ShippingServiceOptionsType();
+          shippingOption.setShippingServicePriority(1);
+          shippingOption.setShippingService(shippingService);
+          AmountType amtServiceCost=new AmountType();
+          amtServiceCost.setValue(5.0);
+          amtServiceCost.setCurrencyID(CurrencyCodeType.USD);
+          shippingOption.setShippingServiceCost(amtServiceCost);
+          shippingOptions[0]=shippingOption;
+          shippingDetail.setShippingType(ShippingTypeCodeType.FLAT);
+          shippingDetail.setShippingServiceOptions(shippingOptions);
+          item.setShippingDetails(shippingDetail);
+          attributeMapList.put("ShippingService",shippingService);
+          attributeMapList.put("ShippingServiceCost","" + 5.0);
+          attributeMapList.put("ShippingServiceCostCurrency","USD");
+          attributeMapList.put("ShippingServicePriority","1");
+          attributeMapList.put("ShippingType","Flat");
+          EbayStoreHelper.mappedShippingLocations(requestParams,item,apiContext,request,attributeMapList);
+          if (UtilValidate.isNotEmpty(requestParams.get("vatPercent".concat(id)))) {
+            VATDetailsType vat=new VATDetailsType();
+            vat.setVATPercent(new Float(requestParams.get("vatPercent".concat(id)).toString()));
+            item.setVATDetails(vat);
+            attributeMapList.put("VATPercent",vat);
+          }
+          if (UtilValidate.isNotEmpty(requestParams.get("location"))) {
+            item.setLocation(requestParams.get("location").toString());
+            attributeMapList.put("Location",requestParams.get("location").toString());
+          }
+          if (UtilValidate.isNotEmpty(requestParams.get("quantity".concat(id)))) {
+            item.setQuantity(Integer.parseInt(requestParams.get("quantity".concat(id)).toString()));
+            attributeMapList.put("Quantity",requestParams.get("quantity".concat(id)).toString());
+          }
+          if (UtilValidate.isNotEmpty(requestParams.get("duration".concat(id)))) {
+            item.setListingDuration(requestParams.get("duration".concat(id)).toString());
+            attributeMapList.put("ListingDuration",requestParams.get("duration".concat(id)).toString());
+          }
+          if (UtilValidate.isNotEmpty(requestParams.get("lotsize".concat(id)))) {
+            item.setLotSize(Integer.parseInt(requestParams.get("lotsize".concat(id)).toString()));
+            attributeMapList.put("LotSize",requestParams.get("lotsize".concat(id)).toString());
+          }
+          if (UtilValidate.isNotEmpty(requestParams.get("postalCode".concat(id)))) {
+            item.setPostalCode(requestParams.get("postalCode".concat(id)).toString());
+            attributeMapList.put("PostalCode",requestParams.get("postalCode".concat(id)).toString());
+          }
+          addItemCall.setItem(item);
+          Map<String,Object> prodMap=FastMap.newInstance();
+          prodMap.put("productStoreId",productStoreId);
+          prodMap.put("productId",productId);
+          prodMap.put("userLogin",userLogin);
+          if (UtilValidate.isNotEmpty(requestParams.get("isAutoRelist"))) {
+            prodMap.put("autoRelisting","Y");
+            itemObj.put("isAutoRelist","Y");
+          }
+          try {
+            GenericValue storeRole=EntityUtil.getFirst(delegator.findByAnd("ProductStoreRole",UtilMisc.toMap("productStoreId",productStoreId,"roleTypeId","EBAY_ACCOUNT")));
+            if (UtilValidate.isNotEmpty(storeRole)) {
+              List<GenericValue> ebayUserLoginList=delegator.findByAnd("UserLogin",UtilMisc.toMap("partyId",storeRole.get("partyId")));
+              if (ebayUserLoginList.size() > 0) {
+                GenericValue eBayUserLogin=EntityUtil.getFirst(ebayUserLoginList);
+                if (UtilValidate.isNotEmpty(eBayUserLogin)) {
+                  prodMap.put("userLoginId",eBayUserLogin.get("userLoginId").toString());
+                }
+              }
+            }
+          }
+ catch (          GenericEntityException ex) {
+            Debug.logError(ex.getMessage(),module);
+            return "error";
+          }
+          String productListingId=null;
+          if (UtilValidate.isEmpty(itemObj.get("productListingId"))) {
+            try {
+              prodMap.put("statusId","ITEM_CREATED");
+              Map<String,Object> result=dispatcher.runSync("createEbayProductListing",prodMap);
+              productListingId=result.get("productListingId").toString();
+              itemObj.put("productListingId",productListingId);
+              itemObj.put("isSaved","Y");
+            }
+ catch (            GenericServiceException ex) {
+              Debug.logError(ex.getMessage(),module);
+              return "error";
+            }
+          }
+ else {
+            productListingId=itemObj.get("productListingId").toString();
+            prodMap.put("productListingId",productListingId);
+            try {
+              dispatcher.runSync("updateEbayProductListing",prodMap);
+            }
+ catch (            GenericServiceException ex) {
+              Debug.logError(ex.getMessage(),module);
+              return "error";
+            }
+          }
+          if (UtilValidate.isNotEmpty(productListingId)) {
+            attributeMapList.put("productListingId",productListingId);
+            Map<String,Object> ebayProdAttrMap=FastMap.newInstance();
+            ebayProdAttrMap.put("productListingId",productListingId);
+            ebayProdAttrMap.put("userLogin",userLogin);
+            ebayProdAttrMap.put("attributeMapList",attributeMapList);
+            try {
+              dispatcher.runSync("setEbayProductListingAttribute",ebayProdAttrMap);
+            }
+ catch (            GenericServiceException ex) {
+              Debug.logError(ex.getMessage(),module);
+              return "error";
+            }
+          }
+        }
+      }
+    }
+    request.setAttribute("productStoreId",requestParams.get("productStoreId"));
+  }
+ catch (  Exception e) {
+    Debug.logError(e.getMessage(),module);
+    return "error";
+  }
+  return "success";
+}

@@ -1,0 +1,76 @@
+{
+  Map<String,Object> requestParams=UtilHttp.getParameterMap(request);
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  if (UtilValidate.isEmpty(requestParams.get("productStoreId"))) {
+    request.setAttribute("_ERROR_MESSAGE_","Required productStoreId.");
+    return "error";
+  }
+  if (UtilValidate.isEmpty(requestParams.get("isProductId"))) {
+    request.setAttribute("_ERROR_MESSAGE_","Required can not find form Id.");
+    return "error";
+  }
+  String isProductId=(String)requestParams.get("isProductId");
+  if (UtilValidate.isEmpty(requestParams.get("productId")) || UtilValidate.isEmpty(requestParams.get("ebayCategory"))) {
+    request.setAttribute("_ERROR_MESSAGE_","No ebay category or productId selected with form id ".concat(isProductId));
+    return "error";
+  }
+  String categoryId=(String)requestParams.get("ebayCategory");
+  if (categoryId.contains("false")) {
+    request.setAttribute("_ERROR_MESSAGE_","Please select ebay category with low level of categories.");
+    return "error";
+  }
+ else {
+    if (categoryId.contains("true"))     categoryId=categoryId.substring(0,categoryId.indexOf(":"));
+  }
+  String productId=(String)requestParams.get("isProductId");
+  EbayStoreCategoryFacade cf=null;
+  EbayStoreSiteFacade sf=null;
+  try {
+    if (UtilValidate.isNotEmpty(delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId)))) {
+      ApiContext apiContext=getApiContext(request);
+      Map<String,Object> addItemObject=getAddItemListingObject(request,apiContext);
+      List<Map<String,Object>> addItemlist=(List<Map<String,Object>>)addItemObject.get("itemListing");
+      if (UtilValidate.isNotEmpty(addItemlist)) {
+        for (        Map<String,Object> addItemCall : addItemlist) {
+          AddItemCall itemCall=(AddItemCall)addItemCall.get("addItemCall");
+          ItemType item=itemCall.getItem();
+          if (productId.equals(item.getSKU())) {
+            request.setAttribute("categoryId",categoryId);
+            CategoryType csCate=getCsCategoriesMapped(request);
+            if (UtilValidate.isNotEmpty(csCate)) {
+              Debug.logInfo("Set selected ebay category ".concat(csCate.getCategoryID().toString().concat(csCate.getCategoryName()).concat(String.valueOf((csCate.isLeafCategory())))),module);
+              item.setPrimaryCategory(csCate);
+              sf=getSiteFacade(apiContext,request);
+              String refName="itemCateFacade_".concat(csCate.getCategoryID());
+              if (UtilValidate.isEmpty(addItemObject.get(refName))) {
+                cf=new EbayStoreCategoryFacade(csCate.getCategoryID(),apiContext,sf.getAttrMaster(),sf);
+                addItemObject.put(refName,cf);
+              }
+              request.setAttribute("_EVENT_MESSAGE_","Set selected ebay category ".concat(csCate.getCategoryID().toString()).concat(" with product ".concat(productId).concat(" successed.")));
+            }
+ else {
+              Debug.logWarning(categoryId.concat(" This category is not leaf category or ?"),module);
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e.getMessage(),module);
+  }
+catch (  ApiException e) {
+    Debug.logError(e.getMessage(),module);
+  }
+catch (  SdkException e) {
+    Debug.logError(e.getMessage(),module);
+  }
+catch (  Exception e) {
+    Debug.logError(e.getMessage(),module);
+  }
+  request.setAttribute("productStoreId",requestParams.get("productStoreId"));
+  request.setAttribute("isProductId",productId);
+  request.removeAttribute("categoryId");
+  return "success";
+}

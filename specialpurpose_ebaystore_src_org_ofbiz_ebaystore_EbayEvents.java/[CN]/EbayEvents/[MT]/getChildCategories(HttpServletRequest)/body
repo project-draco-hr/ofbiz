@@ -1,0 +1,55 @@
+{
+  List<CategoryType> categories=FastList.newInstance();
+  EbayStoreSiteFacade sf=null;
+  String categoryId=null;
+  if (request.getParameter("productStoreId") == null && request.getAttribute("productStoreId") == null) {
+    Debug.logError("Required productStoreId for get ebay LeafCategories.",module);
+    return categories;
+  }
+  if (request.getParameter("categoryId") != null || request.getAttribute("categoryId") != null) {
+    categoryId=(String)request.getParameter("categoryId") != null ? request.getParameter("categoryId") : (String)request.getAttribute("categoryId");
+    Debug.logInfo("Load child categories from session following site id and categoryId is ".concat(categoryId),module);
+  }
+ else {
+    Debug.logWarning("No categoryId to get child categories.",module);
+  }
+  ApiContext apiContext=getApiContext(request);
+  sf=getSiteFacade(apiContext,request);
+  if (UtilValidate.isNotEmpty(sf)) {
+    Map<SiteCodeType,List<CategoryType>> csCateMaps=sf.getSiteCategoriesCSMap();
+    List<CategoryType> csCateList=csCateMaps.get(apiContext.getSite());
+    if (UtilValidate.isNotEmpty(csCateList)) {
+      if (UtilValidate.isNotEmpty(categoryId)) {
+        for (        CategoryType csCate : csCateList) {
+          String[] categoryParentIds=csCate.getCategoryParentID();
+          for (          String categoryParentId : categoryParentIds) {
+            if (categoryId.equals(categoryParentId)) {
+              categories.add(csCate);
+            }
+          }
+        }
+      }
+ else {
+        for (        CategoryType csCate : csCateList) {
+          String[] categoryParentIds=csCate.getCategoryParentID();
+          for (          String categoryParentId : categoryParentIds) {
+            if (csCate.getCategoryID().equals(categoryParentId)) {
+              categories.add(csCate);
+            }
+          }
+        }
+      }
+      Collections.sort(categories,new Comparator(){
+        public int compare(        Object a,        Object b){
+          CategoryType cat1=(CategoryType)a;
+          CategoryType cat2=(CategoryType)b;
+          int catId1=Integer.parseInt(cat1.getCategoryID());
+          int catId2=Integer.parseInt(cat2.getCategoryID());
+          return catId1 - catId2;
+        }
+      }
+);
+    }
+  }
+  return categories;
+}
