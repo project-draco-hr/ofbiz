@@ -1,0 +1,99 @@
+{
+  String delegatorName=(String)request.getSession().getAttribute("delegatorName");
+  Delegator delegator=null;
+  if (UtilValidate.isNotEmpty(delegatorName)) {
+    delegator=DelegatorFactory.getDelegator(delegatorName);
+  }
+  if (delegator == null) {
+    throw new IllegalArgumentException("In countHit could not find a delegator or delegatorName to work from");
+  }
+  String id=makeIdTenantAware(baseId,delegator);
+  ServerHitBin bin=null;
+  List<ServerHitBin> binList=null;
+switch (type) {
+case REQUEST:
+    binList=requestHistory.get(id);
+  break;
+case EVENT:
+binList=eventHistory.get(id);
+break;
+case VIEW:
+binList=viewHistory.get(id);
+break;
+case ENTITY:
+binList=entityHistory.get(id);
+break;
+case SERVICE:
+binList=serviceHistory.get(id);
+break;
+}
+if (binList == null) {
+synchronized (ServerHitBin.class) {
+switch (type) {
+case REQUEST:
+binList=requestHistory.get(id);
+break;
+case EVENT:
+binList=eventHistory.get(id);
+break;
+case VIEW:
+binList=viewHistory.get(id);
+break;
+case ENTITY:
+binList=entityHistory.get(id);
+break;
+case SERVICE:
+binList=serviceHistory.get(id);
+break;
+}
+if (binList == null) {
+binList=FastList.newInstance();
+switch (type) {
+case REQUEST:
+requestHistory.put(id,binList);
+break;
+case EVENT:
+eventHistory.put(id,binList);
+break;
+case VIEW:
+viewHistory.put(id,binList);
+break;
+case ENTITY:
+entityHistory.put(id,binList);
+break;
+case SERVICE:
+serviceHistory.put(id,binList);
+break;
+}
+}
+}
+}
+if (binList.size() > 0) {
+bin=binList.get(0);
+}
+if (bin == null) {
+synchronized (ServerHitBin.class) {
+if (binList.size() > 0) {
+bin=binList.get(0);
+}
+if (bin == null) {
+bin=new ServerHitBin(id,type,true,delegator);
+binList.add(0,bin);
+}
+}
+}
+bin.addHit(startTime,runningTime);
+if (isOriginal && !id.startsWith("GLOBAL")) {
+try {
+bin.saveHit(request,startTime,runningTime,userLogin);
+}
+ catch (GenericEntityException e) {
+Debug.logWarning(e,"Error saving ServerHit: " + e.toString(),module);
+}
+}
+if (!id.startsWith("GLOBAL")) countHitSinceStart(id,type,startTime,runningTime,isOriginal,delegator);
+if (id.indexOf('.') > 0) {
+countHit(id.substring(0,id.lastIndexOf('.')),type,request,startTime,runningTime,userLogin,false);
+}
+if (isOriginal && !id.startsWith("GLOBAL")) countHit("GLOBAL",type,request,startTime,runningTime,userLogin,true);
+}
