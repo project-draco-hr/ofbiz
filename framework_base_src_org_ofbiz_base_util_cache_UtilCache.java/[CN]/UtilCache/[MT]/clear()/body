@@ -1,8 +1,34 @@
 {
-  for (  K key : cacheLineTable.keySet()) {
-    CacheLine<V> line=getInternalNoCheck(key);
-    noteRemoval(key,line == null ? null : line.getValue());
+  if (fileTable != null) {
+    Set<Object> keys=new HashSet<Object>();
+    try {
+      addAllFileTableKeys(keys);
+    }
+ catch (    IOException e) {
+      Debug.logError(e,module);
+    }
+    for (    Object key : keys) {
+      try {
+        CacheLine<V> value=fileTable.get(key);
+        noteRemoval(toKey(key),value.getValue());
+        removeHitCount.incrementAndGet();
+        fileTable.remove(key);
+        jdbmMgr.commit();
+      }
+ catch (      IOException e) {
+        Debug.logError(e,module);
+      }
+    }
+    memoryTable.clear();
   }
-  cacheLineTable.clear();
+ else {
+    Iterator<Map.Entry<Object,CacheLine<V>>> it=memoryTable.entrySet().iterator();
+    while (it.hasNext()) {
+      Map.Entry<Object,CacheLine<V>> entry=it.next();
+      noteRemoval(toKey(entry.getKey()),entry.getValue().getValue());
+      removeHitCount.incrementAndGet();
+      it.remove();
+    }
+  }
   clearCounters();
 }

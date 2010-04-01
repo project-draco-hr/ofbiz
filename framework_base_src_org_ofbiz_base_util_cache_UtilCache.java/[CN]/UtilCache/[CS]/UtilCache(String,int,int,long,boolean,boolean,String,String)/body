@@ -9,5 +9,40 @@
   setPropertiesParams(propNames);
   int maxMemSize=this.maxInMemory;
   if (maxMemSize == 0)   maxMemSize=sizeLimit;
-  this.cacheLineTable=new CacheLineTable<K,V>(this.fileStore,this.name,this.useFileSystemStore,maxMemSize);
+  if (maxMemSize == 0) {
+    memoryTable=FastMap.newInstance();
+  }
+ else {
+    memoryTable=ConcurrentLinkedHashMap.create(ConcurrentLinkedHashMap.EvictionPolicy.LRU,maxMemSize);
+  }
+  if (this.useFileSystemStore) {
+    jdbmMgr=fileManagers.get(fileStore);
+    if (jdbmMgr == null) {
+      Debug.logImportant("Creating file system cache store for cache with name: " + cacheName,module);
+      try {
+        String ofbizHome=System.getProperty("ofbiz.home");
+        if (ofbizHome == null) {
+          Debug.logError("No ofbiz.home property set in environment",module);
+        }
+ else {
+          jdbmMgr=new JdbmRecordManager(ofbizHome + "/" + fileStore);
+        }
+      }
+ catch (      IOException e) {
+        Debug.logError(e,"Error creating file system cache store for cache with name: " + cacheName,module);
+      }
+      fileManagers.putIfAbsent(fileStore,jdbmMgr);
+    }
+    jdbmMgr=fileManagers.get(fileStore);
+    if (jdbmMgr != null) {
+      try {
+        this.fileTable=HTree.createInstance(jdbmMgr);
+        jdbmMgr.setNamedObject(cacheName,this.fileTable.getRecid());
+        jdbmMgr.commit();
+      }
+ catch (      IOException e) {
+        Debug.logError(e,module);
+      }
+    }
+  }
 }
