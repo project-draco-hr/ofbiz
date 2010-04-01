@@ -3,25 +3,29 @@
     if (Debug.verboseOn())     Debug.logVerbose("In UtilCache tried to remove with null key, using NullObject" + this.name,module);
   }
   Object nulledKey=fromKey(key);
-  CacheLine<V> oldCacheLine=getInternalNoCheck(nulledKey);
+  CacheLine<V> oldCacheLine;
+  V oldValue;
   if (fileTable != null) {
     try {
+      try {
+        oldValue=fileTable.get(nulledKey);
+      }
+ catch (      IOException e) {
+        oldValue=null;
+        throw e;
+      }
       fileTable.remove(nulledKey);
       jdbmMgr.commit();
     }
  catch (    IOException e) {
+      oldValue=null;
       Debug.logError(e,module);
     }
-  }
-  memoryTable.remove(nulledKey);
-  if (oldCacheLine != null) {
-    V oldValue=oldCacheLine.getValue();
-    noteRemoval((K)key,oldValue);
-    if (countRemove)     removeHitCount.incrementAndGet();
-    return oldValue;
+    memoryTable.remove(nulledKey);
   }
  else {
-    if (countRemove)     removeMissCount.incrementAndGet();
-    return null;
+    oldCacheLine=memoryTable.remove(nulledKey);
+    oldValue=oldCacheLine != null ? oldCacheLine.getValue() : null;
   }
+  return postRemove((K)key,oldValue,countRemove);
 }

@@ -1,9 +1,43 @@
 {
-  CacheLine<V> line=getInternal(key,true);
+  boolean countGet=true;
+  Object nulledKey=fromKey(key);
+  CacheLine<V> line=memoryTable.get(nulledKey);
   if (line == null) {
-    return null;
+    if (fileTable != null) {
+      V value;
+      try {
+        value=fileTable.get(nulledKey);
+      }
+ catch (      IOException e) {
+        Debug.logError(e,module);
+        value=null;
+      }
+      if (value == null) {
+        missCountNotFound.incrementAndGet();
+        return null;
+      }
+ else {
+        hitCount.incrementAndGet();
+      }
+      memoryTable.put(nulledKey,createCacheLine(value,expireTime));
+      return value;
+    }
+ else {
+      missCountNotFound.incrementAndGet();
+    }
+  }
+ else   if (line.isInvalid()) {
+    removeInternal(key,false);
+    if (countGet)     missCountSoftRef.incrementAndGet();
+    line=null;
+  }
+ else   if (line.hasExpired()) {
+    removeInternal(key,false);
+    if (countGet)     missCountExpired.incrementAndGet();
+    line=null;
   }
  else {
-    return line.getValue();
+    if (countGet)     hitCount.incrementAndGet();
   }
+  return line != null ? line.getValue() : null;
 }

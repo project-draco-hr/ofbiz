@@ -1,6 +1,17 @@
 {
-  CacheLine<V> oldCacheLine=putInternal(fromKey(key),createCacheLine(value,expireTime));
+  Object nulledKey=fromKey(key);
+  CacheLine<V> oldCacheLine=memoryTable.put(nulledKey,createCacheLine(value,expireTime));
   V oldValue=oldCacheLine == null ? null : oldCacheLine.getValue();
+  if (fileTable != null) {
+    try {
+      if (oldValue == null)       oldValue=fileTable.get(nulledKey);
+      fileTable.put(nulledKey,value);
+      jdbmMgr.commit();
+    }
+ catch (    IOException e) {
+      Debug.logError(e,module);
+    }
+  }
   if (oldValue == null) {
     noteAddition(key,value);
     return null;
