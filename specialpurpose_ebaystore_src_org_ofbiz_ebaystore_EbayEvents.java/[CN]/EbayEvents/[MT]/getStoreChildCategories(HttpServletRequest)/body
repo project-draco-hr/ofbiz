@@ -1,0 +1,54 @@
+{
+  List<StoreCustomCategoryType> categories=FastList.newInstance();
+  EbayStoreSiteFacade sf=null;
+  String categoryId=null;
+  if (UtilValidate.isEmpty(request.getParameter("productStoreId")) && UtilValidate.isEmpty(request.getAttribute("productStoreId"))) {
+    Debug.logError("Required productStoreId for get ebay LeafCategories.",module);
+    return categories;
+  }
+  if (UtilValidate.isNotEmpty(request.getParameter("categoryId")) || UtilValidate.isNotEmpty(request.getAttribute("categoryId"))) {
+    categoryId=(String)request.getParameter("categoryId") != null ? request.getParameter("categoryId") : (String)request.getAttribute("categoryId");
+    Debug.logInfo("Load child categories from session following site id and categoryId is ".concat(categoryId),module);
+  }
+ else {
+    Debug.logWarning("No categoryId to get child categories.",module);
+  }
+  ApiContext apiContext=getApiContext(request);
+  sf=getSiteFacade(apiContext,request);
+  if (UtilValidate.isNotEmpty(sf)) {
+    Map<SiteCodeType,List<StoreCustomCategoryType>> csCateMaps=sf.getSiteStoreCategoriesMap();
+    List<StoreCustomCategoryType> csCateList=csCateMaps.get(apiContext.getSite());
+    if (UtilValidate.isNotEmpty(csCateList)) {
+      for (      StoreCustomCategoryType csCate : csCateList) {
+        StoreCustomCategoryType[] categoryChildCategories=csCate.getChildCategory();
+        if (categoryChildCategories.length > 0) {
+          for (          StoreCustomCategoryType childCategory : categoryChildCategories) {
+            StoreCustomCategoryType[] categoryChild2=childCategory.getChildCategory();
+            if (categoryChild2.length > 0) {
+              for (              StoreCustomCategoryType categoryChild3 : categoryChild2) {
+                categories.add(categoryChild3);
+              }
+            }
+ else {
+              categories.add(childCategory);
+            }
+          }
+        }
+ else {
+          categories.add(csCate);
+        }
+      }
+      Collections.sort(categories,new Comparator(){
+        public int compare(        Object a,        Object b){
+          StoreCustomCategoryType cat1=(StoreCustomCategoryType)a;
+          StoreCustomCategoryType cat2=(StoreCustomCategoryType)b;
+          int catId1=Integer.parseInt(Long.toString(cat1.getCategoryID()));
+          int catId2=Integer.parseInt(Long.toString(cat2.getCategoryID()));
+          return catId1 - catId2;
+        }
+      }
+);
+    }
+  }
+  return categories;
+}
