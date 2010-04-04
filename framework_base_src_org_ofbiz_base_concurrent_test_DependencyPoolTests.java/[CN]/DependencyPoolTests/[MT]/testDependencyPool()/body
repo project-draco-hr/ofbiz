@@ -1,0 +1,47 @@
+{
+  ScheduledExecutorService executor=ExecutionPool.getNewOptimalExecutor(getName());
+  DependencyPool pool=new DependencyPool(executor);
+  int itemSize=100, depMax=5, subMax=3;
+  List<TestItem> items=new ArrayList<TestItem>(itemSize);
+  List<TestItem> previousItems=new ArrayList<TestItem>(itemSize);
+  for (int i=0; i < itemSize; i++) {
+    int depSize=(int)(Math.random() * Math.min(depMax,itemSize - i - 1));
+    List<Integer> deps=new ArrayList<Integer>(depSize);
+    for (int j=i + 1, k=0; j < itemSize && k < depSize; j++) {
+      if (Math.random() * (itemSize - j) / (depSize - k + 1) < 1) {
+        deps.add(j);
+        k++;
+      }
+    }
+    int subSize=(int)(Math.random() * Math.min(subMax,i));
+    List<TestItem> subItems=new ArrayList<TestItem>(subSize);
+    OUTER:     for (int j=0; j < previousItems.size() && subItems.size() < subSize; ) {
+      if (Math.random() * j < 1) {
+        TestItem previousItem=previousItems.get(j);
+        for (int k=0; k < deps.size(); k++) {
+          if (previousItem.getDependencies().contains(deps.get(k))) {
+            j++;
+            continue OUTER;
+          }
+        }
+        subItems.add(previousItem);
+        previousItems.remove(j);
+      }
+ else {
+        j++;
+      }
+    }
+    TestItem item=new TestItem(pool,Integer.valueOf(i),Integer.toString(i),deps,subItems);
+    items.add(item);
+    previousItems.add(item);
+  }
+  pool.addAll(items);
+  pool.start();
+  pool.await();
+  assertEquals("result count",itemSize,pool.getResultCount());
+  for (int i=0; i < itemSize; i++) {
+    TestItem item=items.get(i);
+    assertEquals("item(" + i + ") result",Integer.toString(i),pool.getResult(item));
+  }
+  executor.shutdown();
+}
