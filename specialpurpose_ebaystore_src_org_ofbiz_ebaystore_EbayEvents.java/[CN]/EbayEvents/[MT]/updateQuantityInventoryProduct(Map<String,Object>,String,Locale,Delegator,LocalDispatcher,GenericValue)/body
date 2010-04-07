@@ -1,0 +1,45 @@
+{
+  try {
+    AddItemCall addItemCall=(AddItemCall)itemObj.get("addItemCall");
+    ItemType item=addItemCall.getItem();
+    String productId=item.getSKU();
+    if (UtilValidate.isNotEmpty(itemObj.get("requireEbayInventory")) && (itemObj.get("requireEbayInventory").equals("Y"))) {
+      GetSellingManagerInventoryRequestType req=new GetSellingManagerInventoryRequestType();
+      GetSellingManagerInventoryResponseType resp=null;
+      SellingManagerProductType[] returnedSellingManagerProductType=null;
+      GetSellingManagerInventoryCall call=new GetSellingManagerInventoryCall(EbayStoreHelper.getApiContext(productStoreId,locale,delegator));
+      resp=(GetSellingManagerInventoryResponseType)call.execute(req);
+      if (resp != null && "SUCCESS".equals(resp.getAck().toString())) {
+        returnedSellingManagerProductType=resp.getSellingManagerProduct();
+        for (int i=0; i < returnedSellingManagerProductType.length; i++) {
+          SellingManagerProductDetailsType prodDetailType=returnedSellingManagerProductType[i].getSellingManagerProductDetails();
+          String productIdInv=Long.toString(prodDetailType.getProductID());
+          if (productId.equals(productIdInv)) {
+            int qty=prodDetailType.getQuantityAvailable();
+            if (qty > 0) {
+              int newQty=qty - 1;
+              prodDetailType.setQuantityAvailable(newQty);
+              ReviseSellingManagerProductCall revProdCall=new ReviseSellingManagerProductCall(EbayStoreHelper.getApiContext(productStoreId,locale,delegator));
+              ReviseSellingManagerProductRequestType revReq=new ReviseSellingManagerProductRequestType();
+              ReviseSellingManagerProductResponseType revResp=null;
+              revReq.setSellingManagerProductDetails(prodDetailType);
+              revResp=(ReviseSellingManagerProductResponseType)revProdCall.execute(revReq);
+              if (revResp != null && "SUCCESS".equals(revResp.getAck().toString())) {
+                Debug.log("  Already update quantity on eBay inventory with product id ::" + revResp.getSellingManagerProductDetails().getProductID());
+              }
+ else {
+                EbayStoreHelper.createErrorLogMessage(userLogin,dispatcher,productStoreId,revResp.getAck().toString(),"ReviseSellingManagerProductCall : updateQuantityInventoryProduct",revResp.getErrors(0).getLongMessage());
+              }
+            }
+          }
+        }
+      }
+ else {
+        EbayStoreHelper.createErrorLogMessage(userLogin,dispatcher,productStoreId,resp.getAck().toString(),"GetSellingManagerInventoryCall : updateQuantityInventoryProduct",resp.getErrors(0).getLongMessage());
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e.getMessage(),module);
+  }
+}
