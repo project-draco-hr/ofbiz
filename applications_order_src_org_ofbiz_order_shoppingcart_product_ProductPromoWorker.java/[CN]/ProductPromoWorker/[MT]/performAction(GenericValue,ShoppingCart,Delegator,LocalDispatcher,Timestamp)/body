@@ -1,7 +1,27 @@
 {
   ActionResultInfo actionResultInfo=new ActionResultInfo();
   String productPromoActionEnumId=productPromoAction.getString("productPromoActionEnumId");
-  if ("PROMO_GWP".equals(productPromoActionEnumId)) {
+  if ("PROMO_SERVICE".equals(productPromoActionEnumId)) {
+    Map<String,Object> serviceCtx=UtilMisc.<String,Object>toMap("productPromoAction",productPromoAction,"shoppingCart",cart,"nowTimestamp",nowTimestamp,"actionResultInfo",actionResultInfo);
+    String serviceName=productPromoAction.getString("serviceName");
+    Map<String,Object> actionResult;
+    try {
+      actionResult=dispatcher.runSync(serviceName,serviceCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError("Error calling promo action service [" + serviceName + "]",module);
+      throw new CartItemModifyException("Error calling promo action service [" + serviceName + "]");
+    }
+    if (ServiceUtil.isError(actionResult)) {
+      Debug.logError("Error calling promo action service [" + serviceName + "], result is: "+ actionResult,module);
+      throw new CartItemModifyException((String)actionResult.get(ModelService.ERROR_MESSAGE));
+    }
+    CartItemModifyException cartItemModifyException=(CartItemModifyException)actionResult.get("cartItemModifyException");
+    if (cartItemModifyException != null) {
+      throw cartItemModifyException;
+    }
+  }
+ else   if ("PROMO_GWP".equals(productPromoActionEnumId)) {
     String productStoreId=cart.getProductStoreId();
     boolean allowMultipleGwp=true;
     Integer itemLoc=findPromoItem(productPromoAction,cart);
