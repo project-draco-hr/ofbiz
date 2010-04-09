@@ -1,5 +1,5 @@
 {
-  Collection tools=null;
+  List<GenericValue> tools=null;
   String allParams="";
   try {
     tools=getActivity().getDefinitionObject().getRelated("WorkflowActivityTool");
@@ -12,28 +12,26 @@
     return;
   }
   if (Debug.verboseOn())   Debug.logVerbose("[WfActivity.runTool] : Running tools (" + tools.size() + ").",module);
-  List waiters=new ArrayList();
-  Iterator i=tools.iterator();
-  while (i.hasNext()) {
-    GenericValue thisTool=(GenericValue)i.next();
+  List<GenericResultWaiter> waiters=new ArrayList<GenericResultWaiter>();
+  for (  GenericValue thisTool : tools) {
     String serviceName=null;
     String toolId=thisTool.getString("toolId");
     String params=thisTool.getString("actualParameters");
     String toolTypeEnumId=thisTool.getString("toolTypeEnumId");
     allParams=allParams + "," + params;
     String extend=thisTool.getString("extendedAttributes");
-    Map extendedAttr=StringUtil.strToMap(extend);
-    if (extendedAttr != null && extendedAttr.containsKey("serviceName"))     serviceName=(String)extendedAttr.get("serviceName");
+    Map<String,String> extendedAttr=StringUtil.strToMap(extend);
+    if (extendedAttr != null && extendedAttr.containsKey("serviceName")) {
+      serviceName=(String)extendedAttr.get("serviceName");
+    }
     serviceName=serviceName != null ? serviceName : (toolTypeEnumId.equals("WTT_APPLICATION") ? "wfActivateApplication" : toolId);
     waiters.add(runService(serviceName,params,extend));
   }
   while (waiters.size() > 0) {
-    Iterator wi=waiters.iterator();
-    Collection remove=new ArrayList();
-    while (wi.hasNext()) {
-      GenericResultWaiter thw=(GenericResultWaiter)wi.next();
+    List<GenericResultWaiter> remove=new ArrayList<GenericResultWaiter>();
+    for (    GenericResultWaiter thw : waiters) {
       if (thw.isCompleted()) {
-        Map thwResult=null;
+        Map<String,Object> thwResult=null;
         if (thw.status() == GenericResultWaiter.SERVICE_FINISHED) {
           thwResult=thw.getResult();
           Debug.logVerbose("Service finished.",module);
