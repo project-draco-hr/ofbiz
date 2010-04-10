@@ -1,0 +1,118 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String errorReferenceId=(String)context.get("referenceId");
+  List<Map<String,String>> errorMapList=UtilGenerics.checkList(context.get("errorMapList"));
+  String sendToUrl=(String)context.get("sendToUrl");
+  if (UtilValidate.isEmpty(sendToUrl)) {
+    sendToUrl=UtilProperties.getPropertyValue("oagis.properties","url.send.confirmBod");
+  }
+  String saveToFilename=(String)context.get("saveToFilename");
+  if (UtilValidate.isEmpty(saveToFilename)) {
+    String saveToFilenameBase=UtilProperties.getPropertyValue("oagis.properties","test.save.outgoing.filename.base","");
+    if (UtilValidate.isNotEmpty(saveToFilenameBase)) {
+      saveToFilename=saveToFilenameBase + "ConfirmBod" + errorReferenceId+ ".xml";
+    }
+  }
+  String saveToDirectory=(String)context.get("saveToDirectory");
+  if (UtilValidate.isEmpty(saveToDirectory)) {
+    saveToDirectory=UtilProperties.getPropertyValue("oagis.properties","test.save.outgoing.directory");
+  }
+  OutputStream out=(OutputStream)context.get("outputStream");
+  GenericValue userLogin=null;
+  try {
+    userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting userLogin",module);
+  }
+  String logicalId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.LOGICALID");
+  String authId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.AUTHID");
+  MapStack<String> bodyParameters=MapStack.create();
+  bodyParameters.put("logicalId",logicalId);
+  bodyParameters.put("authId",authId);
+  String referenceId=delegator.getNextSeqId("OagisMessageInfo");
+  bodyParameters.put("referenceId",referenceId);
+  Timestamp timestamp=UtilDateTime.nowTimestamp();
+  String sentDate=isoDateFormat.format(timestamp);
+  bodyParameters.put("sentDate",sentDate);
+  Map<String,Object> omiPkMap=FastMap.newInstance();
+  omiPkMap.put("logicalId",logicalId);
+  omiPkMap.put("component","EXCEPTION");
+  omiPkMap.put("task","RECIEPT");
+  omiPkMap.put("referenceId",referenceId);
+  Map<String,Object> oagisMsgInfoContext=FastMap.newInstance();
+  oagisMsgInfoContext.putAll(omiPkMap);
+  oagisMsgInfoContext.put("authId",authId);
+  oagisMsgInfoContext.put("sentDate",timestamp);
+  oagisMsgInfoContext.put("confirmation","0");
+  oagisMsgInfoContext.put("bsrVerb","CONFIRM");
+  oagisMsgInfoContext.put("bsrNoun","BOD");
+  oagisMsgInfoContext.put("bsrRevision","004");
+  oagisMsgInfoContext.put("outgoingMessage","Y");
+  oagisMsgInfoContext.put("processingStatusId","OAGMP_TRIGGERED");
+  oagisMsgInfoContext.put("userLogin",userLogin);
+  try {
+    dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Saving message to database failed",module);
+  }
+  try {
+    Map<String,Object> saveErrorMapListCtx=FastMap.newInstance();
+    saveErrorMapListCtx.putAll(omiPkMap);
+    saveErrorMapListCtx.put("errorMapList",errorMapList);
+    saveErrorMapListCtx.put("userLogin",userLogin);
+    dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
+  bodyParameters.put("errorLogicalId",context.get("logicalId"));
+  bodyParameters.put("errorComponent",context.get("component"));
+  bodyParameters.put("errorTask",context.get("task"));
+  bodyParameters.put("errorReferenceId",errorReferenceId);
+  bodyParameters.put("errorMapList",errorMapList);
+  bodyParameters.put("origRef",context.get("origRefId"));
+  String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ConfirmBod");
+  String outText=null;
+  try {
+    Writer writer=new StringWriter();
+    ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,new HtmlScreenRenderer());
+    screens.render(bodyScreenUri);
+    writer.close();
+    outText=writer.toString();
+  }
+ catch (  Exception e) {
+    String errMsg="Error rendering message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (Debug.infoOn())   Debug.logInfo("Finished rendering oagisSendConfirmBod message for errorReferenceId [" + errorReferenceId + "]",module);
+  try {
+    oagisMsgInfoContext.put("processingStatusId","OAGMP_OGEN_SUCCESS");
+    if (OagisServices.debugSaveXmlOut) {
+      oagisMsgInfoContext.put("fullMessageXml",outText);
+    }
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+    Debug.logError(e,errMsg,module);
+  }
+  Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
+  if (sendMessageReturn != null) {
+    return sendMessageReturn;
+  }
+  if (Debug.infoOn())   Debug.logInfo("Message send done for oagisSendConfirmBod for errorReferenceId [" + errorReferenceId + "], sendToUrl=["+ sendToUrl+ "], saveToDirectory=["+ saveToDirectory+ "], saveToFilename=["+ saveToFilename+ "]",module);
+  try {
+    oagisMsgInfoContext.put("processingStatusId","OAGMP_SENT");
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+    Debug.logError(e,errMsg,module);
+  }
+  return ServiceUtil.returnSuccess("Service Completed Successfully");
+}

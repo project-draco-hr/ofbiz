@@ -1,0 +1,206 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String returnId=(String)context.get("returnId");
+  String sendToUrl=(String)context.get("sendToUrl");
+  if (UtilValidate.isEmpty(sendToUrl)) {
+    sendToUrl=UtilProperties.getPropertyValue("oagis.properties","url.send.receiveDelivery");
+  }
+  String saveToFilename=(String)context.get("saveToFilename");
+  if (UtilValidate.isEmpty(saveToFilename)) {
+    String saveToFilenameBase=UtilProperties.getPropertyValue("oagis.properties","test.save.outgoing.filename.base","");
+    if (UtilValidate.isNotEmpty(saveToFilenameBase)) {
+      saveToFilename=saveToFilenameBase + "ReceiveDelivery" + returnId+ ".xml";
+    }
+  }
+  String saveToDirectory=(String)context.get("saveToDirectory");
+  if (UtilValidate.isEmpty(saveToDirectory)) {
+    saveToDirectory=UtilProperties.getPropertyValue("oagis.properties","test.save.outgoing.directory");
+  }
+  GenericValue userLogin=null;
+  try {
+    userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting system userLogin",module);
+  }
+  OutputStream out=(OutputStream)context.get("outputStream");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  MapStack<String> bodyParameters=MapStack.create();
+  String orderId=null;
+  String referenceId=null;
+  String task="RMA";
+  String component="INVENTORY";
+  Map<String,String> omiPkMap=null;
+  try {
+    List<GenericValue> previousOagisMessageInfoList=delegator.findByAnd("OagisMessageInfo",UtilMisc.toMap("returnId",returnId,"task",task,"component",component));
+    if (EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS")).size() > 0) {
+      String successMsg="Found existing message info(s) in OAGMP_OGEN_SUCCESS, so not sending Receive Delivery message for return [" + returnId + "] existing message(s) are: "+ EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS"));
+      return ServiceUtil.returnSuccess(successMsg);
+    }
+    if (EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT")).size() > 0) {
+      String successMsg="Found existing message info(s) in OAGMP_SENT status, so not sending Receive Delivery message for return [" + returnId + "] existing message(s) are: "+ EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT"));
+      return ServiceUtil.returnSuccess(successMsg);
+    }
+    GenericValue returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+    if (returnHeader == null) {
+      return ServiceUtil.returnError("Could not find Return with ID [" + returnId + "]");
+    }
+    String statusId=returnHeader.getString("statusId");
+    if (!"RETURN_ACCEPTED".equals(statusId)) {
+      return ServiceUtil.returnError("Return with ID [" + returnId + "] no in accepted status (RETURN_ACCEPTED)");
+    }
+    List<GenericValue> returnItems=delegator.findByAnd("ReturnItem",UtilMisc.toMap("returnId",returnId));
+    bodyParameters.put("returnItems",returnItems);
+    orderId=EntityUtil.getFirst(returnItems).getString("orderId");
+    String logicalId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.LOGICALID");
+    String authId=UtilProperties.getPropertyValue("oagis.properties","CNTROLAREA.SENDER.AUTHID");
+    referenceId=delegator.getNextSeqId("OagisMessageInfo");
+    omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
+    Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+    String sentDate=OagisServices.isoDateFormat.format(nowTimestamp);
+    bodyParameters.putAll(omiPkMap);
+    bodyParameters.put("authId",authId);
+    bodyParameters.put("sentDate",sentDate);
+    try {
+      Map<String,Object> comiCtx=FastMap.newInstance();
+      comiCtx.putAll(omiPkMap);
+      comiCtx.put("outgoingMessage","Y");
+      comiCtx.put("confirmation","1");
+      comiCtx.put("bsrVerb","RECEIVE");
+      comiCtx.put("bsrNoun","DELIVERY");
+      comiCtx.put("bsrRevision","001");
+      comiCtx.put("returnId",returnId);
+      comiCtx.put("orderId",orderId);
+      comiCtx.put("authId",authId);
+      comiCtx.put("sentDate",nowTimestamp);
+      comiCtx.put("processingStatusId","OAGMP_TRIGGERED");
+      comiCtx.put("userLogin",userLogin);
+      dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+    }
+    GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader == null) {
+      return ServiceUtil.returnError("No valid Order with [" + orderId + "] found, cannot process Return");
+    }
+    String partyId=returnHeader.getString("fromPartyId");
+    GenericValue postalAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",returnHeader.getString("originContactMechId")));
+    bodyParameters.put("postalAddress",postalAddress);
+    bodyParameters.put("partyNameView",delegator.findByPrimaryKey("PartyNameView",UtilMisc.toMap("partyId",partyId)));
+    double totalQty=0.0;
+    Map<String,List<String>> serialNumberListByReturnItemSeqIdMap=FastMap.newInstance();
+    bodyParameters.put("serialNumberListByReturnItemSeqIdMap",serialNumberListByReturnItemSeqIdMap);
+    for (    GenericValue returnItem : returnItems) {
+      double itemQty=returnItem.getDouble("returnQuantity").doubleValue();
+      totalQty+=itemQty;
+      GenericValue orderItem=returnItem.getRelatedOne("OrderItem");
+      if (orderItem != null) {
+        if (orderItem.getDouble("quantity").doubleValue() == itemQty) {
+          List<GenericValue> itemIssuanceAndInventoryItemList=delegator.findByAnd("ItemIssuanceAndInventoryItem",UtilMisc.toMap("orderId",orderItem.get("orderId"),"orderItemSeqId",orderItem.get("orderItemSeqId"),"inventoryItemTypeId","SERIALIZED_INV_ITEM"));
+          if (itemIssuanceAndInventoryItemList.size() == itemQty) {
+            List<String> serialNumberList=FastList.newInstance();
+            serialNumberListByReturnItemSeqIdMap.put(returnItem.getString("returnItemSeqId"),serialNumberList);
+            for (            GenericValue itemIssuanceAndInventoryItem : itemIssuanceAndInventoryItemList) {
+              serialNumberList.add(itemIssuanceAndInventoryItem.getString("serialNumber"));
+            }
+          }
+ else {
+            Debug.logInfo("Number of serial numbers [" + itemIssuanceAndInventoryItemList.size() + "] did not match quantity ["+ itemQty+ "] for return item: "+ returnItem.getPrimaryKey()+ "; may not be a serialized inventory product",module);
+          }
+        }
+ else {
+          Debug.logWarning("Could not get matching serial numbers because order item quantity [" + orderItem.getDouble("quantity") + "] did not match quantity ["+ itemQty+ "] for return item: "+ returnItem.getPrimaryKey(),module);
+        }
+      }
+    }
+    bodyParameters.put("totalQty",new Double(totalQty));
+    String emailString=PartyWorker.findPartyLatestContactMech(partyId,"EMAIL_ADDRESS",delegator).getString("infoString");
+    bodyParameters.put("emailString",emailString);
+    GenericValue telecomNumber=PartyWorker.findPartyLatestTelecomNumber(partyId,delegator);
+    bodyParameters.put("telecomNumber",telecomNumber);
+    String entryDate=OagisServices.isoDateFormat.format(returnHeader.getTimestamp("entryDate"));
+    bodyParameters.put("entryDate",entryDate);
+    bodyParameters.put("returnId",returnId);
+    String bodyScreenUri=UtilProperties.getPropertyValue("oagis.properties","Oagis.Template.ReceiveDelivery");
+    Writer writer=new StringWriter();
+    ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,htmlScreenRenderer);
+    screens.render(bodyScreenUri);
+    writer.close();
+    String outText=writer.toString();
+    try {
+      Map<String,Object> uomiCtx=FastMap.newInstance();
+      uomiCtx.putAll(omiPkMap);
+      uomiCtx.put("processingStatusId","OAGMP_OGEN_SUCCESS");
+      uomiCtx.put("userLogin",userLogin);
+      if (OagisServices.debugSaveXmlOut) {
+        uomiCtx.put("fullMessageXml",outText);
+      }
+      dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+    }
+    Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
+    if (sendMessageReturn != null && ServiceUtil.isError(sendMessageReturn)) {
+      try {
+        Map<String,Object> uomiCtx=FastMap.newInstance();
+        uomiCtx.putAll(omiPkMap);
+        uomiCtx.put("processingStatusId","OAGMP_SEND_ERROR");
+        uomiCtx.put("userLogin",userLogin);
+        dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+        Debug.logError(e,errMsg,module);
+      }
+      return sendMessageReturn;
+    }
+    try {
+      Map<String,Object> uomiCtx=FastMap.newInstance();
+      uomiCtx.putAll(omiPkMap);
+      uomiCtx.put("processingStatusId","OAGMP_SENT");
+      uomiCtx.put("userLogin",userLogin);
+      dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+    }
+  }
+ catch (  Throwable t) {
+    String errMsg="System Error doing Receive Delivery message for returnId [" + returnId + "] orderId ["+ orderId+ "] message ["+ omiPkMap+ "]: "+ t.toString();
+    Debug.logError(t,errMsg,module);
+    if (omiPkMap != null) {
+      try {
+        if (delegator.findByPrimaryKey("OagisMessageInfo",omiPkMap) == null) {
+          return ServiceUtil.returnError(errMsg);
+        }
+        Map<String,Object> uomiCtx=FastMap.newInstance();
+        uomiCtx.putAll(omiPkMap);
+        uomiCtx.put("processingStatusId","OAGMP_SYS_ERROR");
+        uomiCtx.put("bsrVerb","RECEIVE");
+        uomiCtx.put("bsrNoun","DELIVERY");
+        uomiCtx.put("returnId",returnId);
+        uomiCtx.put("orderId",orderId);
+        uomiCtx.put("userLogin",userLogin);
+        dispatcher.runSync("updateOagisMessageInfo",uomiCtx,60,true);
+        List<Map<String,String>> errorMapList=UtilMisc.toList(UtilMisc.toMap("description",errMsg,"reasonCode","SystemError"));
+        Map<String,Object> saveErrorMapListCtx=FastMap.newInstance();
+        saveErrorMapListCtx.putAll(omiPkMap);
+        saveErrorMapListCtx.put("errorMapList",errorMapList);
+        saveErrorMapListCtx.put("userLogin",userLogin);
+        dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+      }
+ catch (      GeneralException e) {
+        String errMsg2="Error saving message error info: " + e.toString();
+        Debug.logError(e,errMsg2,module);
+      }
+    }
+    return ServiceUtil.returnError(errMsg);
+  }
+  return result;
+}

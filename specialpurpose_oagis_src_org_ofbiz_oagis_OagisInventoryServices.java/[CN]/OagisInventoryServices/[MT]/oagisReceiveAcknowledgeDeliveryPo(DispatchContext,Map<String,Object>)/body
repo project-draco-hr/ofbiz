@@ -1,0 +1,240 @@
+{
+  Document doc=(Document)context.get("document");
+  boolean isErrorRetry=Boolean.TRUE.equals(context.get("isErrorRetry"));
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Delegator delegator=ctx.getDelegator();
+  List<Map<String,String>> errorMapList=FastList.newInstance();
+  Map<String,Object> comiCtx=FastMap.newInstance();
+  GenericValue userLogin=null;
+  try {
+    userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error Getting UserLogin: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
+  Element receivePoElement=doc.getDocumentElement();
+  receivePoElement.normalize();
+  Element docCtrlAreaElement=UtilXml.firstChildElement(receivePoElement,"os:CNTROLAREA");
+  Element docSenderElement=UtilXml.firstChildElement(docCtrlAreaElement,"os:SENDER");
+  Element docBsrElement=UtilXml.firstChildElement(docCtrlAreaElement,"os:BSR");
+  String bsrVerb=UtilXml.childElementValue(docBsrElement,"of:VERB");
+  String bsrNoun=UtilXml.childElementValue(docBsrElement,"of:NOUN");
+  String bsrRevision=UtilXml.childElementValue(docBsrElement,"of:REVISION");
+  String logicalId=UtilXml.childElementValue(docSenderElement,"of:LOGICALID");
+  String component=UtilXml.childElementValue(docSenderElement,"of:COMPONENT");
+  String task=UtilXml.childElementValue(docSenderElement,"of:TASK");
+  String referenceId=UtilXml.childElementValue(docSenderElement,"of:REFERENCEID");
+  String confirmation=UtilXml.childElementValue(docSenderElement,"of:CONFIRMATION");
+  String authId=UtilXml.childElementValue(docSenderElement,"of:AUTHID");
+  String sentDate=UtilXml.childElementValue(docCtrlAreaElement,"os:DATETIMEISO");
+  Timestamp sentTimestamp=OagisServices.parseIsoDateString(sentDate,errorMapList);
+  Timestamp timestamp=UtilDateTime.nowTimestamp();
+  Map<String,Object> omiPkMap=UtilMisc.toMap("logicalId",(Object)logicalId,"component",component,"task",task,"referenceId",referenceId);
+  Debug.log("Processing oagisReceiveAcknowledgeDeliveryPo for message ID [" + omiPkMap + "]",module);
+  GenericValue previousOagisMessageInfo=null;
+  try {
+    previousOagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",omiPkMap);
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error getting OagisMessageInfo from database for message ID [" + omiPkMap + "]: "+ e.toString();
+    Debug.logInfo(e,errMsg,module);
+  }
+  if (previousOagisMessageInfo != null && !isErrorRetry) {
+    if ("OAGMP_SYS_ERROR".equals(previousOagisMessageInfo.getString("processingStatusId"))) {
+      isErrorRetry=true;
+    }
+ else {
+      String errMsg="Message received for message ID [" + omiPkMap + "] was already partially processed but is not in a system error state, needs manual review; message ID: "+ omiPkMap;
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  comiCtx.putAll(omiPkMap);
+  comiCtx.put("authId",authId);
+  comiCtx.put("receivedDate",timestamp);
+  comiCtx.put("sentDate",sentTimestamp);
+  comiCtx.put("outgoingMessage","N");
+  comiCtx.put("confirmation",confirmation);
+  comiCtx.put("bsrVerb",bsrVerb);
+  comiCtx.put("bsrNoun",bsrNoun);
+  comiCtx.put("bsrRevision",bsrRevision);
+  comiCtx.put("processingStatusId","OAGMP_RECEIVED");
+  comiCtx.put("userLogin",userLogin);
+  if (OagisServices.debugSaveXmlIn) {
+    try {
+      comiCtx.put("fullMessageXml",UtilXml.writeXmlDocument(doc));
+    }
+ catch (    IOException e) {
+      String errMsg="Warning: error creating text from XML Document for saving to database: " + e.toString();
+      Debug.logWarning(errMsg,module);
+    }
+  }
+  try {
+    if (isErrorRetry) {
+      dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+    }
+ else {
+      dispatcher.runSync("createOagisMessageInfo",comiCtx,60,true);
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error creating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
+  Element dataAreaElement=UtilXml.firstChildElement(receivePoElement,"ns:DATAAREA");
+  Element acknowledgeDeliveryElement=UtilXml.firstChildElement(dataAreaElement,"ns:ACKNOWLEDGE_DELIVERY");
+  String facilityId=UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.PoReceiptFacilityId");
+  String orderId=null;
+  List<? extends Element> acknowledgeElementList=UtilXml.childElementList(acknowledgeDeliveryElement,"ns:RECEIPTLN");
+  if (UtilValidate.isNotEmpty(acknowledgeElementList)) {
+    try {
+      for (      Element receiptLnElement : acknowledgeElementList) {
+        Map<String,Object> ripCtx=FastMap.newInstance();
+        Element qtyElement=UtilXml.firstChildElement(receiptLnElement,"os:QUANTITY");
+        String itemQtyStr=UtilXml.childElementValue(qtyElement,"of:VALUE");
+        double itemQty=Double.parseDouble(itemQtyStr);
+        String sign=UtilXml.childElementValue(qtyElement,"of:SIGN");
+        String productId=UtilXml.childElementValue(receiptLnElement,"of:ITEM");
+        GenericValue product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+        if (product == null) {
+          String errMsg="Product with ID [" + productId + "] not found (invalid Product ID).";
+          errorMapList.add(UtilMisc.toMap("reasonCode","ProductIdNotValid","description",errMsg));
+          Debug.logError(errMsg,module);
+          continue;
+        }
+        Element documentRefElement=UtilXml.firstChildElement(receiptLnElement,"os:DOCUMNTREF");
+        orderId=UtilXml.childElementValue(documentRefElement,"of:DOCUMENTID");
+        String orderTypeId=UtilXml.childElementValue(documentRefElement,"of:DOCTYPE");
+        if (orderTypeId.equals("PO")) {
+          orderTypeId="PURCHASE_ORDER";
+        }
+        String datetimeReceived=UtilXml.childElementValue(receiptLnElement,"os:DATETIMEISO");
+        Timestamp timestampItemReceived=OagisServices.parseIsoDateString(datetimeReceived,errorMapList);
+        ripCtx.put("datetimeReceived",timestampItemReceived);
+        GenericValue orderHeader=null;
+        if (orderId != null) {
+          List<GenericValue> toStore=FastList.newInstance();
+          orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+          if (orderHeader != null) {
+            ripCtx.put("orderId",orderId);
+            comiCtx.put("orderId",orderId);
+            GenericValue orderItem=delegator.makeValue("OrderItem",UtilMisc.toMap("orderId",orderId,"productId",productId,"quantity",new Double(itemQtyStr)));
+            delegator.setNextSubSeqId(orderItem,"orderItemSeqId",5,1);
+            delegator.create(orderItem);
+            ripCtx.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
+          }
+ else {
+            orderHeader=delegator.makeValue("OrderHeader",UtilMisc.toMap("orderId",orderId,"orderTypeId",orderTypeId,"orderDate",timestampItemReceived,"statusId","ORDER_CREATED","entryDate",UtilDateTime.nowTimestamp(),"productStoreId",UtilProperties.getPropertyValue("oagis.properties","Oagis.Warehouse.SyncInventoryProductStoreId","9001")));
+            toStore.add(orderHeader);
+            GenericValue orderItem=delegator.makeValue("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",UtilFormatOut.formatPaddedNumber(1L,5),"productId",productId,"quantity",new Double(itemQtyStr)));
+            toStore.add(orderItem);
+            delegator.storeAll(toStore);
+          }
+        }
+        ripCtx.put("statusId","INV_AVAILABLE");
+        ripCtx.put("inventoryItemTypeId","NON_SERIAL_INV_ITEM");
+        ripCtx.put("productId",productId);
+        ripCtx.put("facilityId",facilityId);
+        ripCtx.put("userLogin",userLogin);
+        double quantityAccepted=0.0;
+        double quantityRejected=0.0;
+        if (sign.equals("+")) {
+          quantityAccepted=itemQty;
+          quantityRejected=0.0;
+        }
+ else {
+          quantityRejected=itemQty;
+          quantityAccepted=0.0;
+        }
+        ripCtx.put("quantityAccepted",new Double(quantityAccepted));
+        ripCtx.put("quantityRejected",new Double(quantityRejected));
+        Map<String,Object> ripResult=dispatcher.runSync("receiveInventoryProduct",ripCtx);
+        if (ServiceUtil.isError(ripResult)) {
+          String errMsg=ServiceUtil.getErrorMessage(ripResult);
+          errorMapList.add(UtilMisc.toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg));
+        }
+      }
+    }
+ catch (    Throwable t) {
+      String errMsg="System Error processing Acknowledge Delivery PO message for message [" + omiPkMap + "]: "+ t.toString();
+      errorMapList.add(UtilMisc.toMap("description",errMsg,"reasonCode","SystemError"));
+      try {
+        comiCtx.put("processingStatusId","OAGMP_SYS_ERROR");
+        dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+        Map<String,Object> saveErrorMapListCtx=FastMap.newInstance();
+        saveErrorMapListCtx.putAll(omiPkMap);
+        saveErrorMapListCtx.put("errorMapList",errorMapList);
+        saveErrorMapListCtx.put("userLogin",userLogin);
+        dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+      }
+ catch (      GenericServiceException e) {
+        String errMsg2="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+        Debug.logError(e,errMsg2,module);
+      }
+      Debug.logInfo(t,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  Map<String,Object> result=FastMap.newInstance();
+  result.put("logicalId",logicalId);
+  result.put("component",component);
+  result.put("task",task);
+  result.put("referenceId",referenceId);
+  result.put("userLogin",userLogin);
+  if (errorMapList.size() > 0) {
+    try {
+      comiCtx.put("processingStatusId","OAGMP_PROC_ERROR");
+      dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    Map<String,Object> saveErrorMapListCtx=FastMap.newInstance();
+    saveErrorMapListCtx.put("logicalId",logicalId);
+    saveErrorMapListCtx.put("component",component);
+    saveErrorMapListCtx.put("task",task);
+    saveErrorMapListCtx.put("referenceId",referenceId);
+    saveErrorMapListCtx.put("errorMapList",errorMapList);
+    saveErrorMapListCtx.put("userLogin",userLogin);
+    try {
+      dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    try {
+      Map<String,Object> sendConfirmBodCtx=FastMap.newInstance();
+      sendConfirmBodCtx.putAll(saveErrorMapListCtx);
+      sendConfirmBodCtx.put("origRefId",orderId);
+      dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error sending Confirm BOD: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+    String errMsg="Found business level errors in message processing, not saving results; first error is: " + errorMapList.get(0);
+    result.putAll(ServiceUtil.returnSuccess(errMsg));
+    try {
+      TransactionUtil.setRollbackOnly(errMsg,null);
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Error setting rollback only ",module);
+    }
+    return result;
+  }
+ else {
+    comiCtx.put("processingStatusId","OAGMP_PROC_SUCCESS");
+    try {
+      dispatcher.runSync("updateOagisMessageInfo",comiCtx,60,true);
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+      Debug.logError(e,errMsg,module);
+    }
+  }
+  result.putAll(ServiceUtil.returnSuccess("Service Completed Successfully"));
+  return result;
+}
