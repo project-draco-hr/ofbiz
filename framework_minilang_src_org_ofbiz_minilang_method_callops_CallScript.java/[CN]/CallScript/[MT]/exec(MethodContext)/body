@@ -1,0 +1,45 @@
+{
+  String location=methodContext.expandString(this.location);
+  String method=methodContext.expandString(this.method);
+  List<Object> messages=errorListAcsr.get(methodContext);
+  if (messages == null) {
+    messages=FastList.newInstance();
+    errorListAcsr.put(methodContext,messages);
+  }
+  Map<String,Object> context=methodContext.getEnvMap();
+  if (location.endsWith(".bsh")) {
+    try {
+      BshUtil.runBshAtLocation(location,context);
+    }
+ catch (    GeneralException e) {
+      messages.add("Error running BSH script at location [" + location + "]: "+ e.getMessage());
+    }
+  }
+ else   if (location.endsWith(".groovy")) {
+    try {
+      groovy.lang.Script script=InvokerHelper.createScript(GroovyUtil.getScriptClassFromLocation(location),GroovyUtil.getBinding(context));
+      if (UtilValidate.isEmpty(method)) {
+        script.run();
+      }
+ else {
+        script.invokeMethod(method,EMPTY_ARGS);
+      }
+    }
+ catch (    GeneralException e) {
+      messages.add("Error running Groovy script at location [" + location + "]: "+ e.getMessage());
+    }
+  }
+ else   if (location.endsWith(".xml")) {
+    try {
+      SimpleMethod.runSimpleMethod(location,method,methodContext);
+    }
+ catch (    MiniLangException e) {
+      messages.add("Error running simple method at location [" + location + "]: "+ e.getMessage());
+    }
+  }
+ else {
+    messages.add("Unsupported script type [" + location + "]");
+  }
+  methodContext.putAllEnv(context);
+  return true;
+}
