@@ -5,12 +5,13 @@
   boolean activeOnly=(context.get("activeOnly") != null ? ((Boolean)context.get("activeOnly")).booleanValue() : true);
   Integer index=(Integer)context.get("index");
   Timestamp introductionDateLimit=(Timestamp)context.get("introductionDateLimit");
+  Timestamp releaseDateLimit=(Timestamp)context.get("releaseDateLimit");
   if (index == null && productId == null) {
     return ServiceUtil.returnError("Both Index and ProductID cannot be null.");
   }
   List<String> orderByFields=UtilGenerics.checkList(context.get("orderByFields"));
   if (orderByFields == null)   orderByFields=FastList.newInstance();
-  String entityName=getCategoryFindEntityName(delegator,orderByFields,introductionDateLimit);
+  String entityName=getCategoryFindEntityName(delegator,orderByFields,introductionDateLimit,releaseDateLimit);
   GenericValue productCategory;
   List<GenericValue> productCategoryMembers;
   try {
@@ -25,9 +26,17 @@
   if (activeOnly) {
     productCategoryMembers=EntityUtil.filterByDate(productCategoryMembers,true);
   }
+  List<EntityCondition> filterConditions=FastList.newInstance();
   if (introductionDateLimit != null) {
     EntityCondition condition=EntityCondition.makeCondition(EntityCondition.makeCondition("introductionDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("introductionDate",EntityOperator.LESS_THAN_EQUAL_TO,introductionDateLimit));
-    productCategoryMembers=EntityUtil.filterByCondition(productCategoryMembers,condition);
+    filterConditions.add(condition);
+  }
+  if (releaseDateLimit != null) {
+    EntityCondition condition=EntityCondition.makeCondition(EntityCondition.makeCondition("releaseDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("releaseDate",EntityOperator.LESS_THAN_EQUAL_TO,releaseDateLimit));
+    filterConditions.add(condition);
+  }
+  if (!filterConditions.isEmpty()) {
+    productCategoryMembers=EntityUtil.filterByCondition(productCategoryMembers,EntityCondition.makeCondition(filterConditions,EntityOperator.AND));
   }
   if (productId != null && index == null) {
     for (    GenericValue v : productCategoryMembers) {
