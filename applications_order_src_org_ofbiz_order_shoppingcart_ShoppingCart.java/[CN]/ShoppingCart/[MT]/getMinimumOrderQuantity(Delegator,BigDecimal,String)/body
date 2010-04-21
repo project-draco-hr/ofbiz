@@ -1,0 +1,39 @@
+{
+  BigDecimal minQuantity=BigDecimal.ZERO;
+  BigDecimal minimumOrderPrice=BigDecimal.ZERO;
+  List<EntityExpr> exprs=FastList.newInstance();
+  exprs.add(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,itemProductId));
+  exprs.add(EntityCondition.makeCondition("productPriceTypeId",EntityOperator.EQUALS,"MINIMUM_ORDER_PRICE"));
+  List<GenericValue> minimumOrderPriceList=delegator.findList("ProductPrice",EntityCondition.makeCondition(exprs,EntityOperator.AND),null,null,null,false);
+  if (minimumOrderPriceList != null) {
+    minimumOrderPriceList=EntityUtil.filterByDate(minimumOrderPriceList);
+  }
+  if (itemBasePrice == null) {
+    List<GenericValue> productPriceList=EntityUtil.filterByDate(delegator.findList("ProductPrice",EntityCondition.makeCondition("productId",itemProductId),null,null,null,false));
+    Iterator it=productPriceList.iterator();
+    Map productPriceMap=FastMap.newInstance();
+    while (it.hasNext()) {
+      GenericValue productPrice=(GenericValue)it.next();
+      productPriceMap.put(productPrice.getString("productPriceTypeId"),productPrice.getBigDecimal("price"));
+    }
+    if (UtilValidate.isNotEmpty(productPriceMap.get("SPECIAL_PROMO_PRICE"))) {
+      itemBasePrice=(BigDecimal)productPriceMap.get("SPECIAL_PROMO_PRICE");
+    }
+ else     if (UtilValidate.isNotEmpty(productPriceMap.get("PROMO_PRICE"))) {
+      itemBasePrice=(BigDecimal)productPriceMap.get("PROMO_PRICE");
+    }
+ else     if (UtilValidate.isNotEmpty(productPriceMap.get("DEFAULT_PRICE"))) {
+      itemBasePrice=(BigDecimal)productPriceMap.get("DEFAULT_PRICE");
+    }
+ else     if (UtilValidate.isNotEmpty(productPriceMap.get("LIST_PRICE"))) {
+      itemBasePrice=(BigDecimal)productPriceMap.get("LIST_PRICE");
+    }
+  }
+  if (UtilValidate.isNotEmpty(minimumOrderPriceList)) {
+    minimumOrderPrice=EntityUtil.getFirst(minimumOrderPriceList).getBigDecimal("price");
+  }
+  if (minimumOrderPrice.compareTo(itemBasePrice) > 0) {
+    minQuantity=minimumOrderPrice.divide(itemBasePrice,0,BigDecimal.ROUND_UP);
+  }
+  return minQuantity;
+}
