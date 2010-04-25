@@ -1,0 +1,62 @@
+{
+  EntityCondition cond=null;
+  String fieldName=modelField.getName();
+  EntityComparisonOperator<?,?> fieldOp=null;
+  if (operation != null) {
+    if (operation.equals("contains")) {
+      fieldOp=EntityOperator.LIKE;
+      fieldValue="%" + fieldValue + "%";
+    }
+ else     if ("not-contains".equals(operation) || "notContains".equals(operation)) {
+      fieldOp=EntityOperator.NOT_LIKE;
+      fieldValue="%" + fieldValue + "%";
+    }
+ else     if (operation.equals("empty")) {
+      return EntityCondition.makeCondition(fieldName,EntityOperator.EQUALS,null);
+    }
+ else     if (operation.equals("like")) {
+      fieldOp=EntityOperator.LIKE;
+      fieldValue=fieldValue + "%";
+    }
+ else     if ("not-like".equals(operation) || "notLike".equals(operation)) {
+      fieldOp=EntityOperator.NOT_LIKE;
+      fieldValue=fieldValue + "%";
+    }
+ else     if (operation.equals("greaterThanFromDayStart")) {
+      String timeStampString=(String)fieldValue;
+      Object startValue=modelField.getModelEntity().convertFieldValue(modelField,dayStart(timeStampString,0),delegator,context);
+      return EntityCondition.makeCondition(fieldName,EntityOperator.GREATER_THAN_EQUAL_TO,startValue);
+    }
+ else     if (operation.equals("sameDay")) {
+      String timeStampString=(String)fieldValue;
+      Object startValue=modelField.getModelEntity().convertFieldValue(modelField,dayStart(timeStampString,0),delegator,context);
+      EntityCondition startCond=EntityCondition.makeCondition(fieldName,EntityOperator.GREATER_THAN_EQUAL_TO,startValue);
+      Object endValue=modelField.getModelEntity().convertFieldValue(modelField,dayStart(timeStampString,1),delegator,context);
+      EntityCondition endCond=EntityCondition.makeCondition(fieldName,EntityOperator.LESS_THAN,endValue);
+      return EntityCondition.makeCondition(startCond,endCond);
+    }
+ else {
+      fieldOp=entityOperators.get(operation);
+    }
+  }
+ else {
+    fieldOp=EntityOperator.EQUALS;
+  }
+  Object fieldObject=fieldValue;
+  if (fieldOp != EntityOperator.IN || !(fieldValue instanceof Collection<?>)) {
+    fieldObject=modelField.getModelEntity().convertFieldValue(modelField,fieldValue,delegator,context);
+  }
+  if (ignoreCase && fieldObject instanceof String) {
+    cond=EntityCondition.makeCondition(EntityFunction.UPPER_FIELD(fieldName),fieldOp,EntityFunction.UPPER(((String)fieldValue).toUpperCase()));
+  }
+ else {
+    if (fieldObject.equals(GenericEntity.NULL_FIELD.toString())) {
+      fieldObject=null;
+    }
+    cond=EntityCondition.makeCondition(fieldName,fieldOp,fieldObject);
+  }
+  if (EntityOperator.NOT_EQUAL.equals(fieldOp) && fieldObject != null) {
+    cond=EntityCondition.makeCondition(UtilMisc.toList(cond,EntityCondition.makeCondition(fieldName,null)),EntityOperator.OR);
+  }
+  return cond;
+}
