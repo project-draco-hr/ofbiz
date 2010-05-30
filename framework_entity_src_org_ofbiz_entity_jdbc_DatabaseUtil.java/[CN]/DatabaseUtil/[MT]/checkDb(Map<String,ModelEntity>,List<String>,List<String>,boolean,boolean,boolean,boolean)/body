@@ -291,7 +291,7 @@
     }
     if (Debug.infoOn())     Debug.logInfo("Created " + numFksCreated + " fk refs",module);
   }
-  if (checkFkIdx) {
+  if (checkFkIdx || datasourceInfo.checkIndicesOnStart) {
     int numIndicesCreated=0;
     Map<String,Set<String>> tableIndexListMap=this.getIndexInfo(indexTableNames,messages);
     if (tableIndexListMap == null) {
@@ -308,21 +308,27 @@
         }
         Set<String> tableIndexList=tableIndexListMap.get(entity.getTableName(datasourceInfo));
         if (tableIndexList == null) {
-          this.createForeignKeyIndices(entity,datasourceInfo.constraintNameClipLength,messages);
+          if (checkFkIdx) {
+            this.createForeignKeyIndices(entity,datasourceInfo.constraintNameClipLength,messages);
+          }
+          if (datasourceInfo.checkIndicesOnStart) {
+            this.createDeclaredIndices(entity,messages);
+          }
+          continue;
         }
+        boolean createdConstraints=false;
+        Iterator<ModelRelation> relations=entity.getRelationsIterator();
+        while (relations.hasNext()) {
+          ModelRelation modelRelation=relations.next();
+          if (!"one".equals(modelRelation.getType())) {
+            continue;
+          }
+          String relConstraintName=makeFkConstraintName(modelRelation,datasourceInfo.constraintNameClipLength);
+          if (tableIndexList.contains(relConstraintName)) {
+            tableIndexList.remove(relConstraintName);
+          }
  else {
-          boolean createdConstraints=false;
-          Iterator<ModelRelation> relations=entity.getRelationsIterator();
-          while (relations.hasNext()) {
-            ModelRelation modelRelation=relations.next();
-            if (!"one".equals(modelRelation.getType())) {
-              continue;
-            }
-            String relConstraintName=makeFkConstraintName(modelRelation,datasourceInfo.constraintNameClipLength);
-            if (tableIndexList.contains(relConstraintName)) {
-              tableIndexList.remove(relConstraintName);
-            }
- else {
+            if (checkFkIdx) {
               String noIdxMessage="No Index [" + relConstraintName + "] found for entity ["+ entityName+ "]";
               if (messages != null)               messages.add(noIdxMessage);
               if (Debug.infoOn())               Debug.logInfo(noIdxMessage,module);
@@ -343,52 +349,22 @@
               }
             }
           }
-          if (createdConstraints) {
-            String message="Created foreign key index/indices for entity [" + entity.getEntityName() + "]";
-            Debug.logImportant(message,module);
-            if (messages != null)             messages.add(message);
+        }
+        if (createdConstraints) {
+          String message="Created foreign key index/indices for entity [" + entity.getEntityName() + "]";
+          Debug.logImportant(message,module);
+          if (messages != null)           messages.add(message);
+        }
+        boolean createdIndexes=false;
+        Iterator<ModelIndex> indexes=entity.getIndexesIterator();
+        while (indexes.hasNext()) {
+          ModelIndex modelIndex=indexes.next();
+          String relIndexName=makeIndexName(modelIndex,datasourceInfo.constraintNameClipLength);
+          if (tableIndexList.contains(relIndexName)) {
+            tableIndexList.remove(relIndexName);
           }
-        }
-        if (tableIndexList != null) {
-          for (          String indexLeft : tableIndexList) {
-            String message="Unknown Index " + indexLeft + " found in table "+ entity.getTableName(datasourceInfo);
-            Debug.logImportant(message,module);
-            if (messages != null)             messages.add(message);
-          }
-        }
-      }
-    }
-    if (Debug.infoOn())     Debug.logInfo("Created " + numIndicesCreated + " indices",module);
-  }
-  if (datasourceInfo.checkIndicesOnStart) {
-    int numIndicesCreated=0;
-    Map<String,Set<String>> tableIndexListMap=this.getIndexInfo(indexTableNames,messages);
-    if (tableIndexListMap == null) {
-      if (Debug.verboseOn())       Debug.logVerbose("Ref Table Info Map is null",module);
-    }
  else {
-      for (      ModelEntity entity : modelEntityList) {
-        String entityName=entity.getEntityName();
-        if (entity instanceof ModelViewEntity) {
-          String entMessage="NOT Checking View Entity " + entity.getEntityName();
-          Debug.logVerbose(entMessage,module);
-          if (messages != null)           messages.add(entMessage);
-          continue;
-        }
-        Set<String> tableIndexList=tableIndexListMap.get(entity.getTableName(datasourceInfo));
-        if (tableIndexList == null) {
-          this.createDeclaredIndices(entity,messages);
-        }
- else {
-          boolean createdIndexes=false;
-          Iterator<ModelIndex> indexes=entity.getIndexesIterator();
-          while (indexes.hasNext()) {
-            ModelIndex modelIndex=indexes.next();
-            String relIndexName=makeIndexName(modelIndex,datasourceInfo.constraintNameClipLength);
-            if (tableIndexList.contains(relIndexName)) {
-              tableIndexList.remove(relIndexName);
-            }
- else {
+            if (datasourceInfo.checkIndicesOnStart) {
               String noIdxMessage="No Index [" + relIndexName + "] found for entity ["+ entityName+ "]";
               if (messages != null)               messages.add(noIdxMessage);
               if (Debug.infoOn())               Debug.logInfo(noIdxMessage,module);
@@ -409,11 +385,11 @@
               }
             }
           }
-          if (createdIndexes) {
-            String message="Created declared index/indices for entity [" + entity.getEntityName() + "]";
-            Debug.logImportant(message,module);
-            if (messages != null)             messages.add(message);
-          }
+        }
+        if (createdIndexes) {
+          String message="Created declared index/indices for entity [" + entity.getEntityName() + "]";
+          Debug.logImportant(message,module);
+          if (messages != null)           messages.add(message);
         }
         if (tableIndexList != null) {
           for (          String indexLeft : tableIndexList) {
