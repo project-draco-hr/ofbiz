@@ -146,8 +146,8 @@
   NumberFormat changedFormat=NumberFormat.getIntegerInstance();
   changedFormat.setMinimumIntegerDigits(5);
   changedFormat.setGroupingUsed(false);
-  List<Object> errorMessages=FastList.newInstance();
-  List<String> infoMessages=FastList.newInstance();
+  final List<Object> errorMessages=FastList.newInstance();
+  final List<String> infoMessages=FastList.newInstance();
   int totalRowsChanged=0;
   if (UtilValidate.isNotEmpty(urlList)) {
     Debug.logImportant("=-=-=-=-=-=-= Doing a data load with the following files:",module);
@@ -155,16 +155,27 @@
       Debug.logImportant(dataUrl.toExternalForm(),module);
     }
     Debug.logImportant("=-=-=-=-=-=-= Starting the data load...",module);
+    ScheduledExecutorService pool=ExecutionPool.getNewOptimalExecutor("entity-data-load");
+    List<Future> futures=FastList.newInstance();
     for (    URL dataUrl : urlList) {
+      futures.add(pool.submit(createCallable(dataUrl,helperInfo.getHelperBaseName(),delegator,errorMessages,txTimeout,useDummyFks,maintainTxs,tryInserts)));
+    }
+    for (int i=0; i < urlList.size(); i++) {
+      URL dataUrl=urlList.get(i);
+      Future<Integer> future=futures.get(i);
       try {
-        int rowsChanged=EntityDataLoader.loadData(dataUrl,helperInfo.getHelperBaseName(),delegator,errorMessages,txTimeout,useDummyFks,maintainTxs,tryInserts);
+        int rowsChanged=future.get();
         totalRowsChanged+=rowsChanged;
         infoMessages.add(changedFormat.format(rowsChanged) + " of " + changedFormat.format(totalRowsChanged)+ " from "+ dataUrl.toExternalForm());
       }
- catch (      GenericEntityException e) {
+ catch (      ExecutionException e) {
+        Debug.logError(e,"Error loading data file: " + dataUrl.toExternalForm(),module);
+      }
+catch (      InterruptedException e) {
         Debug.logError(e,"Error loading data file: " + dataUrl.toExternalForm(),module);
       }
     }
+    pool.shutdownNow();
   }
  else {
     Debug.logImportant("=-=-=-=-=-=-= No data load files found.",module);
