@@ -28,8 +28,10 @@
   int curEnt=0;
   int totalEnt=modelEntityList.size();
   List<ModelEntity> entitiesAdded=FastList.newInstance();
-  List<Future<TableFuture>> tableFutureFutures=FastList.newInstance();
+  List<TableFuture> tableFutures=FastList.newInstance();
   ScheduledExecutorService threadPool=ExecutionPool.getNewOptimalExecutor("Databaseutil");
+  DependencyPool depPool=new DependencyPool(threadPool,3);
+  Debug.logInfo("start of table creation",module);
   for (  ModelEntity entity : modelEntityList) {
     curEnt++;
     if (entity instanceof ModelViewEntity) {
@@ -38,26 +40,52 @@
       if (messages != null)       messages.add(entMessage);
       continue;
     }
-    tableFutureFutures.add(threadPool.submit(new TableFuture(modelEntities,timer,tableNames,colInfo,curEnt,totalEnt,entity,checkPks,addMissing)));
+    TableFuture tf=new TableFuture(modelEntities,timer,tableNames,colInfo,curEnt,totalEnt,entity,checkPks,addMissing);
+    tableFutures.add(tf);
+    depPool.add(tf);
   }
-  for (  TableFuture tableFuture : getAllFutures(tableFutureFutures)) {
-    tableFuture.updateData(messages,entitiesAdded);
+  Debug.logInfo("start of fk indices",module);
+  List<ForeignKeyIndexFuture> fkIndicesFutures=FastList.newInstance();
+  AtomicInteger totalFkIndices=new AtomicInteger();
+  if (datasourceInfo.useFkIndices) {
+    for (    ModelEntity curEntity : entitiesAdded) {
+      if (curEntity.getRelationsOneSize() > 0) {
+        ForeignKeyIndexFuture fkif=new ForeignKeyIndexFuture(totalFkIndices,curEntity,datasourceInfo.constraintNameClipLength);
+        fkIndicesFutures.add(fkif);
+        depPool.add(fkif);
+      }
+    }
   }
-  timer.timerString("After Individual Table/Column Check");
+  List<DeclaredIndexFuture> disFutures=FastList.newInstance();
+  AtomicInteger totalDis=new AtomicInteger();
+  if (datasourceInfo.useIndices) {
+    for (    ModelEntity curEntity : entitiesAdded) {
+      if (curEntity.getIndexesSize() > 0) {
+        DeclaredIndexFuture dif=new DeclaredIndexFuture(totalDis,curEntity);
+        disFutures.add(dif);
+        depPool.add(dif);
+      }
+    }
+  }
+  depPool.start();
+  try {
+    depPool.await();
+  }
+ catch (  InterruptedException e) {
+    Debug.logError(e,"Couldn't wait for dependency pool to finish while creating the database",module);
+    return;
+  }
   for (  String tableName : tableNames) {
     String message="Table named [" + tableName + "] exists in the database but has no corresponding entity";
     Debug.logWarning(message,module);
     if (messages != null)     messages.add(message);
   }
+  for (  TableFuture tableFuture : tableFutures) {
+    tableFuture.updateData(messages,entitiesAdded);
+  }
+  timer.timerString("After Individual Table/Column Check");
   if (datasourceInfo.useFkIndices) {
-    List<Future<ForeignKeyIndexFuture>> fkIndicesFutureFutures=FastList.newInstance();
-    AtomicInteger totalFkIndices=new AtomicInteger();
-    for (    ModelEntity curEntity : entitiesAdded) {
-      if (curEntity.getRelationsOneSize() > 0) {
-        fkIndicesFutureFutures.add(threadPool.submit(new ForeignKeyIndexFuture(totalFkIndices,curEntity,datasourceInfo.constraintNameClipLength)));
-      }
-    }
-    for (    ForeignKeyIndexFuture fkIndicesFuture : getAllFutures(fkIndicesFutureFutures)) {
+    for (    ForeignKeyIndexFuture fkIndicesFuture : fkIndicesFutures) {
       fkIndicesFuture.updateData(messages);
     }
     if (totalFkIndices.get() > 0)     Debug.logImportant("==== TOTAL Foreign Key Indices Created: " + totalFkIndices.get(),module);
@@ -70,14 +98,7 @@
     if (totalFks > 0)     Debug.logImportant("==== TOTAL Foreign Keys Created: " + totalFks,module);
   }
   if (datasourceInfo.useIndices) {
-    List<Future<DeclaredIndexFuture>> disFutureFutures=FastList.newInstance();
-    AtomicInteger totalDis=new AtomicInteger();
-    for (    ModelEntity curEntity : entitiesAdded) {
-      if (curEntity.getIndexesSize() > 0) {
-        disFutureFutures.add(threadPool.submit(new DeclaredIndexFuture(totalDis,curEntity)));
-      }
-    }
-    for (    DeclaredIndexFuture disFuture : getAllFutures(disFutureFutures)) {
+    for (    DeclaredIndexFuture disFuture : disFutures) {
       disFuture.updateData(messages);
     }
     if (totalDis.get() > 0)     Debug.logImportant("==== TOTAL Declared Indices Created: " + totalDis.get(),module);
