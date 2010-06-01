@@ -2,7 +2,17 @@
   boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security.properties","password.encrypt"));
   String errMsg=null;
   if (!ignoreCurrentPassword) {
-    boolean passwordMatches=checkPassword(userLogin.getString("currentPassword"),useEncryption,currentPassword);
+    String encodedPassword=useEncryption ? HashCrypt.getDigestHash(currentPassword,getHashType()) : currentPassword;
+    String encodedPasswordOldFunnyHexEncode=useEncryption ? HashCrypt.getDigestHashOldFunnyHexEncode(currentPassword,getHashType()) : currentPassword;
+    String encodedPasswordUsingDbHashType=encodedPassword;
+    String oldPassword=userLogin.getString("currentPassword");
+    if (useEncryption && oldPassword != null && oldPassword.startsWith("{")) {
+      String dbHashType=HashCrypt.getHashTypeFromPrefix(oldPassword);
+      if (dbHashType != null) {
+        encodedPasswordUsingDbHashType=HashCrypt.getDigestHash(currentPassword,dbHashType);
+      }
+    }
+    boolean passwordMatches=(oldPassword != null && (HashCrypt.removeHashTypePrefix(encodedPassword).equals(HashCrypt.removeHashTypePrefix(oldPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordOldFunnyHexEncode).equals(HashCrypt.removeHashTypePrefix(oldPassword)) || HashCrypt.removeHashTypePrefix(encodedPasswordUsingDbHashType).equals(HashCrypt.removeHashTypePrefix(oldPassword))|| ("true".equals(UtilProperties.getPropertyValue("security.properties","password.accept.encrypted.and.plain")) && currentPassword.equals(oldPassword))));
     if ((currentPassword == null) || (userLogin != null && currentPassword != null && !passwordMatches)) {
       errMsg=UtilProperties.getMessage(resource,"loginservices.old_password_not_correct_reenter",locale);
       errorMessageList.add(errMsg);
