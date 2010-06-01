@@ -1,0 +1,81 @@
+{
+  List<GenericValue> newList=FastList.newInstance();
+  EntityCondition assocTypeIdCondition=EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_VARIANT");
+  Map<String,Set<String>> revVariantMap=FastMap.newInstance();
+  Map<String,Set<String>> revParentMap=FastMap.newInstance();
+  variants.keySet().removeAll(allowedProductIds);
+  while (!variants.isEmpty()) {
+    Iterator<Map.Entry<String,Set<String>>> variantIt=variants.entrySet().iterator();
+    while (variantIt.hasNext()) {
+      Map.Entry<String,Set<String>> entry=variantIt.next();
+      Set<String> assocParents=entry.getValue();
+      if (assocParents == null) {
+        UtilMisc.addToSetInMap(entry.getKey(),revVariantMap,entry.getKey());
+        entry.setValue(FastSet.<String>newInstance());
+      }
+ else       if (assocParents.isEmpty()) {
+        variantIt.remove();
+      }
+ else {
+        for (        String assocParent : assocParents) {
+          UtilMisc.addToSetInMap(entry.getKey(),revVariantMap,assocParent);
+        }
+        assocParents.clear();
+      }
+    }
+    Iterator<String> variantIdIt=revVariantMap.keySet().iterator();
+    while (variantIdIt.hasNext()) {
+      Set<String> lookupProductIds=FastSet.newInstance();
+      while (variantIdIt.hasNext() && lookupProductIds.size() < 100) {
+        lookupProductIds.add(variantIdIt.next());
+      }
+      EntityCondition condition=EntityCondition.makeCondition(EntityCondition.makeCondition("productIdTo",EntityOperator.IN,lookupProductIds),EntityOperator.AND,assocTypeIdCondition);
+      Debug.logInfo("query(ProductAndAssoc)->" + condition,module);
+      List<GenericValue> assocValues=delegator.findList("ProductAndAssoc",condition,null,null,null,true);
+      for (      GenericValue assocValue : assocValues) {
+        if (!EntityUtil.isValueActive(assocValue,now)) {
+          continue;
+        }
+        String productIdTo=assocValue.getString("productIdTo");
+        String parentProductId=assocValue.getString("productId");
+        for (        String originalProductId : revVariantMap.get(productIdTo)) {
+          variants.get(originalProductId).add(parentProductId);
+          UtilMisc.addToSetInMap(originalProductId,revParentMap,parentProductId);
+        }
+      }
+    }
+    revVariantMap.clear();
+    Iterator<String> parentIdIt=revParentMap.keySet().iterator();
+    while (parentIdIt.hasNext()) {
+      Set<String> lookupProductIds=FastSet.newInstance();
+      while (parentIdIt.hasNext() && lookupProductIds.size() < 100) {
+        lookupProductIds.add(parentIdIt.next());
+      }
+      EntityCondition condition=EntityCondition.makeCondition(EntityCondition.makeCondition("productId",EntityOperator.IN,lookupProductIds),EntityOperator.AND,productCategoryIdCondition);
+      Debug.logInfo("query(ProductAndCategoryMember)->" + condition,module);
+      List<GenericValue> subProducts=delegator.findList("ProductAndCategoryMember",condition,null,null,null,true);
+      for (      GenericValue subProduct : subProducts) {
+        String productId=subProduct.getString("productId");
+        if (EntityUtil.isValueActive(subProduct,now)) {
+          for (          String originalProductId : revParentMap.get(productId)) {
+            allowedProductIds.add(originalProductId);
+            variants.remove(originalProductId);
+          }
+        }
+ else         if ("Y".equals(subProduct.get("isVariant"))) {
+          for (          String originalProductId : revParentMap.get(productId)) {
+            UtilMisc.addToSetInMap(productId,variants,originalProductId);
+          }
+        }
+      }
+    }
+    revParentMap.clear();
+  }
+  for (  GenericValue curValue : valueObjects) {
+    String productId=curValue.getString(productIdFieldName);
+    if (allowedProductIds.contains(productId)) {
+      newList.add(curValue);
+    }
+  }
+  return newList;
+}

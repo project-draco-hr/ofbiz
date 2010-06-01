@@ -1,12 +1,29 @@
 {
-  List<GenericValue> newList=FastList.newInstance();
-  if (productCategoryId == null)   return newList;
   if (valueObjects == null)   return null;
-  for (  GenericValue curValue : valueObjects) {
-    String productId=curValue.getString(productIdFieldName);
-    if (isProductInCategory(delegator,productId,productCategoryId)) {
-      newList.add(curValue);
+  if (productCategoryId == null)   return FastList.newInstance();
+  EntityCondition productCategoryIdCondition=EntityCondition.makeCondition("productCategoryId",EntityOperator.EQUALS,productCategoryId);
+  Iterator<GenericValue> it=valueObjects.iterator();
+  Set<String> allowedProductIds=FastSet.newInstance();
+  Map<String,Set<String>> variants=FastMap.newInstance();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  while (it.hasNext()) {
+    Set<String> lookupProductIds=FastSet.newInstance();
+    while (lookupProductIds.size() < 100 && it.hasNext()) {
+      GenericValue value=it.next();
+      lookupProductIds.add(value.getString("productId"));
+    }
+    EntityCondition condition=EntityCondition.makeCondition(EntityCondition.makeCondition("productId",EntityOperator.IN,lookupProductIds),EntityOperator.AND,productCategoryIdCondition);
+    List<GenericValue> subProducts=delegator.findList("ProductAndCategoryMember",condition,null,null,null,true);
+    for (    GenericValue subProduct : subProducts) {
+      String productId=subProduct.getString("productId");
+      if (EntityUtil.isValueActive(subProduct,now)) {
+        allowedProductIds.add(productId);
+        variants.remove(productId);
+      }
+ else       if ("Y".equals(subProduct.get("isVariant"))) {
+        variants.put(productId,null);
+      }
     }
   }
-  return newList;
+  return filterVariantsInCategory(delegator,now,productCategoryIdCondition,valueObjects,allowedProductIds,variants,productIdFieldName);
 }
