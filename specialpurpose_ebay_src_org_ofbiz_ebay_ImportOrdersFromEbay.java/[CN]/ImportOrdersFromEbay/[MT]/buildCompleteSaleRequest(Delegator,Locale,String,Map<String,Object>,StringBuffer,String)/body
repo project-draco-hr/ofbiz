@@ -2,15 +2,26 @@
   String paid=(String)context.get("paid");
   String shipped=(String)context.get("shipped");
   try {
-    if (itemId == null && transactionId == null) {
-      Debug.logError("Cannot retrieve itemId and transactionId from externalId",module);
+    if (transactionId == null) {
       return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.errorDuringBuildItemAndTransactionIdFromExternalId",locale));
     }
     Document transDoc=UtilXml.makeEmptyXmlDocument("CompleteSaleRequest");
     Element transElem=transDoc.getDocumentElement();
     transElem.setAttribute("xmlns","urn:ebay:apis:eBLBaseComponents");
     EbayHelper.appendRequesterCredentials(transElem,transDoc,token);
-    UtilXml.addChildElementValue(transElem,"ItemID",itemId,transDoc);
+    if (transactionId.startsWith("EBT_")) {
+      UtilXml.addChildElementValue(transElem,"TransactionID",transactionId.substring(4),transDoc);
+      UtilXml.addChildElementValue(transElem,"ItemID","0",transDoc);
+    }
+ else     if (transactionId.startsWith("EBO_")) {
+      UtilXml.addChildElementValue(transElem,"OrderID",transactionId.substring(4),transDoc);
+      UtilXml.addChildElementValue(transElem,"TransactionID","0",transDoc);
+      UtilXml.addChildElementValue(transElem,"ItemID","0",transDoc);
+    }
+ else     if (transactionId.startsWith("EBI_")) {
+      UtilXml.addChildElementValue(transElem,"ItemID",transactionId.substring(4),transDoc);
+      UtilXml.addChildElementValue(transElem,"TransactionID","0",transDoc);
+    }
     if (paid == null && shipped == null) {
       shipped="Y";
     }
@@ -32,7 +43,6 @@
       }
       UtilXml.addChildElementValue(transElem,"Shipped",shipped,transDoc);
     }
-    UtilXml.addChildElementValue(transElem,"TransactionID",(transactionId == null ? "0" : transactionId),transDoc);
     dataItemsXml.append(UtilXml.writeXmlDocument(transDoc));
   }
  catch (  Exception e) {
