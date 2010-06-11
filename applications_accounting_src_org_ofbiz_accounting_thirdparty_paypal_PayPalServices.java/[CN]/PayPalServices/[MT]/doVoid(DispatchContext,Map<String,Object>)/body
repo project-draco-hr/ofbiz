@@ -1,2 +1,44 @@
 {
+  GenericValue payPalConfig=getPaymentMethodGatewayPayPal(dctx,context,null);
+  if (payPalConfig == null) {
+    return ServiceUtil.returnError("Couldn't retrieve a PaymentGatewayConfigPayPal record for Express Checkout, cannot continue.");
+  }
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTrans=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  NVPEncoder encoder=new NVPEncoder();
+  encoder.add("METHOD","DoVoid");
+  encoder.add("AUTHORIZATIONID",authTrans.getString("referenceNum"));
+  NVPDecoder decoder=null;
+  try {
+    decoder=sendNVPRequest(payPalConfig,encoder);
+  }
+ catch (  PayPalException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (decoder == null) {
+    return ServiceUtil.returnError("An unknown error occurred while contacting PayPal");
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  Map<String,String> errors=getErrorMessageMap(decoder);
+  if (UtilValidate.isNotEmpty(errors)) {
+    result.put("releaseResult",false);
+    result.put("releaseRefNum",authTrans.getString("referenceNum"));
+    result.put("releaseAmount",BigDecimal.ZERO);
+    if (errors.size() == 1) {
+      Map.Entry<String,String> error=errors.entrySet().iterator().next();
+      result.put("releaseCode",error.getKey());
+      result.put("releaseMessage",error.getValue());
+    }
+ else {
+      result.put("releaseMessage","Multiple errors occurred, please refer to the gateway response messages");
+      result.put("internalRespMsgs",errors);
+    }
+  }
+ else {
+    result.put("releaseResult",true);
+    result.put("releaseAmount",context.get("releaseAmount"));
+    result.put("releaseRefNum",decoder.get("AUTHORIZATIONID"));
+  }
+  return result;
 }
