@@ -30,6 +30,27 @@
   String itemPkCateId=(String)requestParams.get("primaryCateId");
   String shippingService=(String)requestParams.get("ShippingService");
   String productStoreId=(String)requestParams.get("productStoreId");
+  Map paramMap=UtilHttp.getParameterMap(request);
+  List<String> nameSpecificList=FastList.newInstance();
+  List<String> valueSpecificList=FastList.newInstance();
+  String nameValueListType=null;
+  String valueListType=null;
+  int rowCount=UtilHttp.getMultiFormRowCount(paramMap);
+  if (rowCount > 1) {
+    for (int i=0; i < rowCount; i++) {
+      String thisSuffix=UtilHttp.MULTI_ROW_DELIMITER + i;
+      if (paramMap.containsKey("nameValueListType" + thisSuffix)) {
+        nameValueListType=(String)paramMap.remove("nameValueListType" + thisSuffix);
+      }
+      if (paramMap.containsKey("categorySpecifics" + thisSuffix)) {
+        valueListType=(String)paramMap.remove("categorySpecifics" + thisSuffix);
+      }
+      if ((UtilValidate.isNotEmpty(nameValueListType)) && (UtilValidate.isNotEmpty(valueListType))) {
+        nameSpecificList.add(nameValueListType);
+        valueSpecificList.add(valueListType);
+      }
+    }
+  }
   try {
     ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
     Map<String,Object> addItemObject=getAddItemListingObject(request,apiContext);
@@ -63,6 +84,23 @@
           attributeMapList.put("CategoryParentID",item.getPrimaryCategory().getCategoryParentID(0).toString());
           attributeMapList.put("LeafCategory","true");
           attributeMapList.put("LSD","true");
+          int itemSpecificsSize=nameSpecificList.size();
+          int valueSpecificsSize=valueSpecificList.size();
+          if ((itemSpecificsSize > 0) && (valueSpecificsSize > 0)) {
+            NameValueListArrayType nameValueListArray=new NameValueListArrayType();
+            NameValueListType[] nameValueListTypes=new NameValueListType[nameSpecificList.size()];
+            for (int i=0; i < itemSpecificsSize; i++) {
+              String name=(String)nameSpecificList.get(i);
+              String value=(String)valueSpecificList.get(i);
+              String[] valueArray=new String[]{value};
+              NameValueListType listType=new NameValueListType();
+              listType.setName(name);
+              listType.setValue(valueArray);
+              nameValueListTypes[i]=listType;
+            }
+            nameValueListArray.setNameValueList(nameValueListTypes);
+            item.setItemSpecifics(nameValueListArray);
+          }
           item.setUseTaxTable(false);
           item.setDispatchTimeMax(3);
           ReturnPolicyType policy=new ReturnPolicyType();
