@@ -3,50 +3,18 @@
   if (mft == null) {
     throw new GenericModelException("definition fieldType " + curField.getType() + " not found, cannot getValue for field "+ entity.getEntityName()+ "."+ curField.getName()+ ".");
   }
-  Object sourceObject=null;
-  try {
-    sourceObject=rs.getObject(ind);
-    if (sourceObject == null) {
-      entity.dangerousSetNoCheckButFast(curField,null);
+  JdbcValueHandler handler=mft.getJdbcValueHandler();
+  if (handler != null) {
+    try {
+      entity.dangerousSetNoCheckButFast(curField,handler.getValue(rs,ind));
       return;
     }
+ catch (    Exception e) {
+      Debug.logError(e,module);
+    }
   }
- catch (  SQLException e) {
-    throw new GenericEntityException(e);
-  }
-  Class<?> targetClass=mft.getJavaClass();
-  if (targetClass != null) {
-    Class<?> sourceClass=sourceObject.getClass();
-    if (targetClass.equals(sourceClass)) {
-      entity.dangerousSetNoCheckButFast(curField,sourceObject);
-      return;
-    }
-    Converter<Object,Object> converter=(Converter<Object,Object>)mft.getSqlToJavaConverter();
-    if (converter == null) {
-      if (mft.getSqlClass() == null) {
-        mft.setSqlClass(sourceClass);
-      }
-      try {
-        converter=(Converter<Object,Object>)Converters.getConverter(sourceClass,targetClass);
-        mft.setSqlToJavaConverter(converter);
-      }
- catch (      Exception e) {
-        Debug.logError(e,module);
-      }
-    }
-    if (converter != null) {
-      try {
-        entity.dangerousSetNoCheckButFast(curField,converter.convert(sourceObject));
-        return;
-      }
- catch (      ClassCastException e) {
-        Debug.logError(e.toString(),module);
-      }
-catch (      Exception e) {
-        Debug.logError(e,module);
-      }
-    }
-    Debug.logInfo("Unable to convert, falling back on switch statement",module);
+ else {
+    Debug.logWarning("JdbcValueHandler not found for java-type " + mft.getJavaType() + ", falling back on switch statement. Entity = "+ curField.getModelEntity().getEntityName()+ ", field = "+ curField.getName()+ ".",module);
   }
   String fieldType=mft.getJavaType();
   try {
