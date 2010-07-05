@@ -1,0 +1,104 @@
+{
+  String globalStr=this.globalExdr.expandString(context);
+  boolean global="true".equals(globalStr);
+  Object newValue=null;
+  if (this.fromScope != null && this.fromScope.equals("user")) {
+    if (!this.fromField.isEmpty()) {
+      HttpSession session=(HttpSession)context.get("session");
+      newValue=getInMemoryPersistedFromField(session,context);
+      if (Debug.verboseOn())       Debug.logVerbose("In user getting value for field from [" + this.fromField.getOriginalName() + "]: "+ newValue,module);
+    }
+ else     if (!this.valueExdr.isEmpty()) {
+      newValue=this.valueExdr.expand(context);
+    }
+  }
+ else   if (this.fromScope != null && this.fromScope.equals("application")) {
+    if (!this.fromField.isEmpty()) {
+      ServletContext servletContext=(ServletContext)context.get("application");
+      newValue=getInMemoryPersistedFromField(servletContext,context);
+      if (Debug.verboseOn())       Debug.logVerbose("In application getting value for field from [" + this.fromField.getOriginalName() + "]: "+ newValue,module);
+    }
+ else     if (!this.valueExdr.isEmpty()) {
+      newValue=this.valueExdr.expandString(context);
+    }
+  }
+ else {
+    if (!this.fromField.isEmpty()) {
+      newValue=this.fromField.get(context);
+      if (Debug.verboseOn())       Debug.logVerbose("Getting value for field from [" + this.fromField.getOriginalName() + "]: "+ newValue,module);
+    }
+ else     if (!this.valueExdr.isEmpty()) {
+      newValue=this.valueExdr.expand(context);
+    }
+  }
+  if (ObjectType.isEmpty(newValue) && !this.defaultExdr.isEmpty()) {
+    newValue=this.defaultExdr.expand(context);
+  }
+  if (UtilValidate.isNotEmpty(this.type)) {
+    if ("NewMap".equals(this.type)) {
+      newValue=FastMap.newInstance();
+    }
+ else     if ("NewList".equals(this.type)) {
+      newValue=FastList.newInstance();
+    }
+ else {
+      try {
+        newValue=ObjectType.simpleTypeConvert(newValue,this.type,null,(TimeZone)context.get("timeZone"),(Locale)context.get("locale"),true);
+      }
+ catch (      GeneralException e) {
+        String errMsg="Could not convert field value for the field: [" + this.field.getOriginalName() + "] to the ["+ this.type+ "] type for the value ["+ newValue+ "]: "+ e.toString();
+        Debug.logError(e,errMsg,module);
+        throw new IllegalArgumentException(errMsg);
+      }
+    }
+  }
+  if (this.toScope != null && this.toScope.equals("user")) {
+    String originalName=this.field.getOriginalName();
+    List<String> currentWidgetTrail=UtilGenerics.toList(context.get("_WIDGETTRAIL_"));
+    String newKey="";
+    if (currentWidgetTrail != null) {
+      newKey=StringUtil.join(currentWidgetTrail,"|");
+    }
+    if (UtilValidate.isNotEmpty(newKey)) {
+      newKey+="|";
+    }
+    newKey+=originalName;
+    HttpSession session=(HttpSession)context.get("session");
+    session.setAttribute(newKey,newValue);
+    if (Debug.verboseOn())     Debug.logVerbose("In user setting value for field from [" + this.field.getOriginalName() + "]: "+ newValue,module);
+  }
+ else   if (this.toScope != null && this.toScope.equals("application")) {
+    String originalName=this.field.getOriginalName();
+    List<String> currentWidgetTrail=UtilGenerics.toList(context.get("_WIDGETTRAIL_"));
+    String newKey="";
+    if (currentWidgetTrail != null) {
+      newKey=StringUtil.join(currentWidgetTrail,"|");
+    }
+    if (UtilValidate.isNotEmpty(newKey)) {
+      newKey+="|";
+    }
+    newKey+=originalName;
+    ServletContext servletContext=(ServletContext)context.get("application");
+    servletContext.setAttribute(newKey,newValue);
+    if (Debug.verboseOn())     Debug.logVerbose("In application setting value for field from [" + this.field.getOriginalName() + "]: "+ newValue,module);
+  }
+ else {
+    if (!global) {
+      if (Debug.verboseOn())       Debug.logVerbose("Setting field [" + this.field.getOriginalName() + "] to value: "+ newValue,module);
+      this.field.put(context,newValue);
+    }
+  }
+  if (global) {
+    Map<String,Object> globalCtx=UtilGenerics.checkMap(context.get("globalContext"));
+    if (globalCtx != null) {
+      this.field.put(globalCtx,newValue);
+    }
+ else {
+      this.field.put(context,newValue);
+    }
+  }
+  Map<String,Object> page=UtilGenerics.checkMap(context.get("page"));
+  if (page != null) {
+    this.field.put(page,newValue);
+  }
+}

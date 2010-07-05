@@ -1,0 +1,64 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String productStoreId=(String)context.get("productStoreId");
+  String itemID=(String)context.get("itemId");
+  String listingType=(String)context.get("listingType");
+  String title=(String)context.get("title");
+  String description=(String)context.get("description");
+  String price=(String)context.get("price");
+  String imageFileName=(String)context.get("_imageData_fileName");
+  String currencyId=(String)context.get("currencyId");
+  try {
+    Map<String,Object> inMap=FastMap.newInstance();
+    inMap.put("productStoreId",productStoreId);
+    inMap.put("userLogin",userLogin);
+    Map<String,Object> resultUser=dispatcher.runSync("getEbayStoreUser",inMap);
+    String userID=(String)resultUser.get("userLoginId");
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    String sandboxEPSURL="https://api.sandbox.ebay.com/ws/api.dll";
+    apiContext.setEpsServerUrl(sandboxEPSURL);
+    ReviseItemCall api=new ReviseItemCall(apiContext);
+    ItemType itemToBeRevised=new ItemType();
+    itemToBeRevised.setItemID(itemID);
+    if (UtilValidate.isNotEmpty(title)) {
+      itemToBeRevised.setTitle(title);
+    }
+    if (UtilValidate.isNotEmpty(description)) {
+      itemToBeRevised.setDescription(description);
+    }
+    AmountType startPrice=new AmountType();
+    if (UtilValidate.isNotEmpty(price)) {
+      startPrice.setValue(Double.parseDouble(price));
+      startPrice.setCurrencyID(CurrencyCodeType.valueOf(currencyId));
+      itemToBeRevised.setStartPrice(startPrice);
+    }
+    if (UtilValidate.isNotEmpty(imageFileName)) {
+      ByteBuffer byteWrap=(ByteBuffer)context.get("imageData");
+      File file=new File(System.getProperty("ofbiz.home"),"runtime" + File.separator + "tmp"+ File.separator+ imageFileName);
+      FileChannel wChannel=new FileOutputStream(file,false).getChannel();
+      wChannel.write(byteWrap);
+      wChannel.close();
+      String[] pictureFiles={System.getProperty("ofbiz.home") + File.separator + "runtime"+ File.separator+ "tmp"+ File.separator+ imageFileName};
+      PictureDetailsType pictureDetails=new PictureDetailsType();
+      pictureDetails.setGalleryType(GalleryTypeCodeType.GALLERY);
+      pictureDetails.setPhotoDisplay(PhotoDisplayCodeType.NONE);
+      pictureDetails.setPictureSource(PictureSourceCodeType.EPS);
+      itemToBeRevised.setPictureDetails(pictureDetails);
+      api.setItemToBeRevised(itemToBeRevised);
+      api.uploadPictures(pictureFiles,pictureDetails);
+      FeesType fees=api.reviseItem();
+    }
+ else {
+      api.setItemToBeRevised(itemToBeRevised);
+      FeesType fees=api.reviseItem();
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return ServiceUtil.returnSuccess("Update Item  Successfully.");
+}
