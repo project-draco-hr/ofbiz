@@ -1,0 +1,45 @@
+{
+  NameCallback nameCallback=new NameCallback("userLoginId");
+  PasswordCallback passwordCallback=new PasswordCallback("currentPassword",false);
+  Callback[] callbacks=new Callback[]{nameCallback,passwordCallback};
+  try {
+    callbackHandler.handle(callbacks);
+  }
+ catch (  IOException e) {
+    Debug.logError(e,module);
+    throw new LoginException(e.getMessage());
+  }
+catch (  UnsupportedCallbackException e) {
+    Debug.logError(e,module);
+    throw new LoginException(e.getMessage());
+  }
+  String userLoginId=nameCallback.getName();
+  String password=String.valueOf(passwordCallback.getPassword());
+  passwordCallback.clearPassword();
+  try {
+    GenericValue newUserLogin=delegator.findOne("UserLogin",false,"userLoginId",userLoginId);
+    if (newUserLogin.getString("currentPassword") == null || newUserLogin.getString("currentPassword").equals(password)) {
+      userLogin=newUserLogin;
+      return true;
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (UtilValidate.isNotEmpty(password)) {
+    Map<String,Object> loginCtx=FastMap.newInstance();
+    loginCtx.put("login.username",userLoginId);
+    loginCtx.put("login.password",password);
+    try {
+      Map<String,? extends Object> result=dispatcher.runSync("userLogin",loginCtx);
+      if (ServiceUtil.isSuccess(result)) {
+        userLogin=(GenericValue)result.get("userLogin");
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      throw new LoginException(e.getMessage());
+    }
+  }
+  return false;
+}
