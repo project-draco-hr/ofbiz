@@ -12,15 +12,15 @@
  catch (  GenericEntityException e) {
     throw new GeneralException("Problems getting payment preferences",e);
   }
-  List canExpr=UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
+  List<EntityExpr> canExpr=UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
   allPaymentPreferences=EntityUtil.filterByAnd(allPaymentPreferences,canExpr);
-  List exprs=UtilMisc.toList(EntityCondition.makeCondition("manualRefNum",EntityOperator.NOT_EQUAL,null));
-  List manualRefPaymentPrefs=EntityUtil.filterByAnd(allPaymentPreferences,exprs);
+  List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("manualRefNum",EntityOperator.NOT_EQUAL,null));
+  List<GenericValue> manualRefPaymentPrefs=EntityUtil.filterByAnd(allPaymentPreferences,exprs);
   if (UtilValidate.isNotEmpty(manualRefPaymentPrefs)) {
-    Iterator i=manualRefPaymentPrefs.iterator();
+    Iterator<GenericValue> i=manualRefPaymentPrefs.iterator();
     while (i.hasNext()) {
-      GenericValue opp=(GenericValue)i.next();
-      Map authCtx=new HashMap();
+      GenericValue opp=i.next();
+      Map<String,Object> authCtx=new HashMap<String,Object>();
       authCtx.put("orderPaymentPreference",opp);
       if (opp.get("paymentMethodId") == null) {
         authCtx.put("serviceTypeEnum","PRDS_PAY_EXTERNAL");
@@ -30,13 +30,13 @@
       authCtx.put("authResult",Boolean.TRUE);
       authCtx.put("userLogin",userLogin);
       authCtx.put("currencyUomId",currencyUomId);
-      Map authResp=dispatcher.runSync("processAuthResult",authCtx);
+      Map<String,Object> authResp=dispatcher.runSync("processAuthResult",authCtx);
       if (authResp != null && ServiceUtil.isError(authResp)) {
         throw new GeneralException(ServiceUtil.getErrorMessage(authResp));
       }
       OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId,manualHold);
       if ("Y".equalsIgnoreCase(productStore.getString("manualAuthIsCapture"))) {
-        Map captCtx=new HashMap();
+        Map<String,Object> captCtx=new HashMap<String,Object>();
         captCtx.put("orderPaymentPreference",opp);
         if (opp.get("paymentMethodId") == null) {
           captCtx.put("serviceTypeEnum","PRDS_PAY_EXTERNAL");
@@ -47,7 +47,7 @@
         captCtx.put("captureRefNum",opp.getString("manualRefNum"));
         captCtx.put("userLogin",userLogin);
         captCtx.put("currencyUomId",currencyUomId);
-        Map capResp=dispatcher.runSync("processCaptureResult",captCtx);
+        Map<String,Object> capResp=dispatcher.runSync("processCaptureResult",captCtx);
         if (capResp != null && ServiceUtil.isError(capResp)) {
           throw new GeneralException(ServiceUtil.getErrorMessage(capResp));
         }
@@ -60,8 +60,8 @@
     GenericValue payPalPaymentPref=EntityUtil.getFirst(payPalPaymentPrefs);
     ExpressCheckoutEvents.doExpressCheckout(productStore.getString("productStoreId"),orderId,payPalPaymentPref,userLogin,delegator,dispatcher);
   }
-  Map paymentFields=UtilMisc.toMap("statusId","PAYMENT_NOT_AUTH");
-  List onlinePaymentPrefs=EntityUtil.filterByAnd(allPaymentPreferences,paymentFields);
+  Map<String,Object> paymentFields=UtilMisc.<String,Object>toMap("statusId","PAYMENT_NOT_AUTH");
+  List<GenericValue> onlinePaymentPrefs=EntityUtil.filterByAnd(allPaymentPreferences,paymentFields);
   if (UtilValidate.isNotEmpty(onlinePaymentPrefs)) {
     boolean autoApproveOrder=UtilValidate.isEmpty(productStore.get("autoApproveOrder")) || "Y".equalsIgnoreCase(productStore.getString("autoApproveOrder"));
     if (orderTotal.compareTo(BigDecimal.ZERO) == 0 && autoApproveOrder) {
@@ -70,7 +70,7 @@
         throw new GeneralException("Problem with order change; see above error");
       }
     }
-    Map paymentResult=null;
+    Map<String,Object> paymentResult=null;
     try {
       paymentResult=dispatcher.runSync("authOrderPayments",UtilMisc.<String,Object>toMap("orderId",orderId,"userLogin",userLogin),180,false);
     }
@@ -82,8 +82,8 @@
     if (paymentResult != null && ServiceUtil.isError(paymentResult)) {
       throw new GeneralException(ServiceUtil.getErrorMessage(paymentResult));
     }
-    List messages=(List)paymentResult.get("authResultMsgs");
     if (paymentResult != null && paymentResult.containsKey("processResult")) {
+      List<String> messages=UtilGenerics.checkList(paymentResult.get("authResultMsgs"));
       String authResp=(String)paymentResult.get("processResult");
       if (authResp.equals("FAILED")) {
         if (Debug.verboseOn())         Debug.logVerbose("Payment auth was NOT a success!",module);
@@ -144,11 +144,11 @@
     }
   }
  else {
-    List cashCodPcBaExpr=UtilMisc.toList(EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"CASH"),EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"EXT_COD"),EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"PERSONAL_CHECK"),EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"EXT_BILLACT"));
-    List cashCodPcBaPaymentPreferences=EntityUtil.filterByOr(allPaymentPreferences,cashCodPcBaExpr);
+    List<EntityExpr> cashCodPcBaExpr=UtilMisc.toList(EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"CASH"),EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"EXT_COD"),EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"PERSONAL_CHECK"),EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.EQUALS,"EXT_BILLACT"));
+    List<GenericValue> cashCodPcBaPaymentPreferences=EntityUtil.filterByOr(allPaymentPreferences,cashCodPcBaExpr);
     if (UtilValidate.isNotEmpty(cashCodPcBaPaymentPreferences) && UtilValidate.isNotEmpty(allPaymentPreferences) && cashCodPcBaPaymentPreferences.size() == allPaymentPreferences.size()) {
-      List checkPareferences=EntityUtil.filterByAnd(cashCodPcBaPaymentPreferences,UtilMisc.toMap("paymentMethodTypeId","PERSONAL_CHECK"));
-      if (UtilValidate.isNotEmpty(checkPareferences)) {
+      List<GenericValue> checkPreferences=EntityUtil.filterByAnd(cashCodPcBaPaymentPreferences,UtilMisc.toMap("paymentMethodTypeId","PERSONAL_CHECK"));
+      if (UtilValidate.isNotEmpty(checkPreferences)) {
         if (faceToFace) {
           boolean ok=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId,manualHold);
           if (!ok) {
