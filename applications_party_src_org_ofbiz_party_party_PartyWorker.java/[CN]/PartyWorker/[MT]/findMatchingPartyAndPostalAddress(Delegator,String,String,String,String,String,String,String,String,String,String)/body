@@ -1,69 +1,9 @@
 {
   List<GenericValue> returnList=FastList.newInstance();
-  if (firstName == null || lastName == null || address1 == null || city == null || postalCode == null) {
+  if (firstName == null || lastName == null) {
     throw new IllegalArgumentException();
   }
-  List<EntityCondition> addrExprs=FastList.newInstance();
-  if (stateProvinceGeoId != null) {
-    if ("**".equals(stateProvinceGeoId)) {
-      Debug.logWarning("Illegal state code passed!",module);
-    }
- else     if ("NA".equals(stateProvinceGeoId)) {
-      addrExprs.add(EntityCondition.makeCondition("stateProvinceGeoId",EntityOperator.EQUALS,"_NA_"));
-    }
- else {
-      addrExprs.add(EntityCondition.makeCondition("stateProvinceGeoId",EntityOperator.EQUALS,stateProvinceGeoId.toUpperCase()));
-    }
-  }
-  if (!postalCode.startsWith("*")) {
-    if (postalCode.length() == 10 && postalCode.indexOf("-") != -1) {
-      String[] zipSplit=postalCode.split("-",2);
-      postalCode=zipSplit[0];
-      postalCodeExt=zipSplit[1];
-    }
-    addrExprs.add(EntityCondition.makeCondition("postalCode",EntityOperator.EQUALS,postalCode));
-  }
-  if (postalCodeExt != null) {
-    addrExprs.add(EntityCondition.makeCondition("postalCodeExt",EntityOperator.EQUALS,postalCodeExt));
-  }
-  addrExprs.add(EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("city"),EntityOperator.EQUALS,EntityFunction.UPPER(city)));
-  if (countryGeoId != null) {
-    addrExprs.add(EntityCondition.makeCondition("countryGeoId",EntityOperator.EQUALS,countryGeoId.toUpperCase()));
-  }
-  addrExprs.add(EntityCondition.makeCondition(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PARTY_DISABLED")));
-  List<String> sort=UtilMisc.toList("-fromDate");
-  EntityCondition addrCond=EntityCondition.makeCondition(addrExprs,EntityOperator.AND);
-  List<GenericValue> addresses=EntityUtil.filterByDate(delegator.findList("PartyAndPostalAddress",addrCond,null,sort,null,false));
-  if (UtilValidate.isEmpty(addresses)) {
-    return returnList;
-  }
-  List<GenericValue> validFound=FastList.newInstance();
-  for (  GenericValue address : addresses) {
-    String addr1Source=PartyWorker.makeMatchingString(delegator,address1);
-    String addr1Target=PartyWorker.makeMatchingString(delegator,address.getString("address1"));
-    if (addr1Target != null) {
-      Debug.log("Comparing address1 : " + addr1Source + " / "+ addr1Target,module);
-      if (addr1Target.equals(addr1Source)) {
-        if (address2 != null) {
-          String addr2Source=PartyWorker.makeMatchingString(delegator,address2);
-          String addr2Target=PartyWorker.makeMatchingString(delegator,address.getString("address2"));
-          if (addr2Target != null) {
-            Debug.log("Comparing address2 : " + addr2Source + " / "+ addr2Target,module);
-            if (addr2Source.equals(addr2Target)) {
-              Debug.log("Matching address2; adding valid address",module);
-              validFound.add(address);
-            }
-          }
-        }
- else {
-          if (address.get("address2") == null) {
-            Debug.log("No address2; adding valid address",module);
-            validFound.add(address);
-          }
-        }
-      }
-    }
-  }
+  List<GenericValue> validFound=findMatchingPartyPostalAddress(delegator,address1,address2,city,stateProvinceGeoId,postalCode,postalCodeExt,countryGeoId,"PERSON");
   if (UtilValidate.isNotEmpty(validFound)) {
     for (    GenericValue partyAndAddr : validFound) {
       String partyId=partyAndAddr.getString("partyId");
