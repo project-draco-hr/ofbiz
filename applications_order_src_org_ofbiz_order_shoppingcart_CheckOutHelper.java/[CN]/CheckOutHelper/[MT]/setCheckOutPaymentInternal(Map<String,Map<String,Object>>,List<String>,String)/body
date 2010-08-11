@@ -1,0 +1,91 @@
+{
+  List<String> errorMessages=new ArrayList<String>();
+  String errMsg=null;
+  if (singleUsePayments == null) {
+    singleUsePayments=new ArrayList<String>();
+  }
+  if (UtilValidate.isNotEmpty(selectedPaymentMethods)) {
+    cart.clearPayments();
+    if (UtilValidate.isNotEmpty(billingAccountId)) {
+      Map<String,Object> billingAccountMap=selectedPaymentMethods.get("EXT_BILLACT");
+      BigDecimal billingAccountAmt=(BigDecimal)billingAccountMap.get("amount");
+      cart.setBillingAccount(billingAccountId,(billingAccountAmt != null ? billingAccountAmt : BigDecimal.ZERO));
+      try {
+        List<GenericValue> billingAccountTerms=delegator.findByAnd("BillingAccountTerm",UtilMisc.toMap("billingAccountId",billingAccountId));
+        if (UtilValidate.isNotEmpty(billingAccountTerms)) {
+          Iterator<GenericValue> billingAccountTermsIt=billingAccountTerms.iterator();
+          while (billingAccountTermsIt.hasNext()) {
+            GenericValue billingAccountTerm=billingAccountTermsIt.next();
+            if (!cart.hasOrderTerm(billingAccountTerm.getString("termTypeId"))) {
+              cart.addOrderTerm(billingAccountTerm.getString("termTypeId"),billingAccountTerm.getBigDecimal("termValue"),billingAccountTerm.getLong("termDays"));
+            }
+          }
+        }
+      }
+ catch (      GenericEntityException gee) {
+        Debug.logWarning("Error copying billing account terms to order terms: " + gee.getMessage(),module);
+      }
+    }
+ else {
+      cart.setBillingAccount(null,BigDecimal.ZERO);
+    }
+    if (selectedPaymentMethods.containsKey("EXT_BILLACT") && selectedPaymentMethods.size() == 1) {
+      BigDecimal accountCredit=this.availableAccountBalance(cart.getBillingAccountId());
+      BigDecimal amountToUse=cart.getBillingAccountAmount();
+      if (amountToUse.compareTo(BigDecimal.ZERO) > 0 && amountToUse.compareTo(accountCredit) > 0) {
+        errMsg=UtilProperties.getMessage(resource_error,"checkhelper.insufficient_credit_available_on_account",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        errorMessages.add(errMsg);
+      }
+ else {
+        amountToUse=accountCredit;
+      }
+      BigDecimal grandTotal=cart.getGrandTotal();
+      if (grandTotal.compareTo(amountToUse) > 0) {
+        cart.setBillingAccount(null,BigDecimal.ZERO);
+        errMsg=UtilProperties.getMessage(resource_error,"checkhelper.insufficient_credit_available_on_account",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        errorMessages.add(errMsg);
+      }
+ else {
+        amountToUse=grandTotal;
+      }
+      if (amountToUse.compareTo(BigDecimal.ZERO) > 0) {
+        cart.setBillingAccount(billingAccountId,amountToUse);
+        selectedPaymentMethods.put("EXT_BILLACT",UtilMisc.<String,Object>toMap("amount",amountToUse,"securityCode",null));
+      }
+    }
+    Set<String> paymentMethods=selectedPaymentMethods.keySet();
+    Iterator<String> i=paymentMethods.iterator();
+    while (i.hasNext()) {
+      String checkOutPaymentId=i.next();
+      String finAccountId=null;
+      if (checkOutPaymentId.indexOf("|") > -1) {
+        String[] splitStr=checkOutPaymentId.split("\\|");
+        checkOutPaymentId=splitStr[0];
+        if ("FIN_ACCOUNT".equals(checkOutPaymentId)) {
+          finAccountId=splitStr[1];
+        }
+        if (Debug.verboseOn())         Debug.logVerbose("Split checkOutPaymentId: " + splitStr[0] + " / "+ splitStr[1],module);
+      }
+      BigDecimal paymentAmount=null;
+      String securityCode=null;
+      if (selectedPaymentMethods.get(checkOutPaymentId) != null) {
+        Map<String,Object> checkOutPaymentInfo=selectedPaymentMethods.get(checkOutPaymentId);
+        paymentAmount=(BigDecimal)checkOutPaymentInfo.get("amount");
+        securityCode=(String)checkOutPaymentInfo.get("securityCode");
+      }
+      boolean singleUse=singleUsePayments.contains(checkOutPaymentId);
+      ShoppingCart.CartPaymentInfo inf=cart.addPaymentAmount(checkOutPaymentId,paymentAmount,singleUse);
+      if (finAccountId != null) {
+        inf.finAccountId=finAccountId;
+      }
+      if (securityCode != null) {
+        inf.securityCode=securityCode;
+      }
+    }
+  }
+ else   if (cart.getGrandTotal().compareTo(BigDecimal.ZERO) != 0) {
+    errMsg=UtilProperties.getMessage(resource_error,"checkhelper.select_method_of_payment",(cart != null ? cart.getLocale() : Locale.getDefault()));
+    errorMessages.add(errMsg);
+  }
+  return errorMessages;
+}

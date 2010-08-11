@@ -1,0 +1,60 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isEmpty(context.get("productStoreId")) || UtilValidate.isEmpty(context.get("userId")) || UtilValidate.isEmpty(context.get("itemId"))|| UtilValidate.isEmpty(context.get("offerId"))|| UtilValidate.isEmpty(context.get("contactSetting"))) {
+    return ServiceUtil.returnFailure("Required userId, itemId, productStoreId, OfferId and contactStatus.");
+  }
+  String userId=(String)context.get("userId");
+  String itemId=(String)context.get("itemId");
+  String itemName=(String)context.get("itemName");
+  String productStoreId=(String)context.get("productStoreId");
+  String offerId=(String)context.get("offerId");
+  String contactStatus=(String)context.get("contactSetting");
+  String price=(String)context.get("price");
+  String email=(String)context.get("email");
+  String quantity=(String)context.get("quantity");
+  Map<String,Object> result=FastMap.newInstance();
+  try {
+    GenericValue userLogin=delegator.findOne("UserLogin",false,"userLoginId","system");
+    Map<String,Object> inMap=FastMap.newInstance();
+    inMap.put("productStoreId",productStoreId);
+    inMap.put("userLogin",userLogin);
+    Map<String,Object> resultUser=dispatcher.runSync("getEbayStoreUser",inMap);
+    String userID=(String)resultUser.get("userLoginId");
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    String[] bestOfferIDs={offerId};
+    RespondToBestOfferCall respondToBestOfferCall=new RespondToBestOfferCall(apiContext);
+    respondToBestOfferCall.setItemID(itemId);
+    respondToBestOfferCall.setBestOfferIDs(bestOfferIDs);
+    if (contactStatus.equals("ACCEPT")) {
+      respondToBestOfferCall.setBestOfferAction(BestOfferActionCodeType.ACCEPT);
+      respondToBestOfferCall.respondToBestOffer();
+      contactStatus="FINISHED";
+    }
+ else     if (contactStatus.equals("DECLINE")) {
+      respondToBestOfferCall.setBestOfferAction(BestOfferActionCodeType.DECLINE);
+      respondToBestOfferCall.respondToBestOffer();
+      contactStatus="FINISHED";
+    }
+ else {
+      return ServiceUtil.returnFailure("Required contactStatus setting.");
+    }
+    GenericValue ebayUserBestOffer=delegator.findByPrimaryKey("EbayUserBestOffer",UtilMisc.toMap("userId",userId,"itemId",itemId));
+    ebayUserBestOffer.set("contactStatus",contactStatus);
+    ebayUserBestOffer.store();
+    result.put("userId",userId);
+    result.put("itemId",itemId);
+    result.put("productStoreId",productStoreId);
+    result.put("offerId",offerId);
+    result.put("contactStatus",contactStatus);
+    result.put("price",price);
+    result.put("email",email);
+    result.put("itemName",itemName);
+    result.put("quantity",quantity);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnFailure("Error from updateContactStatus service " + e);
+  }
+  return result;
+}
