@@ -1,0 +1,28 @@
+{
+  String productId=orderItem.get("productId").toString();
+  GenericValue product=delegator.findOne("Product",UtilMisc.toMap("productId",productId),false);
+  if (UtilValidate.isEmpty(product)) {
+    String productMissingMsg="The product having ID (" + productId + ") is misssing in the system.";
+  }
+  BigDecimal qty=new BigDecimal(orderItem.get("quantity").toString());
+  String itemPrice=orderItem.get("transactionPrice").toString();
+  if (UtilValidate.isEmpty(itemPrice)) {
+    itemPrice=orderItem.get("amount").toString();
+  }
+  BigDecimal price=new BigDecimal(itemPrice);
+  price=price.setScale(ShoppingCart.scale,ShoppingCart.rounding);
+  HashMap<Object,Object> attrs=new HashMap<Object,Object>();
+  attrs.put("shipGroup",groupIdx);
+  int idx=cart.addItemToEnd(productId,null,qty,null,null,attrs,null,null,dispatcher,Boolean.FALSE,Boolean.TRUE,Boolean.TRUE,Boolean.TRUE);
+  ShoppingCartItem cartItem=cart.findCartItem(idx);
+  cartItem.setQuantity(qty,dispatcher,cart,true,false);
+  BigDecimal cartPrice=cartItem.getBasePrice();
+  cartPrice=cartPrice.setScale(ShoppingCart.scale,ShoppingCart.rounding);
+  if (price.doubleValue() != cartPrice.doubleValue()) {
+    cartItem.setIsModifiedPrice(true);
+    cartItem.setBasePrice(price);
+    cart.setHoldOrder(true);
+    cart.addInternalOrderNote("Price received [" + price + "] (for item # "+ productId+ ") from eBay Checkout does not match the price in the database ["+ cartPrice+ "]. Order is held for manual review.");
+  }
+  cart.setItemShipGroupQty(cartItem,qty,groupIdx);
+}

@@ -1,0 +1,58 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  List<Map<String,Object>> transactionList=FastList.newInstance();
+  List<String> orderIdList=FastList.newInstance();
+  String productStoreId=(String)context.get("productStoreId");
+  try {
+    Calendar fromDate=Calendar.getInstance();
+    Calendar toDate=Calendar.getInstance();
+    if (UtilValidate.isNotEmpty(context.get("thruDate"))) {
+      SimpleDateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+      dateFormat.parse(context.get("fromDate").toString());
+      fromDate.setTime(dateFormat.parse(context.get("fromDate").toString()));
+      SimpleDateFormat dateFormat2=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+      dateFormat2.parse(context.get("thruDate").toString());
+      toDate.setTime(dateFormat.parse(context.get("thruDate").toString()));
+    }
+ else {
+      toDate.setTime(UtilDateTime.nowDate());
+      fromDate=null;
+    }
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    DetailLevelCodeType[] detailLevels=new DetailLevelCodeType[]{DetailLevelCodeType.RETURN_ALL,DetailLevelCodeType.ITEM_RETURN_ATTRIBUTES,DetailLevelCodeType.ITEM_RETURN_DESCRIPTION};
+    GetSellerTransactionsCall getSellerTransaction=new GetSellerTransactionsCall(apiContext);
+    getSellerTransaction.setIncludeContainingOrder(Boolean.TRUE);
+    getSellerTransaction.setDetailLevel(detailLevels);
+    if (UtilValidate.isEmpty(fromDate)) {
+      getSellerTransaction.setNumberOfDays(30);
+    }
+    TimeFilter modifiedTimeFilter=new TimeFilter(fromDate,toDate);
+    getSellerTransaction.setModifiedTimeFilter(modifiedTimeFilter);
+    TransactionType[] transactions=getSellerTransaction.getSellerTransactions();
+    List<String> orderIds=FastList.newInstance();
+    for (int tranCount=0; tranCount < transactions.length; tranCount++) {
+      TransactionType transaction=transactions[tranCount];
+      if (UtilValidate.isNotEmpty(transaction.getContainingOrder())) {
+        String orderId=transaction.getContainingOrder().getOrderID();
+        if (!orderIdList.contains(orderId)) {
+          orderIdList.add(orderId);
+        }
+        continue;
+      }
+      Map transactionMap=EbayStore.getTransactionHelper(transaction,locale);
+      transactionList.add(transactionMap);
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  result.put("productStoreId",productStoreId);
+  result.put("formSelect","transaction");
+  result.put("orderIdList",orderIdList);
+  result.put("transactionsList",transactionList);
+  return result;
+}
