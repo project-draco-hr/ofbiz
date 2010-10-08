@@ -1,0 +1,67 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String productStoreId=(String)context.get("productStoreId");
+  List<Map<String,Object>> closedItems=FastList.newInstance();
+  try {
+    Map<String,Object> inMap=FastMap.newInstance();
+    inMap.put("productStoreId",productStoreId);
+    inMap.put("userLogin",userLogin);
+    Map<String,Object> resultUser=dispatcher.runSync("getEbayStoreUser",inMap);
+    String userID=(String)resultUser.get("userLoginId");
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    ItemListCustomizationType itemListType=new ItemListCustomizationType();
+    itemListType.setInclude(Boolean.TRUE);
+    itemListType.setSort(ItemSortTypeCodeType.ITEM_ID_DESCENDING);
+    String entriesPerPage=(String)context.get("entriesPerPage");
+    String pageNumber=(String)context.get("pageNumber");
+    String listingType=(String)context.get("listingType");
+    PaginationType page=new PaginationType();
+    if (UtilValidate.isNotEmpty(entriesPerPage)) {
+      page.setEntriesPerPage(Integer.valueOf(entriesPerPage));
+    }
+    if (UtilValidate.isNotEmpty(pageNumber)) {
+      page.setPageNumber(Integer.valueOf(pageNumber));
+    }
+    itemListType.setPagination(page);
+    if (UtilValidate.isNotEmpty(listingType)) {
+      itemListType.setListingType(ListingTypeCodeType.valueOf(listingType));
+    }
+ else {
+      itemListType.setListingType(ListingTypeCodeType.FIXED_PRICE_ITEM);
+    }
+    DetailLevelCodeType[] detailLevels=new DetailLevelCodeType[]{DetailLevelCodeType.RETURN_ALL,DetailLevelCodeType.ITEM_RETURN_ATTRIBUTES,DetailLevelCodeType.ITEM_RETURN_DESCRIPTION};
+    GetMyeBaySellingCall getMyeBaySelling=new GetMyeBaySellingCall(apiContext);
+    getMyeBaySelling.setDetailLevel(detailLevels);
+    getMyeBaySelling.setSoldList(itemListType);
+    getMyeBaySelling.setUnsoldList(itemListType);
+    getMyeBaySelling.getMyeBaySelling();
+    ItemType[] tempUnSoldItems=null;
+    if (UtilValidate.isNotEmpty(getMyeBaySelling.getReturnedUnsoldList()))     tempUnSoldItems=(getMyeBaySelling.getReturnedUnsoldList().getItemArray()).getItem();
+    if (UtilValidate.isNotEmpty(tempUnSoldItems)) {
+      for (int i=0; i < tempUnSoldItems.length; i++) {
+        Map<String,Object> unsoldItemMap=getClosedItem(tempUnSoldItems[i]);
+        unsoldItemMap.put("sellingStatus","unsold");
+        closedItems.add(unsoldItemMap);
+      }
+    }
+    OrderTransactionType[] tempSoldItems=null;
+    if (UtilValidate.isNotEmpty(getMyeBaySelling.getReturnedSoldList()))     tempSoldItems=(getMyeBaySelling.getReturnedSoldList().getOrderTransactionArray()).getOrderTransaction();
+    if (UtilValidate.isNotEmpty(tempSoldItems)) {
+      for (int i=0; i < tempSoldItems.length; i++) {
+        ItemType soldItem=tempSoldItems[i].getTransaction().getItem();
+        Map<String,Object> soldItemMap=getClosedItem(soldItem);
+        soldItemMap.put("sellingStatus","sold");
+        closedItems.add(soldItemMap);
+      }
+    }
+    result.put("closedItemList",closedItems);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}
