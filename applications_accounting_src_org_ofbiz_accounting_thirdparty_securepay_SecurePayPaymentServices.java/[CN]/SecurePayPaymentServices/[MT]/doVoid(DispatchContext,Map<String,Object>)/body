@@ -1,0 +1,70 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=(GenericValue)context.get("authTrans");
+  if (authTransaction == null) {
+    authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot Release");
+  }
+  Properties props=buildScProperties(context,delegator);
+  if (props == null) {
+    return ServiceUtil.returnError("ERROR: Getting SecurePay property configuration");
+  }
+  String merchantId=props.getProperty("merchantID");
+  String serverURL=props.getProperty("serverurl");
+  String processtimeout=props.getProperty("processtimeout");
+  String pwd=props.getProperty("pwd");
+  String enableamountround=props.getProperty("enableamountround");
+  String currency=authTransaction.getString("currencyUomId");
+  BigDecimal releaseAmount=(BigDecimal)context.get("releaseAmount");
+  BigDecimal multiplyAmount=new BigDecimal(100);
+  BigDecimal newAmount=null;
+  int amont;
+  if (enableamountround.equals("Y")) {
+    newAmount=new BigDecimal(releaseAmount.setScale(0,BigDecimal.ROUND_HALF_UP) + ".00");
+  }
+ else {
+    newAmount=releaseAmount;
+  }
+  if (currency.equals("JPY")) {
+    amont=newAmount.intValue();
+  }
+ else {
+    amont=newAmount.multiply(multiplyAmount).intValue();
+  }
+  Payment payment=new Payment();
+  payment.setServerURL(serverURL);
+  payment.setProcessTimeout(Integer.valueOf(processtimeout));
+  payment.setMerchantId(merchantId);
+  Txn txn=payment.addTxn(6,(String)orderPaymentPreference.get("orderId"));
+  txn.setTxnSource(8);
+  txn.setAmount(Integer.toString(amont));
+  txn.setTxnId(authTransaction.getString("referenceNum"));
+  boolean processed=payment.process(pwd);
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (UtilValidate.isEmpty(processed)) {
+    return ServiceUtil.returnError("Payment was not sent to server.");
+  }
+ else {
+    if (payment.getCount() == 1) {
+      Txn resp=payment.getTxn(0);
+      boolean approved=resp.getApproved();
+      if (approved == false) {
+        result.put("releaseResult",false);
+        result.put("releaseRefNum",authTransaction.getString("referenceNum"));
+        result.put("releaseAmount",BigDecimal.ZERO);
+      }
+ else {
+        result.put("releaseResult",true);
+        result.put("releaseAmount",releaseAmount);
+        result.put("releaseRefNum",resp.getTxnId());
+      }
+      result.put("releaseFlag","U");
+      result.put("releaseCode",resp.getResponseCode());
+      result.put("releaseMessage",resp.getResponseText());
+    }
+  }
+  return result;
+}

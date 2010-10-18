@@ -1,0 +1,26 @@
+{
+  Debug.logInfo("=====[testdoCapture] starting....",module);
+  GenericValue paymentGatewayResponse=delegator.findOne("PaymentGatewayResponse",UtilMisc.toMap("paymentGatewayResponseId","testOrder1000_01"),false);
+  try {
+    Map serviceInput=UtilMisc.toMap("paymentConfig",configFile,"orderPaymentPreference",orderPaymentPreference,"authTrans",paymentGatewayResponse);
+    serviceInput.put("captureAmount",refundAmount);
+    Map result=dispatcher.runSync("ofbScCapture",serviceInput);
+    String responseMessage=(String)result.get(ModelService.RESPONSE_MESSAGE);
+    Debug.logInfo("[testdoCapture] responseMessage: " + responseMessage,module);
+    TestCase.assertEquals("Service result is success",ModelService.RESPOND_SUCCESS,responseMessage);
+    if (((Boolean)result.get("captureResult")).equals(new Boolean(false))) {
+      Debug.logInfo("[testdoCapture] Error Messages from SecurePay: " + result.get("internalRespMsgs"),module);
+      TestCase.fail("Returned messages:" + result.get("internalRespMsgs"));
+    }
+ else {
+      String captureRefNum=(String)result.get("captureRefNum");
+      GenericValue checkPaymentGatewayResponse=delegator.findOne("PaymentGatewayResponse",UtilMisc.toMap("paymentGatewayResponseId","testOrder1000_01"),false);
+      checkPaymentGatewayResponse.set("referenceNum",captureRefNum);
+      checkPaymentGatewayResponse.store();
+      Debug.logInfo("[testdoCapture] Result from SecurePay: " + result,module);
+    }
+  }
+ catch (  GenericServiceException ex) {
+    TestCase.fail(ex.getMessage());
+  }
+}

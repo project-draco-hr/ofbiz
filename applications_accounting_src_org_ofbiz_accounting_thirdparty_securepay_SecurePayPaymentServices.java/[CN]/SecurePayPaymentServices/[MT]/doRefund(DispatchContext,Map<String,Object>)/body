@@ -1,0 +1,81 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  if (authTransaction == null) {
+    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot refund");
+  }
+  List<GenericValue> paymentGatewayResponse=null;
+  String referenceNum=null;
+  try {
+    paymentGatewayResponse=delegator.findByAnd("PaymentGatewayResponse",UtilMisc.toMap("orderPaymentPreferenceId",authTransaction.getString("orderPaymentPreferenceId"),"paymentServiceTypeEnumId","PRDS_PAY_CAPTURE"));
+    if (paymentGatewayResponse.size() > 0) {
+      referenceNum=(String)paymentGatewayResponse.get(0).get("referenceNum");
+    }
+ else {
+      referenceNum=authTransaction.getString("referenceNum");
+    }
+  }
+ catch (  GenericEntityException e) {
+    e.printStackTrace();
+  }
+  Properties props=buildScProperties(context,delegator);
+  if (props == null) {
+    return ServiceUtil.returnError("ERROR: Getting SecurePay property configuration");
+  }
+  String merchantId=props.getProperty("merchantID");
+  String serverURL=props.getProperty("serverurl");
+  String processtimeout=props.getProperty("processtimeout");
+  String pwd=props.getProperty("pwd");
+  String enableamountround=props.getProperty("enableamountround");
+  String currency=authTransaction.getString("currencyUomId");
+  BigDecimal refundAmount=(BigDecimal)context.get("refundAmount");
+  BigDecimal multiplyAmount=new BigDecimal(100);
+  BigDecimal newAmount=null;
+  if (enableamountround.equals("Y")) {
+    newAmount=new BigDecimal(refundAmount.setScale(0,BigDecimal.ROUND_HALF_UP) + ".00");
+  }
+ else {
+    newAmount=refundAmount;
+  }
+  int amont;
+  if (currency.equals("JPY")) {
+    amont=newAmount.intValue();
+  }
+ else {
+    amont=newAmount.multiply(multiplyAmount).intValue();
+  }
+  Payment payment=new Payment();
+  payment.setServerURL(serverURL);
+  payment.setProcessTimeout(Integer.valueOf(processtimeout));
+  payment.setMerchantId(merchantId);
+  Txn txn=payment.addTxn(4,(String)orderPaymentPreference.get("orderId"));
+  txn.setTxnSource(8);
+  txn.setAmount(Integer.toString(amont));
+  txn.setTxnId(referenceNum);
+  boolean processed=payment.process(pwd);
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (UtilValidate.isEmpty(processed)) {
+    return ServiceUtil.returnError("Payment was not sent to server.");
+  }
+ else {
+    if (payment.getCount() == 1) {
+      Txn resp=payment.getTxn(0);
+      boolean approved=resp.getApproved();
+      if (approved == false) {
+        result.put("refundResult",false);
+        result.put("refundRefNum",authTransaction.getString("referenceNum"));
+        result.put("refundAmount",BigDecimal.ZERO);
+      }
+ else {
+        result.put("refundResult",true);
+        result.put("refundAmount",refundAmount);
+        result.put("refundRefNum",resp.getTxnId());
+      }
+      result.put("refundCode",resp.getResponseCode());
+      result.put("refundMessage",resp.getResponseText());
+      result.put("refundFlag","R");
+    }
+  }
+  return result;
+}
