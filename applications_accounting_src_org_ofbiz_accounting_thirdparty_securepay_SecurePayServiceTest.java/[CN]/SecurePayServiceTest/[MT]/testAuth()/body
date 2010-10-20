@@ -1,0 +1,28 @@
+{
+  Debug.logInfo("=====[testAuth] starting....",module);
+  try {
+    Map serviceInput=UtilMisc.toMap("paymentConfig",configFile,"billToParty",billToParty,"billToEmail",emailAddr,"orderPaymentPreference",orderPaymentPreference,"orderItems",orderItems,"creditCard",creditCard,"billingAddress",billingAddress,"shippingAddress",shippingAddress,"orderId",orderId,"currency","AUD");
+    serviceInput.put("processAmount",new BigDecimal("100.08"));
+    Map result=dispatcher.runSync("ofbScAuthorize",serviceInput);
+    String responseMessage=(String)result.get(ModelService.RESPONSE_MESSAGE);
+    Debug.logInfo("[testCCAuth] responseMessage: " + responseMessage,module);
+    TestCase.assertEquals("Service result is success",ModelService.RESPOND_SUCCESS,responseMessage);
+    if (((Boolean)result.get("authResult")).equals(new Boolean(false))) {
+      Debug.logInfo("[testAuth] Error Messages from SecurePay: " + result.get("internalRespMsgs"),module);
+      TestCase.fail("Returned messages:" + result.get("internalRespMsgs"));
+    }
+ else {
+      Debug.logInfo("[testAuth] Result from SecurePay: " + result,module);
+      String authRefNum=(String)result.get("authRefNum");
+      BigDecimal processAmount=(BigDecimal)result.get("processAmount");
+      paymentGatewayResponse=delegator.makeValue("PaymentGatewayResponse",UtilMisc.toMap("paymentGatewayResponseId","testOrder1000_01","orderPaymentPreferenceId","testOrder1000_01","amount",processAmount,"referenceNum",authRefNum,"paymentMethodTypeId","CREDIT_CARD","paymentServiceTypeEnumId","PRDS_PAY_AUTH","currencyUomId","AUD"));
+      GenericValue checkPaymentGatewayResponse=delegator.findOne("PaymentGatewayResponse",UtilMisc.toMap("paymentGatewayResponseId","testOrder1000_01"),false);
+      if (UtilValidate.isEmpty(checkPaymentGatewayResponse)) {
+        paymentGatewayResponse.create();
+      }
+    }
+  }
+ catch (  GenericServiceException ex) {
+    TestCase.fail(ex.getMessage());
+  }
+}

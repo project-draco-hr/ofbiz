@@ -1,0 +1,75 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  BigDecimal processAmount=(BigDecimal)context.get("processAmount");
+  Properties props=buildScProperties(context,delegator);
+  if (props == null) {
+    return ServiceUtil.returnError("ERROR: Getting SecurePay property configuration");
+  }
+  String merchantId=props.getProperty("merchantID");
+  String serverURL=props.getProperty("serverurl");
+  String processtimeout=props.getProperty("processtimeout");
+  String pwd=props.getProperty("pwd");
+  String enableamountround=props.getProperty("enableamountround");
+  String currency=(String)context.get("currency");
+  BigDecimal multiplyAmount=new BigDecimal(100);
+  BigDecimal newAmount=null;
+  int amont;
+  if (enableamountround.equals("Y")) {
+    newAmount=new BigDecimal(processAmount.setScale(0,BigDecimal.ROUND_HALF_UP) + ".00");
+  }
+ else {
+    newAmount=processAmount;
+  }
+  if (currency.equals("JPY")) {
+    amont=newAmount.intValue();
+  }
+ else {
+    amont=newAmount.multiply(multiplyAmount).intValue();
+  }
+  GenericValue creditCard=(GenericValue)context.get("creditCard");
+  String expiryDate=(String)creditCard.get("expireDate");
+  String cardSecurityCode=(String)context.get("cardSecurityCode");
+  Payment payment=new Payment();
+  payment.setServerURL(serverURL);
+  payment.setProcessTimeout(Integer.valueOf(processtimeout));
+  payment.setMerchantId(merchantId);
+  Txn txn=payment.addTxn(10,orderId);
+  txn.setTxnSource(8);
+  txn.setAmount(Integer.toString(amont));
+  if (UtilValidate.isNotEmpty(currency)) {
+    txn.setCurrencyCode(currency);
+  }
+ else {
+    txn.setCurrencyCode("AUD");
+  }
+  txn.setCardNumber((String)creditCard.get("cardNumber"));
+  txn.setExpiryDate(expiryDate.substring(0,3) + expiryDate.substring(5));
+  if (UtilValidate.isNotEmpty(cardSecurityCode)) {
+    txn.setCVV(cardSecurityCode);
+  }
+  boolean processed=payment.process(pwd);
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (UtilValidate.isEmpty(processed)) {
+    return ServiceUtil.returnError("Payment was not sent to server.");
+  }
+ else {
+    if (payment.getCount() == 1) {
+      Txn resp=payment.getTxn(0);
+      boolean approved=resp.getApproved();
+      if (approved == false) {
+        result.put("authResult",new Boolean(false));
+        result.put("authRefNum","N/A");
+        result.put("processAmount",BigDecimal.ZERO);
+      }
+ else {
+        result.put("authRefNum",resp.getTxnId());
+        result.put("authResult",new Boolean(true));
+        result.put("processAmount",processAmount);
+      }
+      result.put("authCode",resp.getResponseCode());
+      result.put("authMessage",resp.getResponseText());
+    }
+  }
+  return result;
+}
