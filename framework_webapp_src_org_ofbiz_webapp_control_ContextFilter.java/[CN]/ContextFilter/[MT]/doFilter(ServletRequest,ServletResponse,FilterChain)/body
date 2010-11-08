@@ -113,6 +113,36 @@
       return;
     }
   }
+  String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
+  if ("Y".equals(useMultitenant)) {
+    String serverName=request.getServerName();
+    try {
+      Delegator delegator=getDelegator(config.getServletContext());
+      List<EntityCondition> conds=FastList.newInstance();
+      conds.add(EntityCondition.makeCondition("domainName",serverName));
+      List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition(conds),null,UtilMisc.toList("-createdStamp"),null,false);
+      if (UtilValidate.isNotEmpty(tenants)) {
+        GenericValue tenant=EntityUtil.getFirst(tenants);
+        String tenantId=tenant.getString("tenantId");
+        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
+        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
+        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
+        config.getServletContext().setAttribute("delegator",delegator);
+        config.getServletContext().setAttribute("authorization",null);
+        config.getServletContext().setAttribute("security",null);
+        config.getServletContext().setAttribute("dispatcher",null);
+        getAuthz();
+        Security security=getSecurity();
+        LocalDispatcher dispatcher=getDispatcher(config.getServletContext());
+        httpRequest.getSession().setAttribute("dispatcher",dispatcher);
+        httpRequest.getSession().setAttribute("security",security);
+        request.setAttribute("tenantId",tenantId);
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Unable to get Tenant",module);
+    }
+  }
   chain.doFilter(request,response);
   AbstractAuthorization.clearThreadLocal();
 }
