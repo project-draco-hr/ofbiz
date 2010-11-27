@@ -80,6 +80,7 @@
   if (!"PURCHASE_ORDER".equals(orderTypeId) && productStoreId == null) {
     return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorTheProductStoreIdCanOnlyBeNullForPurchaseOrders",locale));
   }
+  Timestamp orderDate=(Timestamp)context.get("orderDate");
   Iterator normalizedIter=normalizedItemQuantities.keySet().iterator();
   while (normalizedIter.hasNext()) {
     String currentProductId=(String)normalizedIter.next();
@@ -110,7 +111,14 @@
       }
     }
     if ("SALES_ORDER".equals(orderTypeId)) {
-      if (product.get("salesDiscontinuationDate") != null && nowTimestamp.after(product.getTimestamp("salesDiscontinuationDate"))) {
+      boolean salesDiscontinuationFlag=false;
+      if (orderDate != null && product.get("salesDiscontinuationDate") != null) {
+        salesDiscontinuationFlag=orderDate.after(product.getTimestamp("salesDiscontinuationDate")) && nowTimestamp.after(product.getTimestamp("salesDiscontinuationDate"));
+      }
+ else       if (product.get("salesDiscontinuationDate") != null) {
+        salesDiscontinuationFlag=nowTimestamp.after(product.getTimestamp("salesDiscontinuationDate"));
+      }
+      if (salesDiscontinuationFlag) {
         String excMsg=UtilProperties.getMessage(resource_error,"product.no_longer_for_sale",new Object[]{getProductName(product,itemName),product.getString("productId")},locale);
         Debug.logWarning(excMsg,module);
         errorMessages.add(excMsg);
@@ -221,7 +229,6 @@
     orderId=delegator.getNextSeqId("OrderHeader");
   }
   String billingAccountId=(String)context.get("billingAccountId");
-  Timestamp orderDate=(Timestamp)context.get("orderDate");
   if (orderDate == null) {
     orderDate=nowTimestamp;
   }
