@@ -1,0 +1,28 @@
+{
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Map<String,Object> parameters=UtilGenerics.checkMap(context.get("bodyParameters"));
+  GenericValue reminder=(GenericValue)context.get("reminder");
+  GenericValue contactMech=null;
+  try {
+    contactMech=reminder.getRelatedOne("ContactMech");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (contactMech != null && "EMAIL_ADDRESS".equals(contactMech.get("contactMechTypeId"))) {
+    String screenLocation=UtilProperties.getPropertyValue("EventReminders","eventReminders.emailScreenWidgetLocation");
+    String fromAddress=UtilProperties.getPropertyValue("EventReminders","eventReminders.emailFromAddress");
+    String toAddress=contactMech.getString("infoString");
+    String subject=UtilProperties.getMessage("WorkEffortUiLabels","WorkEffortEventReminder",(Locale)parameters.get("locale"));
+    Map<String,Object> emailCtx=UtilMisc.toMap("sendFrom",fromAddress,"sendTo",toAddress,"subject",subject,"bodyParameters",parameters,"bodyScreenUri",screenLocation);
+    try {
+      dispatcher.runAsync("sendMailFromScreen",emailCtx);
+    }
+ catch (    Exception e) {
+      Debug.logWarning("Error while emailing event reminder - workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId")+ ": "+ e,module);
+    }
+    return ServiceUtil.returnSuccess();
+  }
+  Debug.logWarning("Invalid event reminder contact mech, workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId"),module);
+  return ServiceUtil.returnSuccess();
+}

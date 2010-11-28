@@ -1,5 +1,6 @@
 {
   Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
   Timestamp now=new Timestamp(System.currentTimeMillis());
   List<GenericValue> eventReminders=null;
   try {
@@ -33,6 +34,7 @@
     Locale locale=reminder.getString("localeId") == null ? Locale.getDefault() : new Locale(reminder.getString("localeId"));
     TimeZone timeZone=reminder.getString("timeZoneId") == null ? TimeZone.getDefault() : TimeZone.getTimeZone(reminder.getString("timeZoneId"));
     Map<String,Object> parameters=UtilMisc.toMap("locale",locale,"timeZone",timeZone,"workEffortId",reminder.get("workEffortId"));
+    Map<String,Object> processCtx=UtilMisc.toMap("reminder",reminder,"bodyParameters",parameters,"userLogin",context.get("userLogin"));
     Calendar cal=UtilDateTime.toCalendar(now,timeZone,locale);
     Timestamp reminderStamp=reminder.getTimestamp("reminderDateTime");
     Date eventDateTime=workEffort.getTimestamp("estimatedStartDate");
@@ -66,7 +68,7 @@
         if (reminderDateTime.before(now) && reminderStamp != null) {
           try {
             parameters.put("eventDateTime",new Timestamp(eventDateTime.getTime()));
-            processEventReminder(ctx,reminder,parameters);
+            dispatcher.runSync("processWorkEffortEventReminder",processCtx);
             if (repeatCount != 0 && currentCount + 1 >= repeatCount) {
               reminder.remove();
             }
@@ -92,6 +94,9 @@
  catch (          GenericEntityException e) {
             Debug.logWarning("Error while processing temporal expression reminder, id = " + tempExprId + ": "+ e,module);
           }
+catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+          }
         }
  else         if (reminderStamp == null) {
           try {
@@ -110,7 +115,7 @@
       if (reminderDateTime.before(now)) {
         try {
           parameters.put("eventDateTime",eventDateTime);
-          processEventReminder(ctx,reminder,parameters);
+          dispatcher.runSync("processWorkEffortEventReminder",processCtx);
           TimeDuration duration=TimeDuration.fromNumber(reminder.getLong("repeatInterval"));
           if ((repeatCount != 0 && currentCount + 1 >= repeatCount) || duration.isZero()) {
             reminder.remove();
@@ -126,6 +131,9 @@
         }
  catch (        GenericEntityException e) {
           Debug.logWarning("Error while processing event reminder: " + e,module);
+        }
+catch (        GenericServiceException e) {
+          Debug.logError(e,module);
         }
       }
     }
