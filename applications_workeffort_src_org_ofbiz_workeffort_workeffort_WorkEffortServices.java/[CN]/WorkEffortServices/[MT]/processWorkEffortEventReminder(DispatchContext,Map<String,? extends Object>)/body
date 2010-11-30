@@ -1,0 +1,47 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Map<String,Object> parameters=UtilGenerics.checkMap(context.get("bodyParameters"));
+  GenericValue reminder=(GenericValue)context.get("reminder");
+  GenericValue contactMech=null;
+  try {
+    contactMech=reminder.getRelatedOne("ContactMech");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (contactMech != null && "EMAIL_ADDRESS".equals(contactMech.get("contactMechTypeId"))) {
+    String toAddress=contactMech.getString("infoString");
+    GenericValue emailTemplateSetting=null;
+    try {
+      emailTemplateSetting=delegator.findOne("EmailTemplateSetting",true,"emailTemplateSettingId","WEFF_EVENT_REMINDER");
+    }
+ catch (    GenericEntityException e1) {
+      Debug.logError(e1,module);
+    }
+    if (emailTemplateSetting != null) {
+      Map<String,Object> emailCtx=UtilMisc.toMap("emailTemplateSettingId","WEFF_EVENT_REMINDER","sendTo",toAddress,"bodyParameters",parameters);
+      try {
+        dispatcher.runAsync("sendMailFromTemplateSetting",emailCtx);
+      }
+ catch (      Exception e) {
+        Debug.logWarning("Error while emailing event reminder - workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId")+ ": "+ e,module);
+      }
+    }
+ else {
+      String screenLocation=UtilProperties.getPropertyValue("EventReminders","eventReminders.emailScreenWidgetLocation");
+      String fromAddress=UtilProperties.getPropertyValue("EventReminders","eventReminders.emailFromAddress");
+      String subject=UtilProperties.getMessage("WorkEffortUiLabels","WorkEffortEventReminder",(Locale)parameters.get("locale"));
+      Map<String,Object> emailCtx=UtilMisc.toMap("sendFrom",fromAddress,"sendTo",toAddress,"subject",subject,"bodyParameters",parameters,"bodyScreenUri",screenLocation);
+      try {
+        dispatcher.runAsync("sendMailFromScreen",emailCtx);
+      }
+ catch (      Exception e) {
+        Debug.logWarning("Error while emailing event reminder - workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId")+ ": "+ e,module);
+      }
+    }
+    return ServiceUtil.returnSuccess();
+  }
+  Debug.logWarning("Invalid event reminder contact mech, workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId"),module);
+  return ServiceUtil.returnSuccess();
+}
