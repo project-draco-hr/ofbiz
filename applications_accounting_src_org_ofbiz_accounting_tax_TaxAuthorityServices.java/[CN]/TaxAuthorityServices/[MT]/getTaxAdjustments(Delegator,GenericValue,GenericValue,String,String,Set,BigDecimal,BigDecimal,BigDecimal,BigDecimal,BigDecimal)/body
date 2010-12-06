@@ -81,11 +81,26 @@
       }
  else {
       }
+      GenericValue productPrice=null;
+      if (product != null && taxAuthPartyId != null && taxAuthGeoId != null) {
+        Map<String,String> priceFindMap=UtilMisc.toMap("productId",product.getString("productId"),"taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"productPriceTypeId","DEFAULT_PRICE","productPricePurposeId","PURCHASE");
+        List<GenericValue> productPriceList=delegator.findByAnd("ProductPrice",priceFindMap,UtilMisc.toList("-fromDate"));
+        productPriceList=EntityUtil.filterByDate(productPriceList,true);
+        productPrice=(productPriceList != null && productPriceList.size() > 0) ? productPriceList.get(0) : null;
+      }
       GenericValue taxAdjValue=delegator.makeValue("OrderAdjustment");
-      taxAdjValue.set("taxAuthorityRateSeqId",taxAuthorityRateProduct.getString("taxAuthorityRateSeqId"));
-      taxAdjValue.set("amount",taxAmount);
+      if ("Y".equals(productPrice.getString("taxInPrice"))) {
+        taxAdjValue.set("orderAdjustmentTypeId","VAT_TAX");
+        BigDecimal taxAmountIncluded=itemAmount.subtract(itemAmount.divide(BigDecimal.ONE.add(taxRate.divide(PERCENT_SCALE,4,BigDecimal.ROUND_HALF_UP)),3,BigDecimal.ROUND_HALF_UP));
+        taxAdjValue.set("amountAlreadyIncluded",taxAmountIncluded);
+        taxAdjValue.set("amount",BigDecimal.ZERO);
+      }
+ else {
+        taxAdjValue.set("orderAdjustmentTypeId","SALES_TAX");
+        taxAdjValue.set("amount",taxAmount);
+      }
       taxAdjValue.set("sourcePercentage",taxRate);
-      taxAdjValue.set("orderAdjustmentTypeId","SALES_TAX");
+      taxAdjValue.set("taxAuthorityRateSeqId",taxAuthorityRateProduct.getString("taxAuthorityRateSeqId"));
       taxAdjValue.set("primaryGeoId",taxAuthGeoId);
       taxAdjValue.set("comments",taxAuthorityRateProduct.getString("description"));
       if (taxAuthPartyId != null)       taxAdjValue.set("taxAuthPartyId",taxAuthPartyId);
@@ -106,31 +121,25 @@
         Debug.logInfo("NOTE: A tax calculation was done without a billToPartyId or taxAuthGeoId, so no tax exemptions or tax IDs considered; billToPartyId=[" + billToPartyId + "] taxAuthGeoId=["+ taxAuthGeoId+ "]",module);
       }
       adjustments.add(taxAdjValue);
-      if (product != null && itemQuantity != null && taxAuthPartyId != null && taxAuthGeoId != null) {
-        Map<String,String> priceFindMap=UtilMisc.toMap("productId",product.getString("productId"),"taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"productPriceTypeId","DEFAULT_PRICE","productPricePurposeId","PURCHASE");
-        List<GenericValue> productPriceList=delegator.findByAnd("ProductPrice",priceFindMap,UtilMisc.toList("-fromDate"));
-        productPriceList=EntityUtil.filterByDate(productPriceList,true);
-        GenericValue productPrice=(productPriceList != null && productPriceList.size() > 0) ? productPriceList.get(0) : null;
-        if (productPrice != null && productPrice.getBigDecimal("priceWithTax") != null) {
-          BigDecimal priceWithTax=productPrice.getBigDecimal("priceWithTax");
-          BigDecimal price=productPrice.getBigDecimal("price");
-          BigDecimal baseSubtotal=price.multiply(itemQuantity);
-          BigDecimal baseTaxAmount=(baseSubtotal.multiply(taxRate)).divide(PERCENT_SCALE,salestaxCalcDecimals,salestaxRounding);
-          BigDecimal enteredTotalPriceWithTax=priceWithTax.multiply(itemQuantity);
-          BigDecimal calcedTotalPriceWithTax=(baseSubtotal).add(baseTaxAmount);
-          if (!enteredTotalPriceWithTax.equals(calcedTotalPriceWithTax)) {
-            BigDecimal correctionAmount=enteredTotalPriceWithTax.subtract(calcedTotalPriceWithTax);
-            GenericValue correctionAdjValue=delegator.makeValue("OrderAdjustment");
-            correctionAdjValue.set("taxAuthorityRateSeqId",taxAuthorityRateProduct.getString("taxAuthorityRateSeqId"));
-            correctionAdjValue.set("amount",correctionAmount);
-            correctionAdjValue.set("orderAdjustmentTypeId","VAT_PRICE_CORRECT");
-            correctionAdjValue.set("primaryGeoId",taxAuthGeoId);
-            correctionAdjValue.set("comments",taxAuthorityRateProduct.getString("description"));
-            if (taxAuthPartyId != null)             correctionAdjValue.set("taxAuthPartyId",taxAuthPartyId);
-            if (taxAuthGlAccountId != null)             correctionAdjValue.set("overrideGlAccountId",taxAuthGlAccountId);
-            if (taxAuthGeoId != null)             correctionAdjValue.set("taxAuthGeoId",taxAuthGeoId);
-            adjustments.add(correctionAdjValue);
-          }
+      if (productPrice != null && itemQuantity != null && productPrice.getBigDecimal("priceWithTax") != null && !"Y".equals(productPrice.getString("taxInPrice"))) {
+        BigDecimal priceWithTax=productPrice.getBigDecimal("priceWithTax");
+        BigDecimal price=productPrice.getBigDecimal("price");
+        BigDecimal baseSubtotal=price.multiply(itemQuantity);
+        BigDecimal baseTaxAmount=(baseSubtotal.multiply(taxRate)).divide(PERCENT_SCALE,salestaxCalcDecimals,salestaxRounding);
+        BigDecimal enteredTotalPriceWithTax=priceWithTax.multiply(itemQuantity);
+        BigDecimal calcedTotalPriceWithTax=(baseSubtotal).add(baseTaxAmount);
+        if (!enteredTotalPriceWithTax.equals(calcedTotalPriceWithTax)) {
+          BigDecimal correctionAmount=enteredTotalPriceWithTax.subtract(calcedTotalPriceWithTax);
+          GenericValue correctionAdjValue=delegator.makeValue("OrderAdjustment");
+          correctionAdjValue.set("taxAuthorityRateSeqId",taxAuthorityRateProduct.getString("taxAuthorityRateSeqId"));
+          correctionAdjValue.set("amount",correctionAmount);
+          correctionAdjValue.set("orderAdjustmentTypeId","VAT_PRICE_CORRECT");
+          correctionAdjValue.set("primaryGeoId",taxAuthGeoId);
+          correctionAdjValue.set("comments",taxAuthorityRateProduct.getString("description"));
+          if (taxAuthPartyId != null)           correctionAdjValue.set("taxAuthPartyId",taxAuthPartyId);
+          if (taxAuthGlAccountId != null)           correctionAdjValue.set("overrideGlAccountId",taxAuthGlAccountId);
+          if (taxAuthGeoId != null)           correctionAdjValue.set("taxAuthGeoId",taxAuthGeoId);
+          adjustments.add(correctionAdjValue);
         }
       }
     }
