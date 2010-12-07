@@ -1,0 +1,46 @@
+{
+  BigDecimal taxGrandTotal=BigDecimal.ZERO;
+  List<Map<String,Object>> taxByTaxAuthGeoAndPartyList=FastList.newInstance();
+  List<GenericValue> orderAdjustmentsToUse=FastList.newInstance();
+  if (UtilValidate.isNotEmpty(orderAdjustmentsOriginal)) {
+    orderAdjustmentsToUse.addAll(EntityUtil.filterByAnd(orderAdjustmentsOriginal,UtilMisc.toMap("orderAdjustmentTypeId","SALES_TAX")));
+    orderAdjustmentsToUse.addAll(EntityUtil.filterByAnd(orderAdjustmentsOriginal,UtilMisc.toMap("orderAdjustmentTypeId","VAT_TAX")));
+    orderAdjustmentsToUse=EntityUtil.orderBy(orderAdjustmentsToUse,UtilMisc.toList("taxAuthGeoId","taxAuthPartyId"));
+    List<String> distinctTaxAuthGeoIdList=EntityUtil.getFieldListFromEntityList(orderAdjustmentsToUse,"taxAuthGeoId",true);
+    List<String> distinctTaxAuthPartyIdList=EntityUtil.getFieldListFromEntityList(orderAdjustmentsToUse,"taxAuthPartyId",true);
+    List<GenericValue> processedAdjustments=FastList.newInstance();
+    for (    String taxAuthGeoId : distinctTaxAuthGeoIdList) {
+      for (      String taxAuthPartyId : distinctTaxAuthPartyIdList) {
+        List<GenericValue> orderAdjByTaxAuthGeoAndPartyIds=EntityUtil.filterByAnd(orderAdjustmentsToUse,UtilMisc.toMap("taxAuthGeoId",taxAuthGeoId,"taxAuthPartyId",taxAuthPartyId));
+        if (UtilValidate.isNotEmpty(orderAdjByTaxAuthGeoAndPartyIds)) {
+          BigDecimal totalAmount=BigDecimal.ZERO;
+          for (          GenericValue orderAdjustment : orderAdjByTaxAuthGeoAndPartyIds) {
+            BigDecimal amount=orderAdjustment.getBigDecimal("amount");
+            if (amount != null) {
+              totalAmount=totalAmount.add(amount);
+            }
+            if ("VAT_TAX".equals(orderAdjustment.getString("orderAdjustmentTypeId")) && orderAdjustment.get("amountAlreadyIncluded") != null) {
+              totalAmount=totalAmount.add(orderAdjustment.getBigDecimal("amountAlreadyIncluded"));
+            }
+            totalAmount=totalAmount.setScale(taxCalcScale,taxRounding);
+            processedAdjustments.add(orderAdjustment);
+          }
+          totalAmount=totalAmount.setScale(taxFinalScale,taxRounding);
+          taxByTaxAuthGeoAndPartyList.add(UtilMisc.<String,Object>toMap("taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"totalAmount",totalAmount));
+          taxGrandTotal=taxGrandTotal.add(totalAmount);
+        }
+      }
+    }
+    List<GenericValue> missedAdjustments=FastList.newInstance();
+    missedAdjustments.addAll(orderAdjustmentsToUse);
+    missedAdjustments.removeAll(processedAdjustments);
+    for (    GenericValue orderAdjustment : missedAdjustments) {
+      taxGrandTotal=taxGrandTotal.add(orderAdjustment.getBigDecimal("amount").setScale(taxCalcScale,taxRounding));
+    }
+    taxGrandTotal=taxGrandTotal.setScale(taxFinalScale,taxRounding);
+  }
+  Map<String,Object> result=FastMap.newInstance();
+  result.put("taxByTaxAuthGeoAndPartyList",taxByTaxAuthGeoAndPartyList);
+  result.put("taxGrandTotal",taxGrandTotal);
+  return result;
+}
