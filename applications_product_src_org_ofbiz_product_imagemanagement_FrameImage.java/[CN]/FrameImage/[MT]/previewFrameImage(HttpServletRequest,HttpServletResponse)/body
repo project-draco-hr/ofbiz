@@ -1,0 +1,56 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  Map<String,? extends Object> context=request.getParameterMap();
+  HttpSession session=request.getSession();
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.server.path"),context);
+  String productId=request.getParameter("productId");
+  String imageName=request.getParameter("imageName");
+  if (UtilValidate.isEmpty(request.getParameter("frameContentId")) || UtilValidate.isEmpty(request.getParameter("frameDataResourceId"))) {
+    request.setAttribute("_ERROR_MESSAGE_","Required frame image content ID or dataResource ID parameters. Please upload new frame image or choose the exist frame.");
+    return "error";
+  }
+  String frameContentId=(String)request.getParameter("frameContentId");
+  String frameDataResourceId=(String)request.getParameter("frameDataResourceId");
+  if (UtilValidate.isEmpty(request.getParameter("imageWidth")) || UtilValidate.isEmpty(request.getParameter("imageHeight"))) {
+    String errMsg="Image Width and Image Height are required to preview the image. Please enter in Image Width and Image Height fields.";
+    session.setAttribute("frameContentId",frameContentId);
+    session.setAttribute("frameDataResourceId",frameDataResourceId);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  String frameImageName=null;
+  try {
+    GenericValue contentDataResourceView=delegator.findByPrimaryKey("ContentDataResourceView",UtilMisc.toMap("contentId",frameContentId,"drDataResourceId",frameDataResourceId));
+    frameImageName=contentDataResourceView.getString("contentName");
+  }
+ catch (  Exception e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+  if (UtilValidate.isNotEmpty(imageName)) {
+    File file=new File(imageServerPath + "/products/management/previewImage.jpg");
+    file.delete();
+    BufferedImage bufImg1=ImageIO.read(new File(imageServerPath + "/products/management/" + productId+ "/"+ imageName));
+    BufferedImage bufImg2=ImageIO.read(new File(imageServerPath + "/products/management/frame/" + frameImageName));
+    int bufImgType;
+    if (BufferedImage.TYPE_CUSTOM == bufImg1.getType()) {
+      bufImgType=BufferedImage.TYPE_INT_ARGB_PRE;
+    }
+ else {
+      bufImgType=bufImg1.getType();
+    }
+    int width=Integer.parseInt(request.getParameter("imageWidth"));
+    int height=Integer.parseInt(request.getParameter("imageHeight"));
+    Image newImg1=bufImg1.getScaledInstance((int)width,(int)height,Image.SCALE_SMOOTH);
+    Image newImg2=bufImg2.getScaledInstance((int)width,(int)height,Image.SCALE_SMOOTH);
+    BufferedImage bufNewImg=combineBufferedImage(newImg1,newImg2,bufImgType);
+    String mimeType=imageName.substring(imageName.lastIndexOf(".") + 1);
+    ImageIO.write((RenderedImage)bufNewImg,mimeType,new File(imageServerPath + "/products/management/previewImage.jpg"));
+  }
+ else {
+    String errMsg="Please select Image.";
+    request.setAttribute("_EVENT_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}

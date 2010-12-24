@@ -1,0 +1,60 @@
+{
+  Locale locale=UtilHttp.getLocale(request);
+  HttpSession session=request.getSession(true);
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map formInput=FastMap.newInstance();
+  Map<String,Object> results=FastMap.newInstance();
+  ServletFileUpload fu=new ServletFileUpload(new DiskFileItemFactory(10240,FileUtil.getFile("runtime/tmp")));
+  java.util.List lst=null;
+  try {
+    lst=fu.parseRequest(request);
+  }
+ catch (  FileUploadException e4) {
+    return e4.getMessage();
+  }
+  FileItem fi=null;
+  FileItem imageFi=null;
+  byte[] imageBytes={};
+  for (int i=0; i < lst.size(); i++) {
+    fi=(FileItem)lst.get(i);
+    String fn=fi.getName();
+    String fieldName=fi.getFieldName();
+    if (fi.isFormField()) {
+      String fieldStr=fi.getString();
+      formInput.put(fieldName,fieldStr);
+    }
+ else     if (fieldName.startsWith("imageData")) {
+      Map<String,Object> passedParams=FastMap.newInstance();
+      Map<String,Object> contentLength=FastMap.newInstance();
+      if (josonMap == null) {
+        josonMap=FastList.newInstance();
+      }
+      imageFi=fi;
+      String fileName=fi.getName();
+      String contentType=fi.getContentType();
+      imageBytes=imageFi.get();
+      ByteBuffer byteWrap=ByteBuffer.wrap(imageBytes);
+      passedParams.put("userLogin",userLogin);
+      passedParams.put("productId",formInput.get("productId"));
+      passedParams.put("productContentTypeId","IMAGE");
+      passedParams.put("_uploadedFile_fileName",fileName);
+      passedParams.put("_uploadedFile_contentType",contentType);
+      passedParams.put("uploadedFile",byteWrap);
+      passedParams.put("imageResize",formInput.get("imageResize"));
+      contentLength.put("imageSize",imageFi.getSize());
+      josonMap.add(contentLength);
+      if (passedParams.get("productId") != null) {
+        try {
+          dispatcher.runSync("addMultipleuploadForProduct",passedParams);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return e.getMessage();
+        }
+      }
+    }
+  }
+  return "success";
+}

@@ -1,0 +1,78 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String imageFilenameFormat=UtilProperties.getPropertyValue("catalog","image.filename.format");
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.server.path"),context);
+  String imageUrlPrefix=UtilProperties.getPropertyValue("catalog","image.url.prefix");
+  Map<String,Object> contentThumb=FastMap.newInstance();
+  contentThumb.put("contentTypeId","DOCUMENT");
+  contentThumb.put("userLogin",userLogin);
+  Map<String,Object> contentThumbResult=FastMap.newInstance();
+  try {
+    contentThumbResult=dispatcher.runSync("createContent",contentThumb);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String contentIdThumb=(String)contentThumbResult.get("contentId");
+  result.put("contentIdThumb",contentIdThumb);
+  FlexibleStringExpander filenameExpanderThumb=FlexibleStringExpander.getInstance(imageFilenameFormat);
+  String fileLocationThumb=filenameExpanderThumb.expandString(UtilMisc.toMap("location","products","type","small","id",contentIdThumb));
+  String filePathPrefixThumb="";
+  String filenameToUseThumb=fileLocationThumb;
+  if (fileLocationThumb.lastIndexOf("/") != -1) {
+    filePathPrefixThumb=fileLocationThumb.substring(0,fileLocationThumb.lastIndexOf("/") + 1);
+    filenameToUseThumb=fileLocationThumb.substring(fileLocationThumb.lastIndexOf("/") + 1);
+  }
+  String fileContentType=(String)context.get("_uploadedFile_contentType");
+  if (fileContentType.equals("image/pjpeg")) {
+    fileContentType="image/jpeg";
+  }
+ else   if (fileContentType.equals("image/x-png")) {
+    fileContentType="image/png";
+  }
+  List<GenericValue> fileExtensionThumb=FastList.newInstance();
+  try {
+    fileExtensionThumb=delegator.findByAnd("FileExtension",UtilMisc.toMap("mimeTypeId",fileContentType));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  GenericValue extensionThumb=EntityUtil.getFirst(fileExtensionThumb);
+  if (extensionThumb != null) {
+    filenameToUseThumb+="." + extensionThumb.getString("fileExtensionId");
+  }
+  result.put("filenameToUseThumb",filenameToUseThumb);
+  File fileOriginalThumb=new File(imageServerPath + "/products/management/" + filenameToUseThumb);
+  try {
+    RandomAccessFile outFileThumb=new RandomAccessFile(fileOriginalThumb,"rw");
+    outFileThumb.write(imageData.array());
+    outFileThumb.close();
+  }
+ catch (  FileNotFoundException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to open file for writing: " + fileOriginalThumb.getAbsolutePath());
+  }
+catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to write binary data to: " + fileOriginalThumb.getAbsolutePath());
+  }
+  Map<String,Object> resultResizeThumb=FastMap.newInstance();
+  try {
+    resultResizeThumb.putAll(ImageManagementServices.scaleImageMangementInAllSize(context,filenameToUseThumb,"medium",productId));
+  }
+ catch (  IOException e) {
+    String errMsg="Scale additional image in all different sizes is impossible : " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  JDOMException e) {
+    String errMsg="Errors occur in parsing ImageProperties.xml : " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return result;
+}

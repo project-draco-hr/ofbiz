@@ -1,0 +1,70 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  Map<String,? extends Object> context=request.getParameterMap();
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.server.path"),context);
+  Map<String,Object> tempFile=LayoutWorker.uploadImageAndParameters(request,"uploadedFile");
+  String imageName=tempFile.get("imageFileName").toString();
+  String mimType=tempFile.get("uploadMimeType").toString();
+  ByteBuffer imageData=(ByteBuffer)tempFile.get("imageData");
+  if (UtilValidate.isEmpty(imageName) || UtilValidate.isEmpty(imageData)) {
+    session.setAttribute("frameContentId",request.getParameter("frameExistContentId").toString());
+    session.setAttribute("frameDataResourceId",request.getParameter("frameExistDataResourceId").toString());
+    request.setAttribute("_ERROR_MESSAGE_","There is no frame image, please select the image type *.PNG  uploading.");
+    return "error";
+  }
+  if (!"image/png".equals(mimType)) {
+    session.setAttribute("frameContentId",request.getParameter("frameExistContentId").toString());
+    session.setAttribute("frameDataResourceId",request.getParameter("frameExistDataResourceId").toString());
+    request.setAttribute("_ERROR_MESSAGE_","The selected image type is incorrect, please select the image type *.PNG to upload.");
+    return "error";
+  }
+  String contentId=null;
+  String dataResourceId=null;
+  try {
+    String dirPath="/products/management/frame/";
+    File dir=new File(imageServerPath + dirPath);
+    if (!dir.exists()) {
+      boolean createDir=dir.mkdir();
+      if (!createDir) {
+        request.setAttribute("_ERROR_MESSAGE_","Cannot create directory.");
+        return "error";
+      }
+    }
+    String imagePath="/products/management/frame/" + imageName;
+    File file=new File(imageServerPath + imagePath);
+    if (file.exists()) {
+      request.setAttribute("_ERROR_MESSAGE_","There is an existing frame, please select from the existing frame.");
+      return "error";
+    }
+    RandomAccessFile out=new RandomAccessFile(file,"rw");
+    out.write(imageData.array());
+    out.close();
+    Map<String,Object> dataResourceCtx=FastMap.newInstance();
+    dataResourceCtx.put("objectInfo","/images" + imagePath);
+    dataResourceCtx.put("dataResourceName",imageName);
+    dataResourceCtx.put("userLogin",userLogin);
+    dataResourceCtx.put("dataResourceTypeId","IMAGE_OBJECT");
+    dataResourceCtx.put("mimeTypeId","image/png");
+    dataResourceCtx.put("isPublic","Y");
+    Map<String,Object> dataResourceResult=dispatcher.runSync("createDataResource",dataResourceCtx);
+    dataResourceId=dataResourceResult.get("dataResourceId").toString();
+    Map<String,Object> contentCtx=FastMap.newInstance();
+    contentCtx.put("dataResourceId",dataResourceResult.get("dataResourceId").toString());
+    contentCtx.put("contentTypeId","IMAGE_FRAME");
+    contentCtx.put("contentName",imageName);
+    contentCtx.put("fromDate",UtilDateTime.nowTimestamp());
+    contentCtx.put("userLogin",userLogin);
+    Map<String,Object> contentResult=dispatcher.runSync("createContent",contentCtx);
+    contentId=contentResult.get("contentId").toString();
+  }
+ catch (  Exception e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+  session.setAttribute("frameContentId",contentId);
+  session.setAttribute("frameDataResourceId",dataResourceId);
+  request.setAttribute("_EVENT_MESSAGE_","Upload frame image successful.");
+  return "success";
+}
