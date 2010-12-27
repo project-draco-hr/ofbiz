@@ -1,0 +1,43 @@
+{
+  Map<String,Object> shipmentGatewayConfig=ServiceUtil.returnSuccess();
+  try {
+    GenericValue shipment=delegator.findOne("Shipment",UtilMisc.toMap("shipmentId",shipmentId),false);
+    if (shipment == null) {
+      return ServiceUtil.returnError("Shipment not found with ID " + shipmentId);
+    }
+    GenericValue primaryOrderHeader=shipment.getRelatedOne("PrimaryOrderHeader");
+    if (primaryOrderHeader == null) {
+      return ServiceUtil.returnError("Cannot found primary order header for shipment with ID " + shipmentId);
+    }
+    String productStoreId=primaryOrderHeader.getString("productStoreId");
+    if (UtilValidate.isEmpty(productStoreId)) {
+      return ServiceUtil.returnError("Cannot found productStoreId for shipment with ID " + shipmentId);
+    }
+    GenericValue primaryOrderItemShipGroup=shipment.getRelatedOne("PrimaryOrderItemShipGroup");
+    if (primaryOrderItemShipGroup == null) {
+      return ServiceUtil.returnError("Cannot found primary order item ship group for shipment with ID " + shipmentId);
+    }
+    String shipmentMethodTypeId=primaryOrderItemShipGroup.getString("shipmentMethodTypeId");
+    String carrierPartyId=primaryOrderItemShipGroup.getString("carrierPartyId");
+    String carrierRoleTypeId=primaryOrderItemShipGroup.getString("carrierRoleTypeId");
+    List<EntityCondition> conditions=FastList.newInstance();
+    conditions.add(EntityCondition.makeCondition("productStoreId",EntityOperator.EQUALS,productStoreId));
+    conditions.add(EntityCondition.makeCondition("shipmentMethodTypeId",EntityOperator.EQUALS,shipmentMethodTypeId));
+    conditions.add(EntityCondition.makeCondition("partyId",EntityOperator.EQUALS,carrierPartyId));
+    conditions.add(EntityCondition.makeCondition("roleTypeId",EntityOperator.EQUALS,carrierRoleTypeId));
+    EntityConditionList<EntityCondition> ecl=EntityCondition.makeCondition(conditions,EntityOperator.AND);
+    List<GenericValue> productStoreShipmentMeths=delegator.findList("ProductStoreShipmentMeth",ecl,null,null,null,false);
+    GenericValue productStoreShipmentMeth=EntityUtil.getFirst(productStoreShipmentMeths);
+    if (UtilValidate.isNotEmpty(productStoreShipmentMeth)) {
+      shipmentGatewayConfig.put("shipmentGatewayConfigId",productStoreShipmentMeth.getString("shipmentGatewayConfigId"));
+      shipmentGatewayConfig.put("configProps",productStoreShipmentMeth.getString("configProps"));
+    }
+ else {
+      return ServiceUtil.returnError("Cannot found product store shipment meth for shipment with ID " + shipmentId);
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError("Error in getShipmentGatewayConfigFromShipment : " + e.getMessage());
+  }
+  return shipmentGatewayConfig;
+}

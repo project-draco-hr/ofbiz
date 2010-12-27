@@ -1,9 +1,13 @@
 {
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
   String city=(String)context.get("city");
   String stateProvinceGeoId=(String)context.get("stateProvinceGeoId");
   String postalCode=(String)context.get("postalCode");
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("serviceConfigProps");
   if (UtilValidate.isEmpty(city) && UtilValidate.isEmpty(postalCode)) {
-    return ServiceUtil.returnError("Address Validation requires either a city or postalCode");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsAddressValidationRequireCityOrPostalCode",locale));
   }
   Document avRequestDoc=UtilXml.makeEmptyXmlDocument("AddressValidationRequest");
   Element avRequestElement=avRequestDoc.getDocumentElement();
@@ -30,9 +34,9 @@
  catch (  IOException e) {
     String ioeErrMsg="Error writing the AddressValidationRequest XML Document to a String: " + e.toString();
     Debug.logError(e,ioeErrMsg,module);
-    return ServiceUtil.returnError(ioeErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorAddressValidationRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
   }
-  Document accessRequestDocument=createAccessRequestDocument();
+  Document accessRequestDocument=createAccessRequestDocument(delegator,shipmentGatewayConfigId,resource);
   String accessRequestString=null;
   try {
     accessRequestString=UtilXml.writeXmlDocument(accessRequestDocument);
@@ -40,7 +44,7 @@
  catch (  IOException e) {
     String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
     Debug.logError(e,ioeErrMsg,module);
-    return ServiceUtil.returnError(ioeErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorShipmentAcceptRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   StringBuilder xmlString=new StringBuilder();
   xmlString.append(accessRequestString);
@@ -48,12 +52,12 @@
   Debug.logInfo(xmlString.toString(),module);
   String avResponseString=null;
   try {
-    avResponseString=sendUpsRequest("AV",xmlString.toString());
+    avResponseString=sendUpsRequest("AV",xmlString.toString(),shipmentGatewayConfigId,resource,delegator,locale);
   }
  catch (  UpsConnectException e) {
     String uceErrMsg="Error sending UPS request: " + e.toString();
     Debug.logError(e,uceErrMsg,module);
-    return ServiceUtil.returnError(uceErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorSendingAddressVerification",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   Debug.logInfo(avResponseString,module);
   Document avResponseDocument=null;
@@ -63,17 +67,17 @@
  catch (  SAXException e2) {
     String excErrMsg="Error parsing the UPS response: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnError(excErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingAddressVerificationResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
 catch (  ParserConfigurationException e2) {
     String excErrMsg="Error parsing the UPS response: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnError(excErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingAddressVerificationResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
 catch (  IOException e2) {
     String excErrMsg="Error parsing the UPS response: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnError(excErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingAddressVerificationResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
-  return handleUpsAddressValidationResponse(avResponseDocument);
+  return handleUpsAddressValidationResponse(avResponseDocument,locale);
 }

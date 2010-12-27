@@ -1,6 +1,8 @@
 {
   Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
   String serviceConfigProps=(String)context.get("serviceConfigProps");
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
   String upsRateInquireMode=(String)context.get("upsRateInquireMode");
   String productStoreId=(String)context.get("productStoreId");
   String carrierRoleTypeId=(String)context.get("carrierRoleTypeId");
@@ -15,7 +17,7 @@
   BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
   String isResidentialAddress=(String)context.get("isResidentialAddress");
   if (UtilValidate.isEmpty(shippingPostalCode)) {
-    return ServiceUtil.returnFailure("Cannot estimate UPS Rate because postal code is missing");
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsCannotRateEstimatePostalCodeMissing",locale));
   }
   if (shippableTotal == null) {
     shippableTotal=BigDecimal.ZERO;
@@ -33,7 +35,7 @@
     Debug.logWarning("No upsRateInquireMode set, defaulting to 'Rate'",module);
     upsRateInquireMode="Rate";
   }
-  String pickupType=UtilProperties.getPropertyValue(serviceConfigProps,"shipment.ups.shipper.pickup.type","01");
+  String pickupType=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"shipperPickupType",serviceConfigProps,"shipment.ups.shipper.pickup.type","01");
   GenericValue shipFromAddress=(GenericValue)context.get("shipFromAddress");
   if (shipFromAddress == null) {
     GenericValue productStore=ProductStoreWorker.getProductStore(productStoreId,delegator);
@@ -50,7 +52,7 @@
     }
   }
   if (shipFromAddress == null) {
-    return ServiceUtil.returnError("Unable to determine ship-from address");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsUnableFoundShipToAddresss",locale));
   }
   String serviceCode=null;
   if (!"Shop".equals(upsRateInquireMode)) {
@@ -62,7 +64,7 @@
       Debug.logError(e,module);
     }
     if (carrierShipmentMethod == null) {
-      return ServiceUtil.returnError("Unable to locate the shipping method requested");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsUnableToLocateShippingMethodRequested",locale));
     }
     serviceCode=carrierShipmentMethod.getString("carrierServiceCode");
   }
@@ -100,7 +102,7 @@
     Element serviceElement=UtilXml.addChildElement(shipmentElement,"Service",rateRequestDoc);
     UtilXml.addChildElementValue(serviceElement,"Code",serviceCode,rateRequestDoc);
   }
-  String maxWeightStr=UtilProperties.getPropertyValue(serviceConfigProps,"shipment.ups.max.estimate.weight","99");
+  String maxWeightStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"maxEstimateWeight",serviceConfigProps,"shipment.ups.max.estimate.weight","99");
   BigDecimal maxWeight=new BigDecimal("99");
   try {
     maxWeight=new BigDecimal(maxWeightStr);
@@ -108,7 +110,7 @@
  catch (  NumberFormatException e) {
     maxWeight=new BigDecimal("99");
   }
-  String minWeightStr=UtilProperties.getPropertyValue(serviceConfigProps,"shipment.ups.min.estimate.weight",".1");
+  String minWeightStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"minEstimateWeight",serviceConfigProps,"shipment.ups.min.estimate.weight",".1");
   BigDecimal minWeight=new BigDecimal("0.1");
   try {
     minWeight=new BigDecimal(minWeightStr);
@@ -117,7 +119,8 @@
     minWeight=new BigDecimal("0.1");
   }
   if (UtilValidate.isEmpty(packageWeights)) {
-    splitEstimatePackages(dctx,rateRequestDoc,shipmentElement,shippableItemInfo,maxWeight,minWeight);
+    String totalWeightStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"minEstimateWeight",serviceConfigProps,"shipment.ups.min.estimate.weight","1");
+    splitEstimatePackages(dctx,rateRequestDoc,shipmentElement,shippableItemInfo,maxWeight,minWeight,totalWeightStr);
   }
  else {
     for (    BigDecimal packageWeight : packageWeights) {
@@ -132,9 +135,9 @@
  catch (  IOException e) {
     String ioeErrMsg="Error writing the RatingServiceSelectionRequest XML Document to a String: " + e.toString();
     Debug.logError(e,ioeErrMsg,module);
-    return ServiceUtil.returnFailure(ioeErrMsg);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorRatingServiceSelectionRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
   }
-  Document accessRequestDocument=createAccessRequestDocument(serviceConfigProps);
+  Document accessRequestDocument=createAccessRequestDocument(delegator,shipmentGatewayConfigId,serviceConfigProps);
   String accessRequestString=null;
   try {
     accessRequestString=UtilXml.writeXmlDocument(accessRequestDocument);
@@ -142,7 +145,7 @@
  catch (  IOException e) {
     String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
     Debug.logError(e,ioeErrMsg,module);
-    return ServiceUtil.returnFailure(ioeErrMsg);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorAccessRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   StringBuilder xmlString=new StringBuilder();
   xmlString.append(accessRequestString);
@@ -150,12 +153,12 @@
   if (Debug.verboseOn())   Debug.logVerbose(xmlString.toString(),module);
   String rateResponseString=null;
   try {
-    rateResponseString=sendUpsRequest("Rate",xmlString.toString());
+    rateResponseString=sendUpsRequest("Rate",xmlString.toString(),shipmentGatewayConfigId,serviceConfigProps,delegator,locale);
   }
  catch (  UpsConnectException e) {
     String uceErrMsg="Error sending UPS request for UPS Service Rate: " + e.toString();
     Debug.logError(e,uceErrMsg,module);
-    return ServiceUtil.returnFailure(uceErrMsg);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorSendingRate",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   Debug.logVerbose(rateResponseString,module);
   Document rateResponseDocument=null;
@@ -165,17 +168,17 @@
  catch (  SAXException e2) {
     String excErrMsg="Error parsing the RatingServiceSelectionResponse: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnFailure(excErrMsg);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingRatingServiceSelectionResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
 catch (  ParserConfigurationException e2) {
     String excErrMsg="Error parsing the RatingServiceSelectionResponse: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnFailure(excErrMsg);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingRatingServiceSelectionResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
 catch (  IOException e2) {
     String excErrMsg="Error parsing the RatingServiceSelectionResponse: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnFailure(excErrMsg);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingRatingServiceSelectionResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
-  return handleUpsRateInquireResponse(rateResponseDocument);
+  return handleUpsRateInquireResponse(rateResponseDocument,locale);
 }

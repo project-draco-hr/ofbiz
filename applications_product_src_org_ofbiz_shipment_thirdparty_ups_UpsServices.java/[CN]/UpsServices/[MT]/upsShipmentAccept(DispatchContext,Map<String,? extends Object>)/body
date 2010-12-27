@@ -2,8 +2,15 @@
   Delegator delegator=dctx.getDelegator();
   String shipmentId=(String)context.get("shipmentId");
   String shipmentRouteSegmentId=(String)context.get("shipmentRouteSegmentId");
-  boolean shipmentUpsSaveCertificationInfo="true".equals(UtilProperties.getPropertyValue("shipment","shipment.ups.save.certification.info"));
-  String shipmentUpsSaveCertificationPath=UtilProperties.getPropertyValue("shipment","shipment.ups.save.certification.path");
+  Locale locale=(Locale)context.get("locale");
+  Map<String,Object> shipmentGatewayConfig=ShipmentServices.getShipmentGatewayConfigFromShipment(delegator,shipmentId);
+  String shipmentGatewayConfigId=(String)shipmentGatewayConfig.get("shipmentGatewayConfigId");
+  String resource=(String)shipmentGatewayConfig.get("configProps");
+  if (UtilValidate.isEmpty(shipmentGatewayConfigId) && UtilValidate.isEmpty(resource)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsGatewayNotAvailable",locale));
+  }
+  boolean shipmentUpsSaveCertificationInfo="true".equals(getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"saveCertInfo",resource,"shipment.ups.save.certification.info","true"));
+  String shipmentUpsSaveCertificationPath=FlexibleStringExpander.expandString(getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"saveCertPath",resource,"shipment.ups.save.certification.path",""),context);
   File shipmentUpsSaveCertificationFile=null;
   if (shipmentUpsSaveCertificationInfo) {
     shipmentUpsSaveCertificationFile=new File(shipmentUpsSaveCertificationPath);
@@ -15,17 +22,17 @@
   try {
     GenericValue shipmentRouteSegment=delegator.findByPrimaryKey("ShipmentRouteSegment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId));
     if (!"UPS".equals(shipmentRouteSegment.getString("carrierPartyId"))) {
-      return ServiceUtil.returnError("ERROR: The Carrier for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is not UPS.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsNotRouteSegmentCarrier",UtilMisc.toMap("shipmentRouteSegmentId",shipmentRouteSegmentId,"shipmentId",shipmentId),locale));
     }
     if (!"SHRSCS_CONFIRMED".equals(shipmentRouteSegment.getString("carrierServiceStatusId"))) {
-      return ServiceUtil.returnError("ERROR: The Carrier Service Status for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is ["+ shipmentRouteSegment.getString("carrierServiceStatusId")+ "], but must be [SHRSCS_CONFIRMED] to perform the UPS Shipment Accept operation.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsRouteSegmentStatusNotConfirmed",UtilMisc.toMap("shipmentRouteSegmentId",shipmentRouteSegmentId,"shipmentId",shipmentId,"shipmentRouteSegmentStatus",shipmentRouteSegment.getString("carrierServiceStatusId")),locale));
     }
     List<GenericValue> shipmentPackageRouteSegs=shipmentRouteSegment.getRelated("ShipmentPackageRouteSeg",null,UtilMisc.toList("+shipmentPackageSeqId"));
     if (UtilValidate.isEmpty(shipmentPackageRouteSegs)) {
-      return ServiceUtil.returnError("No ShipmentPackageRouteSegs found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsPackageRouteSegsNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     if (UtilValidate.isEmpty(shipmentRouteSegment.getString("trackingDigest"))) {
-      return ServiceUtil.returnError("ERROR: The trackingDigest was not set for this Route Segment, meaning that a UPS shipment confirm has not been done.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsTrackingDigestWasNotSet",locale));
     }
     Document shipmentAcceptRequestDoc=UtilXml.makeEmptyXmlDocument("ShipmentAcceptRequest");
     Element shipmentAcceptRequestElement=shipmentAcceptRequestDoc.getDocumentElement();
@@ -44,9 +51,9 @@
  catch (    IOException e) {
       String ioeErrMsg="Error writing the ShipmentAcceptRequest XML Document to a String: " + e.toString();
       Debug.logError(e,ioeErrMsg,module);
-      return ServiceUtil.returnError(ioeErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorShipmentAcceptRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
     }
-    Document accessRequestDocument=createAccessRequestDocument();
+    Document accessRequestDocument=createAccessRequestDocument(delegator,shipmentGatewayConfigId,resource);
     String accessRequestString=null;
     try {
       accessRequestString=UtilXml.writeXmlDocument(accessRequestDocument);
@@ -54,7 +61,7 @@
  catch (    IOException e) {
       String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
       Debug.logError(e,ioeErrMsg,module);
-      return ServiceUtil.returnError(ioeErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorAccessRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
     }
     StringBuilder xmlString=new StringBuilder();
     xmlString.append(accessRequestString);
@@ -72,12 +79,12 @@
       }
     }
     try {
-      shipmentAcceptResponseString=sendUpsRequest("ShipAccept",xmlString.toString());
+      shipmentAcceptResponseString=sendUpsRequest("ShipAccept",xmlString.toString(),shipmentGatewayConfigId,resource,delegator,locale);
     }
  catch (    UpsConnectException e) {
       String uceErrMsg="Error sending UPS request for UPS Service ShipAccept: " + e.toString();
       Debug.logError(e,uceErrMsg,module);
-      return ServiceUtil.returnError(uceErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorSendingShipAccept",UtilMisc.toMap("errorString",e.toString()),locale));
     }
     if (shipmentUpsSaveCertificationInfo) {
       String outFileName=shipmentUpsSaveCertificationPath + "/UpsShipmentAcceptResponse" + shipmentId+ "_"+ shipmentRouteSegment.getString("shipmentRouteSegmentId")+ ".xml";
@@ -98,22 +105,22 @@
  catch (    SAXException e2) {
       String excErrMsg="Error parsing the ShipmentAcceptResponse: " + e2.toString();
       Debug.logError(e2,excErrMsg,module);
-      return ServiceUtil.returnError(excErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingShipmentAcceptResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
     }
 catch (    ParserConfigurationException e2) {
       String excErrMsg="Error parsing the ShipmentAcceptResponse: " + e2.toString();
       Debug.logError(e2,excErrMsg,module);
-      return ServiceUtil.returnError(excErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingShipmentAcceptResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
     }
 catch (    IOException e2) {
       String excErrMsg="Error parsing the ShipmentAcceptResponse: " + e2.toString();
       Debug.logError(e2,excErrMsg,module);
-      return ServiceUtil.returnError(excErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorParsingShipmentAcceptResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
     }
-    return handleUpsShipmentAcceptResponse(shipmentAcceptResponseDocument,shipmentRouteSegment,shipmentPackageRouteSegs);
+    return handleUpsShipmentAcceptResponse(shipmentAcceptResponseDocument,shipmentRouteSegment,shipmentPackageRouteSegs,delegator,shipmentGatewayConfigId,resource,context,locale);
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Error reading or writing Shipment data for UPS Shipment Accept: " + e.toString());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsErrorDataShipmentAccept",UtilMisc.toMap("errorString",e.toString()),locale));
   }
 }
