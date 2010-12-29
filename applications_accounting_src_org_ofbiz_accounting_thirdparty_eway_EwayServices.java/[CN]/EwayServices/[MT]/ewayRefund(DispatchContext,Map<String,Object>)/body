@@ -1,0 +1,44 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  BigDecimal refundAmount=(BigDecimal)context.get("refundAmount");
+  GenericValue chargeTrans=PaymentGatewayServices.getCaptureTransaction(paymentPref);
+  if (chargeTrans == null) {
+    return ServiceUtil.returnError("No charge transaction found for the OrderPaymentPreference; cannot refund");
+  }
+  GenericValue cc=null;
+  try {
+    cc=delegator.getRelatedOne("CreditCard",paymentPref);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError("Unable to obtain credit card information from payment preference; cannot refund");
+  }
+  String refNum=chargeTrans.getString("referenceNum");
+  String orderId=paymentPref.getString("orderId");
+  GatewayRequest req=initRequest(dctx,context,true);
+  req.setCustomerInvoiceRef(orderId);
+  req.setTotalAmount(refundAmount);
+  req.setTrxnNumber(refNum);
+  if (cc.get("expireDate") != null) {
+    String[] exp=cc.getString("expireDate").split("\\/");
+    req.setCardExpiryMonth(exp[0]);
+    req.setCardExpiryYear(exp[1]);
+  }
+  GatewayConnector con=new GatewayConnector();
+  GatewayResponse reply;
+  try {
+    reply=con.sendRequest(req);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  Boolean refundResult=reply.getTrxnStatus();
+  result.put("refundResult",new Boolean(refundResult.booleanValue()));
+  result.put("refundMessage",reply.getTrxnError());
+  result.put("refundCode",reply.getAuthCode());
+  result.put("refundRefNum",reply.getTrxnNumber());
+  result.put("refundAmount",reply.getTransactionAmount());
+  return result;
+}
