@@ -1,22 +1,25 @@
 {
   Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
   List<Object> errorList=FastList.newInstance();
   Boolean replaceMeterNumber=(Boolean)context.get("replaceMeterNumber");
   if (!replaceMeterNumber.booleanValue()) {
-    String meterNumber=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.fedex.access.meterNumber");
+    String meterNumber=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessMeterNumber",resource,"shipment.fedex.access.meterNumber");
     if (UtilValidate.isNotEmpty(meterNumber)) {
-      return ServiceUtil.returnError("MeterNumber already exists: " + shipmentPropertiesFile + ":shipment.fedex.access.meterNumber="+ meterNumber);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexMeterNumberAlreadyExists",UtilMisc.toMap("meterNumber",meterNumber),locale));
     }
   }
   String companyPartyId=(String)context.get("companyPartyId");
   String contactPartyName=(String)context.get("contactPartyName");
   Map<String,Object> result=FastMap.newInstance();
-  String accountNumber=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.fedex.access.accountNbr");
+  String accountNumber=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessAccountNbr",resource,"shipment.fedex.access.accountNbr");
   if (UtilValidate.isEmpty(accountNumber)) {
-    return ServiceUtil.returnError("accountNbr not found for Fedex subscription request.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexAccountNumberNotFound",locale));
   }
   if (UtilValidate.isEmpty(contactPartyName)) {
-    return ServiceUtil.returnError("Contact name can't be empty.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexContactNameCannotBeEmpty",locale));
   }
   String companyName=null;
   GenericValue postalAddress=null;
@@ -28,13 +31,13 @@
     if (companyParty == null) {
       String errorMessage="Party with partyId " + companyPartyId + " does not exist";
       Debug.logError(errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexCompanyPartyDoesNotExists",UtilMisc.toMap("companyPartyId",companyPartyId),locale));
     }
     companyName=PartyHelper.getPartyName(companyParty);
     if (UtilValidate.isEmpty(companyName)) {
       String errorMessage="Party with partyId " + companyPartyId + " has no name";
       Debug.logError(errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexCompanyPartyHasNoName",UtilMisc.toMap("companyPartyId",companyPartyId),locale));
     }
     List<GenericValue> partyContactDetails=delegator.findByAnd("PartyContactDetailByPurpose",UtilMisc.toMap("partyId",companyPartyId));
     partyContactDetails=EntityUtil.filterByDate(partyContactDetails);
@@ -62,7 +65,7 @@
     if (UtilValidate.isEmpty(postalAddress)) {
       String errorMessage="Party with partyId " + companyPartyId + " does not have a current, fully populated postal address";
       Debug.logError(errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexCompanyPartyHasNotPostalAddress",UtilMisc.toMap("companyPartyId",companyPartyId),locale));
     }
     GenericValue countryGeo=delegator.findByPrimaryKeyCache("Geo",UtilMisc.toMap("geoId",postalAddress.getString("countryGeoId")));
     String countryCode=countryGeo.getString("geoCode");
@@ -83,7 +86,7 @@
     if (UtilValidate.isEmpty(phoneNumberValue)) {
       String errorMessage="Party with partyId " + companyPartyId + " does not have a current, fully populated primary phone number";
       Debug.logError(errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexCompanyPartyHasNotPrimaryPhoneNumber",UtilMisc.toMap("companyPartyId",companyPartyId),locale));
     }
     phoneNumber=phoneNumberValue.getString("areaCode") + phoneNumberValue.getString("contactNumber");
     if (UtilValidate.isNotEmpty(phoneNumberValue.getString("countryCode")) && !(countryCode.equals("CA") || countryCode.equals("US"))) {
@@ -115,9 +118,9 @@
     if (!UtilValidate.isEmpty(emailAddressValue)) {
       emailAddress=emailAddressValue.getString("infoString");
     }
-    String templateLocation=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.template.fedex.subscription.location");
+    String templateLocation=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"templateSubscription",resource,"shipment.fedex.template.subscription.location");
     if (UtilValidate.isEmpty(templateLocation)) {
-      return ServiceUtil.returnError("Can't find location for FDXSubscriptionRequest template - should be in " + shipmentPropertiesFile + ":shipment.template.fedex.subscription.location");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexSubscriptionTemplateLocationNotFound",UtilMisc.toMap("templateLocation",templateLocation),locale));
     }
     Map<String,Object> subscriptionRequestContext=FastMap.newInstance();
     subscriptionRequestContext.put("AccountNumber",accountNumber);
@@ -147,18 +150,18 @@
  catch (    Exception e) {
       String errorMessage="Cannot send Fedex subscription request: Failed to render Fedex XML Subscription Request Template [" + templateLocation + "].";
       Debug.logError(e,errorMessage,module);
-      return ServiceUtil.returnError(errorMessage + ": " + e.getMessage());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexSubscriptionTemplateError",UtilMisc.toMap("templateLocation",templateLocation,"errorString",e.getMessage()),locale));
     }
     String fDXSubscriptionRequestString=outWriter.toString();
     String fDXSubscriptionReplyString=null;
     try {
-      fDXSubscriptionReplyString=sendFedexRequest(fDXSubscriptionRequestString);
+      fDXSubscriptionReplyString=sendFedexRequest(fDXSubscriptionRequestString,delegator,shipmentGatewayConfigId,resource,locale);
       Debug.log("Fedex response for FDXSubscriptionRequest:" + fDXSubscriptionReplyString);
     }
  catch (    FedexConnectException e) {
       String errorMessage="Error sending Fedex request for FDXSubscriptionRequest: " + e.toString();
       Debug.logError(e,errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexSubscriptionTemplateSendingError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
     Document fDXSubscriptionReplyDocument=null;
     try {
@@ -168,20 +171,20 @@
  catch (    SAXException se) {
       String errorMessage="Error parsing the FDXSubscriptionRequest response: " + se.toString();
       Debug.logError(se,errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexSubscriptionTemplateParsingError",UtilMisc.toMap("errorString",se.toString()),locale));
     }
 catch (    ParserConfigurationException pce) {
       String errorMessage="Error parsing the FDXSubscriptionRequest response: " + pce.toString();
       Debug.logError(pce,errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexSubscriptionTemplateParsingError",UtilMisc.toMap("errorString",pce.toString()),locale));
     }
 catch (    IOException ioe) {
       String errorMessage="Error parsing the FDXSubscriptionRequest response: " + ioe.toString();
       Debug.logError(ioe,errorMessage,module);
-      return ServiceUtil.returnError(errorMessage);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexSubscriptionTemplateParsingError",UtilMisc.toMap("errorString",ioe.toString()),locale));
     }
     Element fedexSubscriptionReplyElement=fDXSubscriptionReplyDocument.getDocumentElement();
-    handleErrors(fedexSubscriptionReplyElement,errorList);
+    handleErrors(fedexSubscriptionReplyElement,errorList,locale);
     if (UtilValidate.isNotEmpty(errorList)) {
       return ServiceUtil.returnError(errorList);
     }
