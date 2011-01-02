@@ -5,29 +5,35 @@
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String shipmentId=(String)context.get("shipmentId");
   String shipmentRouteSegmentId=(String)context.get("shipmentRouteSegmentId");
+  Map<String,Object> shipmentGatewayConfig=ShipmentServices.getShipmentGatewayConfigFromShipment(delegator,shipmentId);
+  String shipmentGatewayConfigId=(String)shipmentGatewayConfig.get("shipmentGatewayConfigId");
+  String resource=(String)shipmentGatewayConfig.get("configProps");
+  if (UtilValidate.isEmpty(shipmentGatewayConfigId) && UtilValidate.isEmpty(resource)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlGatewayNotAvailable",locale));
+  }
   String shipmentConfirmResponseString=null;
   try {
     GenericValue shipment=delegator.findByPrimaryKey("Shipment",UtilMisc.toMap("shipmentId",shipmentId));
     if (shipment == null) {
-      return ServiceUtil.returnError("Shipment not found with ID " + shipmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"ProductShipmentNotFoundId",locale) + shipmentId);
     }
     GenericValue shipmentRouteSegment=delegator.findByPrimaryKey("ShipmentRouteSegment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId));
     if (shipmentRouteSegment == null) {
-      return ServiceUtil.returnError("ShipmentRouteSegment not found with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"ProductShipmentRouteSegmentNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     if (!"DHL".equals(shipmentRouteSegment.getString("carrierPartyId"))) {
-      return ServiceUtil.returnError("ERROR: The Carrier for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is not DHL.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlNotRouteSegmentCarrier",UtilMisc.toMap("shipmentRouteSegmentId",shipmentRouteSegmentId,"shipmentId",shipmentId),locale));
     }
     if (UtilValidate.isNotEmpty(shipmentRouteSegment.getString("carrierServiceStatusId")) && !"SHRSCS_NOT_STARTED".equals(shipmentRouteSegment.getString("carrierServiceStatusId"))) {
-      return ServiceUtil.returnError("ERROR: The Carrier Service Status for ShipmentRouteSegment " + shipmentRouteSegmentId + " of Shipment "+ shipmentId+ ", is ["+ shipmentRouteSegment.getString("carrierServiceStatusId")+ "], but must be not-set or [SHRSCS_NOT_STARTED] to perform the DHL Shipment Confirm operation.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlRouteSegmentStatusNotStarted",UtilMisc.toMap("shipmentRouteSegmentId",shipmentRouteSegmentId,"shipmentId",shipmentId,"shipmentRouteSegmentStatus",shipmentRouteSegment.getString("carrierServiceStatusId")),locale));
     }
     GenericValue originPostalAddress=shipmentRouteSegment.getRelatedOne("OriginPostalAddress");
     if (originPostalAddress == null) {
-      return ServiceUtil.returnError("OriginPostalAddress not found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentOriginPostalAddressNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     GenericValue originTelecomNumber=shipmentRouteSegment.getRelatedOne("OriginTelecomNumber");
     if (originTelecomNumber == null) {
-      return ServiceUtil.returnError("OriginTelecomNumber not found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentOriginTelecomNumberNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     String originPhoneNumber=originTelecomNumber.getString("areaCode") + originTelecomNumber.getString("contactNumber");
     if (UtilValidate.isNotEmpty(originTelecomNumber.getString("countryCode")) && !"001".equals(originTelecomNumber.getString("countryCode"))) {
@@ -37,11 +43,11 @@
     originPhoneNumber=StringUtil.replaceString(originPhoneNumber," ","");
     GenericValue originCountryGeo=originPostalAddress.getRelatedOne("CountryGeo");
     if (originCountryGeo == null) {
-      return ServiceUtil.returnError("OriginCountryGeo not found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentOriginCountryGeoNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     GenericValue destPostalAddress=shipmentRouteSegment.getRelatedOne("DestPostalAddress");
     if (destPostalAddress == null) {
-      return ServiceUtil.returnError("DestPostalAddress not found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentDestPostalAddressNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     String destPhoneNumber=originPhoneNumber;
     GenericValue destTelecomNumber=shipmentRouteSegment.getRelatedOne("DestTelecomNumber");
@@ -60,14 +66,14 @@
     }
     GenericValue destCountryGeo=destPostalAddress.getRelatedOne("CountryGeo");
     if (destCountryGeo == null) {
-      return ServiceUtil.returnError("DestCountryGeo not found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentDestCountryGeoNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     List<GenericValue> shipmentPackageRouteSegs=shipmentRouteSegment.getRelated("ShipmentPackageRouteSeg",null,UtilMisc.toList("+shipmentPackageSeqId"));
     if (UtilValidate.isEmpty(shipmentPackageRouteSegs)) {
-      return ServiceUtil.returnError("No ShipmentPackageRouteSegs (ie No Packages) found for ShipmentRouteSegment with shipmentId " + shipmentId + " and shipmentRouteSegmentId "+ shipmentRouteSegmentId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentPackageRouteSegsNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
     }
     if (shipmentPackageRouteSegs.size() != 1) {
-      return ServiceUtil.returnError("Cannot confirm shipment: DHL ShipIT does not currently support more than one package per shipment.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlMultiplePackagesNotSupported",locale));
     }
     boolean hasBillingWeight=false;
     BigDecimal billingWeight=shipmentRouteSegment.getBigDecimal("billingWeight");
@@ -132,28 +138,28 @@
     String dhlShipmentDetailCode=null;
     GenericValue carrierShipmentMethod=delegator.findByPrimaryKey("CarrierShipmentMethod",UtilMisc.toMap("shipmentMethodTypeId",shipmentMethodTypeId,"partyId","DHL","roleTypeId","CARRIER"));
     if (carrierShipmentMethod == null) {
-      return ServiceUtil.returnError("No CarrierShipmentMethod entry for carrier DHL shipmentMethodTypeId " + shipmentMethodTypeId);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlNoCarrierShipmentMethod",UtilMisc.toMap("carrierPartyId","DHL","shipmentMethodTypeId",shipmentMethodTypeId),locale));
     }
     dhlShipmentDetailCode=carrierShipmentMethod.getString("carrierServiceCode");
-    String userid=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.dhl.access.userid");
-    String password=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.dhl.access.password");
-    String shippingKey=UtilProperties.getPropertyValue("shipment","shipment.dhl.access.shippingKey");
-    String accountNbr=UtilProperties.getPropertyValue("shipment","shipment.dhl.access.accountNbr");
+    String userid=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessUserId",resource,"shipment.dhl.access.userid");
+    String password=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessPassword",resource,"shipment.dhl.access.password");
+    String shippingKey=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessShippingKey",resource,"shipment.dhl.access.shippingKey");
+    String accountNbr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessAccountNbr",resource,"shipment.dhl.access.accountNbr");
     if ((shippingKey == null) || (accountNbr == null) || (shippingKey.length() == 0)|| (accountNbr.length() == 0)) {
-      return ServiceUtil.returnError("DHL Shipping Credentials are not configured. (check shipment.dhl.access)");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlGatewayNotAvailable",locale));
     }
-    String labelImagePreference=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.dhl.label.image.format");
+    String labelImagePreference=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"labelImageFormat",resource,"shipment.dhl.label.image.format");
     if (labelImagePreference == null) {
       Debug.logInfo("shipment.dhl.label.image.format not specified, assuming PNG",module);
       labelImagePreference="PNG";
     }
  else     if (!(labelImagePreference.equals("PNG") || labelImagePreference.equals("GIF"))) {
       Debug.logError("Illegal shipment.dhl.label.image.format: " + labelImagePreference,module);
-      return ServiceUtil.returnError("Unknown DHL Label Image Format: " + labelImagePreference);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlUnknownLabelImageFormat",UtilMisc.toMap("labelImagePreference",labelImagePreference),locale));
     }
-    String templateName=UtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.template.dhl.rate.estimate");
+    String templateName=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"rateEstimateTemplate",resource,"shipment.dhl.template.rate.estimate");
     if ((templateName == null) || (templateName.trim().length() == 0)) {
-      return ServiceUtil.returnError("Cannot get DHL Estimate: DHL Rate template not configured (shipment.template.dhl.rate.estimate");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlRateEstimateTemplateNotConfigured",locale));
     }
     StringWriter outWriter=new StringWriter();
     Map<String,Object> inContext=FastMap.newInstance();
@@ -187,7 +193,7 @@
     }
  catch (    Exception e) {
       Debug.logError(e,"Cannot confirm DHL shipment: Failed to render DHL XML Request.",module);
-      return ServiceUtil.returnError("Cannot confirm DHL shipment: Failed to render DHL XML Request.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexRateTemplateRenderingError",locale));
     }
     String requestString=outWriter.toString();
     if (Debug.verboseOn()) {
@@ -195,7 +201,7 @@
     }
     String responseString=null;
     try {
-      responseString=sendDhlRequest(requestString);
+      responseString=sendDhlRequest(requestString,delegator,shipmentGatewayConfigId,resource,locale);
       if (Debug.verboseOn()) {
         Debug.logVerbose(responseString,module);
       }
@@ -203,22 +209,22 @@
  catch (    DhlConnectException e) {
       String uceErrMsg="Error sending DHL request for DHL Service Rate: " + e.toString();
       Debug.logError(e,uceErrMsg,module);
-      return ServiceUtil.returnError(uceErrMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexRateTemplateSendingError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
-    return handleDhlShipmentConfirmResponse(responseString,shipmentRouteSegment,shipmentPackageRouteSegs);
+    return handleDhlShipmentConfirmResponse(responseString,shipmentRouteSegment,shipmentPackageRouteSegs,locale);
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
     if (shipmentConfirmResponseString != null) {
       Debug.logError("Got XML ShipmentConfirmRespose: " + shipmentConfirmResponseString,module);
-      return ServiceUtil.returnError(UtilMisc.toList("Error reading or writing Shipment data for DHL Shipment Confirm: " + e.toString(),"A ShipmentConfirmRespose was received: " + shipmentConfirmResponseString));
+      return ServiceUtil.returnError(UtilMisc.toList(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexRateTemplateReadingError",UtilMisc.toMap("errorString",e.toString()),locale),UtilProperties.getMessage(resourceError,"FacilityShipmentFedexShipmentConfirmResponse",UtilMisc.toMap("shipmentConfirmResponseString",shipmentConfirmResponseString),locale)));
     }
  else {
-      return ServiceUtil.returnError("Error reading or writing Shipment data for DHL Shipment Confirm: " + e.toString());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexRateTemplateReadingError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
   }
 catch (  GenericServiceException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Error reading or writing Shipment data for DHL Shipment Confirm: " + e.toString());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexRateTemplateReadingError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
 }

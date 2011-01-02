@@ -1,11 +1,15 @@
 {
+  Delegator delegator=dctx.getDelegator();
+  String resource=(String)context.get("serviceConfigProps");
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  Locale locale=(Locale)context.get("locale");
   Map<String,Object> result=FastMap.newInstance();
   String postalCode=(String)context.get("postalCode");
-  String accountNbr=UtilProperties.getPropertyValue("shipment","shipment.dhl.access.accountNbr");
+  String accountNbr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessAccountNbr",resource,"shipment.dhl.access.accountNbr");
   if (accountNbr == null) {
-    return ServiceUtil.returnError("accountNbr not found for Register Account.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlAccessAccountNbrMandotoryForRegisterAccount",locale));
   }
-  Document requestDocument=createAccessRequestDocument();
+  Document requestDocument=createAccessRequestDocument(delegator,shipmentGatewayConfigId,resource);
   String requestString=null;
   Element requesElement=requestDocument.getDocumentElement();
   Element registerRequestElement=UtilXml.addChildElement(requesElement,"Register",requestDocument);
@@ -20,38 +24,38 @@
  catch (  IOException e) {
     String ioeErrMsg="Error writing the AccessRequest XML Document to a String: " + e.toString();
     Debug.logError(e,ioeErrMsg,module);
-    return ServiceUtil.returnError(ioeErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlErrorAccessRequestXmlToString",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   String registerResponseString=null;
   try {
-    registerResponseString=sendDhlRequest(requestString);
+    registerResponseString=sendDhlRequest(requestString,delegator,shipmentGatewayConfigId,resource,locale);
     Debug.log("DHL request for DHL Register Account:" + registerResponseString);
   }
  catch (  DhlConnectException e) {
     String uceErrMsg="Error sending DHL request for DHL Register Account: " + e.toString();
     Debug.logError(e,uceErrMsg,module);
-    return ServiceUtil.returnError(uceErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlErrorSendingRequestRegisterAccount",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   Document registerResponseDocument=null;
   try {
     registerResponseDocument=UtilXml.readXmlDocument(registerResponseString,false);
-    result=handleDhlRegisterResponse(registerResponseDocument);
+    result=handleDhlRegisterResponse(registerResponseDocument,locale);
     Debug.log("DHL response for DHL Register Account:" + registerResponseString);
   }
  catch (  SAXException e2) {
     String excErrMsg="Error parsing the RegisterAccountServiceSelectionResponse: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnError(excErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlErrorParsingRegisterAccountResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
 catch (  ParserConfigurationException e2) {
     String excErrMsg="Error parsing the RegisterAccountServiceSelectionResponse: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnError(excErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlErrorParsingRegisterAccountResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
 catch (  IOException e2) {
     String excErrMsg="Error parsing the RegisterAccountServiceSelectionResponse: " + e2.toString();
     Debug.logError(e2,excErrMsg,module);
-    return ServiceUtil.returnError(excErrMsg);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlErrorParsingRegisterAccountResponse",UtilMisc.toMap("errorString",e2.toString()),locale));
   }
   return result;
 }
