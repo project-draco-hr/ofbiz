@@ -1,34 +1,38 @@
 {
-  Document requestDocument=createUspsRequestDocument("CityStateLookupRequest",true);
+  Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
+  Document requestDocument=createUspsRequestDocument("CityStateLookupRequest",true,delegator,shipmentGatewayConfigId,resource);
   Element zipCodeElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"ZipCode",requestDocument);
   zipCodeElement.setAttribute("ID","0");
   String zipCode=((String)context.get("zip5")).trim();
   UtilXml.addChildElementValue(zipCodeElement,"Zip5",zipCode,requestDocument);
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("CityStateLookup",requestDocument);
+    responseDocument=sendUspsRequest("CityStateLookup",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnFailure("Error sending request for USPS City/State Lookup service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsCityStateLookupSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   Element respAddressElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"ZipCode");
   if (respAddressElement == null) {
-    return ServiceUtil.returnFailure("Incomplete response from USPS City/State Lookup service: no ZipCode element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsCityStateLookupIncompleteResponse",locale));
   }
   Element respErrorElement=UtilXml.firstChildElement(respAddressElement,"Error");
   if (respErrorElement != null) {
-    return ServiceUtil.returnFailure(UtilXml.childElementValue(respErrorElement,"Description"));
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsCityStateLookupResponseError",UtilMisc.toMap("errorString",UtilXml.childElementValue(respErrorElement,"Description")),locale));
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   String city=UtilXml.childElementValue(respAddressElement,"City");
   if (UtilValidate.isEmpty(city)) {
-    return ServiceUtil.returnFailure("Incomplete response from USPS City/State Lookup service: no City element found");
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsCityStateLookupIncompleteCityElement",locale));
   }
   result.put("city",city);
   String state=UtilXml.childElementValue(respAddressElement,"State");
   if (UtilValidate.isEmpty(state)) {
-    return ServiceUtil.returnFailure("Incomplete response from USPS City/State Lookup service: no State element found");
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsCityStateLookupIncompleteStateElement",locale));
   }
   result.put("state",state);
   return result;

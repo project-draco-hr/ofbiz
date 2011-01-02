@@ -1,18 +1,22 @@
 {
-  Document requestDocument=createUspsRequestDocument("TrackRequest",true);
+  Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
+  Document requestDocument=createUspsRequestDocument("TrackRequest",true,delegator,shipmentGatewayConfigId,resource);
   Element trackingElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"TrackID",requestDocument);
   trackingElement.setAttribute("ID",(String)context.get("trackingId"));
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("TrackV2",requestDocument);
+    responseDocument=sendUspsRequest("TrackV2",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnError("Error sending request for USPS Tracking service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsTrackingSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   Element trackInfoElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"TrackInfo");
   if (trackInfoElement == null) {
-    return ServiceUtil.returnError("Incomplete response from USPS Tracking service: no TrackInfo element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsTrackingIncompleteResponse",locale));
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   result.put("trackingSummary",UtilXml.childElementValue(trackInfoElement,"TrackSummary"));

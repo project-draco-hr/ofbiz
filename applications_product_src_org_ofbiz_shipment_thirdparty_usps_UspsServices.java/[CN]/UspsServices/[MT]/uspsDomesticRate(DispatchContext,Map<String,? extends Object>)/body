@@ -1,5 +1,9 @@
 {
-  Document requestDocument=createUspsRequestDocument("RateRequest",true);
+  Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
+  Document requestDocument=createUspsRequestDocument("RateRequest",true,delegator,shipmentGatewayConfigId,resource);
   Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
   packageElement.setAttribute("ID","0");
   UtilXml.addChildElementValue(packageElement,"Service",(String)context.get("service"),requestDocument);
@@ -24,29 +28,29 @@
   UtilXml.addChildElementValue(packageElement,"Machinable",machinable,requestDocument);
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("Rate",requestDocument);
+    responseDocument=sendUspsRequest("Rate",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnError("Error sending request for USPS Domestic Rate Calculation service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   Element respPackageElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"Package");
   if (respPackageElement == null) {
-    return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: no Package element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseIncompleteElementPackage",locale));
   }
   Element respErrorElement=UtilXml.firstChildElement(respPackageElement,"Error");
   if (respErrorElement != null) {
-    return ServiceUtil.returnError("The following error was returned by the USPS Domestic Rate Calculation service: " + UtilXml.childElementValue(respErrorElement,"Description"));
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseError",UtilMisc.toMap("errorString",UtilXml.childElementValue(respErrorElement,"Description")),locale));
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   String zone=UtilXml.childElementValue(respPackageElement,"Zone");
   if (UtilValidate.isEmpty(zone)) {
-    return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: no Zone element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseIncompleteElementZone",locale));
   }
   result.put("zone",zone);
   String postage=UtilXml.childElementValue(respPackageElement,"Postage");
   if (UtilValidate.isEmpty(postage)) {
-    return ServiceUtil.returnError("Incomplete response from USPS Domestic Rate Calculation service: no Postage element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseIncompleteElementPostage",locale));
   }
   result.put("postage",postage);
   String restrictionCodes=UtilXml.childElementValue(respPackageElement,"RestrictionCodes");

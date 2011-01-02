@@ -1,23 +1,27 @@
 {
+  Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
   String type=(String)context.get("serviceType");
+  Locale locale=(Locale)context.get("locale");
   if (!type.matches("PriorityMail|StandardB")) {
-    return ServiceUtil.returnError("Unsupported service type: " + type);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnsupporteServiceType",UtilMisc.toMap("serviceType",type),locale));
   }
-  Document requestDocument=createUspsRequestDocument(type + "Request",true);
+  Document requestDocument=createUspsRequestDocument(type + "Request",true,delegator,shipmentGatewayConfigId,resource);
   UtilXml.addChildElementValue(requestDocument.getDocumentElement(),"OriginZip",(String)context.get("originZip"),requestDocument);
   UtilXml.addChildElementValue(requestDocument.getDocumentElement(),"DestinationZip",(String)context.get("destinationZip"),requestDocument);
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest(type,requestDocument);
+    responseDocument=sendUspsRequest(type,requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnError("Error sending request for USPS " + type + " Service Standards service: "+ e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsServiceStandardSendingError",UtilMisc.toMap("serviceType",type,"errorString",e.getMessage()),locale));
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   String days=UtilXml.childElementValue(responseDocument.getDocumentElement(),"Days");
   if (UtilValidate.isEmpty(days)) {
-    return ServiceUtil.returnError("Incomplete response from USPS " + type + " Service Standards service: "+ "no Days element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsServiceStandardResponseIncompleteDaysElement",UtilMisc.toMap("serviceType",type),locale));
   }
   result.put("days",days);
   return result;
