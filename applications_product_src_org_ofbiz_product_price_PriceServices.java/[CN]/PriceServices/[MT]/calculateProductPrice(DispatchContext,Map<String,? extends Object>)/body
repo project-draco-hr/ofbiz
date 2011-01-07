@@ -16,14 +16,14 @@
   String agreementId=(String)context.get("agreementId");
   String productStoreId=(String)context.get("productStoreId");
   String productStoreGroupId=(String)context.get("productStoreGroupId");
+  Locale locale=(Locale)context.get("locale");
   GenericValue productStore=null;
   try {
     productStore=delegator.findByPrimaryKeyCache("ProductStore",UtilMisc.toMap("productStoreId",productStoreId));
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error getting product store info from the database while calculating price" + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error getting product store info from the database while calculating price" + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPriceCannotRetrieveProductStore",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   if (UtilValidate.isEmpty(productStoreGroupId)) {
     if (productStore != null) {
@@ -41,9 +41,8 @@
         }
       }
  catch (      GenericEntityException e) {
-        String errMsg="Error getting product store info from the database while calculating price" + e.toString();
-        Debug.logError(e,errMsg,module);
-        return ServiceUtil.returnError(errMsg);
+        Debug.logError(e,"Error getting product store info from the database while calculating price" + e.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPriceCannotRetrieveProductStore",UtilMisc.toMap("errorString",e.toString()),locale));
       }
     }
     if (UtilValidate.isEmpty(productStoreGroupId)) {
@@ -65,9 +64,8 @@
       virtualProductId=ProductWorker.getVariantVirtualId(product);
     }
  catch (    GenericEntityException e) {
-      String errMsg="Error getting virtual product id from the database while calculating price" + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Error getting virtual product id from the database while calculating price" + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPriceCannotRetrieveVirtualProductId",UtilMisc.toMap("errorString",e.toString()),locale));
     }
   }
   List<GenericValue> virtualProductPrices=null;
@@ -133,9 +131,8 @@
       }
     }
  catch (    GenericEntityException e) {
-      String errMsg="Error getting agreement info from the database while calculating price" + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Error getting agreement info from the database while calculating price" + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPriceCannotRetrieveAgreementInfo",UtilMisc.toMap("errorString",e.toString()),locale));
     }
   }
   List<GenericValue> competitivePrices=EntityUtil.filterByAnd(productPrices,UtilMisc.toMap("productPriceTypeId","COMPETITIVE_PRICE"));
@@ -403,7 +400,7 @@
     result.put("validPriceFound",Boolean.valueOf(validPriceFound));
     result.put("isSale",Boolean.FALSE);
     result.put("orderItemPriceInfos",orderItemPriceInfos);
-    Map<String,Object> errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+    Map<String,Object> errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher,locale);
     if (errorResult != null)     return errorResult;
   }
  else {
@@ -443,38 +440,38 @@
           List<GenericValue> ruleListToUse=FastList.newInstance();
           ruleListToUse.add(quantityProductPriceRule);
           ruleListToUse.addAll(nonQuantityProductPriceRules);
-          Map<String,Object> quantCalcResults=calcPriceResultFromRules(ruleListToUse,listPrice,defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,null,currencyUomId,delegator,nowTimestamp);
-          Map<String,Object> quantErrorResult=addGeneralResults(quantCalcResults,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+          Map<String,Object> quantCalcResults=calcPriceResultFromRules(ruleListToUse,listPrice,defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,null,currencyUomId,delegator,nowTimestamp,locale);
+          Map<String,Object> quantErrorResult=addGeneralResults(quantCalcResults,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher,locale);
           if (quantErrorResult != null)           return quantErrorResult;
           quantCalcResults.put("quantityProductPriceRule",quantityProductPriceRule);
           allQuantityPrices.add(quantCalcResults);
         }
         result.put("allQuantityPrices",allQuantityPrices);
-        Map<String,Object> calcResults=calcPriceResultFromRules(allProductPriceRules,listPrice,defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,BigDecimal.ONE,currencyUomId,delegator,nowTimestamp);
+        Map<String,Object> calcResults=calcPriceResultFromRules(allProductPriceRules,listPrice,defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,BigDecimal.ONE,currencyUomId,delegator,nowTimestamp,locale);
         result.putAll(calcResults);
         List<GenericValue> orderItemPriceInfosFromRule=UtilGenerics.checkList(calcResults.get("orderItemPriceInfos"));
         if (UtilValidate.isNotEmpty(orderItemPriceInfosFromRule)) {
           orderItemPriceInfos.addAll(orderItemPriceInfosFromRule);
         }
         result.put("orderItemPriceInfos",orderItemPriceInfos);
-        Map<String,Object> errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+        Map<String,Object> errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher,locale);
         if (errorResult != null)         return errorResult;
       }
  else {
-        Map<String,Object> calcResults=calcPriceResultFromRules(allProductPriceRules,listPrice,defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,quantity,currencyUomId,delegator,nowTimestamp);
+        Map<String,Object> calcResults=calcPriceResultFromRules(allProductPriceRules,listPrice,defaultPrice,promoPrice,wholesalePrice,maximumPriceValue,minimumPriceValue,validPriceFound,averageCostValue,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,quantity,currencyUomId,delegator,nowTimestamp,locale);
         result.putAll(calcResults);
         List<GenericValue> orderItemPriceInfosFromRule=UtilGenerics.checkList(calcResults.get("orderItemPriceInfos"));
         if (UtilValidate.isNotEmpty(orderItemPriceInfosFromRule)) {
           orderItemPriceInfos.addAll(orderItemPriceInfosFromRule);
         }
         result.put("orderItemPriceInfos",orderItemPriceInfos);
-        Map<String,Object> errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher);
+        Map<String,Object> errorResult=addGeneralResults(result,competitivePriceValue,specialPromoPriceValue,productStore,checkIncludeVat,currencyUomId,productId,quantity,partyId,dispatcher,locale);
         if (errorResult != null)         return errorResult;
       }
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Error getting rules from the database while calculating price",module);
-      return ServiceUtil.returnError("Error getting rules from the database while calculating price: " + e.toString());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPriceCannotRetrievePriceRules",UtilMisc.toMap("errorString",e.toString()),locale));
     }
   }
   return result;
