@@ -5,10 +5,9 @@
   EntityCondition requirementConditions=(EntityCondition)context.get("requirementConditions");
   String partyId=(String)context.get("partyId");
   String unassignedRequirements=(String)context.get("unassignedRequirements");
-  String currencyUomId=(String)context.get("currencyUomId");
-  List statusIds=(List)context.get("statusIds");
+  List<String> statusIds=UtilGenerics.checkList(context.get("statusIds"));
   try {
-    List orderBy=UtilMisc.toList("partyId","requirementId");
+    List<String> orderBy=UtilMisc.toList("partyId","requirementId");
     List<EntityCondition> conditions=UtilMisc.toList(EntityCondition.makeCondition("requirementTypeId",EntityOperator.EQUALS,"PRODUCT_REQUIREMENT"),EntityUtil.getFilterByDateExpr());
     if (UtilValidate.isNotEmpty(statusIds)) {
       conditions.add(EntityCondition.makeCondition("statusId",EntityOperator.IN,statusIds));
@@ -28,18 +27,18 @@
       conditions.add(EntityCondition.makeCondition("roleTypeId",EntityOperator.EQUALS,"SUPPLIER"));
     }
     EntityConditionList<EntityCondition> ecl=EntityCondition.makeCondition(conditions,EntityOperator.AND);
-    List requirementAndRoles=delegator.findList("RequirementAndRole",ecl,null,orderBy,null,false);
+    List<GenericValue> requirementAndRoles=delegator.findList("RequirementAndRole",ecl,null,orderBy,null,false);
     Map<String,GenericValue> suppliers=FastMap.newInstance();
-    Map gids=FastMap.newInstance();
-    Map inventories=FastMap.newInstance();
-    Map productsSold=FastMap.newInstance();
+    Map<String,GenericValue> gids=FastMap.newInstance();
+    Map<String,Map<String,Object>> inventories=FastMap.newInstance();
+    Map<String,BigDecimal> productsSold=FastMap.newInstance();
     BigDecimal quantity=BigDecimal.ZERO;
     BigDecimal amountTotal=BigDecimal.ZERO;
-    Set products=new HashSet();
+    Set<String> products=FastSet.newInstance();
     Timestamp timePeriodStart=UtilDateTime.getMonthStart(UtilDateTime.nowTimestamp(),0,-6);
-    List requirements=FastList.newInstance();
-    for (Iterator iter=requirementAndRoles.iterator(); iter.hasNext(); ) {
-      Map union=FastMap.newInstance();
+    List<Map<String,Object>> requirements=FastList.newInstance();
+    for (Iterator<GenericValue> iter=requirementAndRoles.iterator(); iter.hasNext(); ) {
+      Map<String,Object> union=FastMap.newInstance();
       GenericValue requirement=(GenericValue)iter.next();
       String productId=requirement.getString("productId");
       partyId=requirement.getString("partyId");
@@ -67,7 +66,7 @@
       if (gid != null)       union.put("idValue",gid.get("idValue"));
       if (UtilValidate.isNotEmpty(facilityId)) {
         String inventoryKey=facilityId + "^" + productId;
-        Map inventory=(Map)inventories.get(inventoryKey);
+        Map<String,Object> inventory=inventories.get(inventoryKey);
         if (inventory == null) {
           inventory=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facilityId));
           if (ServiceUtil.isError(inventory)) {
@@ -98,7 +97,7 @@
       union.putAll(requirement.getAllFields());
       requirements.add(union);
     }
-    Map results=ServiceUtil.returnSuccess();
+    Map<String,Object> results=ServiceUtil.returnSuccess();
     results.put("requirementsForSupplier",requirements);
     results.put("distinctProductCount",Integer.valueOf(products.size()));
     results.put("quantityTotal",quantity);
