@@ -1,0 +1,89 @@
+{
+  BOMNode oneChildNode=new BOMNode((String)node.get("productIdTo"),delegator,dispatcher,userLogin);
+  oneChildNode.setTree(tree);
+  oneChildNode.setProductAssoc(node);
+  try {
+    oneChildNode.setQuantityMultiplier(node.getBigDecimal("quantity"));
+  }
+ catch (  Exception nfe) {
+    oneChildNode.setQuantityMultiplier(BigDecimal.ONE);
+  }
+  try {
+    BigDecimal percScrapFactor=node.getBigDecimal("scrapFactor");
+    BigDecimal bdHundred=new BigDecimal("100");
+    if (percScrapFactor.compareTo(bdHundred.negate()) > 0 && percScrapFactor.compareTo(bdHundred) < 0) {
+      percScrapFactor=BigDecimal.ONE.add(percScrapFactor.movePointLeft(2));
+    }
+ else {
+      Debug.logWarning("A scrap factor of [" + percScrapFactor + "] was ignored",module);
+      percScrapFactor=BigDecimal.ONE;
+    }
+    oneChildNode.setScrapFactor(percScrapFactor);
+  }
+ catch (  Exception nfe) {
+    oneChildNode.setScrapFactor(BigDecimal.ONE);
+  }
+  BOMNode newNode=oneChildNode;
+  if (oneChildNode.isVirtual()) {
+    List<GenericValue> productPartRules=delegator.findByAnd("ProductManufacturingRule",UtilMisc.toMap("productId",productIdForRules,"productIdFor",node.get("productId"),"productIdIn",node.get("productIdTo")));
+    if (substitutedNode != null) {
+      productPartRules.addAll(delegator.findByAnd("ProductManufacturingRule",UtilMisc.toMap("productId",productIdForRules,"productIdFor",substitutedNode.getProduct().getString("productId"),"productIdIn",node.get("productIdTo"))));
+    }
+    productPartRules=EntityUtil.filterByDate(productPartRules,inDate);
+    newNode=substituteNode(oneChildNode,productFeatures,productPartRules);
+    if (newNode.equals(oneChildNode)) {
+      List<GenericValue> genericLinkRules=delegator.findByAnd("ProductManufacturingRule",UtilMisc.toMap("productIdFor",node.get("productId"),"productIdIn",node.get("productIdTo")));
+      if (substitutedNode != null) {
+        genericLinkRules.addAll(delegator.findByAnd("ProductManufacturingRule",UtilMisc.toMap("productIdFor",substitutedNode.getProduct().getString("productId"),"productIdIn",node.get("productIdTo"))));
+      }
+      genericLinkRules=EntityUtil.filterByDate(genericLinkRules,inDate);
+      newNode=substituteNode(oneChildNode,productFeatures,genericLinkRules);
+      if (newNode.equals(oneChildNode)) {
+        List<GenericValue> genericNodeRules=delegator.findByAnd("ProductManufacturingRule",UtilMisc.toMap("productIdIn",node.get("productIdTo")),UtilMisc.toList("ruleSeqId"));
+        genericNodeRules=EntityUtil.filterByDate(genericNodeRules,inDate);
+        newNode=null;
+        newNode=substituteNode(oneChildNode,productFeatures,genericNodeRules);
+        if (newNode.equals(oneChildNode)) {
+          if (UtilValidate.isNotEmpty(genericNodeRules)) {
+          }
+          if (newNode.equals(oneChildNode)) {
+            Map<String,String> selectedFeatures=FastMap.newInstance();
+            if (productFeatures != null) {
+              GenericValue feature=null;
+              for (int j=0; j < productFeatures.size(); j++) {
+                feature=(GenericValue)productFeatures.get(j);
+                selectedFeatures.put(feature.getString("productFeatureTypeId"),feature.getString("productFeatureId"));
+              }
+            }
+            if (selectedFeatures.size() > 0) {
+              Map<String,Object> context=FastMap.newInstance();
+              context.put("productId",node.get("productIdTo"));
+              context.put("selectedFeatures",selectedFeatures);
+              Map<String,Object> storeResult=null;
+              GenericValue variantProduct=null;
+              try {
+                storeResult=dispatcher.runSync("getProductVariant",context);
+                List<GenericValue> variantProducts=UtilGenerics.checkList(storeResult.get("products"));
+                if (variantProducts.size() == 1) {
+                  variantProduct=(GenericValue)variantProducts.get(0);
+                }
+              }
+ catch (              GenericServiceException e) {
+                if (Debug.infoOn())                 Debug.logInfo("Error calling getProductVariant service " + e.getMessage(),module);
+              }
+              if (variantProduct != null) {
+                newNode=new BOMNode(variantProduct,dispatcher,userLogin);
+                newNode.setTree(tree);
+                newNode.setSubstitutedNode(oneChildNode);
+                newNode.setQuantityMultiplier(oneChildNode.getQuantityMultiplier());
+                newNode.setScrapFactor(oneChildNode.getScrapFactor());
+                newNode.setProductAssoc(oneChildNode.getProductAssoc());
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return newNode;
+}

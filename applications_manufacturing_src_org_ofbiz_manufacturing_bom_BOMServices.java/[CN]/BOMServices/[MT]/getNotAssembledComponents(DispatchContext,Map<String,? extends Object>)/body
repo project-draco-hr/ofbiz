@@ -1,0 +1,48 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String productId=(String)context.get("productId");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  String fromDateStr=(String)context.get("fromDate");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (quantity == null) {
+    quantity=BigDecimal.ONE;
+  }
+  if (amount == null) {
+    amount=BigDecimal.ZERO;
+  }
+  Date fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    try {
+      fromDate=Timestamp.valueOf(fromDateStr);
+    }
+ catch (    Exception e) {
+    }
+  }
+  if (fromDate == null) {
+    fromDate=new Date();
+  }
+  BOMTree tree=null;
+  List<BOMNode> components=FastList.newInstance();
+  List<BOMNode> notAssembledComponents=FastList.newInstance();
+  try {
+    tree=new BOMTree(productId,"MANUF_COMPONENT",fromDate,BOMTree.EXPLOSION_MANUFACTURING,delegator,dispatcher,userLogin);
+    tree.setRootQuantity(quantity);
+    tree.setRootAmount(amount);
+    tree.print(components);
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError("Error creating bill of materials tree: " + gee.getMessage());
+  }
+  Iterator<BOMNode> componentsIt=components.iterator();
+  while (componentsIt.hasNext()) {
+    BOMNode oneComponent=(BOMNode)componentsIt.next();
+    if (!oneComponent.isManufactured()) {
+      notAssembledComponents.add(oneComponent);
+    }
+  }
+  result.put("notAssembledComponents",notAssembledComponents);
+  return result;
+}
