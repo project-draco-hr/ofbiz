@@ -1,0 +1,196 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productId=(String)context.get("productId");
+  Timestamp startDate=(Timestamp)context.get("startDate");
+  BigDecimal pRQuantity=(BigDecimal)context.get("pRQuantity");
+  String facilityId=(String)context.get("facilityId");
+  String workEffortId=(String)context.get("routingId");
+  String workEffortName=(String)context.get("workEffortName");
+  String description=(String)context.get("description");
+  GenericValue routing=null;
+  GenericValue product=null;
+  List<GenericValue> routingTaskAssocs=null;
+  try {
+    product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+    if (product == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductNotExist",locale));
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  try {
+    Map<String,Object> routingInMap=UtilMisc.toMap("productId",productId,"applicableDate",startDate,"userLogin",userLogin);
+    if (workEffortId != null) {
+      routingInMap.put("workEffortId",workEffortId);
+    }
+    Map<String,Object> routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+    routing=(GenericValue)routingOutMap.get("routing");
+    routingTaskAssocs=UtilGenerics.checkList(routingOutMap.get("tasks"));
+  }
+ catch (  GenericServiceException gse) {
+    Debug.logWarning(gse.getMessage(),module);
+  }
+  if (routing == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductRoutingNotExist",locale));
+  }
+  if (UtilValidate.isEmpty(routingTaskAssocs)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingRoutingHasNoRoutingTask",locale));
+  }
+  List<BOMNode> components=null;
+  Map<String,Object> serviceContext=FastMap.newInstance();
+  serviceContext.put("productId",productId);
+  serviceContext.put("quantity",pRQuantity);
+  serviceContext.put("userLogin",userLogin);
+  Map<String,Object> resultService=null;
+  try {
+    resultService=dispatcher.runSync("getManufacturingComponents",serviceContext);
+    components=UtilGenerics.checkList(resultService.get("components"));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the getManufacturingComponents service",module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (workEffortName == null) {
+    String prdName=UtilValidate.isNotEmpty(product.getString("productName")) ? product.getString("productName") : product.getString("productId");
+    String wefName=UtilValidate.isNotEmpty(routing.getString("workEffortName")) ? routing.getString("workEffortName") : routing.getString("workEffortId");
+    workEffortName=prdName + "-" + wefName;
+  }
+  serviceContext.clear();
+  serviceContext.put("workEffortTypeId","PROD_ORDER_HEADER");
+  serviceContext.put("workEffortPurposeTypeId","WEPT_PRODUCTION_RUN");
+  serviceContext.put("currentStatusId","PRUN_CREATED");
+  serviceContext.put("workEffortName",workEffortName);
+  serviceContext.put("description",description);
+  serviceContext.put("facilityId",facilityId);
+  serviceContext.put("estimatedStartDate",startDate);
+  serviceContext.put("quantityToProduce",pRQuantity);
+  serviceContext.put("userLogin",userLogin);
+  try {
+    resultService=dispatcher.runSync("createWorkEffort",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the createWorkEffort service",module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String productionRunId=(String)resultService.get("workEffortId");
+  if (Debug.infoOn()) {
+    Debug.logInfo("ProductionRun created: " + productionRunId,module);
+  }
+  serviceContext.clear();
+  serviceContext.put("workEffortId",productionRunId);
+  serviceContext.put("productId",productId);
+  serviceContext.put("workEffortGoodStdTypeId","PRUN_PROD_DELIV");
+  serviceContext.put("statusId","WEGS_CREATED");
+  serviceContext.put("estimatedQuantity",pRQuantity);
+  serviceContext.put("fromDate",startDate);
+  serviceContext.put("userLogin",userLogin);
+  try {
+    resultService=dispatcher.runSync("createWorkEffortGoodStandard",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the createWorkEffortGoodStandard service",module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Iterator<GenericValue> rt=routingTaskAssocs.iterator();
+  boolean first=true;
+  while (rt.hasNext()) {
+    GenericValue routingTaskAssoc=(GenericValue)rt.next();
+    if (EntityUtil.isValueActive(routingTaskAssoc,startDate)) {
+      GenericValue routingTask=null;
+      try {
+        routingTask=routingTaskAssoc.getRelatedOne("ToWorkEffort");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e.getMessage(),module);
+      }
+      long totalTime=ProductionRun.getEstimatedTaskTime(routingTask,pRQuantity,dispatcher);
+      Timestamp endDate=TechDataServices.addForward(TechDataServices.getTechDataCalendar(routingTask),startDate,totalTime);
+      serviceContext.clear();
+      serviceContext.put("priority",routingTaskAssoc.get("sequenceNum"));
+      serviceContext.put("workEffortPurposeTypeId",routingTask.get("workEffortPurposeTypeId"));
+      serviceContext.put("workEffortName",routingTask.get("workEffortName"));
+      serviceContext.put("description",routingTask.get("description"));
+      serviceContext.put("fixedAssetId",routingTask.get("fixedAssetId"));
+      serviceContext.put("workEffortTypeId","PROD_ORDER_TASK");
+      serviceContext.put("currentStatusId","PRUN_CREATED");
+      serviceContext.put("workEffortParentId",productionRunId);
+      serviceContext.put("facilityId",facilityId);
+      serviceContext.put("reservPersons",routingTask.get("reservPersons"));
+      serviceContext.put("estimatedStartDate",startDate);
+      serviceContext.put("estimatedCompletionDate",endDate);
+      serviceContext.put("estimatedSetupMillis",routingTask.get("estimatedSetupMillis"));
+      serviceContext.put("estimatedMilliSeconds",routingTask.get("estimatedMilliSeconds"));
+      serviceContext.put("quantityToProduce",pRQuantity);
+      serviceContext.put("userLogin",userLogin);
+      resultService=null;
+      try {
+        resultService=dispatcher.runSync("createWorkEffort",serviceContext);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem calling the createWorkEffort service",module);
+      }
+      String productionRunTaskId=(String)resultService.get("workEffortId");
+      if (Debug.infoOn())       Debug.logInfo("ProductionRunTaskId created: " + productionRunTaskId,module);
+      serviceContext.clear();
+      serviceContext.put("userLogin",userLogin);
+      serviceContext.put("workEffortIdFrom",routingTask.getString("workEffortId"));
+      serviceContext.put("workEffortIdTo",productionRunTaskId);
+      serviceContext.put("workEffortAssocTypeId","WORK_EFF_TEMPLATE");
+      try {
+        resultService=dispatcher.runSync("createWorkEffortAssoc",serviceContext);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem calling the createWorkEffortAssoc service",module);
+      }
+      String routingTaskId=routingTaskAssoc.getString("workEffortIdTo");
+      cloneWorkEffortPartyAssignments(ctx,userLogin,routingTaskId,productionRunTaskId);
+      cloneWorkEffortCostCalcs(ctx,userLogin,routingTaskId,productionRunTaskId);
+      Iterator<BOMNode> pb=components.iterator();
+      while (pb.hasNext()) {
+        BOMNode node=(BOMNode)pb.next();
+        GenericValue productBom=node.getProductAssoc();
+        if ((productBom.getString("routingWorkEffortId") == null && first) || (productBom.getString("routingWorkEffortId") != null && productBom.getString("routingWorkEffortId").equals(routingTask.getString("workEffortId")))) {
+          serviceContext.clear();
+          serviceContext.put("workEffortId",productionRunTaskId);
+          serviceContext.put("productId",node.getProduct().get("productId"));
+          serviceContext.put("workEffortGoodStdTypeId","PRUNT_PROD_NEEDED");
+          serviceContext.put("statusId","WEGS_CREATED");
+          serviceContext.put("fromDate",productBom.get("fromDate"));
+          serviceContext.put("estimatedQuantity",node.getQuantity());
+          serviceContext.put("userLogin",userLogin);
+          resultService=null;
+          try {
+            resultService=dispatcher.runSync("createWorkEffortGoodStandard",serviceContext);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,"Problem calling the createWorkEffortGoodStandard service",module);
+          }
+          if (Debug.infoOn())           Debug.logInfo("ProductLink created for productId: " + productBom.getString("productIdTo"),module);
+        }
+      }
+      first=false;
+      startDate=endDate;
+    }
+  }
+  serviceContext.clear();
+  serviceContext.put("workEffortId",productionRunId);
+  serviceContext.put("estimatedCompletionDate",startDate);
+  serviceContext.put("userLogin",userLogin);
+  resultService=null;
+  try {
+    resultService=dispatcher.runSync("updateWorkEffort",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the updateWorkEffort service",module);
+  }
+  result.put("productionRunId",productionRunId);
+  result.put("estimatedCompletionDate",startDate);
+  result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunCreated",UtilMisc.toMap("productionRunId",productionRunId),locale));
+  return result;
+}

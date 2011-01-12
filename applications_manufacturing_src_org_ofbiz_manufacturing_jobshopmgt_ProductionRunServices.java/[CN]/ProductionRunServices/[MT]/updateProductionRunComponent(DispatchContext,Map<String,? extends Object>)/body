@@ -1,0 +1,68 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunId=(String)context.get("productionRunId");
+  String productId=(String)context.get("productId");
+  String workEffortId=(String)context.get("workEffortId");
+  BigDecimal quantity=(BigDecimal)context.get("estimatedQuantity");
+  ProductionRun productionRun=new ProductionRun(productionRunId,delegator,dispatcher);
+  List<GenericValue> components=productionRun.getProductionRunComponents();
+  if (UtilValidate.isEmpty(components)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunComponentNotExists",locale));
+  }
+  if (!"PRUN_CREATED".equals(productionRun.getGenericValue().getString("currentStatusId")) && !"PRUN_SCHEDULED".equals(productionRun.getGenericValue().getString("currentStatusId"))) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunPrinted",locale));
+  }
+  boolean found=false;
+  GenericValue theComponent=null;
+  for (int i=0; i < components.size(); i++) {
+    theComponent=(GenericValue)components.get(i);
+    if (theComponent.getString("productId").equals(productId)) {
+      if (workEffortId != null) {
+        if (theComponent.getString("workEffortId").equals(workEffortId)) {
+          found=true;
+          break;
+        }
+      }
+ else {
+        found=true;
+        break;
+      }
+    }
+  }
+  if (!found) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotExists",locale));
+  }
+  try {
+    GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+    if (product == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductNotExist",locale));
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map<String,Object> serviceContext=FastMap.newInstance();
+  serviceContext.clear();
+  serviceContext.put("workEffortId",theComponent.getString("workEffortId"));
+  serviceContext.put("workEffortGoodStdTypeId","PRUNT_PROD_NEEDED");
+  serviceContext.put("productId",productId);
+  serviceContext.put("fromDate",theComponent.getTimestamp("fromDate"));
+  if (quantity != null) {
+    serviceContext.put("estimatedQuantity",quantity);
+  }
+  serviceContext.put("userLogin",userLogin);
+  try {
+    dispatcher.runSync("updateWorkEffortGoodStandard",serviceContext);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the updateWorkEffortGoodStandard service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunComponentNotAdded",locale));
+  }
+  result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunComponentUpdated",UtilMisc.toMap("productionRunId",productionRunId),locale));
+  return result;
+}

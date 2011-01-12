@@ -1,0 +1,103 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String facilityId=(String)context.get("facilityId");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  boolean isImmediatelyFulfilled=false;
+  try {
+    GenericValue order=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    GenericValue productStore=delegator.getRelatedOne("ProductStore",order);
+    isImmediatelyFulfilled="Y".equals(productStore.getString("isImmediatelyFulfilled"));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Error creating a production run for marketing package for order [" + orderId + " "+ orderItemSeqId+ "]: "+ e.getMessage());
+  }
+  GenericValue orderItem=null;
+  try {
+    orderItem=delegator.findByPrimaryKey("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError("Error creating a production run for marketing package for order [" + orderId + " "+ orderItemSeqId+ "]: "+ e.getMessage());
+  }
+  if (orderItem == null) {
+    return ServiceUtil.returnError("Error creating a production run for marketing package for order [" + orderId + " "+ orderItemSeqId+ "]: order item not found.");
+  }
+  if (orderItem.get("quantity") == null) {
+    Debug.logWarning("No quantity found for orderItem [" + orderItem + "], skipping production run of this marketing package",module);
+    return ServiceUtil.returnSuccess();
+  }
+  try {
+    BigDecimal existingAtp=BigDecimal.ZERO;
+    Map<String,Object> tmpResults=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.<String,Object>toMap("productId",orderItem.getString("productId"),"facilityId",facilityId,"userLogin",userLogin));
+    if (tmpResults.get("availableToPromiseTotal") != null) {
+      existingAtp=(BigDecimal)tmpResults.get("availableToPromiseTotal");
+    }
+    if (isImmediatelyFulfilled) {
+      existingAtp=existingAtp.subtract(orderItem.getBigDecimal("quantity"));
+    }
+    if (Debug.verboseOn()) {
+      Debug.logVerbose("Order item [" + orderItem + "] Existing ATP = ["+ existingAtp+ "]",module);
+    }
+    if (existingAtp.compareTo(ZERO) < 0) {
+      BigDecimal qtyRequired=BigDecimal.ZERO.subtract(existingAtp);
+      Map<String,Object> serviceContext=FastMap.newInstance();
+      serviceContext.put("productId",orderItem.getString("productId"));
+      serviceContext.put("facilityId",facilityId);
+      serviceContext.put("userLogin",userLogin);
+      Map<String,Object> resultService=dispatcher.runSync("getMktgPackagesAvailable",serviceContext);
+      BigDecimal mktgPackagesAvailable=(BigDecimal)resultService.get("availableToPromiseTotal");
+      BigDecimal qtyToProduce=qtyRequired.min(mktgPackagesAvailable);
+      if (qtyToProduce.compareTo(ZERO) > 0) {
+        if (Debug.verboseOn()) {
+          Debug.logVerbose("Required quantity (all orders) = [" + qtyRequired + "] quantity to produce = ["+ qtyToProduce+ "]",module);
+        }
+        serviceContext.put("pRQuantity",qtyToProduce);
+        serviceContext.put("startDate",UtilDateTime.nowTimestamp());
+        resultService=dispatcher.runSync("createProductionRun",serviceContext);
+        String productionRunId=(String)resultService.get("productionRunId");
+        result.put("productionRunId",productionRunId);
+        try {
+          delegator.create("WorkOrderItemFulfillment",UtilMisc.toMap("workEffortId",productionRunId,"orderId",orderId,"orderItemSeqId",orderItemSeqId));
+        }
+ catch (        GenericEntityException e) {
+          return ServiceUtil.returnError("Error creating a production run for marketing package for order [" + orderId + " "+ orderItemSeqId+ "]: "+ e.getMessage());
+        }
+        try {
+          serviceContext.clear();
+          serviceContext.put("productionRunId",productionRunId);
+          serviceContext.put("statusId","PRUN_COMPLETED");
+          serviceContext.put("userLogin",userLogin);
+          resultService=dispatcher.runSync("quickChangeProductionRunStatus",serviceContext);
+          serviceContext.clear();
+          serviceContext.put("workEffortId",productionRunId);
+          serviceContext.put("userLogin",userLogin);
+          resultService=dispatcher.runSync("productionRunProduce",serviceContext);
+        }
+ catch (        GenericServiceException e) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotCreated",locale));
+        }
+        result.put(ModelService.SUCCESS_MESSAGE,UtilProperties.getMessage(resource,"ManufacturingProductionRunCreated",UtilMisc.toMap("productionRunId",productionRunId),locale));
+        return result;
+      }
+ else {
+        if (Debug.verboseOn()) {
+          Debug.logVerbose("There are not enough components available to produce any marketing packages [" + orderItem.getString("productId") + "]",module);
+        }
+        return ServiceUtil.returnSuccess();
+      }
+    }
+ else {
+      if (Debug.verboseOn()) {
+        Debug.logVerbose("No marketing packages need to be produced - ATP is [" + existingAtp + "]",module);
+      }
+      return ServiceUtil.returnSuccess();
+    }
+  }
+ catch (  GenericServiceException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotCreated",locale));
+  }
+}

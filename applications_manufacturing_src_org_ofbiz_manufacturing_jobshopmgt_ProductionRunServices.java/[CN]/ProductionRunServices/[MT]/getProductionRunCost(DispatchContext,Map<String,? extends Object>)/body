@@ -1,0 +1,26 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String workEffortId=(String)context.get("workEffortId");
+  try {
+    List<GenericValue> tasks=delegator.findByAnd("WorkEffort",UtilMisc.toMap("workEffortParentId",workEffortId),UtilMisc.toList("workEffortId"));
+    Iterator<GenericValue> tasksIt=tasks.iterator();
+    BigDecimal totalCost=ZERO;
+    Map<String,Object> outputMap=dispatcher.runSync("getWorkEffortCosts",UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",workEffortId));
+    BigDecimal productionRunHeaderCost=(BigDecimal)outputMap.get("totalCost");
+    totalCost=totalCost.add(productionRunHeaderCost);
+    while (tasksIt.hasNext()) {
+      GenericValue task=(GenericValue)tasksIt.next();
+      outputMap=dispatcher.runSync("getWorkEffortCosts",UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",task.getString("workEffortId")));
+      BigDecimal taskCost=(BigDecimal)outputMap.get("totalCost");
+      totalCost=totalCost.add(taskCost);
+    }
+    result.put("totalCost",totalCost);
+  }
+ catch (  Exception exc) {
+    return ServiceUtil.returnError("Cannot retrieve costs for production run [" + workEffortId + "]: "+ exc.getMessage());
+  }
+  return result;
+}

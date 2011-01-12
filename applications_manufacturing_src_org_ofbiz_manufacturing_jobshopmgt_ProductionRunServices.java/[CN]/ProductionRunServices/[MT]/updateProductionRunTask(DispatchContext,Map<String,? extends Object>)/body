@@ -1,0 +1,144 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunId=(String)context.get("productionRunId");
+  String workEffortId=(String)context.get("productionRunTaskId");
+  String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId=userLogin.getString("partyId");
+  }
+  Timestamp fromDate=(Timestamp)context.get("fromDate");
+  Timestamp toDate=(Timestamp)context.get("toDate");
+  BigDecimal addQuantityProduced=(BigDecimal)context.get("addQuantityProduced");
+  BigDecimal addQuantityRejected=(BigDecimal)context.get("addQuantityRejected");
+  BigDecimal addSetupTime=(BigDecimal)context.get("addSetupTime");
+  BigDecimal addTaskTime=(BigDecimal)context.get("addTaskTime");
+  String comments=(String)context.get("comments");
+  Boolean issueRequiredComponents=(Boolean)context.get("issueRequiredComponents");
+  Map<GenericPK,Object> componentsLocationMap=UtilGenerics.checkMap(context.get("componentsLocationMap"));
+  if (issueRequiredComponents == null) {
+    issueRequiredComponents=Boolean.FALSE;
+  }
+  if (fromDate == null) {
+    fromDate=UtilDateTime.nowTimestamp();
+  }
+  if (toDate == null) {
+    toDate=UtilDateTime.nowTimestamp();
+  }
+  if (addQuantityProduced == null) {
+    addQuantityProduced=BigDecimal.ZERO;
+  }
+  if (addQuantityRejected == null) {
+    addQuantityRejected=BigDecimal.ZERO;
+  }
+  if (comments == null) {
+    comments="";
+  }
+  ProductionRun productionRun=new ProductionRun(productionRunId,delegator,dispatcher);
+  if (!productionRun.exist()) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunNotExists",locale));
+  }
+  List<GenericValue> tasks=productionRun.getProductionRunRoutingTasks();
+  GenericValue theTask=null;
+  GenericValue oneTask=null;
+  for (int i=0; i < tasks.size(); i++) {
+    oneTask=(GenericValue)tasks.get(i);
+    if (oneTask.getString("workEffortId").equals(workEffortId)) {
+      theTask=oneTask;
+      break;
+    }
+  }
+  if (theTask == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotExists",locale));
+  }
+  String currentStatusId=theTask.getString("currentStatusId");
+  if (!currentStatusId.equals("PRUN_RUNNING")) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotRunning",locale));
+  }
+  BigDecimal quantityProduced=theTask.getBigDecimal("quantityProduced");
+  if (quantityProduced == null) {
+    quantityProduced=BigDecimal.ZERO;
+  }
+  BigDecimal quantityRejected=theTask.getBigDecimal("quantityRejected");
+  if (quantityRejected == null) {
+    quantityRejected=BigDecimal.ZERO;
+  }
+  BigDecimal totalQuantityProduced=quantityProduced.add(addQuantityProduced);
+  BigDecimal totalQuantityRejected=quantityRejected.add(addQuantityRejected);
+  if (issueRequiredComponents.booleanValue() && addQuantityProduced.compareTo(ZERO) > 0) {
+    BigDecimal quantityToProduce=theTask.getBigDecimal("quantityToProduce");
+    if (quantityToProduce == null) {
+      quantityToProduce=BigDecimal.ZERO;
+    }
+    if (quantityToProduce.compareTo(ZERO) > 0) {
+      try {
+        List<GenericValue> components=theTask.getRelated("WorkEffortGoodStandard");
+        for (        GenericValue component : components) {
+          BigDecimal totalRequiredMaterialQuantity=component.getBigDecimal("estimatedQuantity").multiply(totalQuantityProduced).divide(quantityToProduce,rounding);
+          List<GenericValue> issuances=delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",workEffortId,"productId",component.getString("productId")));
+          BigDecimal totalIssued=BigDecimal.ZERO;
+          for (          GenericValue issuance : issuances) {
+            BigDecimal issued=issuance.getBigDecimal("quantity");
+            if (issued != null) {
+              totalIssued=totalIssued.add(issued);
+            }
+          }
+          BigDecimal requiredQuantity=totalRequiredMaterialQuantity.subtract(totalIssued);
+          if (requiredQuantity.compareTo(ZERO) > 0) {
+            GenericPK key=component.getPrimaryKey();
+            Map<String,Object> componentsLocation=null;
+            if (componentsLocationMap != null) {
+              componentsLocation=UtilGenerics.checkMap(componentsLocationMap.get(key));
+            }
+            Map<String,Object> serviceContext=UtilMisc.toMap("workEffortId",workEffortId,"productId",component.getString("productId"),"fromDate",component.getTimestamp("fromDate"));
+            serviceContext.put("quantity",requiredQuantity);
+            if (componentsLocation != null) {
+              serviceContext.put("locationSeqId",(String)componentsLocation.get("locationSeqId"));
+              serviceContext.put("secondaryLocationSeqId",(String)componentsLocation.get("secondaryLocationSeqId"));
+              serviceContext.put("failIfItemsAreNotAvailable",(String)componentsLocation.get("failIfItemsAreNotAvailable"));
+            }
+            serviceContext.put("userLogin",userLogin);
+            Map<String,Object> resultService=dispatcher.runSync("issueProductionRunTaskComponent",serviceContext);
+            if (ServiceUtil.isError(resultService)) {
+              return ServiceUtil.returnError(ServiceUtil.getErrorMessage(resultService));
+            }
+          }
+        }
+      }
+ catch (      GenericEntityException gee) {
+      }
+catch (      GenericServiceException gee) {
+      }
+    }
+  }
+  try {
+    Map<String,Object> serviceContext=FastMap.newInstance();
+    serviceContext.clear();
+    serviceContext.put("workEffortId",workEffortId);
+    if (addTaskTime != null) {
+      Double actualMilliSeconds=theTask.getDouble("actualMilliSeconds");
+      if (actualMilliSeconds == null) {
+        actualMilliSeconds=Double.valueOf(0);
+      }
+      serviceContext.put("actualMilliSeconds",Double.valueOf(actualMilliSeconds.doubleValue() + addTaskTime.doubleValue()));
+    }
+    if (addSetupTime != null) {
+      Double actualSetupMillis=theTask.getDouble("actualSetupMillis");
+      if (actualSetupMillis == null) {
+        actualSetupMillis=Double.valueOf(0);
+      }
+      serviceContext.put("actualSetupMillis",Double.valueOf(actualSetupMillis.doubleValue() + addSetupTime.doubleValue()));
+    }
+    serviceContext.put("quantityProduced",totalQuantityProduced);
+    serviceContext.put("quantityRejected",totalQuantityRejected);
+    serviceContext.put("userLogin",userLogin);
+    dispatcher.runSync("updateWorkEffort",serviceContext);
+  }
+ catch (  Exception exc) {
+    return ServiceUtil.returnError(exc.getMessage());
+  }
+  return result;
+}

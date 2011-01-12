@@ -1,0 +1,38 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  Delegator delegator=ctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String productId=(String)context.get("productId");
+  Timestamp startDate=(Timestamp)context.get("startDate");
+  if (startDate == null) {
+    startDate=UtilDateTime.nowTimestamp();
+  }
+  BigDecimal totQty=BigDecimal.ZERO;
+  try {
+    List<EntityCondition> findOutgoingProductionRunsConds=FastList.newInstance();
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId));
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"WEGS_CREATED"));
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition("estimatedStartDate",EntityOperator.LESS_THAN_EQUAL_TO,startDate));
+    List<EntityCondition> findOutgoingProductionRunsStatusConds=FastList.newInstance();
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_CREATED"));
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_SCHEDULED"));
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_DOC_PRINTED"));
+    findOutgoingProductionRunsStatusConds.add(EntityCondition.makeCondition("currentStatusId",EntityOperator.EQUALS,"PRUN_RUNNING"));
+    findOutgoingProductionRunsConds.add(EntityCondition.makeCondition(findOutgoingProductionRunsStatusConds,EntityOperator.OR));
+    List<GenericValue> outgoingProductionRuns=delegator.findList("WorkEffortAndGoods",EntityCondition.makeCondition(findOutgoingProductionRunsConds,EntityOperator.AND),null,UtilMisc.toList("-estimatedStartDate"),null,false);
+    if (outgoingProductionRuns != null) {
+      for (int i=0; i < outgoingProductionRuns.size(); i++) {
+        GenericValue outgoingProductionRun=(GenericValue)outgoingProductionRuns.get(i);
+        BigDecimal qty=outgoingProductionRun.getBigDecimal("estimatedQuantity");
+        qty=qty != null ? qty : BigDecimal.ZERO;
+        totQty=totQty.add(qty);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem calling the getProductionRunTotResQty service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionResQtyCalc",locale));
+  }
+  result.put("reservedQuantity",totQty);
+  return result;
+}

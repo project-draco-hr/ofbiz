@@ -1,0 +1,36 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productionRunId=(String)context.get("productionRunId");
+  String taskId=(String)context.get("taskId");
+  try {
+    Map<String,Object> serviceContext=FastMap.newInstance();
+    Map<String,Object> resultService=null;
+    GenericValue task=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",taskId));
+    String currentStatusId=task.getString("currentStatusId");
+    String prevStatusId="";
+    while (!"PRUN_COMPLETED".equals(currentStatusId)) {
+      serviceContext.put("productionRunId",productionRunId);
+      serviceContext.put("workEffortId",taskId);
+      serviceContext.put("issueAllComponents",Boolean.TRUE);
+      serviceContext.put("userLogin",userLogin);
+      resultService=dispatcher.runSync("changeProductionRunTaskStatus",serviceContext);
+      currentStatusId=(String)resultService.get("newStatusId");
+      if (currentStatusId.equals(prevStatusId)) {
+        return ServiceUtil.returnError("Unable to progress from status [" + prevStatusId + "] for task ["+ taskId+ "]");
+      }
+ else {
+        prevStatusId=currentStatusId;
+      }
+      serviceContext.clear();
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Problem calling the changeProductionRunTaskStatus service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunStatusNotChanged",locale));
+  }
+  return result;
+}
