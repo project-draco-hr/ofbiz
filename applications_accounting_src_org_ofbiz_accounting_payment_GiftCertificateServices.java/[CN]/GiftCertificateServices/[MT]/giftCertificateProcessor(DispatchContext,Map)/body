@@ -2,6 +2,7 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Delegator delegator=dctx.getDelegator();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   BigDecimal amount=(BigDecimal)context.get("processAmount");
   String currency=(String)context.get("currency");
   if (currency == null) {
@@ -13,7 +14,7 @@
     authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
   }
   if (authTransaction == null) {
-    return ServiceUtil.returnError("No authorization transaction found for the OrderPaymentPreference; cannot capture");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountCannotCapture",locale));
   }
   String finAccountAuthId=authTransaction.getString("referenceNum");
   try {
@@ -21,10 +22,10 @@
     GenericValue giftCard=finAccountAuth.getRelatedOne("FinAccount");
     Timestamp authExpiration=finAccountAuth.getTimestamp("thruDate");
     if ((authExpiration != null) && (authExpiration.before(UtilDateTime.nowTimestamp()))) {
-      return ServiceUtil.returnError("Authorization transaction [" + authTransaction.getString("paymentGatewayResponseId") + "] has expired as of "+ authExpiration);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountAuthorizationExpired",UtilMisc.toMap("paymentGatewayResponseId",authTransaction.getString("paymentGatewayResponseId"),"authExpiration",authExpiration),locale));
     }
     if ((giftCard.getTimestamp("thruDate") != null) && (giftCard.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
-      return ServiceUtil.returnError("Gift certificate has expired as of " + giftCard.getTimestamp("thruDate"));
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberExpired",UtilMisc.toMap("thruDate",giftCard.getTimestamp("thruDate")),locale));
     }
     OrderReadHelper orh=new OrderReadHelper(delegator,orderPaymentPreference.getString("orderId"));
     Map redeemCtx=new HashMap();
@@ -59,9 +60,9 @@
     return result;
   }
  catch (  GenericEntityException ex) {
-    return ServiceUtil.returnError("Cannot process gift card: " + ex.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotProcess",UtilMisc.toMap("errorString",ex.getMessage()),locale));
   }
 catch (  GenericServiceException ex) {
-    return ServiceUtil.returnError("Cannot process gift card: " + ex.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotProcess",UtilMisc.toMap("errorString",ex.getMessage()),locale));
   }
 }
