@@ -1,0 +1,68 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  BigDecimal amount=(BigDecimal)context.get("processAmount");
+  String currency=(String)context.get("currency");
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  GenericValue authTransaction=(GenericValue)context.get("authTrans");
+  if (authTransaction == null) {
+    authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTransaction == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountCannotCapture",locale));
+  }
+  String finAccountAuthId=authTransaction.getString("referenceNum");
+  try {
+    GenericValue finAccountAuth=delegator.findByPrimaryKey("FinAccountAuth",UtilMisc.toMap("finAccountAuthId",finAccountAuthId));
+    GenericValue giftCard=finAccountAuth.getRelatedOne("FinAccount");
+    Timestamp authExpiration=finAccountAuth.getTimestamp("thruDate");
+    if ((authExpiration != null) && (authExpiration.before(UtilDateTime.nowTimestamp()))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountAuthorizationExpired",UtilMisc.toMap("paymentGatewayResponseId",authTransaction.getString("paymentGatewayResponseId"),"authExpiration",authExpiration),locale));
+    }
+    if ((giftCard.getTimestamp("thruDate") != null) && (giftCard.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberExpired",UtilMisc.toMap("thruDate",giftCard.getTimestamp("thruDate")),locale));
+    }
+    OrderReadHelper orh=new OrderReadHelper(delegator,orderPaymentPreference.getString("orderId"));
+    Map<String,Object> redeemCtx=FastMap.newInstance();
+    redeemCtx.put("userLogin",userLogin);
+    redeemCtx.put("productStoreId",orh.getProductStoreId());
+    redeemCtx.put("cardNumber",giftCard.get("finAccountId"));
+    redeemCtx.put("pinNumber",giftCard.get("finAccountCode"));
+    redeemCtx.put("currency",currency);
+    if (orh.getBillToParty() != null) {
+      redeemCtx.put("partyId",orh.getBillToParty().get("partyId"));
+    }
+    redeemCtx.put("amount",amount);
+    Map<String,Object> redeemResult=null;
+    redeemResult=dispatcher.runSync("redeemGiftCertificate",redeemCtx);
+    if (ServiceUtil.isError(redeemResult)) {
+      return redeemResult;
+    }
+    Map<String,Object> releaseResult=dispatcher.runSync("expireFinAccountAuth",UtilMisc.<String,Object>toMap("userLogin",userLogin,"finAccountAuthId",finAccountAuthId));
+    if (ServiceUtil.isError(releaseResult)) {
+      return releaseResult;
+    }
+    String authRefNum=authTransaction.getString("referenceNum");
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    if (redeemResult != null) {
+      Boolean processResult=(Boolean)redeemResult.get("processResult");
+      result.put("processAmount",amount);
+      result.put("captureResult",processResult);
+      result.put("captureCode","C");
+      result.put("captureRefNum",redeemResult.get("referenceNum"));
+      result.put("authRefNum",authRefNum);
+    }
+    return result;
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotProcess",UtilMisc.toMap("errorString",ex.getMessage()),locale));
+  }
+catch (  GenericServiceException ex) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotProcess",UtilMisc.toMap("errorString",ex.getMessage()),locale));
+  }
+}
