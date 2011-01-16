@@ -18,11 +18,11 @@
       if (UtilValidate.isEmpty(facilityGroup)) {
         return ServiceUtil.returnError("facilityGroupId [" + facilityGroupId + "] is not valid");
       }
-      List facilities=facilityGroup.getRelated("FacilityGroupMember",UtilMisc.toList("sequenceNum"));
+      List<GenericValue> facilities=facilityGroup.getRelated("FacilityGroupMember",UtilMisc.toList("sequenceNum"));
       if (UtilValidate.isEmpty(facilities)) {
         return ServiceUtil.returnError("No facility associated to facilityGroupId [" + facilityGroupId + "]");
       }
-      Iterator facilitiesIt=facilities.iterator();
+      Iterator<GenericValue> facilitiesIt=facilities.iterator();
       while (facilitiesIt.hasNext()) {
         GenericValue facilityMember=(GenericValue)facilitiesIt.next();
         GenericValue facility=facilityMember.getRelatedOne("Facility");
@@ -52,21 +52,19 @@
   GenericValue productFacility=null;
   BigDecimal eventQuantity=BigDecimal.ZERO;
   Timestamp eventDate=null;
-  boolean isNegative=false;
-  BigDecimal quantityNeeded=BigDecimal.ZERO;
   BigDecimal reorderQuantity=BigDecimal.ZERO;
   BigDecimal minimumStock=BigDecimal.ZERO;
   int daysToShip=0;
-  List components=null;
+  List<BOMNode> components=null;
   boolean isBuilt=false;
   GenericValue routing=null;
   String mrpId=delegator.getNextSeqId("MrpEvent");
-  Map result=null;
-  Map parameters=null;
-  List listInventoryEventForMRP=null;
-  ListIterator iteratorListInventoryEventForMRP=null;
+  Map<String,Object> result=null;
+  Map<String,Object> parameters=null;
+  List<GenericValue> listInventoryEventForMRP=null;
+  ListIterator<GenericValue> iteratorListInventoryEventForMRP=null;
   GenericValue inventoryEventForMRP=null;
-  parameters=UtilMisc.toMap("mrpId",mrpId,"reInitialize",Boolean.TRUE,"defaultYearsOffset",defaultYearsOffset,"userLogin",userLogin);
+  parameters=UtilMisc.<String,Object>toMap("mrpId",mrpId,"reInitialize",Boolean.TRUE,"defaultYearsOffset",defaultYearsOffset,"userLogin",userLogin);
   parameters.put("facilityId",facilityId);
   parameters.put("manufacturingFacilityId",manufacturingFacilityId);
   try {
@@ -109,7 +107,7 @@
           }
           stockTmp=findProductMrpQoh(mrpId,product,facilityId,dispatcher,delegator);
           try {
-            InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),stockTmp,facilityId,null,false,delegator);
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.<String,Object>toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),stockTmp,facilityId,null,false,delegator);
           }
  catch (          GenericEntityException e) {
             return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
@@ -126,14 +124,14 @@
             minimumStock=BigDecimal.ZERO;
             reorderQuantity=BigDecimal.ONE.negate();
           }
-          Map serviceResponse=null;
+          Map<String,Object> serviceResponse=null;
           try {
             serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",positiveEventQuantity,"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
           }
  catch (          Exception e) {
             return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
           }
-          components=(List)serviceResponse.get("components");
+          components=UtilGenerics.checkList(serviceResponse.get("components"));
           if (UtilValidate.isNotEmpty(components)) {
             BOMNode node=((BOMNode)components.get(0)).getParentNode();
             isBuilt=node.isManufactured();
@@ -151,14 +149,14 @@
           ProposedOrder proposedOrder=new ProposedOrder(product,facilityId,manufacturingFacilityId,isBuilt,eventDate,qtyToStock);
           proposedOrder.setMrpName(mrpName);
           proposedOrder.calculateQuantityToSupply(reorderQuantity,minimumStock,iteratorListInventoryEventForMRP);
-          Map serviceResponse=null;
+          Map<String,Object> serviceResponse=null;
           try {
             serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",proposedOrder.getQuantity(),"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
           }
  catch (          Exception e) {
             return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
           }
-          components=(List)serviceResponse.get("components");
+          components=UtilGenerics.checkList(serviceResponse.get("components"));
           String routingId=(String)serviceResponse.get("workEffortId");
           if (routingId != null) {
             try {
@@ -178,7 +176,7 @@
  else {
             isBuilt=false;
           }
-          Map routingTaskStartDate=proposedOrder.calculateStartDate(daysToShip,routing,delegator,dispatcher,userLogin);
+          Map<String,Object> routingTaskStartDate=proposedOrder.calculateStartDate(daysToShip,routing,delegator,dispatcher,userLogin);
           if (isBuilt) {
             processBomComponent(mrpId,product,proposedOrder.getQuantity(),proposedOrder.getRequirementStartDate(),routingTaskStartDate,components);
           }
@@ -193,7 +191,7 @@
           if (UtilValidate.isNotEmpty(requirementId)) {
             eventName="*" + requirementId + " ("+ proposedOrder.getRequirementStartDate()+ ")*";
           }
-          Map eventMap=UtilMisc.toMap("productId",product.getString("productId"),"mrpId",mrpId,"eventDate",eventDate,"mrpEventTypeId",(isBuilt ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
+          Map<String,Object> eventMap=UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"mrpId",mrpId,"eventDate",eventDate,"mrpEventTypeId",(isBuilt ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
           try {
             InventoryEventPlannedServices.createOrUpdateMrpEvent(eventMap,proposedOrder.getQuantity(),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
           }
@@ -210,8 +208,8 @@
     bomLevel+=1;
   }
  while (bomLevelWithNoEvent < 3);
-  result=new HashMap();
-  List msgResult=new LinkedList();
+  result=FastMap.newInstance();
+  List<Object> msgResult=FastList.newInstance();
   result.put("msgResult",msgResult);
   result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
   Debug.logInfo("return from executeMrp",module);
