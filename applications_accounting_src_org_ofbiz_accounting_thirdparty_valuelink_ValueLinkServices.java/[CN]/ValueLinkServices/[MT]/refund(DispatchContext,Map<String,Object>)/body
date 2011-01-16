@@ -1,0 +1,55 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Properties props=getProperties(context);
+  String cardNumber=(String)context.get("cardNumber");
+  String pin=(String)context.get("pin");
+  String currency=(String)context.get("currency");
+  String orderId=(String)context.get("orderId");
+  String partyId=(String)context.get("partyId");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  String iFace=(String)context.get("Interface");
+  ValueLinkApi vl=ValueLinkApi.getInstance(delegator,props);
+  Map<String,Object> request=vl.getInitialRequestMap(context);
+  request.put("Interface",iFace != null ? iFace : "Refund");
+  request.put("CardNo",cardNumber);
+  request.put("PIN",vl.encryptPin(pin));
+  request.put("Amount",vl.getAmount(amount));
+  request.put("LocalCurr",vl.getCurrency(currency));
+  if (UtilValidate.isNotEmpty(orderId)) {
+    request.put("User1",orderId);
+  }
+  if (UtilValidate.isNotEmpty(partyId)) {
+    request.put("User2",partyId);
+  }
+  setTimeoutReversal(dctx,context,request);
+  Map<String,Object> response=null;
+  try {
+    response=vl.send(request);
+  }
+ catch (  HttpClientException e) {
+    Debug.logError(e,"Problem communicating with VL");
+    return ServiceUtil.returnError("Unable to refund gift card");
+  }
+  if (response != null) {
+    String responseCode=(String)response.get("responsecode");
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    if (responseCode.equals("00")) {
+      result.put("processResult",Boolean.TRUE);
+    }
+ else {
+      result.put("processResult",Boolean.FALSE);
+    }
+    result.put("responseCode",responseCode);
+    result.put("authCode",response.get("authcode"));
+    result.put("previousAmount",vl.getAmount((String)response.get("prevbal")));
+    result.put("amount",vl.getAmount((String)response.get("newbal")));
+    result.put("expireDate",response.get("expiredate"));
+    result.put("cardClass",response.get("cardclass"));
+    result.put("referenceNum",response.get("traceno"));
+    Debug.log("Refund Result : " + result,module);
+    return result;
+  }
+ else {
+    return ServiceUtil.returnError("Empty response returned from ValueLink");
+  }
+}

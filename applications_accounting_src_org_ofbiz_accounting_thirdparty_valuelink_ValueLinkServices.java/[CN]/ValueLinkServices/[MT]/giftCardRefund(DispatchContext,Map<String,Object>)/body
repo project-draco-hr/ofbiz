@@ -1,0 +1,49 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  String paymentConfig=(String)context.get("paymentConfig");
+  String currency=(String)context.get("currency");
+  BigDecimal amount=(BigDecimal)context.get("refundAmount");
+  String orderId=paymentPref.getString("orderId");
+  GenericValue giftCard=null;
+  try {
+    giftCard=paymentPref.getRelatedOne("GiftCard");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Unable to get GiftCard from OrderPaymentPreference",module);
+    return ServiceUtil.returnError("Unable to locate GiftCard Information");
+  }
+  if (giftCard == null) {
+    return ServiceUtil.returnError("Attempt to release GiftCard payment faild; not a valid GiftCard record");
+  }
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  Map<String,Object> refundCtx=FastMap.newInstance();
+  refundCtx.put("userLogin",userLogin);
+  refundCtx.put("paymentConfig",paymentConfig);
+  refundCtx.put("cardNumber",giftCard.get("cardNumber"));
+  refundCtx.put("pin",giftCard.get("pinNumber"));
+  refundCtx.put("currency",currency);
+  refundCtx.put("orderId",orderId);
+  refundCtx.put("amount",amount);
+  Map<String,Object> redeemResult=null;
+  try {
+    redeemResult=dispatcher.runSync("refundGiftCard",refundCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the refund service",module);
+    return ServiceUtil.returnError("Refund service failed");
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (redeemResult != null) {
+    Boolean processResult=(Boolean)redeemResult.get("processResult");
+    result.put("refundAmount",redeemResult.get("amount"));
+    result.put("refundFlag",redeemResult.get("responseCode"));
+    result.put("refundResult",processResult);
+    result.put("refundCode",redeemResult.get("authCode"));
+    result.put("refundRefNum",redeemResult.get("referenceNum"));
+  }
+  return result;
+}

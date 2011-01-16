@@ -1,0 +1,49 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Properties props=getProperties(context);
+  String cardNumber=(String)context.get("cardNumber");
+  String pin=(String)context.get("pin");
+  String orderId=(String)context.get("orderId");
+  String partyId=(String)context.get("partyId");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  ValueLinkApi vl=ValueLinkApi.getInstance(delegator,props);
+  Map<String,Object> request=vl.getInitialRequestMap(context);
+  request.put("Interface","Disable");
+  request.put("CardNo",cardNumber);
+  request.put("PIN",vl.encryptPin(pin));
+  request.put("Amount",vl.getAmount(amount));
+  if (UtilValidate.isNotEmpty(orderId)) {
+    request.put("User1",orderId);
+  }
+  if (UtilValidate.isNotEmpty(partyId)) {
+    request.put("User2",partyId);
+  }
+  Map<String,Object> response=null;
+  try {
+    response=vl.send(request);
+  }
+ catch (  HttpClientException e) {
+    Debug.logError(e,"Problem communicating with VL");
+    return ServiceUtil.returnError("Unable to call disble pin");
+  }
+  if (response != null) {
+    String responseCode=(String)response.get("responsecode");
+    Map<String,Object> result=ServiceUtil.returnSuccess("PIN disabled.");
+    if (responseCode.equals("00")) {
+      result.put("processResult",Boolean.TRUE);
+    }
+ else {
+      result.put("processResult",Boolean.FALSE);
+    }
+    result.put("responseCode",responseCode);
+    result.put("balance",vl.getAmount((String)response.get("currbal")));
+    result.put("expireDate",response.get("expiredate"));
+    result.put("cardClass",response.get("cardclass"));
+    result.put("referenceNum",response.get("traceno"));
+    Debug.log("Disable Result : " + result,module);
+    return result;
+  }
+ else {
+    return ServiceUtil.returnError("Empty response returned from ValueLink");
+  }
+}

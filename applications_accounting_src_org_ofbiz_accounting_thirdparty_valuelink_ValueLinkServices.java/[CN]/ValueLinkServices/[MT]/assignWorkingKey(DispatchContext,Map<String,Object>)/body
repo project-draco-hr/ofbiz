@@ -1,0 +1,55 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Properties props=getProperties(context);
+  ValueLinkApi vl=ValueLinkApi.getInstance(delegator,props);
+  vl.reload();
+  byte[] mwk=null;
+  String desHexString=(String)context.get("desHexString");
+  if (UtilValidate.isEmpty(desHexString)) {
+    mwk=vl.generateMwk();
+  }
+ else {
+    mwk=vl.generateMwk(StringUtil.fromHexString(desHexString));
+  }
+  String mwkHex=StringUtil.toHexString(vl.encryptViaKek(mwk));
+  Map<String,Object> request=vl.getInitialRequestMap(context);
+  request.put("Interface","Encrypt");
+  request.put("EncryptKey",mwkHex);
+  request.put("EncryptID",Long.valueOf(vl.getWorkingKeyIndex().longValue() + 1));
+  Map<String,Object> response=null;
+  try {
+    response=vl.send(request);
+  }
+ catch (  HttpClientException e) {
+    Debug.logError(e,"Problem communicating with VL");
+    return ServiceUtil.returnError("Unable to update MWK");
+  }
+  Debug.log("Response : " + response,module);
+  if (response != null) {
+    String responseCode=(String)response.get("responsecode");
+    if (responseCode.equals("00")) {
+      GenericValue vlKeys=GenericValue.create(vl.getGenericValue());
+      vlKeys.set("lastWorkingKey",vlKeys.get("workingKey"));
+      vlKeys.set("workingKey",StringUtil.toHexString(mwk));
+      vlKeys.set("workingKeyIndex",request.get("EncryptID"));
+      vlKeys.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+      vlKeys.set("lastModifiedByUserLogin",userLogin != null ? userLogin.get("userLoginId") : null);
+      try {
+        vlKeys.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Unable to store updated keys; the keys were changed with ValueLink : " + vlKeys,module);
+        return ServiceUtil.returnError("Unable to store updated keys");
+      }
+      vl.reload();
+      return ServiceUtil.returnSuccess();
+    }
+ else {
+      return ServiceUtil.returnError("Transaction failed with response code : " + responseCode);
+    }
+  }
+ else {
+    return ServiceUtil.returnError("Recevied back an empty response");
+  }
+}

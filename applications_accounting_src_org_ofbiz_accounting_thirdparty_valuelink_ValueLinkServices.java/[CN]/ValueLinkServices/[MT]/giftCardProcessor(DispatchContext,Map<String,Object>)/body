@@ -1,0 +1,66 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue giftCard=(GenericValue)context.get("giftCard");
+  GenericValue party=(GenericValue)context.get("billToParty");
+  String paymentConfig=(String)context.get("paymentConfig");
+  String currency=(String)context.get("currency");
+  String orderId=(String)context.get("orderId");
+  BigDecimal amount=(BigDecimal)context.get("processAmount");
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  Map<String,Object> redeemCtx=FastMap.newInstance();
+  redeemCtx.put("userLogin",userLogin);
+  redeemCtx.put("paymentConfig",paymentConfig);
+  redeemCtx.put("cardNumber",giftCard.get("cardNumber"));
+  redeemCtx.put("pin",giftCard.get("pinNumber"));
+  redeemCtx.put("currency",currency);
+  redeemCtx.put("orderId",orderId);
+  redeemCtx.put("partyId",party.get("partyId"));
+  redeemCtx.put("amount",amount);
+  Map<String,Object> redeemResult=null;
+  try {
+    redeemResult=dispatcher.runSync("redeemGiftCard",redeemCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the redeem service",module);
+    return ServiceUtil.returnError("Redeem service failed");
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (redeemResult != null) {
+    Boolean processResult=(Boolean)redeemResult.get("processResult");
+    if (processResult.booleanValue()) {
+      BigDecimal previous=(BigDecimal)redeemResult.get("previousAmount");
+      if (previous == null)       previous=BigDecimal.ZERO;
+      BigDecimal current=(BigDecimal)redeemResult.get("amount");
+      if (current == null)       current=BigDecimal.ZERO;
+      BigDecimal redeemed=previous.subtract(current);
+      Debug.logInfo("Redeemed (" + amount + "): "+ redeemed+ " / "+ previous+ " : "+ current,module);
+      if (redeemed.compareTo(amount) < 0) {
+        Map<String,Object> voidResult=null;
+        try {
+          voidResult=dispatcher.runSync("voidRedeemGiftCard",redeemCtx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+        }
+        if (ServiceUtil.isError(voidResult)) {
+          return voidResult;
+        }
+        processResult=Boolean.FALSE;
+        amount=redeemed;
+        result.put("authMessage","Gift card did not contain enough funds");
+      }
+    }
+    result.put("processAmount",amount);
+    result.put("authFlag",redeemResult.get("responseCode"));
+    result.put("authResult",processResult);
+    result.put("captureResult",processResult);
+    result.put("authCode",redeemResult.get("authCode"));
+    result.put("captureCode",redeemResult.get("authCode"));
+    result.put("authRefNum",redeemResult.get("referenceNum"));
+    result.put("captureRefNum",redeemResult.get("referenceNum"));
+  }
+  return result;
+}
