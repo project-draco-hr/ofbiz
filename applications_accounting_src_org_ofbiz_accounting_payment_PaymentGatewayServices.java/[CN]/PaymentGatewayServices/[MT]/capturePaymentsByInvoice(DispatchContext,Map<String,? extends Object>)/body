@@ -3,17 +3,18 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String invoiceId=(String)context.get("invoiceId");
+  Locale locale=(Locale)context.get("locale");
   GenericValue invoice=null;
   try {
     invoice=delegator.findByPrimaryKey("Invoice",UtilMisc.toMap("invoiceId",invoiceId));
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Trouble looking up Invoice #" + invoiceId,module);
-    return ServiceUtil.returnError("Trouble looking up Invoice #" + invoiceId);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingInvoiceNotFound",UtilMisc.toMap("invoiceId",invoiceId),locale));
   }
   if (invoice == null) {
     Debug.logError("Could not locate invoice #" + invoiceId,module);
-    return ServiceUtil.returnError("Could not locate invoice #" + invoiceId);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingInvoiceNotFound",UtilMisc.toMap("invoiceId",invoiceId),locale));
   }
   List<GenericValue> orderItemBillings=null;
   try {
@@ -21,7 +22,7 @@
   }
  catch (  GenericEntityException e) {
     Debug.logError("Trouble getting OrderItemBilling(s) from Invoice #" + invoiceId,module);
-    return ServiceUtil.returnError("Trouble getting OrderItemBilling(s) from Invoice #" + invoiceId);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemLookingUpOrderItemBilling",UtilMisc.toMap("billFields",invoiceId),locale));
   }
   String billingAccountId=invoice.getString("billingAccountId");
   String testOrderId=null;
@@ -43,9 +44,8 @@
     }
   }
   if (testOrderId == null || !allSameOrder) {
-    String errorMsg="Attempt to settle Invoice #" + invoiceId + " which contained none/multiple orders";
-    Debug.logWarning(errorMsg,module);
-    return ServiceUtil.returnFailure(errorMsg);
+    Debug.logWarning("Attempt to settle Invoice #" + invoiceId + " which contained none/multiple orders",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"AccountingInvoiceCannotBeSettle",UtilMisc.toMap("invoiceId",invoiceId),locale));
   }
   BigDecimal invoiceTotal=InvoiceWorker.getInvoiceNotApplied(invoice);
   if (Debug.infoOn())   Debug.logInfo("(Capture) Invoice [#" + invoiceId + "] total: "+ invoiceTotal,module);
@@ -58,6 +58,6 @@
   }
  catch (  GenericServiceException e) {
     Debug.logError(e,"Trouble running captureOrderPayments service",module);
-    return ServiceUtil.returnError("Trouble running captureOrderPayments service");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentCannotBeCaptured",locale));
   }
 }

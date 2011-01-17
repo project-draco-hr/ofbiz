@@ -3,13 +3,14 @@
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
   BigDecimal refundAmount=(BigDecimal)context.get("refundAmount");
+  Locale locale=(Locale)context.get("locale");
   GenericValue orderHeader=null;
   try {
     orderHeader=paymentPref.getRelatedOne("OrderHeader");
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Cannot get OrderHeader from OrderPaymentPreference",module);
-    return ServiceUtil.returnError("Problems getting OrderHeader from OrderPaymentPreference: " + e.toString());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale) + " " + e.toString());
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   GenericValue paymentSettings=null;
@@ -40,7 +41,7 @@
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,"Problems getting billing information",module);
-        return ServiceUtil.returnError("Problems getting billing information");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingBillingAccountNotFound",UtilMisc.toMap("billingAccountId",""),locale));
       }
       BigDecimal processAmount=refundAmount.setScale(decimals,rounding);
       serviceContext.put("refundAmount",processAmount);
@@ -51,7 +52,7 @@
       }
  catch (      GenericServiceException e) {
         Debug.logError(e,"Problem refunding payment through processor",module);
-        return ServiceUtil.returnError("Refund processor problems; see logs");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentRefundError",locale));
       }
       if (ServiceUtil.isError(refundResponse)) {
         saveError(dispatcher,userLogin,paymentPref,refundResponse,REFUND_SERVICE_TYPE,"PGT_REFUND");
@@ -77,15 +78,15 @@
       }
  catch (      GenericServiceException e) {
         Debug.logError(e,module);
-        return ServiceUtil.returnError("Problem processing refund result: " + e.getMessage());
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentRefundError",locale) + " " + e.getMessage());
       }
       return refundResRes;
     }
  else {
-      return ServiceUtil.returnError("No refund service defined");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentRefundServiceNotDefined",locale));
     }
   }
  else {
-    return ServiceUtil.returnFailure("No payment settings found");
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"AccountingPaymentSettingNotFound",UtilMisc.toMap("productStoreId",orderHeader.getString("productStoreId"),"transactionType",REFUND_SERVICE_TYPE),locale));
   }
 }

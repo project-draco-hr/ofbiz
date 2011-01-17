@@ -2,11 +2,16 @@
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
   BigDecimal overrideAmount=(BigDecimal)context.get("overrideAmount");
   if (overrideAmount != null) {
-    if (overrideAmount.compareTo(BigDecimal.ZERO) < 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is negative.");
-    if (overrideAmount.compareTo(BigDecimal.ZERO) == 0)     return ServiceUtil.returnError("Amount entered (" + overrideAmount + ") is zero.");
+    if (overrideAmount.compareTo(BigDecimal.ZERO) < 0) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentAmountIsNegative",UtilMisc.toMap("overrideAmount",overrideAmount),locale));
+    }
+    if (overrideAmount.compareTo(BigDecimal.ZERO) == 0) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentAmountIsZero",UtilMisc.toMap("overrideAmount",overrideAmount),locale));
+    }
   }
   GenericValue orderHeader=null;
   GenericValue orderPaymentPreference=null;
@@ -16,7 +21,7 @@
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Problems getting required information: orderPaymentPreference [" + orderPaymentPreferenceId + "]");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale) + " " + orderPaymentPreferenceId);
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   BigDecimal totalRemaining=orh.getOrderGrandTotal();
@@ -31,7 +36,7 @@
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Unable to update OrderPaymentPreference record!");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale));
   }
   boolean reAuth=false;
   if (orderPaymentPreference.get("statusId") != null && "PAYMENT_AUTHORIZED".equals(orderPaymentPreference.getString("statusId"))) {
@@ -56,7 +61,7 @@
     if (authPaymentResult != null) {
       BigDecimal thisAmount=(BigDecimal)authPaymentResult.get("processAmount");
       try {
-        boolean processResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference);
+        boolean processResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference,locale);
         if (processResult) {
           Map<String,Object> results=ServiceUtil.returnSuccess();
           results.put("messages",authPaymentResult.get("customerRespMsgs"));
@@ -92,7 +97,7 @@
                     orderPaymentPreference.set("paymentMethodId",otherPaymentMethodAndCreditCard.getString("paymentMethodId"));
                     Map<String,Object> authRetryResult=authPayment(dispatcher,userLogin,orh,orderPaymentPreference,totalRemaining,reAuth,transAmount);
                     try {
-                      boolean processRetryResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference);
+                      boolean processRetryResult=processResult(dctx,authPaymentResult,userLogin,orderPaymentPreference,locale);
                       if (processRetryResult) {
                         orderPaymentPreference.store();
                         Map<String,Object> results=ServiceUtil.returnSuccess();
@@ -152,8 +157,7 @@
     }
   }
  catch (  GeneralException e) {
-    String errMsg="Error processing payment authorization: " + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error processing payment authorization: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentCannotBeAuthorized",UtilMisc.toMap("errroString",e.toString()),locale));
   }
 }
