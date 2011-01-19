@@ -4,23 +4,24 @@
   LocalDispatcher dispatcher=ctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   Timestamp now=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
   String mrpName=(String)context.get("mrpName");
   Integer defaultYearsOffset=(Integer)context.get("defaultYearsOffset");
   String facilityGroupId=(String)context.get("facilityGroupId");
   String facilityId=(String)context.get("facilityId");
   String manufacturingFacilityId=null;
   if (UtilValidate.isEmpty(facilityId) && UtilValidate.isEmpty(facilityGroupId)) {
-    return ServiceUtil.returnError("facilityId and facilityGroupId cannot be both null");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityNotAvailable",locale));
   }
   if (UtilValidate.isEmpty(facilityId)) {
     try {
       GenericValue facilityGroup=delegator.findByPrimaryKey("FacilityGroup",UtilMisc.toMap("facilityGroupId",facilityGroupId));
       if (UtilValidate.isEmpty(facilityGroup)) {
-        return ServiceUtil.returnError("facilityGroupId [" + facilityGroupId + "] is not valid");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityGroupIsNotValid",UtilMisc.toMap("facilityGroupId",facilityGroupId),locale));
       }
       List<GenericValue> facilities=facilityGroup.getRelated("FacilityGroupMember",UtilMisc.toList("sequenceNum"));
       if (UtilValidate.isEmpty(facilities)) {
-        return ServiceUtil.returnError("No facility associated to facilityGroupId [" + facilityGroupId + "]");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityGroupIsNotAssociatedToFacility",UtilMisc.toMap("facilityGroupId",facilityGroupId),locale));
       }
       Iterator<GenericValue> facilitiesIt=facilities.iterator();
       while (facilitiesIt.hasNext()) {
@@ -35,14 +36,14 @@
       }
     }
  catch (    GenericEntityException e) {
-      return ServiceUtil.returnError("Problem loading facility group information: " + e.getMessage());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityGroupCannotBeLoad",UtilMisc.toMap("errorString",e.getMessage()),locale));
     }
   }
  else {
     manufacturingFacilityId=facilityId;
   }
   if (UtilValidate.isEmpty(facilityId) || UtilValidate.isEmpty(manufacturingFacilityId)) {
-    return ServiceUtil.returnError("facilityId and manufacturingFacilityId cannot be null");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityOrManufacturingFacilityNotAvailable",locale));
   }
   int bomLevelWithNoEvent=0;
   BigDecimal stockTmp=BigDecimal.ZERO;
@@ -71,7 +72,7 @@
     result=dispatcher.runSync("initMrpEvents",parameters);
   }
  catch (  GenericServiceException e) {
-    return ServiceUtil.returnError("Error running the initMrpEvents service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorRunningInitMrpEvents",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   long bomLevel=0;
   do {
@@ -86,7 +87,8 @@
       listInventoryEventForMRP=delegator.findList("MrpEventView",filterByConditions,null,UtilMisc.toList("productId","eventDate"),null,false);
     }
  catch (    GenericEntityException e) {
-      return ServiceUtil.returnError("MRP Error retieving MRP event for the bom level: " + bomLevel + ". Error: "+ e.getMessage());
+      Long bomLevelToString=new Long(bomLevel);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorForBomLevel",UtilMisc.toMap("bomLevel",bomLevelToString.toString(),"errorString",e.getMessage()),locale));
     }
     if (UtilValidate.isNotEmpty(listInventoryEventForMRP)) {
       bomLevelWithNoEvent=0;
@@ -103,14 +105,14 @@
             productFacility=EntityUtil.getFirst(product.getRelatedByAndCache("ProductFacility",UtilMisc.toMap("facilityId",facilityId)));
           }
  catch (          GenericEntityException e) {
-            return ServiceUtil.returnError("Problem, can not find the product for a event, for more detail look at the log");
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindProductForEvent",locale));
           }
           stockTmp=findProductMrpQoh(mrpId,product,facilityId,dispatcher,delegator);
           try {
             InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.<String,Object>toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),stockTmp,facilityId,null,false,delegator);
           }
  catch (          GenericEntityException e) {
-            return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCreateOrUpdateEvent",UtilMisc.toMap("parameters",parameters),locale));
           }
           daysToShip=0;
           if (productFacility != null) {
@@ -129,7 +131,7 @@
             serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",positiveEventQuantity,"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
           }
  catch (          Exception e) {
-            return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorExplodingProduct",UtilMisc.toMap("productId",product.getString("productId")),locale));
           }
           components=UtilGenerics.checkList(serviceResponse.get("components"));
           if (UtilValidate.isNotEmpty(components)) {
@@ -154,7 +156,7 @@
             serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",proposedOrder.getQuantity(),"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
           }
  catch (          Exception e) {
-            return ServiceUtil.returnError("An error occurred exploding the product [" + product.getString("productId") + "]");
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorExplodingProduct",UtilMisc.toMap("productId",product.getString("productId")),locale));
           }
           components=UtilGenerics.checkList(serviceResponse.get("components"));
           String routingId=(String)serviceResponse.get("workEffortId");
@@ -163,7 +165,7 @@
               routing=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",routingId));
             }
  catch (            GenericEntityException e) {
-              return ServiceUtil.returnError("Problem, can not find the product for a event, for more detail look at the log");
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindProductForEvent",locale));
             }
           }
  else {
@@ -196,7 +198,7 @@
             InventoryEventPlannedServices.createOrUpdateMrpEvent(eventMap,proposedOrder.getQuantity(),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
           }
  catch (          GenericEntityException e) {
-            return ServiceUtil.returnError("Problem running createOrUpdateMrpEvent");
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCreateOrUpdateEvent",UtilMisc.toMap("parameters",parameters),locale));
           }
           stockTmp=stockTmp.add(proposedOrder.getQuantity());
         }

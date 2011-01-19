@@ -4,13 +4,14 @@
   LocalDispatcher dispatcher=ctx.getDispatcher();
   Timestamp now=UtilDateTime.nowTimestamp();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   String inventoryItemId=(String)context.get("inventoryItemId");
   BigDecimal quantity=(BigDecimal)context.get("quantity");
   List<String> inventoryItemIds=FastList.newInstance();
   try {
     GenericValue inventoryItem=delegator.findByPrimaryKey("InventoryItem",UtilMisc.toMap("inventoryItemId",inventoryItemId));
     if (inventoryItem == null) {
-      return ServiceUtil.returnError("Error decomposing inventory item: inventory item with id [" + inventoryItemId + "] not found.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunCannotDecomposingInventoryItem",UtilMisc.toMap("inventoryItemId",inventoryItemId),locale));
     }
     Map<String,Object> serviceContext=UtilMisc.<String,Object>toMap("workEffortTypeId","TASK","workEffortPurposeTypeId","WEPT_PRODUCTION_RUN","currentStatusId","CAL_COMPLETED");
     serviceContext.put("workEffortName","Decomposing product [" + inventoryItem.getString("productId") + "] inventory item ["+ inventoryItem.getString("inventoryItemId")+ "]");
@@ -27,7 +28,7 @@
     resultService=dispatcher.runSync("issueInventoryItemToWorkEffort",serviceContext);
     BigDecimal issuedQuantity=(BigDecimal)resultService.get("quantityIssued");
     if (issuedQuantity.compareTo(ZERO) == 0) {
-      return ServiceUtil.returnError("Error decomposing inventory item: no marketing packages found in inventory item [" + inventoryItem.getString("inventoryItemId") + "].");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunCannotDecomposingInventoryItemNoMarketingPackagesFound",UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId")),locale));
     }
     serviceContext.clear();
     serviceContext=UtilMisc.toMap("productId",inventoryItem.getString("productId"),"currencyUomId",inventoryItem.getString("currencyUomId"),"costComponentTypePrefix","EST_STD","userLogin",userLogin);
@@ -46,7 +47,7 @@
     resultService=dispatcher.runSync("getManufacturingComponents",serviceContext);
     List<Map<String,Object>> components=UtilGenerics.checkList(resultService.get("componentsMap"));
     if (components == null || components.isEmpty()) {
-      return ServiceUtil.returnError("Error decomposing inventory item: no components found for marketing package [" + inventoryItem.getString("productId") + "].");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunCannotDecomposingInventoryItemNoComponentsFound",UtilMisc.toMap("productId",inventoryItem.getString("productId")),locale));
     }
     Iterator<Map<String,Object>> componentsIt=components.iterator();
     while (componentsIt.hasNext()) {
