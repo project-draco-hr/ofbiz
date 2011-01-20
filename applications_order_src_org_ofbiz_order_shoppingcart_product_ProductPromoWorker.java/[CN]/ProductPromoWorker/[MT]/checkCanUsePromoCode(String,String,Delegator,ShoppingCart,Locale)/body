@@ -1,0 +1,57 @@
+{
+  try {
+    GenericValue productPromoCode=delegator.findByPrimaryKey("ProductPromoCode",UtilMisc.toMap("productPromoCodeId",productPromoCodeId));
+    if (productPromoCode == null) {
+      return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_not_valid",UtilMisc.toMap("productPromoCodeId",productPromoCodeId),locale);
+    }
+    if (cart != null) {
+      Set<String> promoCodes=ProductPromoWorker.getStoreProductPromoCodes(cart);
+      if (UtilValidate.isEmpty(promoCodes) || !promoCodes.contains(productPromoCodeId)) {
+        return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_not_valid",UtilMisc.toMap("productPromoCodeId",productPromoCodeId),locale);
+      }
+    }
+    Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+    Timestamp thruDate=productPromoCode.getTimestamp("thruDate");
+    if (thruDate != null) {
+      if (nowTimestamp.after(thruDate)) {
+        return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_is_expired_at",UtilMisc.toMap("productPromoCodeId",productPromoCodeId,"thruDate",thruDate),locale);
+      }
+    }
+    Timestamp fromDate=productPromoCode.getTimestamp("fromDate");
+    if (fromDate != null) {
+      if (nowTimestamp.before(fromDate)) {
+        return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_will_be_activated_at",UtilMisc.toMap("productPromoCodeId",productPromoCodeId,"fromDate",fromDate),locale);
+      }
+    }
+    if ("Y".equals(productPromoCode.getString("requireEmailOrParty"))) {
+      boolean hasEmailOrParty=false;
+      if (UtilValidate.isNotEmpty(partyId)) {
+        if (delegator.findByPrimaryKey("ProductPromoCodeParty",UtilMisc.toMap("productPromoCodeId",productPromoCodeId,"partyId",partyId)) != null) {
+          return null;
+        }
+        List validEmailCondList=new ArrayList();
+        validEmailCondList.add(EntityCondition.makeCondition("partyId",EntityOperator.EQUALS,partyId));
+        validEmailCondList.add(EntityCondition.makeCondition("productPromoCodeId",EntityOperator.EQUALS,productPromoCodeId));
+        validEmailCondList.add(EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp));
+        validEmailCondList.add(EntityCondition.makeCondition(EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp),EntityOperator.OR,EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null)));
+        EntityCondition validEmailCondition=EntityCondition.makeCondition(validEmailCondList,EntityOperator.AND);
+        long validEmailCount=delegator.findCountByCondition("ProductPromoCodeEmailParty",validEmailCondition,null,null);
+        if (validEmailCount > 0) {
+          return null;
+        }
+      }
+      if (!hasEmailOrParty) {
+        return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_no_account_or_email",UtilMisc.toMap("productPromoCodeId",productPromoCodeId),locale);
+      }
+    }
+    Long useLimit=getProductPromoCodeUseLimit(productPromoCode,partyId,delegator);
+    if (useLimit != null && useLimit.longValue() <= 0) {
+      return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_maximum_limit",UtilMisc.toMap("productPromoCodeId",productPromoCodeId),locale);
+    }
+    return null;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up ProductPromoCode",module);
+    return UtilProperties.getMessage(resource_error,"productpromoworker.promotion_code_error_lookup",UtilMisc.toMap("productPromoCodeId",productPromoCodeId,"errorMsg",e.toString()),locale);
+  }
+}
