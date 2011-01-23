@@ -1,7 +1,7 @@
 {
   final StringBuilder buf=new StringBuilder();
   final Environment env=Environment.getCurrentEnvironment();
-  final Map templateCtx=FreeMarkerWorker.createEnvironmentMap(env);
+  final Map<String,Object> templateCtx=FreeMarkerWorker.createEnvironmentMap(env);
   final Delegator delegator=FreeMarkerWorker.getWrappedObject("delegator",env);
   final HttpServletRequest request=FreeMarkerWorker.getWrappedObject("request",env);
   final GenericValue userLogin=FreeMarkerWorker.getWrappedObject("userLogin",env);
@@ -9,7 +9,7 @@
   FreeMarkerWorker.overrideWithArgs(templateCtx,args);
   final String mode=(String)templateCtx.get("mode");
   final String quickCheckContentId=(String)templateCtx.get("quickCheckContentId");
-  final Map savedValues=FastMap.newInstance();
+  final Map<String,Object> savedValues=FastMap.newInstance();
   return new LoopWriter(out){
     @Override public void write(    char cbuf[],    int off,    int len){
       buf.append(cbuf,off,len);
@@ -18,8 +18,7 @@
       out.flush();
     }
     @Override public int onStart() throws TemplateModelException, IOException {
-      List trail=(List)templateCtx.get("globalNodeTrail");
-      String trailCsv=ContentWorker.nodeTrailToCsv(trail);
+      List<Map<String,? extends Object>> trail=UtilGenerics.checkList(templateCtx.get("globalNodeTrail"));
       GenericValue currentContent=null;
       String contentAssocPredicateId=(String)templateCtx.get("contentAssocPredicateId");
       String strNullThruDatesOnly=(String)templateCtx.get("nullThruDatesOnly");
@@ -31,7 +30,6 @@
  catch (      GeneralException e) {
         throw new RuntimeException("Error getting current content. " + e.toString());
       }
-      final GenericValue view=val;
       currentContent=val;
       if (currentContent != null) {
       }
@@ -45,25 +43,29 @@
       }
       String statusId=(String)currentContent.get("statusId");
       String passedStatusId=(String)templateCtx.get("statusId");
-      List statusList=StringUtil.split(passedStatusId,"|");
-      if (statusList == null)       statusList=FastList.newInstance();
+      List<String> statusList=StringUtil.split(passedStatusId,"|");
+      if (statusList == null) {
+        statusList=FastList.newInstance();
+      }
       if (UtilValidate.isNotEmpty(statusId) && !statusList.contains(statusId)) {
         statusList.add(statusId);
       }
       String targetPurpose=(String)templateCtx.get("contentPurposeList");
-      List purposeList=StringUtil.split(targetPurpose,"|");
+      List<String> purposeList=StringUtil.split(targetPurpose,"|");
       String entityOperation=(String)templateCtx.get("entityOperation");
       String targetOperation=(String)templateCtx.get("targetOperation");
       if (UtilValidate.isEmpty(targetOperation)) {
-        if (UtilValidate.isNotEmpty(entityOperation))         targetOperation="CONTENT" + entityOperation;
+        if (UtilValidate.isNotEmpty(entityOperation)) {
+          targetOperation="CONTENT" + entityOperation;
+        }
       }
-      List targetOperationList=StringUtil.split(targetOperation,"|");
+      List<String> targetOperationList=StringUtil.split(targetOperation,"|");
       if (targetOperationList.size() == 0) {
         throw new IOException("targetOperationList has zero size.");
       }
-      List roleList=FastList.newInstance();
+      List<String> roleList=FastList.newInstance();
       String privilegeEnumId=(String)currentContent.get("privilegeEnumId");
-      Map results=EntityPermissionChecker.checkPermission(currentContent,statusList,userLogin,purposeList,targetOperationList,roleList,delegator,security,entityOperation,privilegeEnumId,quickCheckContentId);
+      Map<String,Object> results=EntityPermissionChecker.checkPermission(currentContent,statusList,userLogin,purposeList,targetOperationList,roleList,delegator,security,entityOperation,privilegeEnumId,quickCheckContentId);
       boolean isError=ModelService.RESPOND_ERROR.equals(results.get(ModelService.RESPONSE_MESSAGE));
       if (isError) {
         throw new IOException(ModelService.RESPONSE_MESSAGE);
