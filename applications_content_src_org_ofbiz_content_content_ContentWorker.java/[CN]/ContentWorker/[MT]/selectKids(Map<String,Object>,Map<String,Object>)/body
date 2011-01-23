@@ -1,0 +1,48 @@
+{
+  Delegator delegator=(Delegator)ctx.get("delegator");
+  GenericValue parentContent=(GenericValue)currentNode.get("value");
+  String contentAssocTypeId=(String)ctx.get("contentAssocTypeId");
+  String contentTypeId=(String)ctx.get("contentTypeId");
+  String mapKey=(String)ctx.get("mapKey");
+  String parentContentId=(String)parentContent.get("contentId");
+  Map<String,Object> whenMap=UtilGenerics.checkMap(ctx.get("whenMap"));
+  List<Map<String,Object>> kids=FastList.newInstance();
+  currentNode.put("kids",kids);
+  String direction=(String)ctx.get("direction");
+  if (UtilValidate.isEmpty(direction)) {
+    direction="From";
+  }
+  List<String> assocTypeList=StringUtil.split(contentAssocTypeId," ");
+  List<String> contentTypeList=StringUtil.split(contentTypeId," ");
+  String contentAssocPredicateId=null;
+  Boolean nullThruDatesOnly=Boolean.TRUE;
+  Map<String,Object> results=null;
+  try {
+    results=ContentServicesComplex.getAssocAndContentAndDataResourceCacheMethod(delegator,parentContentId,mapKey,direction,null,null,assocTypeList,contentTypeList,nullThruDatesOnly,contentAssocPredicateId);
+  }
+ catch (  GenericEntityException e) {
+    throw new RuntimeException(e.getMessage());
+  }
+catch (  MiniLangException e2) {
+    throw new RuntimeException(e2.getMessage());
+  }
+  List<GenericValue> relatedViews=UtilGenerics.checkList(results.get("entityList"));
+  Iterator<GenericValue> it=relatedViews.iterator();
+  while (it.hasNext()) {
+    GenericValue assocValue=(GenericValue)it.next();
+    Map<String,Object> thisNode=ContentWorker.makeNode(assocValue);
+    checkConditions(delegator,thisNode,null,whenMap);
+    boolean isPick=booleanDataType(thisNode.get("isPick"));
+    kids.add(thisNode);
+    if (isPick) {
+      Integer count=(Integer)currentNode.get("count");
+      if (count == null) {
+        count=Integer.valueOf(1);
+      }
+ else {
+        count=Integer.valueOf(count.intValue() + 1);
+      }
+      currentNode.put("count",count);
+    }
+  }
+}
