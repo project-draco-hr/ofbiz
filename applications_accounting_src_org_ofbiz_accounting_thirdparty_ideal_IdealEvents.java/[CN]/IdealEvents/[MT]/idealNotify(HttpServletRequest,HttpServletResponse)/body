@@ -1,0 +1,124 @@
+{
+  Locale locale=UtilHttp.getLocale(request);
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  Map<String,Object> parametersMap=UtilHttp.getParameterMap(request);
+  String transactionId=request.getParameter("trxid");
+  Set<String> keySet=parametersMap.keySet();
+  Iterator<String> i=keySet.iterator();
+  while (i.hasNext()) {
+    String name=(String)i.next();
+    String value=request.getParameter(name);
+    Debug.logError("### Param: " + name + " => "+ value,module);
+  }
+  String orderId=null;
+  String paymentStatus=null;
+  try {
+    IdealConnector connector=new IdealConnector("payment");
+    Transaction transaction=connector.requestTransactionStatus(transactionId);
+    orderId=transaction.getPurchaseID();
+    if (orderId == null) {
+      orderId=(String)request.getSession().getAttribute("purchaseID");
+    }
+    String payAmount=transaction.getAmount();
+    if (payAmount == null) {
+      payAmount=(String)request.getSession().getAttribute("payAmount");
+    }
+    paymentStatus=transaction.getStatus();
+    request.setAttribute("transactionId",transactionId);
+    request.setAttribute("paymentStatus",paymentStatus);
+    request.setAttribute("paymentAmount",payAmount);
+  }
+ catch (  IdealException ex) {
+    Debug.logError(ex.getMessage(),module);
+    request.setAttribute("_ERROR_MESSAGE_",ex.getConsumerMessage());
+    return "error";
+  }
+  if (userLogin == null) {
+    String userLoginId="system";
+    try {
+      userLogin=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId",userLoginId),false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot get UserLogin for: " + userLoginId + "; cannot continue",module);
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsGettingAuthenticationUser",locale));
+      return "error";
+    }
+  }
+  GenericValue orderHeader=null;
+  if (UtilValidate.isNotEmpty(orderId)) {
+    try {
+      orderHeader=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsGettingOrderHeader",locale));
+      return "error";
+    }
+  }
+ else {
+    Debug.logError("iDEAL did not callback with a valid orderId!",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.noValidOrderIdReturned",locale));
+    return "error";
+  }
+  if (orderHeader == null) {
+    Debug.logError("Cannot get the order header for order: " + orderId,module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsGettingOrderHeader",locale));
+    return "error";
+  }
+  boolean okay=true;
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    if ("Success".equals(paymentStatus)) {
+      okay=OrderChangeHelper.approveOrder(dispatcher,userLogin,orderId);
+    }
+ else     if ("Cancelled".equals(paymentStatus)) {
+      okay=OrderChangeHelper.cancelOrder(dispatcher,userLogin,orderId);
+    }
+    if (okay) {
+      okay=setPaymentPreferences(delegator,dispatcher,userLogin,orderId,request);
+    }
+  }
+ catch (  Exception e) {
+    String errMsg="Error handling iDEAL notification";
+    Debug.logError(e,errMsg,module);
+    try {
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+    }
+ catch (    GenericTransactionException gte2) {
+      Debug.logError(gte2,"Unable to rollback transaction",module);
+    }
+  }
+ finally {
+    if (!okay) {
+      try {
+        TransactionUtil.rollback(beganTransaction,"Failure in processing iDEAL callback",null);
+      }
+ catch (      GenericTransactionException gte) {
+        Debug.logError(gte,"Unable to rollback transaction",module);
+      }
+    }
+ else {
+      try {
+        TransactionUtil.commit(beganTransaction);
+      }
+ catch (      GenericTransactionException gte) {
+        Debug.logError(gte,"Unable to commit transaction",module);
+      }
+    }
+  }
+  if (okay) {
+    request.setAttribute("_EVENT_MESSAGE_",UtilProperties.getMessage(resource,"IdealSuccessFull",locale));
+    OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
+    Map<String,String> emailContext=UtilMisc.toMap("orderId",orderId,"userLogin",userLogin);
+    try {
+      dispatcher.runSync("sendOrderConfirmation",emailContext);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Problems sending email confirmation",module);
+    }
+  }
+  return "success";
+}
