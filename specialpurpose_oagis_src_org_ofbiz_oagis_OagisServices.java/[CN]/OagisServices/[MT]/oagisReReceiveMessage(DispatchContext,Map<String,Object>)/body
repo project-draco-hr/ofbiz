@@ -1,6 +1,7 @@
 {
   Delegator delegator=ctx.getDelegator();
   LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
   String logicalId=(String)context.get("logicalId");
   String component=(String)context.get("component");
   String task=(String)context.get("task");
@@ -14,29 +15,29 @@
         oagisMessageInfo=oagisMessageInfoList.get(0);
       }
  else       if (oagisMessageInfoList.size() > 1) {
-        return ServiceUtil.returnError("Looked up by referenceId because logicalId, component, or task were not passed in but found more than one [" + oagisMessageInfoList.size() + "] record with referenceId ["+ referenceId+ "]");
+        Integer messageSize=new Integer(oagisMessageInfoList.size());
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorLookupByReferenceError",UtilMisc.toMap("messageSize",messageSize.toString(),"referenceId",referenceId),locale));
       }
     }
  else {
       oagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",oagisMessageInfoKey);
     }
     if (oagisMessageInfo == null) {
-      return ServiceUtil.returnError("Could not find OagisMessageInfo record with key [" + oagisMessageInfoKey + "], not rerunning message.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorFindOagisMessageInfo",UtilMisc.toMap("oagisMessageInfoKey",oagisMessageInfoKey),locale));
     }
     String fullMessageXml=oagisMessageInfo.getString("fullMessageXml");
     if (UtilValidate.isEmpty(fullMessageXml)) {
-      return ServiceUtil.returnError("There was no fullMessageXml text in OagisMessageInfo record with key [" + oagisMessageInfoKey + "], not rerunning message.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorNotFoundFullMessageXml",UtilMisc.toMap("oagisMessageInfoKey",oagisMessageInfoKey),locale));
     }
     ByteArrayInputStream bis=new ByteArrayInputStream(fullMessageXml.getBytes("UTF-8"));
     Map<String,Object> result=dispatcher.runSync("oagisMessageHandler",UtilMisc.toMap("inputStream",bis,"isErrorRetry",Boolean.TRUE));
     if (ServiceUtil.isError(result)) {
-      return ServiceUtil.returnError("Error trying to re-receive message with ID [" + oagisMessageInfoKey + "]",null,null,result);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorReceivingAgainMessage",UtilMisc.toMap("oagisMessageInfoKey",oagisMessageInfoKey),locale),null,null,result);
     }
     return ServiceUtil.returnSuccess();
   }
  catch (  Exception e) {
-    String errMsg="Error re-receiving message with ID [" + oagisMessageInfoKey + "]: "+ e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error re-receiving message with ID [" + oagisMessageInfoKey + "]: "+ e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorReceivingAgainMessage",UtilMisc.toMap("oagisMessageInfoKey",oagisMessageInfoKey),locale) + e.toString());
   }
 }

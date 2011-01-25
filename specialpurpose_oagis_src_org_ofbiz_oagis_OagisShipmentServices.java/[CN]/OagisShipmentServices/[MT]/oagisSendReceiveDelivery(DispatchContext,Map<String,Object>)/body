@@ -2,6 +2,7 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Delegator delegator=dctx.getDelegator();
   String returnId=(String)context.get("returnId");
+  Locale locale=(Locale)context.get("locale");
   String sendToUrl=(String)context.get("sendToUrl");
   if (UtilValidate.isEmpty(sendToUrl)) {
     sendToUrl=UtilProperties.getPropertyValue("oagis.properties","url.send.receiveDelivery");
@@ -35,20 +36,18 @@
   try {
     List<GenericValue> previousOagisMessageInfoList=delegator.findByAnd("OagisMessageInfo",UtilMisc.toMap("returnId",returnId,"task",task,"component",component));
     if (EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS")).size() > 0) {
-      String successMsg="Found existing message info(s) in OAGMP_OGEN_SUCCESS, so not sending Receive Delivery message for return [" + returnId + "] existing message(s) are: "+ EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS"));
-      return ServiceUtil.returnSuccess(successMsg);
+      return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisFoundExistingMessageForReturn",UtilMisc.toMap("returnId",returnId),locale) + EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS")));
     }
     if (EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT")).size() > 0) {
-      String successMsg="Found existing message info(s) in OAGMP_SENT status, so not sending Receive Delivery message for return [" + returnId + "] existing message(s) are: "+ EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT"));
-      return ServiceUtil.returnSuccess(successMsg);
+      return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisFoundExistingMessageForReturnSent",UtilMisc.toMap("returnId",returnId),locale) + EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT")));
     }
     GenericValue returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
     if (returnHeader == null) {
-      return ServiceUtil.returnError("Could not find Return with ID [" + returnId + "]");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisReturnIdNotFound",UtilMisc.toMap("returnId",returnId),locale));
     }
     String statusId=returnHeader.getString("statusId");
     if (!"RETURN_ACCEPTED".equals(statusId)) {
-      return ServiceUtil.returnError("Return with ID [" + returnId + "] no in accepted status (RETURN_ACCEPTED)");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisReturnIdNotInAcceptedStatus",UtilMisc.toMap("returnId",returnId),locale));
     }
     List<GenericValue> returnItems=delegator.findByAnd("ReturnItem",UtilMisc.toMap("returnId",returnId));
     bodyParameters.put("returnItems",returnItems);
@@ -84,7 +83,7 @@
     }
     GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
     if (orderHeader == null) {
-      return ServiceUtil.returnError("No valid Order with [" + orderId + "] found, cannot process Return");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisReturnIdNotValid",UtilMisc.toMap("orderId",orderId),locale));
     }
     String partyId=returnHeader.getString("fromPartyId");
     GenericValue postalAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",returnHeader.getString("originContactMechId")));
@@ -144,7 +143,7 @@
       String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
       Debug.logError(e,errMsg,module);
     }
-    Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
+    Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename,locale);
     if (sendMessageReturn != null && ServiceUtil.isError(sendMessageReturn)) {
       try {
         Map<String,Object> uomiCtx=FastMap.newInstance();
@@ -172,7 +171,7 @@
     }
   }
  catch (  Throwable t) {
-    String errMsg="System Error doing Receive Delivery message for returnId [" + returnId + "] orderId ["+ orderId+ "] message ["+ omiPkMap+ "]: "+ t.toString();
+    String errMsg=UtilProperties.getMessage(resource,"OagisErrorReceivingDeliveryMessageReturn",UtilMisc.toMap("returnId",returnId,"orderId",orderId,"omiPkMap",omiPkMap),locale);
     Debug.logError(t,errMsg,module);
     if (omiPkMap != null) {
       try {
@@ -200,7 +199,7 @@
         Debug.logError(e,errMsg2,module);
       }
     }
-    return ServiceUtil.returnError(errMsg);
+    return ServiceUtil.returnError(errMsg + t.toString());
   }
   return result;
 }
