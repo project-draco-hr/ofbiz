@@ -1,0 +1,121 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnItemInformation",locale));
+  }
+  Map<GenericValue,Map<String,Object>> returnable=new LinkedHashMap<GenericValue,Map<String,Object>>();
+  if (orderHeader != null) {
+    EntityConditionList<EntityExpr> whereConditions=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderHeader.getString("orderId")),EntityCondition.makeCondition("orderItemStatusId",EntityOperator.IN,UtilMisc.toList("ITEM_APPROVED","ITEM_COMPLETED"))),EntityOperator.AND);
+    List<GenericValue> orderItemQuantitiesIssued=null;
+    try {
+      orderItemQuantitiesIssued=delegator.findList("OrderItemQuantityReportGroupByItem",whereConditions,UtilMisc.toSet("orderId","orderItemSeqId","quantityIssued"),UtilMisc.toList("orderItemSeqId"),null,false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnHeaderFromItem",locale));
+    }
+    if (orderItemQuantitiesIssued != null) {
+      Iterator<GenericValue> i=orderItemQuantitiesIssued.iterator();
+      while (i.hasNext()) {
+        GenericValue orderItemQuantityIssued=i.next();
+        GenericValue item=null;
+        try {
+          item=orderItemQuantityIssued.getRelatedOne("OrderItem");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderItemInformation",locale));
+        }
+        if ("SALES_ORDER".equals(orderHeader.getString("orderTypeId"))) {
+          BigDecimal quantityIssued=orderItemQuantityIssued.getBigDecimal("quantityIssued");
+          if (UtilValidate.isEmpty(quantityIssued) || quantityIssued.compareTo(BigDecimal.ZERO) == 0) {
+            try {
+              GenericValue itemProduct=item.getRelatedOne("Product");
+              if (ProductWorker.isPhysical(itemProduct)) {
+                continue;
+              }
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,"Problems looking up returnable product type information",module);
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetTheItemReturnableProduct",locale));
+            }
+          }
+        }
+        Map<String,Object> serviceResult=null;
+        try {
+          serviceResult=dispatcher.runSync("getReturnableQuantity",UtilMisc.toMap("orderItem",item));
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetTheItemReturnableQuantity",locale));
+        }
+        if (serviceResult.containsKey(ModelService.ERROR_MESSAGE)) {
+          return ServiceUtil.returnError((String)serviceResult.get(ModelService.ERROR_MESSAGE));
+        }
+ else {
+          if (((BigDecimal)serviceResult.get("returnableQuantity")).compareTo(BigDecimal.ZERO) == 0) {
+            continue;
+          }
+          Map<String,Object> returnInfo=FastMap.newInstance();
+          returnInfo.put("returnableQuantity",serviceResult.get("returnableQuantity"));
+          returnInfo.put("returnablePrice",serviceResult.get("returnablePrice"));
+          String itemTypeKey="FINISHED_GOOD";
+          GenericValue product=null;
+          if (item.get("productId") != null) {
+            try {
+              product=item.getRelatedOne("Product");
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,module);
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderItemInformation",locale));
+            }
+          }
+          if (product != null) {
+            itemTypeKey=product.getString("productTypeId");
+          }
+ else           if (item != null && item.getString("orderItemTypeId") != null) {
+            itemTypeKey=item.getString("orderItemTypeId");
+          }
+          returnInfo.put("itemTypeKey",itemTypeKey);
+          returnable.put(item,returnInfo);
+          List<GenericValue> itemAdjustments=null;
+          try {
+            itemAdjustments=item.getRelated("OrderAdjustment");
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderAdjustmentsFromItem",locale));
+          }
+          if (UtilValidate.isNotEmpty(itemAdjustments)) {
+            Iterator<GenericValue> itemAdjustmentsIt=itemAdjustments.iterator();
+            while (itemAdjustmentsIt.hasNext()) {
+              GenericValue itemAdjustment=itemAdjustmentsIt.next();
+              returnInfo=FastMap.newInstance();
+              returnInfo.put("returnableQuantity",BigDecimal.ONE);
+              returnInfo.put("returnablePrice",itemAdjustment.get("amount"));
+              returnInfo.put("itemTypeKey",itemTypeKey);
+              returnable.put(itemAdjustment,returnInfo);
+            }
+          }
+        }
+      }
+    }
+ else {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorNoOrderItemsFound",locale));
+    }
+  }
+ else {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToFindOrderHeader",locale));
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("returnableItems",returnable);
+  return result;
+}

@@ -1,0 +1,48 @@
+{
+  Iterator<GenericValue> itemIt=returnItems.iterator();
+  while (itemIt.hasNext()) {
+    GenericValue returnItem=itemIt.next();
+    String orderId=returnItem.getString("orderId");
+    if (orderId != null) {
+      if (returnItemsByOrderId != null) {
+        BigDecimal totalForOrder=null;
+        if (totalByOrder != null) {
+          totalForOrder=totalByOrder.get(orderId);
+        }
+        List<GenericValue> returnItemList=returnItemsByOrderId.get(orderId);
+        if (returnItemList == null) {
+          returnItemList=FastList.newInstance();
+        }
+        if (totalForOrder == null) {
+          totalForOrder=BigDecimal.ZERO;
+        }
+        returnItemList.add(returnItem);
+        returnItemsByOrderId.put(orderId,returnItemList);
+        if (totalByOrder != null) {
+          BigDecimal quantity=returnItem.getBigDecimal("returnQuantity");
+          BigDecimal amount=returnItem.getBigDecimal("returnPrice");
+          if (quantity == null) {
+            quantity=BigDecimal.ZERO;
+          }
+          if (amount == null) {
+            amount=BigDecimal.ZERO;
+          }
+          BigDecimal thisTotal=amount.multiply(quantity);
+          BigDecimal existingTotal=totalForOrder;
+          Map<String,Object> condition=UtilMisc.toMap("returnId",returnItem.get("returnId"),"returnItemSeqId",returnItem.get("returnItemSeqId"));
+          BigDecimal newTotal=existingTotal.add(thisTotal).add(getReturnAdjustmentTotal(delegator,condition));
+          totalByOrder.put(orderId,newTotal);
+        }
+      }
+    }
+  }
+  if ((totalByOrder != null) && (totalByOrder.keySet() != null)) {
+    Iterator<String> orderIterator=totalByOrder.keySet().iterator();
+    while (orderIterator.hasNext()) {
+      String orderId=orderIterator.next();
+      Map<String,Object> condition=UtilMisc.<String,Object>toMap("returnId",returnId,"returnItemSeqId",org.ofbiz.common.DataModelConstants.SEQ_ID_NA,"returnTypeId",returnTypeId);
+      BigDecimal existingTotal=(totalByOrder.get(orderId)).add(getReturnAdjustmentTotal(delegator,condition));
+      totalByOrder.put(orderId,existingTotal);
+    }
+  }
+}

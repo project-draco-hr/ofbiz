@@ -1,0 +1,41 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String returnId=(String)context.get("returnId");
+  Locale locale=(Locale)context.get("locale");
+  List<GenericValue> returnItems=null;
+  Map<String,Object> returnAmountByOrder=FastMap.newInstance();
+  try {
+    returnItems=delegator.findByAnd("ReturnItem",UtilMisc.toMap("returnId",returnId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems looking up return information",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+  }
+  if ((returnItems != null) && (returnItems.size() > 0)) {
+    Iterator<GenericValue> returnItemIterator=returnItems.iterator();
+    GenericValue returnItem=null;
+    GenericValue returnItemResponse=null;
+    GenericValue payment=null;
+    String orderId;
+    List<String> paymentList=FastList.newInstance();
+    while (returnItemIterator.hasNext()) {
+      returnItem=returnItemIterator.next();
+      orderId=returnItem.getString("orderId");
+      try {
+        returnItemResponse=returnItem.getRelatedOne("ReturnItemResponse");
+        if ((returnItemResponse != null) && (orderId != null)) {
+          payment=returnItemResponse.getRelatedOne("Payment");
+          if ((payment != null) && (payment.getBigDecimal("amount") != null) && !paymentList.contains(payment.get("paymentId"))) {
+            UtilMisc.addToBigDecimalInMap(returnAmountByOrder,orderId,payment.getBigDecimal("amount"));
+            paymentList.add(payment.getString("paymentId"));
+          }
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Problems looking up return item related information",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+      }
+    }
+  }
+  return UtilMisc.<String,Object>toMap("orderReturnAmountMap",returnAmountByOrder);
+}

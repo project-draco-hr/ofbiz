@@ -1,0 +1,76 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String returnId=(String)context.get("returnId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue returnHeader=null;
+  List<GenericValue> returnItems=null;
+  try {
+    returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+    if (returnHeader != null) {
+      returnItems=returnHeader.getRelated("ReturnItem");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems looking up return information",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+  }
+  String currentStatus=null;
+  if (returnHeader != null && returnHeader.get("statusId") != null) {
+    currentStatus=returnHeader.getString("statusId");
+    if ("RETURN_COMPLETED".equals(currentStatus) || "RETURN_CANCELLED".equals(currentStatus)) {
+      return ServiceUtil.returnSuccess();
+    }
+  }
+  List<GenericValue> completedItems=FastList.newInstance();
+  if (returnHeader != null && UtilValidate.isNotEmpty(returnItems)) {
+    Iterator<GenericValue> itemsIter=returnItems.iterator();
+    while (itemsIter.hasNext()) {
+      GenericValue item=itemsIter.next();
+      String itemStatus=item != null ? item.getString("statusId") : null;
+      if (itemStatus != null) {
+        if ("RETURN_COMPLETED".equals(itemStatus) || "RETURN_CANCELLED".equals(itemStatus)) {
+          completedItems.add(item);
+        }
+ else {
+          if ("RETURN_ACCEPTED".equals(returnHeader.getString("statusId"))) {
+            try {
+              GenericValue itemProduct=item.getRelatedOne("Product");
+              if (!ProductWorker.isPhysical(itemProduct)) {
+                completedItems.add(item);
+              }
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,"Problems looking up returned product type information",module);
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorGettingReturnHeaderItemInformation",locale));
+            }
+          }
+        }
+      }
+    }
+    if (completedItems.size() == returnItems.size()) {
+      if (currentStatus != null && "RETURN_ACCEPTED".equals(currentStatus)) {
+        try {
+          dispatcher.runSync("updateReturnHeader",UtilMisc.<String,Object>toMap("returnId",returnId,"statusId","RETURN_RECEIVED","userLogin",userLogin));
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToCreateReturnStatusHistory",locale));
+        }
+      }
+ else       if (currentStatus != null && "RETURN_RECEIVED".equals(currentStatus)) {
+        try {
+          dispatcher.runSync("updateReturnHeader",UtilMisc.<String,Object>toMap("returnId",returnId,"statusId","RETURN_COMPLETED","userLogin",userLogin));
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToCreateReturnStatusHistory",locale));
+        }
+      }
+    }
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("statusId",returnHeader.get("statusId"));
+  return result;
+}
