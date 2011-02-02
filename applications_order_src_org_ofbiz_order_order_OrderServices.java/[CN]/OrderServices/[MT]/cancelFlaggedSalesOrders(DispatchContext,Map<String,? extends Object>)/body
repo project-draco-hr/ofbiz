@@ -2,8 +2,8 @@
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
-  List ordersToCheck=null;
-  List exprs=UtilMisc.toList(EntityCondition.makeCondition("orderTypeId",EntityOperator.EQUALS,"SALES_ORDER"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_COMPLETED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"));
+  List<GenericValue> ordersToCheck=null;
+  List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("orderTypeId",EntityOperator.EQUALS,"SALES_ORDER"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_COMPLETED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"));
   EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(exprs,EntityOperator.AND);
   try {
     ordersToCheck=delegator.findList("OrderHeader",ecl,null,UtilMisc.toList("orderDate"),null,false);
@@ -16,9 +16,9 @@
     return ServiceUtil.returnSuccess();
   }
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
-  Iterator i=ordersToCheck.iterator();
+  Iterator<GenericValue> i=ordersToCheck.iterator();
   while (i.hasNext()) {
-    GenericValue orderHeader=(GenericValue)i.next();
+    GenericValue orderHeader=i.next();
     String orderId=orderHeader.getString("orderId");
     String orderStatus=orderHeader.getString("statusId");
     if (orderStatus.equals("ORDER_CREATED")) {
@@ -41,9 +41,9 @@
         Date cancelDate=cal.getTime();
         Date nowDate=new Date();
         if (cancelDate.equals(nowDate) || nowDate.after(cancelDate)) {
-          Map svcCtx=UtilMisc.toMap("orderId",orderId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
+          Map<String,Object> svcCtx=UtilMisc.<String,Object>toMap("orderId",orderId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
           try {
-            Map ores=dispatcher.runSync("changeOrderItemStatus",svcCtx);
+            dispatcher.runSync("changeOrderItemStatus",svcCtx);
           }
  catch (          GenericServiceException e) {
             Debug.logError(e,"Problem calling change item status service : " + svcCtx,module);
@@ -59,7 +59,7 @@
       itemsExprs.add(EntityCondition.makeCondition("dontCancelSetDate",EntityOperator.EQUALS,GenericEntity.NULL_FIELD));
       itemsExprs.add(EntityCondition.makeCondition("autoCancelDate",EntityOperator.NOT_EQUAL,GenericEntity.NULL_FIELD));
       ecl=EntityCondition.makeCondition(itemsExprs);
-      List orderItems=null;
+      List<GenericValue> orderItems=null;
       try {
         orderItems=delegator.findList("OrderItem",ecl,null,null,null,false);
       }
@@ -67,16 +67,16 @@
         Debug.logError(e,"Problem getting order item records",module);
       }
       if (UtilValidate.isNotEmpty(orderItems)) {
-        Iterator oii=orderItems.iterator();
+        Iterator<GenericValue> oii=orderItems.iterator();
         while (oii.hasNext()) {
-          GenericValue orderItem=(GenericValue)oii.next();
+          GenericValue orderItem=oii.next();
           String orderItemSeqId=orderItem.getString("orderItemSeqId");
           Timestamp autoCancelDate=orderItem.getTimestamp("autoCancelDate");
           if (autoCancelDate != null) {
             if (nowTimestamp.equals(autoCancelDate) || nowTimestamp.after(autoCancelDate)) {
-              Map svcCtx=UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
+              Map<String,Object> svcCtx=UtilMisc.<String,Object>toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
               try {
-                Map res=dispatcher.runSync("changeOrderItemStatus",svcCtx);
+                dispatcher.runSync("changeOrderItemStatus",svcCtx);
               }
  catch (              GenericServiceException e) {
                 Debug.logError(e,"Problem calling change item status service : " + svcCtx,module);
