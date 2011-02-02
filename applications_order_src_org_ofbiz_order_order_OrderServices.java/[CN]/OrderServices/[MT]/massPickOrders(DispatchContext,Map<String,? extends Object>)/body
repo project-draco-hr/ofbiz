@@ -1,0 +1,57 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Map<String,List<String>> facilityOrdersMap=FastMap.newInstance();
+  List<String> orderIds=UtilGenerics.checkList(context.get("orderIdList"));
+  Iterator<String> i=orderIds.iterator();
+  while (i.hasNext()) {
+    String orderId=i.next();
+    if (UtilValidate.isEmpty(orderId)) {
+      continue;
+    }
+    List<GenericValue> invInfo=null;
+    try {
+      invInfo=delegator.findByAnd("OrderItemAndShipGrpInvResAndItem",UtilMisc.toMap("orderId",orderId,"statusId","ITEM_APPROVED"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (invInfo != null) {
+      Iterator<GenericValue> ii=invInfo.iterator();
+      while (ii.hasNext()) {
+        GenericValue inv=ii.next();
+        String facilityId=inv.getString("facilityId");
+        List<String> orderIdsByFacility=facilityOrdersMap.get(facilityId);
+        if (orderIdsByFacility == null) {
+          orderIdsByFacility=new ArrayList<String>();
+        }
+        orderIdsByFacility.add(orderId);
+        facilityOrdersMap.put(facilityId,orderIdsByFacility);
+      }
+    }
+  }
+  Iterator<String> fi=facilityOrdersMap.keySet().iterator();
+  while (fi.hasNext()) {
+    String facilityId=fi.next();
+    List<String> orderIdList=facilityOrdersMap.get(facilityId);
+    Map<String,Object> ctx=FastMap.newInstance();
+    ctx.put("userLogin",userLogin);
+    ctx.put("orderIdList",orderIdList);
+    ctx.put("facilityId",facilityId);
+    Map<String,Object> resp=null;
+    try {
+      resp=dispatcher.runSync("createPicklistFromOrders",ctx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (ServiceUtil.isError(resp)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderPickingListCreationError",locale),null,null,resp);
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
