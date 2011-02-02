@@ -4,7 +4,7 @@
     String shipmentMethodTypeId=cart.getShipmentMethodTypeId(gi);
     String carrierPartyId=cart.getCarrierPartyId(gi);
     Debug.log("Getting ship estimate for group #" + gi + " ["+ shipmentMethodTypeId+ " / "+ carrierPartyId+ "]",module);
-    Map result=ShippingEvents.getShipGroupEstimate(dispatcher,delegator,cart,gi);
+    Map<String,Object> result=ShippingEvents.getShipGroupEstimate(dispatcher,delegator,cart,gi);
     if (("SALES_ORDER".equals(cart.getOrderType())) && (ServiceUtil.isError(result))) {
       Debug.logError(ServiceUtil.getErrorMessage(result),module);
       throw new GeneralException(ServiceUtil.getErrorMessage(result));
@@ -25,13 +25,13 @@
       throw new GeneralException(e.getMessage());
     }
   }
-  List<Map> modifiedItems=FastList.newInstance();
-  List toStore=new LinkedList();
+  List<Map<String,Object>> modifiedItems=FastList.newInstance();
+  List<GenericValue> toStore=new LinkedList<GenericValue>();
   List<GenericValue> toAddList=new ArrayList<GenericValue>();
   toAddList.addAll(cart.makeAllAdjustments());
   cart.clearAllPromotionAdjustments();
   ProductPromoWorker.doPromotions(cart,dispatcher);
-  Map validateResp=coh.validatePaymentMethods();
+  Map<String,Object> validateResp=coh.validatePaymentMethods();
   if (ServiceUtil.isError(validateResp)) {
     throw new GeneralException(ServiceUtil.getErrorMessage(validateResp));
   }
@@ -39,7 +39,6 @@
   toStore.addAll(cart.makeAllAdjustments());
   String shipGroupSeqId=null;
   long groupIndex=cart.getShipInfoSize();
-  List orderAdjustments=new ArrayList();
   for (long itr=1; itr <= groupIndex; itr++) {
     shipGroupSeqId=UtilFormatOut.formatPaddedNumber(1,5);
     List<GenericValue> removeList=new ArrayList<GenericValue>();
@@ -65,7 +64,7 @@
   toStore.addAll(cart.makeAllShipGroupInfos());
   toStore.addAll(cart.makeAllOrderPaymentInfos(dispatcher));
   toStore.addAll(cart.makeAllOrderItemAttributes(orderId,ShoppingCart.FILLED_ONLY));
-  List toRemove=FastList.newInstance();
+  List<GenericValue> toRemove=FastList.newInstance();
   toRemove.addAll(cart.makeAllOrderItemAttributes(orderId,ShoppingCart.EMPTY_ONLY));
   for (  String promoCodeEntered : cart.getProductPromoCodesEntered()) {
     GenericValue orderProductPromoCode=delegator.makeValue("OrderProductPromoCode");
@@ -88,10 +87,10 @@
   }
   toRemove.addAll(existingPromoCodes);
   toRemove.addAll(existingPromoUses);
-  List dropShipGroupIds=FastList.newInstance();
-  Iterator tsi=toStore.iterator();
+  List<String> dropShipGroupIds=FastList.newInstance();
+  Iterator<GenericValue> tsi=toStore.iterator();
   while (tsi.hasNext()) {
-    GenericValue valueObj=(GenericValue)tsi.next();
+    GenericValue valueObj=tsi.next();
     valueObj.set("orderId",orderId);
     if ("OrderItemShipGroup".equals(valueObj.getEntityName())) {
       if (valueObj.get("carrierRoleTypeId") == null) {
@@ -138,7 +137,7 @@
         BigDecimal oldQuantity=oldOrderItem.getBigDecimal("quantity") != null ? oldOrderItem.getBigDecimal("quantity") : BigDecimal.ZERO;
         BigDecimal oldUnitPrice=oldOrderItem.getBigDecimal("unitPrice") != null ? oldOrderItem.getBigDecimal("unitPrice") : BigDecimal.ZERO;
         boolean changeFound=false;
-        Map modifiedItem=FastMap.newInstance();
+        Map<String,Object> modifiedItem=FastMap.newInstance();
         if (!oldItemDescription.equals(valueObj.getString("itemDescription"))) {
           modifiedItem.put("itemDescription",oldItemDescription);
           changeFound=true;
@@ -154,14 +153,14 @@
           changeFound=true;
         }
         if (changeFound) {
-          Map itemReasonMap=(Map)changeMap.get("itemReasonMap");
-          Map itemCommentMap=(Map)changeMap.get("itemCommentMap");
+          Map<String,String> itemReasonMap=UtilGenerics.checkMap(changeMap.get("itemReasonMap"));
+          Map<String,String> itemCommentMap=UtilGenerics.checkMap(changeMap.get("itemCommentMap"));
           if (UtilValidate.isNotEmpty(itemReasonMap)) {
-            String changeReasonId=(String)itemReasonMap.get(valueObj.getString("orderItemSeqId"));
+            String changeReasonId=itemReasonMap.get(valueObj.getString("orderItemSeqId"));
             modifiedItem.put("reasonEnumId",changeReasonId);
           }
           if (UtilValidate.isNotEmpty(itemCommentMap)) {
-            String changeComments=(String)itemCommentMap.get(valueObj.getString("orderItemSeqId"));
+            String changeComments=itemCommentMap.get(valueObj.getString("orderItemSeqId"));
             modifiedItem.put("changeComments",changeComments);
           }
           modifiedItem.put("orderId",valueObj.getString("orderId"));
@@ -171,15 +170,15 @@
         }
       }
  else {
-        Map itemReasonMap=(Map)changeMap.get("itemReasonMap");
-        Map itemCommentMap=(Map)changeMap.get("itemCommentMap");
-        Map appendedItem=FastMap.newInstance();
+        Map<String,String> itemReasonMap=UtilGenerics.checkMap(changeMap.get("itemReasonMap"));
+        Map<String,String> itemCommentMap=UtilGenerics.checkMap(changeMap.get("itemCommentMap"));
+        Map<String,Object> appendedItem=FastMap.newInstance();
         if (UtilValidate.isNotEmpty(itemReasonMap)) {
-          String changeReasonId=(String)itemReasonMap.get("reasonEnumId");
+          String changeReasonId=itemReasonMap.get("reasonEnumId");
           appendedItem.put("reasonEnumId",changeReasonId);
         }
         if (UtilValidate.isNotEmpty(itemCommentMap)) {
-          String changeComments=(String)itemCommentMap.get("changeComments");
+          String changeComments=itemCommentMap.get("changeComments");
           appendedItem.put("changeComments",changeComments);
         }
         appendedItem.put("orderId",valueObj.getString("orderId"));
@@ -206,8 +205,8 @@
     throw new GeneralException(e.getMessage());
   }
   if (UtilValidate.isNotEmpty(modifiedItems)) {
-    for (    Map modifiendItem : modifiedItems) {
-      Map serviceCtx=FastMap.newInstance();
+    for (    Map<String,Object> modifiendItem : modifiedItems) {
+      Map<String,Object> serviceCtx=FastMap.newInstance();
       serviceCtx.put("orderId",modifiendItem.get("orderId"));
       serviceCtx.put("orderItemSeqId",modifiendItem.get("orderItemSeqId"));
       serviceCtx.put("itemDescription",modifiendItem.get("itemDescription"));
@@ -217,7 +216,7 @@
       serviceCtx.put("reasonEnumId",modifiendItem.get("reasonEnumId"));
       serviceCtx.put("changeComments",modifiendItem.get("changeComments"));
       serviceCtx.put("userLogin",userLogin);
-      Map resp=null;
+      Map<String,Object> resp=null;
       try {
         resp=dispatcher.runSync("createOrderItemChange",serviceCtx);
       }
@@ -230,11 +229,11 @@
       }
     }
   }
-  List orderItemShipGroupAssoc=new LinkedList();
-  Map itemValuesBySeqId=new HashMap();
-  Iterator oii=toStore.iterator();
+  List<GenericValue> orderItemShipGroupAssoc=new LinkedList<GenericValue>();
+  Map<String,GenericValue> itemValuesBySeqId=new HashMap<String,GenericValue>();
+  Iterator<GenericValue> oii=toStore.iterator();
   while (oii.hasNext()) {
-    GenericValue v=(GenericValue)oii.next();
+    GenericValue v=oii.next();
     if ("OrderItem".equals(v.getEntityName())) {
       itemValuesBySeqId.put(v.getString("orderItemSeqId"),v);
     }
@@ -244,7 +243,7 @@
   }
   String productStoreId=cart.getProductStoreId();
   String orderTypeId=cart.getOrderType();
-  List resErrorMessages=new LinkedList();
+  List<String> resErrorMessages=new LinkedList<String>();
   try {
     Debug.log("Calling reserve inventory...",module);
     reserveInventory(delegator,dispatcher,userLogin,locale,orderItemShipGroupAssoc,dropShipGroupIds,itemValuesBySeqId,orderTypeId,productStoreId,resErrorMessages);
