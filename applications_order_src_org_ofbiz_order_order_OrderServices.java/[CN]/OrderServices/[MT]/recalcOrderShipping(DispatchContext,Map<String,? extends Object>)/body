@@ -1,0 +1,78 @@
+{
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Delegator delegator=ctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Security security=ctx.getSecurity();
+  boolean hasPermission=OrderServices.hasPermission(orderId,userLogin,"UPDATE",security,delegator);
+  if (!hasPermission) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+  }
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderHeaderEntity",locale) + e.getMessage());
+  }
+  if (orderHeader == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorNoValidOrderHeaderFoundForOrderId",UtilMisc.toMap("orderId",orderId),locale));
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  List<GenericValue> shipGroups=orh.getOrderItemShipGroups();
+  if (shipGroups != null) {
+    Iterator<GenericValue> i=shipGroups.iterator();
+    while (i.hasNext()) {
+      GenericValue shipGroup=i.next();
+      String shipGroupSeqId=shipGroup.getString("shipGroupSeqId");
+      if (shipGroup.get("contactMechId") == null || shipGroup.get("shipmentMethodTypeId") == null) {
+        continue;
+      }
+      Map<String,Object> shippingEstMap=ShippingEvents.getShipEstimate(dispatcher,delegator,orh,shipGroupSeqId);
+      BigDecimal shippingTotal=null;
+      if (UtilValidate.isEmpty(orh.getValidOrderItems(shipGroupSeqId))) {
+        shippingTotal=ZERO;
+        Debug.log("No valid order items found - " + shippingTotal,module);
+      }
+ else {
+        shippingTotal=UtilValidate.isEmpty(shippingEstMap.get("shippingTotal")) ? ZERO : (BigDecimal)shippingEstMap.get("shippingTotal");
+        shippingTotal=shippingTotal.setScale(orderDecimals,orderRounding);
+        Debug.log("Got new shipping estimate - " + shippingTotal,module);
+      }
+      if (Debug.infoOn()) {
+        Debug.log("New Shipping Total [" + orderId + " / "+ shipGroupSeqId+ "] : "+ shippingTotal,module);
+      }
+      BigDecimal currentShipping=OrderReadHelper.getAllOrderItemsAdjustmentsTotal(orh.getOrderItemAndShipGroupAssoc(shipGroupSeqId),orh.getAdjustments(),false,false,true);
+      currentShipping=currentShipping.add(OrderReadHelper.calcOrderAdjustments(orh.getOrderHeaderAdjustments(shipGroupSeqId),orh.getOrderItemsSubTotal(),false,false,true));
+      if (Debug.infoOn()) {
+        Debug.log("Old Shipping Total [" + orderId + " / "+ shipGroupSeqId+ "] : "+ currentShipping,module);
+      }
+      List<String> errorMessageList=UtilGenerics.checkList(shippingEstMap.get(ModelService.ERROR_MESSAGE_LIST));
+      if (errorMessageList != null) {
+        Debug.logWarning("Problem finding shipping estimates for [" + orderId + "/ "+ shipGroupSeqId+ "] = "+ errorMessageList,module);
+        continue;
+      }
+      if ((shippingTotal != null) && (shippingTotal.compareTo(currentShipping) != 0)) {
+        BigDecimal adjustmentAmount=shippingTotal.subtract(currentShipping);
+        String adjSeqId=delegator.getNextSeqId("OrderAdjustment");
+        GenericValue orderAdjustment=delegator.makeValue("OrderAdjustment",UtilMisc.toMap("orderAdjustmentId",adjSeqId));
+        orderAdjustment.set("orderAdjustmentTypeId","SHIPPING_CHARGES");
+        orderAdjustment.set("amount",adjustmentAmount);
+        orderAdjustment.set("orderId",orh.getOrderId());
+        orderAdjustment.set("shipGroupSeqId",shipGroupSeqId);
+        orderAdjustment.set("orderItemSeqId",DataModelConstants.SEQ_ID_NA);
+        orderAdjustment.set("createdDate",UtilDateTime.nowTimestamp());
+        orderAdjustment.set("createdByUserLogin",userLogin.getString("userLoginId"));
+        try {
+          orderAdjustment.create();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Problem creating shipping re-calc adjustment : " + orderAdjustment,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotCreateAdjustment",locale));
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}
