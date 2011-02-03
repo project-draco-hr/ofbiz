@@ -1,0 +1,39 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
+  String changeReason=(String)context.get("changeReason");
+  Locale locale=(Locale)context.get("locale");
+  try {
+    GenericValue orderPaymentPreference=delegator.findByPrimaryKey("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId));
+    String orderId=orderPaymentPreference.getString("orderId");
+    String statusUserLogin=orderPaymentPreference.getString("createdByUserLogin");
+    GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatusOrderCannotBeFound",locale));
+    }
+    String statusId=orderPaymentPreference.getString("statusId");
+    if (Debug.verboseOn())     Debug.logVerbose("[OrderServices.setOrderPaymentStatus] : Setting Order Payment Status to : " + statusId,module);
+    GenericValue orderStatus=delegator.makeValue("OrderStatus");
+    orderStatus.put("statusId",statusId);
+    orderStatus.put("orderId",orderId);
+    orderStatus.put("orderPaymentPreferenceId",orderPaymentPreferenceId);
+    orderStatus.put("statusUserLogin",statusUserLogin);
+    orderStatus.put("changeReason",changeReason);
+    List<GenericValue> previousStatusList=delegator.findByAnd("OrderStatus",UtilMisc.toMap("orderId",orderId,"orderPaymentPreferenceId",orderPaymentPreferenceId),UtilMisc.toList("-statusDatetime"));
+    GenericValue previousStatus=EntityUtil.getFirst(previousStatusList);
+    if (previousStatus != null) {
+      orderStatus.put("orderStatusId",previousStatus.get("orderStatusId"));
+      orderStatus.put("statusDatetime",previousStatus.get("statusDatetime"));
+      if (orderStatus.equals(previousStatus)) {
+        return ServiceUtil.returnSuccess();
+      }
+    }
+    orderStatus.put("orderStatusId",delegator.getNextSeqId("OrderStatus"));
+    orderStatus.put("statusDatetime",UtilDateTime.nowTimestamp());
+    orderStatus.create();
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatus",locale) + e.getMessage() + ").");
+  }
+  return ServiceUtil.returnSuccess();
+}
