@@ -100,26 +100,19 @@
         return ServiceUtil.returnError(errMsg);
       }
     }
-    File file=new File(imageServerPath + "/products/management/" + productId+ "/"+ filenameToUse);
-    try {
-      RandomAccessFile out=new RandomAccessFile(file,"rw");
-      out.write(imageData.array());
-      out.close();
+    File file=new File(imageServerPath + "/products/management/" + productId+ "/"+ uploadFileName);
+    String imageName=null;
+    imagePath=imageServerPath + "/products/management/" + productId+ "/"+ uploadFileName;
+    file=checkExistsImage(file);
+    if (UtilValidate.isNotEmpty(file)) {
+      imageName=file.getPath();
+      imageName=imageName.substring(imageName.lastIndexOf("/") + 1);
     }
- catch (    FileNotFoundException e) {
-      Debug.logError(e,module);
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
-    }
-catch (    IOException e) {
-      Debug.logError(e,module);
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
-    }
-    if (UtilValidate.isNotEmpty(imageResize)) {
-      File fileOriginal=new File(imageServerPath + "/products/management/" + filenameToUse);
+    if (UtilValidate.isEmpty(imageResize)) {
       try {
-        RandomAccessFile outFile=new RandomAccessFile(fileOriginal,"rw");
-        outFile.write(imageData.array());
-        outFile.close();
+        RandomAccessFile out=new RandomAccessFile(file,"rw");
+        out.write(imageData.array());
+        out.close();
       }
  catch (      FileNotFoundException e) {
         Debug.logError(e,module);
@@ -129,9 +122,27 @@ catch (      IOException e) {
         Debug.logError(e,module);
         return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
       }
+    }
+    if (UtilValidate.isNotEmpty(imageResize)) {
+      File fileOriginal=new File(imageServerPath + "/products/management/" + imageName);
+      fileOriginal=checkExistsImage(fileOriginal);
+      uploadFileName=fileOriginal.getName();
+      try {
+        RandomAccessFile outFile=new RandomAccessFile(fileOriginal,"rw");
+        outFile.write(imageData.array());
+        outFile.close();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",fileOriginal.getAbsolutePath()),locale));
+      }
+catch (      IOException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",fileOriginal.getAbsolutePath()),locale));
+      }
       Map<String,Object> resultResize=FastMap.newInstance();
       try {
-        resultResize.putAll(ImageManagementServices.scaleImageMangementInAllSize(context,filenameToUse,sizeType,productId));
+        resultResize.putAll(ImageManagementServices.scaleImageMangementInAllSize(context,imageName,sizeType,productId));
       }
  catch (      IOException e) {
         String errMsg="Scale additional image in all different sizes is impossible : " + e.toString();
@@ -144,13 +155,13 @@ catch (      JDOMException e) {
         return ServiceUtil.returnError(errMsg);
       }
     }
-    Map<String,Object> contentThumbnail=createContentThumbnail(dctx,context,userLogin,imageData,productId);
+    Map<String,Object> contentThumbnail=createContentThumbnail(dctx,context,userLogin,imageData,productId,imageName);
     String filenameToUseThumb=(String)contentThumbnail.get("filenameToUseThumb");
     String contentIdThumb=(String)contentThumbnail.get("contentIdThumb");
-    String imageUrl="/images/products/management/" + productId + "/"+ filenameToUse;
+    String imageUrl="/images/products/management/" + productId + "/"+ imageName;
     String imageUrlThumb="/images/products/management/" + productId + "/"+ filenameToUseThumb;
-    createContentAndDataResource(dctx,userLogin,filenameToUse,imageUrl,contentId);
-    createContentAndDataResource(dctx,userLogin,filenameToUseThumb,imageUrlThumb,contentIdThumb);
+    createContentAndDataResource(dctx,userLogin,imageName,imageUrl,contentId,fileContentType);
+    createContentAndDataResource(dctx,userLogin,filenameToUseThumb,imageUrlThumb,contentIdThumb,fileContentType);
     Map<String,Object> createContentAssocMap=FastMap.newInstance();
     createContentAssocMap.put("contentAssocTypeId","IMAGE_THUMBNAIL");
     createContentAssocMap.put("contentId",contentId);
