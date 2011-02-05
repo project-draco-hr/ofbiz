@@ -4,7 +4,7 @@
   ShoppingCart cart=getCartObject(request);
   ShoppingCartHelper cartHelper=new ShoppingCartHelper(delegator,dispatcher,cart);
   String controlDirective=null;
-  Map result=null;
+  Map<String,Object> result=null;
   String productId=null;
   String parentProductId=null;
   String itemType=null;
@@ -16,8 +16,8 @@
   BigDecimal quantity=BigDecimal.ZERO;
   String reservStartStr=null;
   String reservEndStr=null;
-  java.sql.Timestamp reservStart=null;
-  java.sql.Timestamp reservEnd=null;
+  Timestamp reservStart=null;
+  Timestamp reservEnd=null;
   String reservLengthStr=null;
   BigDecimal reservLength=null;
   String reservPersonsStr=null;
@@ -26,12 +26,11 @@
   String accommodationSpotId=null;
   String shipBeforeDateStr=null;
   String shipAfterDateStr=null;
-  java.sql.Timestamp shipBeforeDate=null;
-  java.sql.Timestamp shipAfterDate=null;
+  Timestamp shipBeforeDate=null;
+  Timestamp shipAfterDate=null;
   String catalogId=CatalogWorker.getCurrentCatalogId(request);
   Locale locale=UtilHttp.getLocale(request);
-  NumberFormat nf=NumberFormat.getNumberInstance(locale);
-  Map paramMap=UtilHttp.getCombinedMap(request);
+  Map<String,Object> paramMap=UtilHttp.getCombinedMap(request);
   String itemGroupNumber=(String)paramMap.get("itemGroupNumber");
   String shoppingListId=(String)paramMap.get("shoppingListId");
   String shoppingListItemSeqId=(String)paramMap.get("shoppingListItemSeqId");
@@ -44,7 +43,8 @@
       productId=(String)object;
     }
  catch (    ClassCastException e) {
-      productId=(String)((List)object).get(0);
+      List<String> productList=UtilGenerics.checkList(object);
+      productId=productList.get(0);
     }
   }
   if (paramMap.containsKey("PRODUCT_ID")) {
@@ -122,9 +122,9 @@
   if (ProductWorker.isVirtual(delegator,productId)) {
     if ("VV_FEATURETREE".equals(ProductWorker.getProductVirtualVariantMethod(delegator,productId))) {
       List<String> selectedFeatures=new LinkedList<String>();
-      java.util.Enumeration paramNames=request.getParameterNames();
+      Enumeration<String> paramNames=UtilGenerics.cast(request.getParameterNames());
       while (paramNames.hasMoreElements()) {
-        String paramName=(String)paramNames.nextElement();
+        String paramName=paramNames.nextElement();
         if (paramName.startsWith("FT")) {
           selectedFeatures.add(request.getParameterValues(paramName)[0]);
         }
@@ -302,10 +302,10 @@
       shipAfterDate=null;
     }
   }
-  List surveyResponses=null;
+  List<String> surveyResponses=null;
   if (productId != null) {
     String productStoreId=ProductStoreWorker.getProductStoreId(request);
-    List productSurvey=ProductStoreWorker.getProductSurveys(delegator,productStoreId,productId,"CART_ADD",parentProductId);
+    List<GenericValue> productSurvey=ProductStoreWorker.getProductSurveys(delegator,productStoreId,productId,"CART_ADD",parentProductId);
     if (UtilValidate.isNotEmpty(productSurvey)) {
       GenericValue survey=EntityUtil.getFirst(productSurvey);
       String surveyResponseId=(String)request.getAttribute("surveyResponseId");
@@ -341,14 +341,14 @@
     String addToCartReplaceUpsell=productStore.getString("addToCartReplaceUpsell");
     try {
       if ("Y".equals(addToCartRemoveIncompat)) {
-        List productAssocs=null;
+        List<GenericValue> productAssocs=null;
         EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId),EntityOperator.OR,EntityCondition.makeCondition("productIdTo",EntityOperator.EQUALS,productId)),EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_INCOMPATABLE")),EntityOperator.AND);
         productAssocs=delegator.findList("ProductAssoc",cond,null,null,null,false);
         productAssocs=EntityUtil.filterByDate(productAssocs);
-        List productList=FastList.newInstance();
-        Iterator iter=productAssocs.iterator();
+        List<String> productList=FastList.newInstance();
+        Iterator<GenericValue> iter=productAssocs.iterator();
         while (iter.hasNext()) {
-          GenericValue productAssoc=(GenericValue)iter.next();
+          GenericValue productAssoc=iter.next();
           if (productId.equals(productAssoc.getString("productId"))) {
             productList.add(productAssoc.getString("productIdTo"));
             continue;
@@ -358,9 +358,9 @@
             continue;
           }
         }
-        Iterator sciIter=cart.iterator();
+        Iterator<ShoppingCartItem> sciIter=cart.iterator();
         while (sciIter.hasNext()) {
-          ShoppingCartItem sci=(ShoppingCartItem)sciIter.next();
+          ShoppingCartItem sci=sciIter.next();
           if (productList.contains(sci.getProductId())) {
             try {
               cart.removeCartItem(sci,dispatcher);
@@ -372,13 +372,13 @@
         }
       }
       if ("Y".equals(addToCartReplaceUpsell)) {
-        List productList=null;
+        List<GenericValue> productList=null;
         EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productIdTo",EntityOperator.EQUALS,productId),EntityCondition.makeCondition("productAssocTypeId",EntityOperator.EQUALS,"PRODUCT_UPGRADE")),EntityOperator.AND);
         productList=delegator.findList("ProductAssoc",cond,UtilMisc.toSet("productId"),null,null,false);
         if (productList != null) {
-          Iterator sciIter=cart.iterator();
+          Iterator<ShoppingCartItem> sciIter=cart.iterator();
           while (sciIter.hasNext()) {
-            ShoppingCartItem sci=(ShoppingCartItem)sciIter.next();
+            ShoppingCartItem sci=sciIter.next();
             if (productList.contains(sci.getProductId())) {
               try {
                 cart.removeCartItem(sci,dispatcher);
