@@ -1,0 +1,35 @@
+{
+  Delegator delegator=cart.getDelegator();
+  GenericValue product=null;
+  GenericValue parentProduct=null;
+  try {
+    product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+    String purchaseProductCategoryId=CatalogWorker.getCatalogPurchaseAllowCategoryId(delegator,prodCatalogId);
+    if (!skipProductChecks.booleanValue() && product != null && purchaseProductCategoryId != null) {
+      if (!CategoryWorker.isProductInCategory(delegator,product.getString("productId"),purchaseProductCategoryId)) {
+        Debug.logWarning("Product [" + productId + "] is not in the purchase allow category ["+ purchaseProductCategoryId+ "] and cannot be purchased",module);
+        product=null;
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    product=null;
+  }
+  if (product == null) {
+    Map<String,Object> messageMap=UtilMisc.<String,Object>toMap("productId",productId);
+    String excMsg=UtilProperties.getMessage(resource_error,"item.product_not_found",messageMap,cart.getLocale());
+    Debug.logWarning(excMsg,module);
+    throw new ItemNotFoundException(excMsg);
+  }
+  if (parentProductId != null) {
+    try {
+      parentProduct=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",parentProductId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e.toString(),module);
+      parentProduct=null;
+    }
+  }
+  return makeItem(cartLocation,product,selectedAmount,quantity,unitPrice,reservStart,reservLength,reservPersons,accommodationMapId,accommodationSpotId,shipBeforeDate,shipAfterDate,additionalProductFeatureAndAppls,attributes,prodCatalogId,configWrapper,itemType,itemGroup,dispatcher,cart,triggerExternalOpsBool,triggerPriceRulesBool,parentProduct,skipInventoryChecks,skipProductChecks);
+}

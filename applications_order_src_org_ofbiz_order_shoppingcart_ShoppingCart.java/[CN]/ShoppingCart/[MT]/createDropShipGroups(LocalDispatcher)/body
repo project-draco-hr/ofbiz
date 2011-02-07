@@ -10,20 +10,20 @@
       return;
     }
   }
-  List shipGroups=getShipGroups();
+  List<CartShipInfo> shipGroups=getShipGroups();
   if (shipGroups == null)   return;
-  Map dropShipItems=new HashMap();
+  Map<String,Map<ShoppingCartItem,Map<Integer,BigDecimal>>> dropShipItems=new HashMap<String,Map<ShoppingCartItem,Map<Integer,BigDecimal>>>();
   for (int shipGroupIndex=0; shipGroupIndex < shipGroups.size(); shipGroupIndex++) {
-    CartShipInfo shipInfo=(CartShipInfo)shipGroups.get(shipGroupIndex);
+    CartShipInfo shipInfo=shipGroups.get(shipGroupIndex);
     String shipGroupSupplierPartyId=shipInfo.getSupplierPartyId();
     if (UtilValidate.isNotEmpty(shipGroupSupplierPartyId)) {
       continue;
     }
-    Set shipItems=shipInfo.getShipItems();
+    Set<ShoppingCartItem> shipItems=shipInfo.getShipItems();
     if (UtilValidate.isEmpty(shipItems))     continue;
-    Iterator siit=shipItems.iterator();
+    Iterator<ShoppingCartItem> siit=shipItems.iterator();
     while (siit.hasNext()) {
-      ShoppingCartItem cartItem=(ShoppingCartItem)siit.next();
+      ShoppingCartItem cartItem=siit.next();
       BigDecimal itemQuantity=cartItem.getQuantity();
       BigDecimal dropShipQuantity=BigDecimal.ZERO;
       GenericValue product=cartItem.getProduct();
@@ -37,7 +37,7 @@
       }
  else       if ("PRODRQM_DSATP".equals(requirementMethodEnumId)) {
         try {
-          Map getProductInventoryAvailableResult=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facilityId));
+          Map<String,Object> getProductInventoryAvailableResult=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facilityId));
           BigDecimal availableToPromise=(BigDecimal)getProductInventoryAvailableResult.get("availableToPromiseTotal");
           if (itemQuantity.compareTo(availableToPromise) <= 0) {
             dropShipQuantity=BigDecimal.ZERO;
@@ -56,8 +56,8 @@
       if (dropShipQuantity.compareTo(BigDecimal.ZERO) <= 0)       continue;
       String supplierPartyId=null;
       try {
-        Map getSuppliersForProductResult=dispatcher.runSync("getSuppliersForProduct",UtilMisc.<String,Object>toMap("productId",productId,"quantity",dropShipQuantity,"canDropShip","Y","currencyUomId",getCurrency()));
-        List supplierProducts=(List)getSuppliersForProductResult.get("supplierProducts");
+        Map<String,Object> getSuppliersForProductResult=dispatcher.runSync("getSuppliersForProduct",UtilMisc.<String,Object>toMap("productId",productId,"quantity",dropShipQuantity,"canDropShip","Y","currencyUomId",getCurrency()));
+        List<GenericValue> supplierProducts=UtilGenerics.checkList(getSuppliersForProductResult.get("supplierProducts"));
         supplierProducts=EntityUtil.orderBy(supplierProducts,UtilMisc.toList("supplierPrefOrderId"));
         GenericValue supplierProduct=EntityUtil.getFirst(supplierProducts);
         if (!UtilValidate.isEmpty(supplierProduct)) {
@@ -68,19 +68,19 @@
         Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderRunServiceGetSuppliersForProductError",locale) + e.getMessage(),module);
       }
       if (UtilValidate.isEmpty(supplierPartyId))       continue;
-      if (!dropShipItems.containsKey(supplierPartyId))       dropShipItems.put(supplierPartyId,new HashMap());
-      Map supplierCartItems=(Map)dropShipItems.get(supplierPartyId);
-      if (!supplierCartItems.containsKey(cartItem))       supplierCartItems.put(cartItem,new HashMap());
-      Map cartItemGroupQuantities=(Map)supplierCartItems.get(cartItem);
+      if (!dropShipItems.containsKey(supplierPartyId))       dropShipItems.put(supplierPartyId,new HashMap<ShoppingCartItem,Map<Integer,BigDecimal>>());
+      Map<ShoppingCartItem,Map<Integer,BigDecimal>> supplierCartItems=UtilGenerics.checkMap(dropShipItems.get(supplierPartyId));
+      if (!supplierCartItems.containsKey(cartItem))       supplierCartItems.put(cartItem,new HashMap<Integer,BigDecimal>());
+      Map<Integer,BigDecimal> cartItemGroupQuantities=UtilGenerics.checkMap(supplierCartItems.get(cartItem));
       cartItemGroupQuantities.put(Integer.valueOf(shipGroupIndex),dropShipQuantity);
     }
   }
-  Iterator dsit=dropShipItems.keySet().iterator();
+  Iterator<String> dsit=dropShipItems.keySet().iterator();
   while (dsit.hasNext()) {
-    String supplierPartyId=(String)dsit.next();
+    String supplierPartyId=dsit.next();
     CartShipInfo shipInfo=null;
     int newShipGroupIndex=-1;
-    TreeMap supplierShipGroups=(TreeMap)this.getShipGroupsBySupplier(supplierPartyId);
+    TreeMap<Integer,CartShipInfo> supplierShipGroups=this.getShipGroupsBySupplier(supplierPartyId);
     if (!UtilValidate.isEmpty(supplierShipGroups)) {
       newShipGroupIndex=((Integer)supplierShipGroups.firstKey()).intValue();
       shipInfo=(CartShipInfo)supplierShipGroups.get(supplierShipGroups.firstKey());
@@ -90,15 +90,15 @@
       shipInfo=(CartShipInfo)this.shipInfo.get(newShipGroupIndex);
     }
     shipInfo.supplierPartyId=supplierPartyId;
-    Map supplierCartItems=(Map)dropShipItems.get(supplierPartyId);
-    Iterator itit=supplierCartItems.keySet().iterator();
+    Map<ShoppingCartItem,Map<Integer,BigDecimal>> supplierCartItems=UtilGenerics.checkMap(dropShipItems.get(supplierPartyId));
+    Iterator<ShoppingCartItem> itit=supplierCartItems.keySet().iterator();
     while (itit.hasNext()) {
-      ShoppingCartItem cartItem=(ShoppingCartItem)itit.next();
-      Map cartItemGroupQuantities=(Map)supplierCartItems.get(cartItem);
-      Iterator cigit=cartItemGroupQuantities.keySet().iterator();
+      ShoppingCartItem cartItem=itit.next();
+      Map<Integer,BigDecimal> cartItemGroupQuantities=UtilGenerics.checkMap(supplierCartItems.get(cartItem));
+      Iterator<Integer> cigit=cartItemGroupQuantities.keySet().iterator();
       while (cigit.hasNext()) {
-        Integer previousShipGroupIndex=(Integer)cigit.next();
-        BigDecimal dropShipQuantity=(BigDecimal)cartItemGroupQuantities.get(previousShipGroupIndex);
+        Integer previousShipGroupIndex=cigit.next();
+        BigDecimal dropShipQuantity=cartItemGroupQuantities.get(previousShipGroupIndex);
         positionItemToGroup(cartItem,dropShipQuantity,previousShipGroupIndex.intValue(),newShipGroupIndex,true);
       }
     }
