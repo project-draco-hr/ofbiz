@@ -349,6 +349,7 @@ catch (        CartItemModifyException e) {
     if (UtilValidate.isNotEmpty(orderItems)) {
       int itemIndex=0;
       for (      GenericValue item : orderItems) {
+        if ("ITEM_REJECTED".equals(item.getString("statusId")) || "ITEM_CANCELLED".equals(item.getString("statusId")))         continue;
         List<GenericValue> orderItemAdjustments=orh.getOrderItemAdjustments(item);
         List<GenericValue> shipGroupAssocs=orh.getOrderItemShipGroupAssocs(item);
         for (int g=0; g < shipGroupAssocs.size(); g++) {
@@ -363,10 +364,15 @@ catch (        CartItemModifyException e) {
           if (cartShipGroupIndex > 0) {
             cart.positionItemToGroup(itemIndex,shipGroupQty,0,cartShipGroupIndex,false);
           }
-          cart.setItemShipGroupQty(itemIndex,shipGroupQty,cartShipGroupIndex);
-          List<GenericValue> shipGroupItemAdjustments=EntityUtil.filterByAnd(orderItemAdjustments,UtilMisc.toMap("shipGroupSeqId",cartShipGroupIndexStr));
           ShoppingCart.CartShipInfo csi=cart.getShipInfo(cartShipGroupIndex);
           ShoppingCartItem cartItem=cart.findCartItem(itemIndex);
+          if (cartItem == null || cartItem.getQuantity() == null || BigDecimal.ZERO.equals(cartItem.getQuantity()) || shipGroupQty.equals(cartItem.getQuantity())) {
+            Debug.logInfo("In loadCartFromOrder not adding item [" + item.getString("orderItemSeqId") + "] to ship group with index ["+ itemIndex+ "]; group quantity is ["+ shipGroupQty+ "] item quantity is ["+ (cartItem != null ? cartItem.getQuantity() : "no cart item")+ "] cartShipGroupIndex is ["+ cartShipGroupIndex+ "], csi.shipItemInfo.size(): "+ csi.shipItemInfo.size(),module);
+          }
+ else {
+            cart.setItemShipGroupQty(itemIndex,shipGroupQty,cartShipGroupIndex);
+          }
+          List<GenericValue> shipGroupItemAdjustments=EntityUtil.filterByAnd(orderItemAdjustments,UtilMisc.toMap("shipGroupSeqId",cartShipGroupIndexStr));
           if (cartItem == null) {
             Debug.logWarning("In loadCartFromOrder could not find cart item for itemIndex=" + itemIndex + ", for orderId="+ orderId,module);
           }
@@ -378,7 +384,7 @@ catch (        CartItemModifyException e) {
  else {
               List<GenericValue> itemTaxAdj=cartShipItemInfo.itemTaxAdj;
               for (              GenericValue shipGroupItemAdjustment : shipGroupItemAdjustments) {
-                if ("SALES_TAX".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId"))) {
+                if ("SALES_TAX".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId")) || "VAT_TAX".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId")) || "VAT_PRICE_CORRECT".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId"))) {
                   itemTaxAdj.add(shipGroupItemAdjustment);
                   continue;
                 }
