@@ -39,33 +39,51 @@
   toStore.addAll(cart.makeAllAdjustments());
   String shipGroupSeqId=null;
   long groupIndex=cart.getShipInfoSize();
-  for (long itr=1; itr <= groupIndex; itr++) {
-    shipGroupSeqId=UtilFormatOut.formatPaddedNumber(itr,5);
-    List<GenericValue> removeList=new ArrayList<GenericValue>();
-    for (    GenericValue stored : (List<GenericValue>)toStore) {
-      if ("OrderAdjustment".equals(stored.getEntityName())) {
-        if (("SHIPPING_CHARGES".equals(stored.get("orderAdjustmentTypeId")) || "SALES_TAX".equals(stored.get("orderAdjustmentTypeId"))) && stored.get("orderId").equals(orderId) && stored.get("shipGroupSeqId").equals(shipGroupSeqId)) {
-          removeList.add(stored);
+  if (!deleteItems) {
+    for (long itr=1; itr <= groupIndex; itr++) {
+      shipGroupSeqId=UtilFormatOut.formatPaddedNumber(itr,5);
+      List<GenericValue> removeList=new ArrayList<GenericValue>();
+      for (      GenericValue stored : (List<GenericValue>)toStore) {
+        if ("OrderAdjustment".equals(stored.getEntityName())) {
+          if (("SHIPPING_CHARGES".equals(stored.get("orderAdjustmentTypeId")) || "SALES_TAX".equals(stored.get("orderAdjustmentTypeId"))) && stored.get("orderId").equals(orderId) && stored.get("shipGroupSeqId").equals(shipGroupSeqId)) {
+            removeList.add(stored);
+          }
+          if (stored.get("comments") != null && ((String)stored.get("comments")).startsWith("Added manually by")) {
+            removeList.add(stored);
+          }
         }
-        if (stored.get("comments") != null && ((String)stored.get("comments")).startsWith("Added manually by")) {
-          removeList.add(stored);
+      }
+      toStore.removeAll(removeList);
+    }
+    for (    GenericValue toAdd : (List<GenericValue>)toAddList) {
+      if ("OrderAdjustment".equals(toAdd.getEntityName())) {
+        if (toAdd.get("comments") != null && ((String)toAdd.get("comments")).startsWith("Added manually by") && (("PROMOTION_ADJUSTMENT".equals(toAdd.get("orderAdjustmentTypeId"))) || ("SHIPPING_CHARGES".equals(toAdd.get("orderAdjustmentTypeId"))) || ("SALES_TAX".equals(toAdd.get("orderAdjustmentTypeId"))))) {
+          toStore.add(toAdd);
         }
       }
     }
-    toStore.removeAll(removeList);
   }
-  for (  GenericValue toAdd : (List<GenericValue>)toAddList) {
-    if ("OrderAdjustment".equals(toAdd.getEntityName())) {
-      if (toAdd.get("comments") != null && ((String)toAdd.get("comments")).startsWith("Added manually by") && (("PROMOTION_ADJUSTMENT".equals(toAdd.get("orderAdjustmentTypeId"))) || ("SHIPPING_CHARGES".equals(toAdd.get("orderAdjustmentTypeId"))) || ("SALES_TAX".equals(toAdd.get("orderAdjustmentTypeId"))))) {
-        toStore.add(toAdd);
-      }
-    }
+ else {
+    toStore.addAll(toAddList);
   }
   toStore.addAll(cart.makeAllShipGroupInfos());
   toStore.addAll(cart.makeAllOrderPaymentInfos(dispatcher));
   toStore.addAll(cart.makeAllOrderItemAttributes(orderId,ShoppingCart.FILLED_ONLY));
   List<GenericValue> toRemove=FastList.newInstance();
-  toRemove.addAll(cart.makeAllOrderItemAttributes(orderId,ShoppingCart.EMPTY_ONLY));
+  if (deleteItems) {
+    try {
+      toRemove.addAll(delegator.findByAnd("OrderItemShipGroupAssoc","orderId",orderId));
+      toRemove.addAll(delegator.findByAnd("OrderItemChange","orderId",orderId));
+      toRemove.addAll(delegator.findByAnd("OrderAdjustment","orderId",orderId));
+      toRemove.addAll(delegator.findByAnd("OrderItem","orderId",orderId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+ else {
+    toRemove.addAll(cart.makeAllOrderItemAttributes(orderId,ShoppingCart.EMPTY_ONLY));
+  }
   for (  String promoCodeEntered : cart.getProductPromoCodesEntered()) {
     GenericValue orderProductPromoCode=delegator.makeValue("OrderProductPromoCode");
     orderProductPromoCode.set("orderId",orderId);
@@ -87,14 +105,6 @@
   }
   toRemove.addAll(existingPromoCodes);
   toRemove.addAll(existingPromoUses);
-  if (deleteItems) {
-    try {
-      toRemove.addAll(delegator.findByAnd("OrderItem","orderId",orderId));
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
-    }
-  }
   List<String> dropShipGroupIds=FastList.newInstance();
   Iterator<GenericValue> tsi=toStore.iterator();
   while (tsi.hasNext()) {
@@ -128,7 +138,7 @@
         valueObj.set("statusId","PAYMENT_NOT_RECEIVED");
       }
     }
- else     if ("OrderItem".equals(valueObj.getEntityName())) {
+ else     if ("OrderItem".equals(valueObj.getEntityName()) && !deleteItems) {
       if ("Y".equals(valueObj.getString("isPromo"))) {
         continue;
       }
