@@ -1,5 +1,6 @@
 {
   String surveyResponseId=null;
+  Locale locale=(Locale)context.get("locale");
   try {
     Delegator delegator=dctx.getDelegator();
     String partyId=(String)context.get("partyId");
@@ -23,13 +24,13 @@
     PdfReader r=new PdfReader(byteBuffer.array());
     PdfStamper s=new PdfStamper(r,os);
     AcroFields fs=s.getAcroFields();
-    Map hm=fs.getFields();
+    Map<String,Object> hm=UtilGenerics.checkMap(fs.getFields());
     s.setFormFlattening(true);
-    Iterator i=hm.keySet().iterator();
+    Iterator<String> i=hm.keySet().iterator();
     while (i.hasNext()) {
-      String fieldName=(String)i.next();
+      String fieldName=i.next();
       String value=fs.getField(fieldName);
-      List questions=delegator.findByAnd("SurveyQuestionAndAppl",UtilMisc.toMap("surveyId",surveyId,"externalFieldRef",fieldName));
+      List<GenericValue> questions=delegator.findByAnd("SurveyQuestionAndAppl",UtilMisc.toMap("surveyId",surveyId,"externalFieldRef",fieldName));
       if (questions.size() == 0) {
         Debug.logInfo("No question found for surveyId:" + surveyId + " and externalFieldRef:"+ fieldName,module);
         continue;
@@ -46,20 +47,18 @@
     s.close();
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error generating PDF: " + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error generating PDF: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPDFGeneratingError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
 catch (  GeneralException e) {
-    System.err.println(e.getMessage());
-    return ServiceUtil.returnError(e.getMessage());
+    Debug.logError(e,"Error generating PDF: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPDFGeneratingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
 catch (  Exception e) {
-    String errMsg="Error generating PDF: " + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error generating PDF: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPDFGeneratingError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
-  Map results=ServiceUtil.returnSuccess();
+  Map<String,Object> results=ServiceUtil.returnSuccess();
   results.put("surveyResponseId",surveyResponseId);
   return results;
 }

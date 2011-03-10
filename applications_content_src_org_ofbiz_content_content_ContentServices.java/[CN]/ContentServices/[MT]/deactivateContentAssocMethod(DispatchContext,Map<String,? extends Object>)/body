@@ -2,10 +2,11 @@
   Map<String,Object> context=UtilMisc.makeMapWritable(rcontext);
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
-  Map result=FastMap.newInstance();
+  Map<String,Object> result=FastMap.newInstance();
+  Locale locale=(Locale)context.get("locale");
   context.put("entityOperation","_UPDATE");
-  List targetOperationList=ContentWorker.prepTargetOperationList(context,"_UPDATE");
-  List contentPurposeList=ContentWorker.prepContentPurposeList(context);
+  List<String> targetOperationList=ContentWorker.prepTargetOperationList(context,"_UPDATE");
+  List<String> contentPurposeList=ContentWorker.prepContentPurposeList(context);
   context.put("targetOperationList",targetOperationList);
   context.put("contentPurposeList",contentPurposeList);
   GenericValue pk=delegator.makeValue("ContentAssoc");
@@ -16,11 +17,11 @@
     contentAssoc=delegator.findByPrimaryKey("ContentAssoc",pk);
   }
  catch (  GenericEntityException e) {
-    System.out.println("Entity Error:" + e.getMessage());
-    return ServiceUtil.returnError("Error in retrieving Content. " + e.getMessage());
+    Debug.logError(e,"Entity Error:" + e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentAssocRetrievingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   if (contentAssoc == null) {
-    return ServiceUtil.returnError("Error in deactivating ContentAssoc. Entity is null.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentAssocDeactivatingError",locale));
   }
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String userLoginId=(String)userLogin.get("userLoginId");
@@ -30,20 +31,20 @@
   contentAssoc.put("lastModifiedDate",lastModifiedDate);
   contentAssoc.put("thruDate",UtilDateTime.nowTimestamp());
   String permissionStatus=null;
-  Map serviceInMap=FastMap.newInstance();
+  Map<String,Object> serviceInMap=FastMap.newInstance();
   serviceInMap.put("userLogin",context.get("userLogin"));
   serviceInMap.put("targetOperationList",targetOperationList);
   serviceInMap.put("contentPurposeList",contentPurposeList);
   serviceInMap.put("entityOperation",context.get("entityOperation"));
   serviceInMap.put("contentIdTo",contentAssoc.get("contentIdTo"));
   serviceInMap.put("contentIdFrom",contentAssoc.get("contentId"));
-  Map permResults=null;
+  Map<String,Object> permResults=null;
   try {
     permResults=dispatcher.runSync("checkAssocPermission",serviceInMap);
   }
  catch (  GenericServiceException e) {
     Debug.logError(e,"Problem checking permissions","ContentServices");
-    return ServiceUtil.returnError("Problem checking association permissions");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPermissionNotGranted",locale));
   }
   permissionStatus=(String)permResults.get("permissionStatus");
   if (permissionStatus != null && permissionStatus.equals("granted")) {

@@ -36,10 +36,10 @@
  else {
         if ("Y".equals(productPromoAction.get("useCartQuantity"))) {
           quantity=BigDecimal.ZERO;
-          List used=getCartItemsUsed(cart,productPromoAction);
-          Iterator usedIt=used.iterator();
+          List<ShoppingCartItem> used=getCartItemsUsed(cart,productPromoAction);
+          Iterator<ShoppingCartItem> usedIt=used.iterator();
           while (usedIt.hasNext()) {
-            ShoppingCartItem item=(ShoppingCartItem)usedIt.next();
+            ShoppingCartItem item=usedIt.next();
             BigDecimal available=item.getPromoQuantityAvailable();
             quantity=quantity.add(available).add(item.getPromoQuantityCandidateUseActionAndAllConds(productPromoAction));
             item.addPromoQuantityCandidateUse(available,productPromoAction,false);
@@ -49,7 +49,7 @@
           quantity=BigDecimal.ZERO;
         }
       }
-      List optionProductIds=FastList.newInstance();
+      List<String> optionProductIds=FastList.newInstance();
       String productId=productPromoAction.getString("productId");
       GenericValue product=null;
       if (UtilValidate.isNotEmpty(productId)) {
@@ -60,11 +60,11 @@
           throw new CartItemModifyException(errMsg);
         }
         if ("Y".equals(product.getString("isVirtual"))) {
-          List productAssocs=EntityUtil.filterByDate(product.getRelatedCache("MainProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"),UtilMisc.toList("sequenceNum")));
-          Iterator productAssocIter=productAssocs.iterator();
+          List<GenericValue> productAssocs=EntityUtil.filterByDate(product.getRelatedCache("MainProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"),UtilMisc.toList("sequenceNum")));
+          Iterator<GenericValue> productAssocIter=productAssocs.iterator();
           while (productAssocIter.hasNext()) {
-            GenericValue productAssoc=(GenericValue)productAssocIter.next();
-            optionProductIds.add(productAssoc.get("productIdTo"));
+            GenericValue productAssoc=productAssocIter.next();
+            optionProductIds.add(productAssoc.getString("productIdTo"));
           }
           productId=null;
           product=null;
@@ -78,7 +78,7 @@
                 quantityAlreadyInCart=quantityAlreadyInCart.add(item.getQuantity());
               }
             }
-            Map invReqResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.<String,Object>toMap("productStoreId",productStoreId,"productId",productId,"product",product,"quantity",quantity.add(quantityAlreadyInCart)));
+            Map<String,Object> invReqResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.<String,Object>toMap("productStoreId",productStoreId,"productId",productId,"product",product,"quantity",quantity.add(quantityAlreadyInCart)));
             if (ServiceUtil.isError(invReqResult)) {
               Debug.logError("Error calling isStoreInventoryAvailable service, result is: " + invReqResult,module);
               throw new CartItemModifyException((String)invReqResult.get(ModelService.ERROR_MESSAGE));
@@ -96,13 +96,13 @@
           }
         }
       }
-      Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+      Set<String> productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
       if (productIds != null) {
         optionProductIds.addAll(productIds);
       }
-      Iterator optionProductIdIter=optionProductIds.iterator();
+      Iterator<String> optionProductIdIter=optionProductIds.iterator();
       while (optionProductIdIter.hasNext()) {
-        String optionProductId=(String)optionProductIdIter.next();
+        String optionProductId=optionProductIdIter.next();
         try {
           BigDecimal quantityAlreadyInCart=BigDecimal.ZERO;
           if (cart != null) {
@@ -111,7 +111,7 @@
               quantityAlreadyInCart=quantityAlreadyInCart.add(item.getQuantity());
             }
           }
-          Map invReqResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.<String,Object>toMap("productStoreId",productStoreId,"productId",optionProductId,"product",product,"quantity",quantity.add(quantityAlreadyInCart)));
+          Map<String,Object> invReqResult=dispatcher.runSync("isStoreInventoryAvailable",UtilMisc.<String,Object>toMap("productStoreId",productStoreId,"productId",optionProductId,"product",product,"quantity",quantity.add(quantityAlreadyInCart)));
           if (ServiceUtil.isError(invReqResult)) {
             Debug.logError("Error calling isStoreInventoryAvailable service, result is: " + invReqResult,module);
             throw new CartItemModifyException((String)invReqResult.get(ModelService.ERROR_MESSAGE));
@@ -141,8 +141,8 @@
         }
       }
       if (product == null && optionProductIds.size() > 0) {
-        Iterator optionProductIdTempIter=optionProductIds.iterator();
-        productId=(String)optionProductIdTempIter.next();
+        Iterator<String> optionProductIdTempIter=optionProductIds.iterator();
+        productId=optionProductIdTempIter.next();
         optionProductIdTempIter.remove();
         product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
       }
@@ -181,14 +181,15 @@
     BigDecimal quantityDesired=productPromoAction.get("quantity") == null ? BigDecimal.ONE : productPromoAction.getBigDecimal("quantity");
     BigDecimal startingQuantity=quantityDesired;
     BigDecimal discountAmountTotal=BigDecimal.ZERO;
-    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
-    List lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
-    Iterator lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
+    Set<String> productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    List<ShoppingCartItem> lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
+    Iterator<ShoppingCartItem> lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
     while (quantityDesired.compareTo(BigDecimal.ZERO) > 0 && lineOrderedByBasePriceIter.hasNext()) {
-      ShoppingCartItem cartItem=(ShoppingCartItem)lineOrderedByBasePriceIter.next();
+      ShoppingCartItem cartItem=lineOrderedByBasePriceIter.next();
       GenericValue product=cartItem.getProduct();
       String parentProductId=cartItem.getParentProductId();
-      if (!cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId))) && (product == null || !"N".equals(product.getString("includeInPromotions")))) {
+      boolean passedItemConds=checkConditionsForItem(productPromoAction,cart,cartItem,delegator,dispatcher,nowTimestamp);
+      if (passedItemConds && !cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId)))&& (product == null || !"N".equals(product.getString("includeInPromotions")))) {
         BigDecimal quantityUsed=cartItem.addPromoQuantityCandidateUse(quantityDesired,productPromoAction,false);
         if (quantityUsed.compareTo(BigDecimal.ZERO) > 0) {
           quantityDesired=quantityDesired.subtract(quantityUsed);
@@ -216,14 +217,15 @@
     BigDecimal quantityDesired=productPromoAction.get("quantity") == null ? BigDecimal.ONE : productPromoAction.getBigDecimal("quantity");
     BigDecimal startingQuantity=quantityDesired;
     BigDecimal discountAmountTotal=BigDecimal.ZERO;
-    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
-    List lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
-    Iterator lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
+    Set<String> productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    List<ShoppingCartItem> lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
+    Iterator<ShoppingCartItem> lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
     while (quantityDesired.compareTo(BigDecimal.ZERO) > 0 && lineOrderedByBasePriceIter.hasNext()) {
-      ShoppingCartItem cartItem=(ShoppingCartItem)lineOrderedByBasePriceIter.next();
+      ShoppingCartItem cartItem=lineOrderedByBasePriceIter.next();
       String parentProductId=cartItem.getParentProductId();
       GenericValue product=cartItem.getProduct();
-      if (!cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId))) && (product == null || !"N".equals(product.getString("includeInPromotions")))) {
+      boolean passedItemConds=checkConditionsForItem(productPromoAction,cart,cartItem,delegator,dispatcher,nowTimestamp);
+      if (passedItemConds && !cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId)))&& (product == null || !"N".equals(product.getString("includeInPromotions")))) {
         BigDecimal quantityUsed=cartItem.addPromoQuantityCandidateUse(quantityDesired,productPromoAction,false);
         quantityDesired=quantityDesired.subtract(quantityUsed);
         BigDecimal discount=productPromoAction.get("amount") == null ? BigDecimal.ZERO : productPromoAction.getBigDecimal("amount");
@@ -250,15 +252,16 @@
     BigDecimal quantityDesired=productPromoAction.get("quantity") == null ? BigDecimal.ONE : productPromoAction.getBigDecimal("quantity");
     BigDecimal desiredAmount=productPromoAction.get("amount") == null ? BigDecimal.ZERO : productPromoAction.getBigDecimal("amount");
     BigDecimal totalAmount=BigDecimal.ZERO;
-    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
-    List cartItemsUsed=FastList.newInstance();
-    List lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
-    Iterator lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
+    Set<String> productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    List<ShoppingCartItem> cartItemsUsed=FastList.newInstance();
+    List<ShoppingCartItem> lineOrderedByBasePriceList=cart.getLineListOrderedByBasePrice(false);
+    Iterator<ShoppingCartItem> lineOrderedByBasePriceIter=lineOrderedByBasePriceList.iterator();
     while (quantityDesired.compareTo(BigDecimal.ZERO) > 0 && lineOrderedByBasePriceIter.hasNext()) {
       ShoppingCartItem cartItem=(ShoppingCartItem)lineOrderedByBasePriceIter.next();
       String parentProductId=cartItem.getParentProductId();
       GenericValue product=cartItem.getProduct();
-      if (!cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId))) && (product == null || !"N".equals(product.getString("includeInPromotions")))) {
+      boolean passedItemConds=checkConditionsForItem(productPromoAction,cart,cartItem,delegator,dispatcher,nowTimestamp);
+      if (passedItemConds && !cartItem.getIsPromo() && (productIds.contains(cartItem.getProductId()) || (parentProductId != null && productIds.contains(parentProductId)))&& (product == null || !"N".equals(product.getString("includeInPromotions")))) {
         BigDecimal quantityUsed=cartItem.addPromoQuantityCandidateUse(quantityDesired,productPromoAction,false);
         if (quantityUsed.compareTo(BigDecimal.ZERO) > 0) {
           quantityDesired=quantityDesired.subtract(quantityUsed);
@@ -300,10 +303,10 @@
     }
   }
  else   if ("PROMO_PROD_SPPRC".equals(productPromoActionEnumId)) {
-    Set productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
-    Iterator cartItemIter=cart.items().iterator();
+    Set<String> productIds=ProductPromoWorker.getPromoRuleActionProductIds(productPromoAction,delegator,nowTimestamp);
+    Iterator<ShoppingCartItem> cartItemIter=cart.items().iterator();
     while (cartItemIter.hasNext()) {
-      ShoppingCartItem cartItem=(ShoppingCartItem)cartItemIter.next();
+      ShoppingCartItem cartItem=cartItemIter.next();
       String itemProductId=cartItem.getProductId();
       if (UtilValidate.isEmpty(itemProductId)) {
         continue;
@@ -330,9 +333,18 @@
     BigDecimal percentage=(productPromoAction.get("amount") == null ? BigDecimal.ZERO : (productPromoAction.getBigDecimal("amount").movePointLeft(2))).negate();
     BigDecimal amount=cart.getTotalShipping().multiply(percentage);
     if (amount.compareTo(BigDecimal.ZERO) != 0) {
-      doOrderPromoAction(productPromoAction,cart,amount,"amount",delegator);
-      actionResultInfo.ranAction=true;
-      actionResultInfo.totalDiscountAmount=amount;
+      int existingOrderPromoIndex=cart.getAdjustmentPromoIndex(productPromoAction.getString("productPromoId"));
+      if (existingOrderPromoIndex != -1 && cart.getAdjustment(existingOrderPromoIndex).getBigDecimal("amount").compareTo(amount) == 0) {
+        actionResultInfo.ranAction=false;
+      }
+ else {
+        if (existingOrderPromoIndex != -1 && cart.getAdjustment(existingOrderPromoIndex).getBigDecimal("amount").compareTo(amount) != 0) {
+          cart.removeAdjustment(existingOrderPromoIndex);
+        }
+        doOrderPromoAction(productPromoAction,cart,amount,"amount",delegator);
+        actionResultInfo.ranAction=true;
+        actionResultInfo.totalDiscountAmount=amount;
+      }
     }
   }
  else {

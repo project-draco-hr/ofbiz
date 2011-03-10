@@ -1,15 +1,16 @@
 {
-  Map result=FastMap.newInstance();
+  Map<String,Object> result=FastMap.newInstance();
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   String contentId=(String)context.get("contentId");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String userLoginId=userLogin.getString("userLoginId");
+  Locale locale=(Locale)context.get("locale");
   try {
     GenericValue content=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
     if (content == null) {
       Debug.logError("content was null",module);
-      return ServiceUtil.returnError("content was null");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentNoContentFound",UtilMisc.toMap("contentId",""),locale));
     }
     String dataResourceId=content.getString("dataResourceId");
     content.set("dataResourceId",null);
@@ -25,19 +26,19 @@
       content.set("createdByUserLogin",userLoginId);
       contentClone.set("contentId",null);
       ModelService modelService=dctx.getModelService("persistContentAndAssoc");
-      Map serviceIn=modelService.makeValid(contentClone,"IN");
+      Map<String,Object> serviceIn=modelService.makeValid(contentClone,"IN");
       serviceIn.put("userLogin",userLogin);
       serviceIn.put("contentIdTo",contentId);
       serviceIn.put("contentAssocTypeId","SUB_CONTENT");
       serviceIn.put("sequenceNum",Long.valueOf(50));
       try {
-        Map thisResult=dispatcher.runSync("persistContentAndAssoc",serviceIn);
+        dispatcher.runSync("persistContentAndAssoc",serviceIn);
       }
  catch (      ServiceAuthException e) {
         return ServiceUtil.returnError(e.toString());
       }
-      List typeList=UtilMisc.toList("SUB_CONTENT");
-      int leafCount=ContentManagementWorker.updateStatsTopDown(delegator,contentId,typeList);
+      List<String> typeList=UtilMisc.toList("SUB_CONTENT");
+      ContentManagementWorker.updateStatsTopDown(delegator,contentId,typeList);
     }
   }
  catch (  GenericEntityException e) {

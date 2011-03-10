@@ -2,6 +2,7 @@
   LocalDispatcher dispatcher=ctx.getDispatcher();
   Delegator delegator=ctx.getDelegator();
   String orderId=(String)context.get("orderId");
+  Locale locale=(Locale)context.get("locale");
   try {
     Map<String,Object> checkOrderResp=dispatcher.runSync("checkOrderIsOnBackOrder",UtilMisc.toMap("orderId",orderId));
     if (((Boolean)checkOrderResp.get("isBackOrder")).booleanValue()) {
@@ -51,36 +52,34 @@
   try {
     List<GenericValue> previousOagisMessageInfoList=delegator.findByAnd("OagisMessageInfo",UtilMisc.toMap("orderId",orderId,"task",task,"component",component));
     if (EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS")).size() > 0) {
-      String successMsg="Found existing message info(s) in OAGMP_OGEN_SUCCESS, so not sending Process Shipment message for order [" + orderId + "] existing message(s) are: "+ EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS"));
-      return ServiceUtil.returnSuccess(successMsg);
+      return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisFoundExistingMessage",UtilMisc.toMap("orderId",orderId),locale) + EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_OGEN_SUCCESS")));
     }
     if (EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT")).size() > 0) {
-      String successMsg="Found existing message info(s) in OAGMP_SENT status, so not sending Process Shipment message for order [" + orderId + "] existing message(s) are: "+ EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT"));
-      return ServiceUtil.returnSuccess(successMsg);
+      return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisFoundExistingMessageSent",UtilMisc.toMap("orderId",orderId),locale) + EntityUtil.filterByAnd(previousOagisMessageInfoList,UtilMisc.toMap("processingStatusId","OAGMP_SENT")));
     }
     orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
     if (orderHeader == null) {
-      return ServiceUtil.returnError("Could not find OrderHeader with ID [" + orderId + "]");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisOrderIdNotFound",UtilMisc.toMap("orderId",orderId),locale));
     }
     List<String> validStores=StringUtil.split(UtilProperties.getPropertyValue("oagis.properties","Oagis.Order.ValidProductStores"),",");
     if (UtilValidate.isNotEmpty(validStores)) {
       if (!validStores.contains(orderHeader.getString("productStoreId"))) {
-        return ServiceUtil.returnSuccess("Order [" + orderId + "] placed is not for valid Store(s)");
+        return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisOrderIdNotValidStore",UtilMisc.toMap("orderId",orderId),locale));
       }
     }
     String orderStatusId=orderHeader.getString("statusId");
     if (!"ORDER_APPROVED".equals(orderStatusId)) {
-      return ServiceUtil.returnSuccess("OrderHeader not in the approved status (ORDER_APPROVED) with ID [" + orderId + "], is in the ["+ orderStatusId+ "] status");
+      return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisOrderIdNotInApprovedStatus",UtilMisc.toMap("orderId",orderId,"orderStatusId",orderStatusId),locale));
     }
     if (!"SALES_ORDER".equals(orderHeader.getString("orderTypeId"))) {
-      return ServiceUtil.returnError("OrderHeader not a sales order (SALES_ORDER) with ID [" + orderId + "]");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisOrderIdNotASalesOrder",UtilMisc.toMap("orderId",orderId),locale));
     }
     OrderReadHelper orderReadHelper=new OrderReadHelper(orderHeader);
     if (!orderReadHelper.hasPhysicalProductItems()) {
       return ServiceUtil.returnSuccess();
     }
     if (!orderReadHelper.hasShippingAddress()) {
-      return ServiceUtil.returnError("Cannot send Process Shipment for order [" + orderId + "], it has no shipping address.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisOrderIdWithoutShippingAddress",UtilMisc.toMap("orderId",orderId),locale));
     }
     Map<String,Object> authServiceContext=FastMap.newInstance();
     authServiceContext.put("orderId",orderId);
@@ -88,7 +87,7 @@
     authServiceContext.put("reAuth",true);
     Map<String,Object> authResult=dispatcher.runSync("authOrderPayments",authServiceContext);
     if (!authResult.get("processResult").equals("APPROVED")) {
-      return ServiceUtil.returnError("No authorized payment available, not sending Process Shipment");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisOrderIdPaymentNotAuthorized",locale));
     }
     referenceId=delegator.getNextSeqId("OagisMessageInfo");
     omiPkMap=UtilMisc.toMap("logicalId",logicalId,"component",component,"task",task,"referenceId",referenceId);
@@ -124,7 +123,7 @@
     if (shipment != null) {
       String statusId=shipment.getString("statusId");
       if ("SHIPMENT_PICKED".equals(statusId) || "SHIPMENT_PACKED".equals(statusId) || "SHIPMENT_SHIPPED".equals(statusId)|| "SHIPMENT_DELIVERED".equals(statusId)) {
-        return ServiceUtil.returnError("Not sending Process Shipment message because found Shipment that is already being processed, is in status [" + statusId + "]");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisOrderIdWithShipment",UtilMisc.toMap("statusId",statusId),locale));
       }
       shipmentId=shipment.getString("shipmentId");
     }
@@ -143,7 +142,7 @@
     String contactMechId=shipment.getString("destinationTelecomNumberId");
     GenericValue telecomNumber=delegator.findByPrimaryKey("TelecomNumber",UtilMisc.toMap("contactMechId",contactMechId));
     if (telecomNumber == null) {
-      return ServiceUtil.returnError("In Send ProcessShipment Telecom number not found for orderId [" + orderId + "]");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisOrderIdNotTelecomNumberFound",UtilMisc.toMap("orderId",orderId),locale));
     }
     bodyParameters.put("telecomNumber",telecomNumber);
     orderItemShipGroup=EntityUtil.getFirst(delegator.findByAnd("OrderItemShipGroup",UtilMisc.toMap("orderId",orderId)));
@@ -222,7 +221,7 @@
       String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
       Debug.logError(e,errMsg,module);
     }
-    Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename);
+    Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename,locale);
     if (sendMessageReturn != null && ServiceUtil.isError(sendMessageReturn)) {
       try {
         Map<String,Object> uomiCtx=FastMap.newInstance();
@@ -251,7 +250,7 @@
     }
   }
  catch (  Throwable t) {
-    String errMsg="System Error doing Process Shipment message for orderId [" + orderId + "] shipmentId ["+ shipmentId+ "] message ["+ omiPkMap+ "]: "+ t.toString();
+    String errMsg=UtilProperties.getMessage(resource,"OagisErrorProcessShipment",UtilMisc.toMap("orderId",orderId,"shipmentId",shipmentId,"omiPkMap",omiPkMap),locale) + t.toString();
     Debug.logError(t,errMsg,module);
     if (omiPkMap != null) {
       try {

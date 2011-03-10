@@ -1,0 +1,55 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String orderId=paymentPref.getString("orderId");
+  OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+  String productStoreId=orh.getProductStoreId();
+  GenericValue placingParty=orh.getPlacingParty();
+  String partyId=null;
+  if (placingParty != null) {
+    partyId=placingParty.getString("partyId");
+  }
+  GenericValue giftCard=null;
+  try {
+    giftCard=paymentPref.getRelatedOne("GiftCard");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to get GiftCard from OrderPaymentPreference",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotLocateItFromOrderPaymentPreference",locale));
+  }
+  if (giftCard == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotRelease",locale));
+  }
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  Map<String,Object> refundCtx=FastMap.newInstance();
+  refundCtx.put("productStoreId",productStoreId);
+  refundCtx.put("currency",currency);
+  refundCtx.put("partyId",partyId);
+  refundCtx.put("cardNumber",giftCard.get("cardNumber"));
+  refundCtx.put("pinNumber",giftCard.get("pinNumber"));
+  refundCtx.put("amount",amount);
+  refundCtx.put("userLogin",userLogin);
+  Map<String,Object> restoreGcResult=null;
+  try {
+    restoreGcResult=dispatcher.runSync("addFundsToGiftCertificate",refundCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberRefundCallError",locale));
+  }
+  if (ServiceUtil.isError(restoreGcResult)) {
+    return ServiceUtil.returnError(ServiceUtil.getErrorMessage(restoreGcResult));
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (restoreGcResult != null) {
+    Boolean processResult=(Boolean)restoreGcResult.get("processResult");
+    result.put(resultPrefix + "Amount",amount);
+    result.put(resultPrefix + "Result",processResult);
+    result.put(resultPrefix + "Code","R");
+    result.put(resultPrefix + "Flag",restoreGcResult.get("responseCode"));
+    result.put(resultPrefix + "RefNum",restoreGcResult.get("referenceNum"));
+  }
+  return result;
+}

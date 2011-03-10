@@ -1,0 +1,45 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  Locale locale=(Locale)context.get("locale");
+  Security security=ctx.getSecurity();
+  if (!security.hasEntityPermission("ORDERMGR","_UPDATE",userLogin)) {
+    GenericValue placingCustomer=null;
+    try {
+      Map<String,Object> placingCustomerFields=UtilMisc.<String,Object>toMap("orderId",orderId,"partyId",userLogin.getString("partyId"),"roleTypeId","PLACING_CUSTOMER");
+      placingCustomer=delegator.findByPrimaryKey("OrderRole",placingCustomerFields);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderRoleEntity",locale) + e.getMessage());
+    }
+    if (placingCustomer == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+    }
+  }
+  GenericValue shipGroup=null;
+  try {
+    Map<String,String> fields=UtilMisc.<String,String>toMap("orderId",orderId,"shipGroupSeqId",shipGroupSeqId);
+    shipGroup=delegator.findByPrimaryKey("OrderItemShipGroup",fields);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problems getting OrderItemShipGroup for : " + orderId + " / "+ shipGroupSeqId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCannotUpdateProblemGettingOrderShipmentPreference",locale));
+  }
+  if (shipGroup != null) {
+    shipGroup.set("maySplit","Y");
+    try {
+      shipGroup.store();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError("Problem saving OrderItemShipGroup for : " + orderId + " / "+ shipGroupSeqId,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCannotUpdateProblemSettingOrderShipmentPreference",locale));
+    }
+  }
+ else {
+    Debug.logError("ERROR: Got a NULL OrderItemShipGroup",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCannotUpdateNoAvailableGroupsToChange",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

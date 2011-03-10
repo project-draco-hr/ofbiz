@@ -1,0 +1,44 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  try {
+    List<GenericValue> orders=EntityUtil.getRelated("OrderHeader",returnItems);
+    List<GenericValue> productStores=EntityUtil.getRelated("ProductStore",orders);
+    Long storeCreditValidDays=null;
+    for (Iterator<GenericValue> iter=productStores.iterator(); iter.hasNext(); ) {
+      GenericValue productStore=iter.next();
+      Long thisStoreValidDays=productStore.getLong("storeCreditValidDays");
+      if (thisStoreValidDays == null)       continue;
+      if (storeCreditValidDays == null) {
+        storeCreditValidDays=thisStoreValidDays;
+      }
+ else       if (thisStoreValidDays.compareTo(storeCreditValidDays) < 0) {
+        storeCreditValidDays=thisStoreValidDays;
+      }
+    }
+    Timestamp thruDate=null;
+    if (storeCreditValidDays != null)     thruDate=UtilDateTime.getDayEnd(UtilDateTime.nowTimestamp(),storeCreditValidDays);
+    Map<String,Object> input=UtilMisc.<String,Object>toMap("accountLimit",BigDecimal.ZERO,"description","Credit Account for Return #" + returnHeader.get("returnId"),"userLogin",userLogin);
+    input.put("accountCurrencyUomId",returnHeader.get("currencyUomId"));
+    input.put("thruDate",thruDate);
+    Map<String,Object> results=dispatcher.runSync("createBillingAccount",input);
+    if (ServiceUtil.isError(results))     return results;
+    String billingAccountId=(String)results.get("billingAccountId");
+    input=UtilMisc.toMap("billingAccountId",billingAccountId,"partyId",returnHeader.get("fromPartyId"),"roleTypeId","BILL_TO_CUSTOMER","userLogin",userLogin);
+    Map<String,Object> roleResults=dispatcher.runSync("createBillingAccountRole",input);
+    if (ServiceUtil.isError(roleResults)) {
+      Debug.logError("Error with createBillingAccountRole: " + roleResults.get(ModelService.ERROR_MESSAGE),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorWithCreateBillingAccountRole",locale) + roleResults.get(ModelService.ERROR_MESSAGE));
+    }
+    return results;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Entity error when creating BillingAccount: " + e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsCreatingBillingAccount",locale));
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,"Service error when creating BillingAccount: " + e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemsCreatingBillingAccount",locale));
+  }
+}

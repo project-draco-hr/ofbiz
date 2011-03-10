@@ -1,0 +1,61 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  Map<String,Object> dataResourceCtx=FastMap.newInstance();
+  dataResourceCtx.put("objectInfo",imageUrl);
+  dataResourceCtx.put("dataResourceName",filenameToUse);
+  dataResourceCtx.put("userLogin",userLogin);
+  dataResourceCtx.put("dataResourceTypeId","IMAGE_OBJECT");
+  dataResourceCtx.put("mimeTypeId",mimeTypeId);
+  dataResourceCtx.put("isPublic","Y");
+  Map<String,Object> dataResourceResult=FastMap.newInstance();
+  try {
+    dataResourceResult=dispatcher.runSync("createDataResource",dataResourceCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map<String,Object> contentUp=FastMap.newInstance();
+  contentUp.put("contentId",contentId);
+  contentUp.put("dataResourceId",dataResourceResult.get("dataResourceId"));
+  contentUp.put("contentName",filenameToUse);
+  contentUp.put("userLogin",userLogin);
+  try {
+    dispatcher.runSync("updateContent",contentUp);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  GenericValue content=null;
+  try {
+    content=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (content != null) {
+    GenericValue dataResource=null;
+    try {
+      dataResource=content.getRelatedOne("DataResource");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (dataResource != null) {
+      dataResourceCtx.put("dataResourceId",dataResource.getString("dataResourceId"));
+      try {
+        dispatcher.runSync("updateDataResource",dataResourceCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+    }
+  }
+  return result;
+}

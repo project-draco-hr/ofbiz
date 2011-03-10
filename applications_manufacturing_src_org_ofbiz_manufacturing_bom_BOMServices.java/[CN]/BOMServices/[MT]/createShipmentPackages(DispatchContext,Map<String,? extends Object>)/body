@@ -1,0 +1,241 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String shipmentId=(String)context.get("shipmentId");
+  try {
+    List<GenericValue> packages=delegator.findByAnd("ShipmentPackage",UtilMisc.toMap("shipmentId",shipmentId));
+    if (!UtilValidate.isEmpty(packages)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomPackageAlreadyFound",locale));
+    }
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomErrorLoadingShipmentPackages",locale));
+  }
+  List<GenericValue> shipmentItems=null;
+  try {
+    shipmentItems=delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId));
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomErrorLoadingShipmentItems",locale));
+  }
+  Iterator<GenericValue> shipmentItemsIt=shipmentItems.iterator();
+  Map<String,Object> orderReadHelpers=FastMap.newInstance();
+  Map<String,Object> partyOrderShipments=FastMap.newInstance();
+  while (shipmentItemsIt.hasNext()) {
+    GenericValue shipmentItem=(GenericValue)shipmentItemsIt.next();
+    List<GenericValue> orderShipments=null;
+    try {
+      orderShipments=delegator.findByAnd("OrderShipment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItem.getString("shipmentItemSeqId")));
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+    }
+    GenericValue orderShipment=org.ofbiz.entity.util.EntityUtil.getFirst(orderShipments);
+    if (orderShipment != null && !orderReadHelpers.containsKey(orderShipment.getString("orderId"))) {
+      orderReadHelpers.put(orderShipment.getString("orderId"),new OrderReadHelper(delegator,orderShipment.getString("orderId")));
+    }
+    OrderReadHelper orderReadHelper=(OrderReadHelper)orderReadHelpers.get(orderShipment.getString("orderId"));
+    if (orderReadHelper != null) {
+      Map<String,Object> orderShipmentReadMap=UtilMisc.toMap("orderShipment",orderShipment,"orderReadHelper",orderReadHelper);
+      String partyId=(orderReadHelper.getPlacingParty() != null ? orderReadHelper.getPlacingParty().getString("partyId") : null);
+      if (partyId != null) {
+        if (!partyOrderShipments.containsKey(partyId)) {
+          List<Map<String,Object>> orderShipmentReadMapList=FastList.newInstance();
+          partyOrderShipments.put(partyId,orderShipmentReadMapList);
+        }
+        List<Map<String,Object>> orderShipmentReadMapList=UtilGenerics.checkList(partyOrderShipments.get(partyId));
+        orderShipmentReadMapList.add(orderShipmentReadMap);
+      }
+    }
+  }
+  for (  Map.Entry<String,Object> partyOrderShipment : partyOrderShipments.entrySet()) {
+    List<Map<String,Object>> orderShipmentReadMapList=UtilGenerics.checkList(partyOrderShipment.getValue());
+    for (int i=0; i < orderShipmentReadMapList.size(); i++) {
+      Map<String,Object> orderShipmentReadMap=UtilGenerics.checkMap(orderShipmentReadMapList.get(i));
+      GenericValue orderShipment=(GenericValue)orderShipmentReadMap.get("orderShipment");
+      OrderReadHelper orderReadHelper=(OrderReadHelper)orderShipmentReadMap.get("orderReadHelper");
+      GenericValue orderItem=orderReadHelper.getOrderItem(orderShipment.getString("orderItemSeqId"));
+      Map<String,Object> serviceContext=FastMap.newInstance();
+      serviceContext.put("productId",orderItem.getString("productId"));
+      serviceContext.put("quantity",orderShipment.getBigDecimal("quantity"));
+      Map<String,Object> resultService=null;
+      try {
+        resultService=dispatcher.runSync("getProductsInPackages",serviceContext);
+      }
+ catch (      GenericServiceException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+      }
+      List<BOMNode> productsInPackages=UtilGenerics.checkList(resultService.get("productsInPackages"));
+      if (productsInPackages.size() == 1) {
+        BOMNode root=(BOMNode)productsInPackages.get(0);
+        String rootProductId=(root.getSubstitutedNode() != null ? root.getSubstitutedNode().getProduct().getString("productId") : root.getProduct().getString("productId"));
+        if (orderItem.getString("productId").equals(rootProductId)) {
+          productsInPackages=null;
+        }
+      }
+      if (productsInPackages != null && productsInPackages.size() == 0) {
+        productsInPackages=null;
+      }
+      if (UtilValidate.isNotEmpty(productsInPackages)) {
+        orderShipmentReadMap.put("productsInPackages",productsInPackages);
+      }
+    }
+  }
+  Map<String,GenericValue> boxTypes=FastMap.newInstance();
+  for (  Map.Entry<String,Object> partyOrderShipment : partyOrderShipments.entrySet()) {
+    Map<String,List<Map<String,Object>>> boxTypeContent=FastMap.newInstance();
+    List<Map<String,Object>> orderShipmentReadMapList=UtilGenerics.checkList(partyOrderShipment.getValue());
+    for (int i=0; i < orderShipmentReadMapList.size(); i++) {
+      Map<String,Object> orderShipmentReadMap=UtilGenerics.checkMap(orderShipmentReadMapList.get(i));
+      GenericValue orderShipment=(GenericValue)orderShipmentReadMap.get("orderShipment");
+      OrderReadHelper orderReadHelper=(OrderReadHelper)orderShipmentReadMap.get("orderReadHelper");
+      List<BOMNode> productsInPackages=UtilGenerics.checkList(orderShipmentReadMap.get("productsInPackages"));
+      if (productsInPackages != null) {
+        for (int j=0; j < productsInPackages.size(); j++) {
+          BOMNode component=(BOMNode)productsInPackages.get(j);
+          Map<String,Object> boxTypeContentMap=FastMap.newInstance();
+          boxTypeContentMap.put("content",orderShipmentReadMap);
+          boxTypeContentMap.put("componentIndex",Integer.valueOf(j));
+          GenericValue product=component.getProduct();
+          String boxTypeId=product.getString("shipmentBoxTypeId");
+          if (boxTypeId != null) {
+            if (!boxTypes.containsKey(boxTypeId)) {
+              GenericValue boxType=null;
+              try {
+                boxType=delegator.findByPrimaryKey("ShipmentBoxType",UtilMisc.toMap("shipmentBoxTypeId",boxTypeId));
+              }
+ catch (              GenericEntityException e) {
+                return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+              }
+              boxTypes.put(boxTypeId,boxType);
+              List<Map<String,Object>> box=FastList.newInstance();
+              boxTypeContent.put(boxTypeId,box);
+            }
+            List<Map<String,Object>> boxTypeContentList=UtilGenerics.checkList(boxTypeContent.get(boxTypeId));
+            boxTypeContentList.add(boxTypeContentMap);
+          }
+        }
+      }
+ else {
+        Map<String,Object> boxTypeContentMap=FastMap.newInstance();
+        boxTypeContentMap.put("content",orderShipmentReadMap);
+        GenericValue orderItem=orderReadHelper.getOrderItem(orderShipment.getString("orderItemSeqId"));
+        GenericValue product=null;
+        try {
+          product=orderItem.getRelatedOne("Product");
+        }
+ catch (        GenericEntityException e) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+        }
+        String boxTypeId=product.getString("shipmentBoxTypeId");
+        if (boxTypeId != null) {
+          if (!boxTypes.containsKey(boxTypeId)) {
+            GenericValue boxType=null;
+            try {
+              boxType=delegator.findByPrimaryKey("ShipmentBoxType",UtilMisc.toMap("shipmentBoxTypeId",boxTypeId));
+            }
+ catch (            GenericEntityException e) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+            }
+            boxTypes.put(boxTypeId,boxType);
+            List<Map<String,Object>> box=FastList.newInstance();
+            boxTypeContent.put(boxTypeId,box);
+          }
+          List<Map<String,Object>> boxTypeContentList=UtilGenerics.checkList(boxTypeContent.get(boxTypeId));
+          boxTypeContentList.add(boxTypeContentMap);
+        }
+      }
+    }
+    for (    Map.Entry<String,List<Map<String,Object>>> boxTypeContentEntry : boxTypeContent.entrySet()) {
+      String boxTypeId=(String)boxTypeContentEntry.getKey();
+      List<Map<String,Object>> contentList=UtilGenerics.checkList(boxTypeContentEntry.getValue());
+      GenericValue boxType=(GenericValue)boxTypes.get(boxTypeId);
+      BigDecimal boxWidth=boxType.getBigDecimal("boxLength");
+      BigDecimal totalWidth=BigDecimal.ZERO;
+      if (boxWidth == null) {
+        boxWidth=BigDecimal.ZERO;
+      }
+      String shipmentPackageSeqId=null;
+      for (int i=0; i < contentList.size(); i++) {
+        Map<String,Object> contentMap=UtilGenerics.checkMap(contentList.get(i));
+        Map<String,Object> content=UtilGenerics.checkMap(contentMap.get("content"));
+        OrderReadHelper orderReadHelper=(OrderReadHelper)content.get("orderReadHelper");
+        List<BOMNode> productsInPackages=UtilGenerics.checkList(content.get("productsInPackages"));
+        GenericValue orderShipment=(GenericValue)content.get("orderShipment");
+        GenericValue product=null;
+        BigDecimal quantity=BigDecimal.ZERO;
+        boolean subProduct=contentMap.containsKey("componentIndex");
+        if (subProduct) {
+          Integer index=(Integer)contentMap.get("componentIndex");
+          BOMNode component=(BOMNode)productsInPackages.get(index.intValue());
+          product=component.getProduct();
+          quantity=component.getQuantity();
+        }
+ else {
+          GenericValue orderItem=orderReadHelper.getOrderItem(orderShipment.getString("orderItemSeqId"));
+          try {
+            product=orderItem.getRelatedOne("Product");
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+          }
+          quantity=orderShipment.getBigDecimal("quantity");
+        }
+        BigDecimal productDepth=product.getBigDecimal("shippingDepth");
+        if (productDepth == null) {
+          productDepth=product.getBigDecimal("productDepth");
+        }
+        if (productDepth == null) {
+          productDepth=BigDecimal.ONE;
+        }
+        BigDecimal firstMaxNumOfProducts=boxWidth.subtract(totalWidth).divide(productDepth,0,BigDecimal.ROUND_FLOOR);
+        if (firstMaxNumOfProducts.compareTo(BigDecimal.ZERO) == 0)         firstMaxNumOfProducts=BigDecimal.ONE;
+        BigDecimal maxNumOfProducts=boxWidth.divide(productDepth,0,BigDecimal.ROUND_FLOOR);
+        if (maxNumOfProducts.compareTo(BigDecimal.ZERO) == 0)         maxNumOfProducts=BigDecimal.ONE;
+        BigDecimal remQuantity=quantity;
+        boolean isFirst=true;
+        while (remQuantity.compareTo(BigDecimal.ZERO) > 0) {
+          BigDecimal maxQuantity=BigDecimal.ZERO;
+          if (isFirst) {
+            maxQuantity=firstMaxNumOfProducts;
+            isFirst=false;
+          }
+ else {
+            maxQuantity=maxNumOfProducts;
+          }
+          BigDecimal qty=(remQuantity.compareTo(maxQuantity) < 0 ? remQuantity : maxQuantity);
+          if (shipmentPackageSeqId == null) {
+            try {
+              Map<String,Object> resultService=dispatcher.runSync("createShipmentPackage",UtilMisc.<String,Object>toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentBoxTypeId",boxTypeId,"userLogin",userLogin));
+              shipmentPackageSeqId=(String)resultService.get("shipmentPackageSeqId");
+            }
+ catch (            GenericServiceException e) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+            }
+            totalWidth=BigDecimal.ZERO;
+          }
+          try {
+            Map<String,Object> inputMap=null;
+            if (subProduct) {
+              inputMap=UtilMisc.toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackageSeqId,"shipmentItemSeqId",orderShipment.getString("shipmentItemSeqId"),"subProductId",product.getString("productId"),"userLogin",userLogin,"subProductQuantity",qty);
+            }
+ else {
+              inputMap=UtilMisc.toMap("shipmentId",orderShipment.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackageSeqId,"shipmentItemSeqId",orderShipment.getString("shipmentItemSeqId"),"userLogin",userLogin,"quantity",qty);
+            }
+            dispatcher.runSync("createShipmentPackageContent",inputMap);
+          }
+ catch (          GenericServiceException e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingPackageConfiguratorError",locale));
+          }
+          totalWidth=totalWidth.add(qty.multiply(productDepth));
+          if (qty.compareTo(maxQuantity) == 0)           shipmentPackageSeqId=null;
+          remQuantity=remQuantity.subtract(qty);
+        }
+      }
+    }
+  }
+  return result;
+}

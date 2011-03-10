@@ -1,0 +1,49 @@
+{
+  String contentId=(String)ctx.get("contentId");
+  String subContentId=(String)ctx.get("subContentId");
+  String mapKey=(String)ctx.get("mapKey");
+  Timestamp fromDate=UtilDateTime.nowTimestamp();
+  List<String> assocTypes=null;
+  List<Map<String,Object>> passedGlobalNodeTrail=null;
+  GenericValue currentContent=null;
+  String viewContentId=null;
+  if (UtilValidate.isNotEmpty(trail)) {
+    passedGlobalNodeTrail=UtilGenerics.checkList(UtilMisc.makeListWritable(trail));
+  }
+ else {
+    passedGlobalNodeTrail=FastList.newInstance();
+  }
+  int sz=passedGlobalNodeTrail.size();
+  if (sz > 0) {
+    Map<String,Object> nd=passedGlobalNodeTrail.get(sz - 1);
+    if (nd != null)     currentContent=(GenericValue)nd.get("value");
+    if (currentContent != null)     viewContentId=(String)currentContent.get("contentId");
+  }
+  if (UtilValidate.isNotEmpty(subContentId)) {
+    ctx.put("subContentId",subContentId);
+    ctx.put("contentId",null);
+    if (viewContentId != null && viewContentId.equals(subContentId)) {
+      return currentContent;
+    }
+  }
+ else {
+    ctx.put("contentId",contentId);
+    ctx.put("subContentId",null);
+    if (viewContentId != null && viewContentId.equals(contentId)) {
+      return currentContent;
+    }
+  }
+  if (UtilValidate.isNotEmpty(contentId) || UtilValidate.isNotEmpty(subContentId)) {
+    try {
+      currentContent=ContentWorker.getSubContentCache(delegator,contentId,mapKey,subContentId,userLogin,assocTypes,fromDate,nullThruDatesOnly,contentAssocPredicateId);
+      Map<String,Object> node=ContentWorker.makeNode(currentContent);
+      passedGlobalNodeTrail.add(node);
+    }
+ catch (    GenericEntityException e) {
+      throw new GeneralException(e.getMessage());
+    }
+  }
+  ctx.put("globalNodeTrail",passedGlobalNodeTrail);
+  ctx.put("indent",Integer.valueOf(sz));
+  return currentContent;
+}

@@ -1,0 +1,201 @@
+{
+  Map<String,Object> calcResults=FastMap.newInstance();
+  List<GenericValue> orderItemPriceInfos=FastList.newInstance();
+  boolean isSale=false;
+  int totalConds=0;
+  int totalActions=0;
+  int totalRules=0;
+  BigDecimal averageCost=(averageCostValue != null && averageCostValue.get("price") != null) ? averageCostValue.getBigDecimal("price") : listPrice;
+  BigDecimal margin=listPrice.subtract(averageCost);
+  BigDecimal price=listPrice;
+  for (  GenericValue productPriceRule : productPriceRules) {
+    String productPriceRuleId=productPriceRule.getString("productPriceRuleId");
+    java.sql.Timestamp fromDate=productPriceRule.getTimestamp("fromDate");
+    java.sql.Timestamp thruDate=productPriceRule.getTimestamp("thruDate");
+    if (fromDate != null && fromDate.after(nowTimestamp)) {
+      continue;
+    }
+    if (thruDate != null && thruDate.before(nowTimestamp)) {
+      continue;
+    }
+    boolean allTrue=true;
+    StringBuilder condsDescription=new StringBuilder();
+    List<GenericValue> productPriceConds=delegator.findByAndCache("ProductPriceCond",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
+    for (    GenericValue productPriceCond : productPriceConds) {
+      totalConds++;
+      if (!checkPriceCondition(productPriceCond,productId,virtualProductId,prodCatalogId,productStoreGroupId,webSiteId,partyId,quantity,listPrice,currencyUomId,delegator,nowTimestamp)) {
+        allTrue=false;
+        break;
+      }
+      condsDescription.append("[");
+      GenericValue inputParamEnum=productPriceCond.getRelatedOneCache("InputParamEnumeration");
+      condsDescription.append(inputParamEnum.getString("enumCode"));
+      GenericValue operatorEnum=productPriceCond.getRelatedOneCache("OperatorEnumeration");
+      condsDescription.append(operatorEnum.getString("description"));
+      condsDescription.append(productPriceCond.getString("condValue"));
+      condsDescription.append("] ");
+    }
+    condsDescription.append("[list:");
+    condsDescription.append(listPrice);
+    condsDescription.append(";avgCost:");
+    condsDescription.append(averageCost);
+    condsDescription.append(";margin:");
+    condsDescription.append(margin);
+    condsDescription.append("] ");
+    boolean foundFlatOverride=false;
+    if (allTrue) {
+      if ("Y".equals(productPriceRule.getString("isSale"))) {
+        isSale=true;
+      }
+      List<GenericValue> productPriceActions=delegator.findByAndCache("ProductPriceAction",UtilMisc.toMap("productPriceRuleId",productPriceRuleId));
+      for (      GenericValue productPriceAction : productPriceActions) {
+        totalActions++;
+        BigDecimal modifyAmount=BigDecimal.ZERO;
+        if ("PRICE_POD".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          if (productPriceAction.get("amount") != null) {
+            modifyAmount=defaultPrice.multiply(productPriceAction.getBigDecimal("amount").movePointLeft(2));
+          }
+        }
+ else         if ("PRICE_POL".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          if (productPriceAction.get("amount") != null) {
+            modifyAmount=listPrice.multiply(productPriceAction.getBigDecimal("amount").movePointLeft(2));
+          }
+        }
+ else         if ("PRICE_POAC".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          if (productPriceAction.get("amount") != null) {
+            modifyAmount=averageCost.multiply(productPriceAction.getBigDecimal("amount").movePointLeft(2));
+          }
+        }
+ else         if ("PRICE_POM".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          if (productPriceAction.get("amount") != null) {
+            modifyAmount=margin.multiply(productPriceAction.getBigDecimal("amount").movePointLeft(2));
+          }
+        }
+ else         if ("PRICE_POWHS".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          if (productPriceAction.get("amount") != null && wholesalePrice != null) {
+            modifyAmount=wholesalePrice.multiply(productPriceAction.getBigDecimal("amount").movePointLeft(2));
+          }
+        }
+ else         if ("PRICE_FOL".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          if (productPriceAction.get("amount") != null) {
+            modifyAmount=productPriceAction.getBigDecimal("amount");
+          }
+        }
+ else         if ("PRICE_FLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          foundFlatOverride=true;
+          if (productPriceAction.get("amount") != null) {
+            price=productPriceAction.getBigDecimal("amount");
+          }
+ else {
+            Debug.logInfo("ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
+            price=defaultPrice;
+            isSale=false;
+          }
+        }
+ else         if ("PRICE_PFLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          foundFlatOverride=true;
+          price=promoPrice;
+          if (productPriceAction.get("amount") != null) {
+            price=price.add(productPriceAction.getBigDecimal("amount"));
+          }
+          if (price.compareTo(BigDecimal.ZERO) == 0) {
+            if (defaultPrice.compareTo(BigDecimal.ZERO) != 0) {
+              Debug.logInfo("PromoPrice and ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
+              price=defaultPrice;
+            }
+ else             if (listPrice.compareTo(BigDecimal.ZERO) != 0) {
+              Debug.logInfo("PromoPrice and ProductPriceAction had null amount and no default price was available, using list price: " + listPrice + " for product with id "+ productId,module);
+              price=listPrice;
+            }
+ else {
+              Debug.logError("PromoPrice and ProductPriceAction had null amount and no default or list price was available, so price is set to zero for product with id " + productId,module);
+              price=BigDecimal.ZERO;
+            }
+            isSale=false;
+          }
+        }
+ else         if ("PRICE_WFLAT".equals(productPriceAction.getString("productPriceActionTypeId"))) {
+          foundFlatOverride=true;
+          price=wholesalePrice;
+          if (productPriceAction.get("amount") != null) {
+            price=price.add(productPriceAction.getBigDecimal("amount"));
+          }
+          if (price.compareTo(BigDecimal.ZERO) == 0) {
+            if (defaultPrice.compareTo(BigDecimal.ZERO) != 0) {
+              Debug.logInfo("WholesalePrice and ProductPriceAction had null amount, using default price: " + defaultPrice + " for product with id "+ productId,module);
+              price=defaultPrice;
+            }
+ else             if (listPrice.compareTo(BigDecimal.ZERO) != 0) {
+              Debug.logInfo("WholesalePrice and ProductPriceAction had null amount and no default price was available, using list price: " + listPrice + " for product with id "+ productId,module);
+              price=listPrice;
+            }
+ else {
+              Debug.logError("WholesalePrice and ProductPriceAction had null amount and no default or list price was available, so price is set to zero for product with id " + productId,module);
+              price=BigDecimal.ZERO;
+            }
+            isSale=false;
+          }
+        }
+        StringBuilder priceInfoDescription=new StringBuilder();
+        priceInfoDescription.append(condsDescription.toString());
+        priceInfoDescription.append("[");
+        priceInfoDescription.append(UtilProperties.getMessage(resource,"ProductPriceConditionType",locale));
+        priceInfoDescription.append(productPriceAction.getString("productPriceActionTypeId"));
+        priceInfoDescription.append("]");
+        GenericValue orderItemPriceInfo=delegator.makeValue("OrderItemPriceInfo");
+        orderItemPriceInfo.set("productPriceRuleId",productPriceAction.get("productPriceRuleId"));
+        orderItemPriceInfo.set("productPriceActionSeqId",productPriceAction.get("productPriceActionSeqId"));
+        orderItemPriceInfo.set("modifyAmount",modifyAmount);
+        orderItemPriceInfo.set("rateCode",productPriceAction.get("rateCode"));
+        String priceInfoDescriptionString=priceInfoDescription.toString();
+        if (priceInfoDescriptionString.length() > 250) {
+          priceInfoDescriptionString=priceInfoDescriptionString.substring(0,250);
+        }
+        orderItemPriceInfo.set("description",priceInfoDescriptionString);
+        orderItemPriceInfos.add(orderItemPriceInfo);
+        if (foundFlatOverride) {
+          break;
+        }
+ else {
+          price=price.add(modifyAmount);
+        }
+      }
+    }
+    totalRules++;
+    if (foundFlatOverride) {
+      break;
+    }
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("Unchecked Calculated price: " + price,module);
+    Debug.logVerbose("PriceInfo:",module);
+    for (    GenericValue orderItemPriceInfo : orderItemPriceInfos) {
+      Debug.logVerbose(" --- " + orderItemPriceInfo.toString(),module);
+    }
+  }
+  if (totalActions == 0) {
+    price=defaultPrice;
+  }
+ else {
+    validPriceFound=true;
+  }
+  BigDecimal maxSellPrice=maximumPriceValue != null ? maximumPriceValue.getBigDecimal("price") : null;
+  if (maxSellPrice != null && price.compareTo(maxSellPrice) > 0) {
+    price=maxSellPrice;
+  }
+  BigDecimal minSellPrice=minimumPriceValue != null ? minimumPriceValue.getBigDecimal("price") : null;
+  if (minSellPrice != null && price.compareTo(minSellPrice) < 0) {
+    price=minSellPrice;
+    validPriceFound=true;
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Final Calculated price: " + price + ", rules: "+ totalRules+ ", conds: "+ totalConds+ ", actions: "+ totalActions,module);
+  calcResults.put("basePrice",price);
+  calcResults.put("price",price);
+  calcResults.put("listPrice",listPrice);
+  calcResults.put("defaultPrice",defaultPrice);
+  calcResults.put("averageCost",averageCost);
+  calcResults.put("orderItemPriceInfos",orderItemPriceInfos);
+  calcResults.put("isSale",Boolean.valueOf(isSale));
+  calcResults.put("validPriceFound",Boolean.valueOf(validPriceFound));
+  return calcResults;
+}

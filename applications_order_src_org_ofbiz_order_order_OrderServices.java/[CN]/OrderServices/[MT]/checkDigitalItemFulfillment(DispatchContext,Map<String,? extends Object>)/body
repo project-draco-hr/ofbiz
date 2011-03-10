@@ -1,0 +1,150 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"ERROR: Unable to get OrderHeader for orderId : " + orderId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderHeaderForOrderId",UtilMisc.toMap("orderId",orderId),locale));
+  }
+  List<GenericValue> orderItems=null;
+  if (orderHeader != null) {
+    try {
+      orderItems=orderHeader.getRelated("OrderItem");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"ERROR: Unable to get OrderItem list for orderId : " + orderId,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderItemListForOrderId",UtilMisc.toMap("orderId",orderId),locale));
+    }
+  }
+  List<GenericValue> nonProductItems=new ArrayList<GenericValue>();
+  List<GenericValue> digitalItems=new ArrayList<GenericValue>();
+  Map<GenericValue,GenericValue> digitalProducts=new HashMap<GenericValue,GenericValue>();
+  if (UtilValidate.isNotEmpty(orderItems)) {
+    Iterator<GenericValue> i=orderItems.iterator();
+    while (i.hasNext()) {
+      GenericValue item=i.next();
+      GenericValue product=null;
+      try {
+        product=item.getRelatedOne("Product");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"ERROR: Unable to get Product from OrderItem",module);
+      }
+      if (product != null) {
+        GenericValue productType=null;
+        try {
+          productType=product.getRelatedOne("ProductType");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"ERROR: Unable to get ProductType from Product",module);
+        }
+        if (productType != null) {
+          String isPhysical=productType.getString("isPhysical");
+          String isDigital=productType.getString("isDigital");
+          if (isDigital != null && "Y".equalsIgnoreCase(isDigital)) {
+            if ("ITEM_APPROVED".equals(item.getString("statusId"))) {
+              digitalItems.add(item);
+            }
+            if (isPhysical == null || !"Y".equalsIgnoreCase(isPhysical)) {
+              digitalProducts.put(item,product);
+            }
+          }
+        }
+      }
+ else {
+        String itemType=item.getString("orderItemTypeId");
+        if (!"PRODUCT_ORDER_ITEM".equals(itemType)) {
+          nonProductItems.add(item);
+        }
+      }
+    }
+  }
+  if (digitalItems.size() > 0 || nonProductItems.size() > 0) {
+    GenericValue productStore=OrderReadHelper.getProductStoreFromOrder(dispatcher.getDelegator(),orderId);
+    boolean invoiceItems=true;
+    if (productStore != null && productStore.get("autoInvoiceDigitalItems") != null) {
+      invoiceItems="Y".equalsIgnoreCase(productStore.getString("autoInvoiceDigitalItems"));
+    }
+    List<GenericValue> itemsToInvoice=FastList.newInstance();
+    itemsToInvoice.addAll(nonProductItems);
+    itemsToInvoice.addAll(digitalItems);
+    if (invoiceItems) {
+      Map<String,Object> invoiceResult=null;
+      try {
+        GenericValue permUserLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
+        Map<String,Object> invoiceContext=UtilMisc.<String,Object>toMap("orderId",orderId,"billItems",itemsToInvoice,"userLogin",permUserLogin);
+        invoiceResult=dispatcher.runSync("createInvoiceForOrder",invoiceContext);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"ERROR: Unable to invoice digital items",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemWithInvoiceCreationDigitalItemsNotFulfilled",locale));
+      }
+catch (      GenericServiceException e) {
+        Debug.logError(e,"ERROR: Unable to invoice digital items",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemWithInvoiceCreationDigitalItemsNotFulfilled",locale));
+      }
+      if (ModelService.RESPOND_ERROR.equals(invoiceResult.get(ModelService.RESPONSE_MESSAGE))) {
+        return ServiceUtil.returnError((String)invoiceResult.get(ModelService.ERROR_MESSAGE));
+      }
+      Iterator<GenericValue> dii=itemsToInvoice.iterator();
+      while (dii.hasNext()) {
+        GenericValue productType=null;
+        GenericValue item=dii.next();
+        GenericValue product=digitalProducts.get(item);
+        boolean markComplete=false;
+        if (product != null) {
+          try {
+            productType=product.getRelatedOne("ProductType");
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"ERROR: Unable to get ProductType from Product",module);
+          }
+        }
+ else {
+          String itemType=item.getString("orderItemTypeId");
+          if (!"PRODUCT_ORDER_ITEM".equals(itemType)) {
+            markComplete=true;
+          }
+        }
+        if (product != null && productType != null) {
+          String isPhysical=productType.getString("isPhysical");
+          String isDigital=productType.getString("isDigital");
+          if ((isDigital != null && "Y".equalsIgnoreCase(isDigital)) && (isPhysical == null || !"Y".equalsIgnoreCase(isPhysical))) {
+            markComplete=true;
+          }
+        }
+        if (markComplete) {
+          Map<String,Object> statusCtx=new HashMap<String,Object>();
+          statusCtx.put("orderId",item.getString("orderId"));
+          statusCtx.put("orderItemSeqId",item.getString("orderItemSeqId"));
+          statusCtx.put("statusId","ITEM_COMPLETED");
+          statusCtx.put("userLogin",userLogin);
+          try {
+            dispatcher.runSyncIgnore("changeOrderItemStatus",statusCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,"ERROR: Problem setting the status to COMPLETED : " + item,module);
+          }
+        }
+      }
+    }
+    Map<String,Object> fulfillContext=UtilMisc.<String,Object>toMap("orderId",orderId,"orderItems",digitalItems,"userLogin",userLogin);
+    Map<String,Object> fulfillResult=null;
+    try {
+      fulfillResult=dispatcher.runSync("fulfillDigitalItems",fulfillContext,300,true);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"ERROR: Unable to fulfill digital items",module);
+    }
+    if (ModelService.RESPOND_ERROR.equals(fulfillResult.get(ModelService.RESPONSE_MESSAGE))) {
+      return ServiceUtil.returnSuccess((String)fulfillResult.get(ModelService.ERROR_MESSAGE));
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

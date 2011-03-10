@@ -1,0 +1,65 @@
+{
+  GenericValue orderItem=(GenericValue)context.get("orderItem");
+  GenericValue product=null;
+  Locale locale=(Locale)context.get("locale");
+  if (orderItem.get("productId") != null) {
+    try {
+      product=orderItem.getRelatedOne("Product");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"ERROR: Unable to get Product from OrderItem",module);
+    }
+  }
+  boolean returnable=true;
+  if (product != null && product.get("returnable") != null && "N".equalsIgnoreCase(product.getString("returnable"))) {
+    returnable=false;
+  }
+  if (product != null && product.get("supportDiscontinuationDate") != null && !UtilDateTime.nowTimestamp().before(product.getTimestamp("supportDiscontinuationDate"))) {
+    returnable=false;
+  }
+  String itemStatus=orderItem.getString("statusId");
+  BigDecimal orderQty=orderItem.getBigDecimal("quantity");
+  if (orderItem.getBigDecimal("cancelQuantity") != null) {
+    orderQty=orderQty.subtract(orderItem.getBigDecimal("cancelQuantity"));
+  }
+  BigDecimal returnableQuantity=BigDecimal.ZERO;
+  if (returnable && (itemStatus.equals("ITEM_APPROVED") || itemStatus.equals("ITEM_COMPLETED"))) {
+    List<GenericValue> returnedItems=null;
+    try {
+      returnedItems=orderItem.getRelated("ReturnItem");
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnItemInformation",locale));
+    }
+    if (UtilValidate.isEmpty(returnedItems)) {
+      returnableQuantity=orderQty;
+    }
+ else {
+      BigDecimal returnedQty=BigDecimal.ZERO;
+      Iterator<GenericValue> ri=returnedItems.iterator();
+      while (ri.hasNext()) {
+        GenericValue returnItem=ri.next();
+        GenericValue returnHeader=null;
+        try {
+          returnHeader=returnItem.getRelatedOne("ReturnHeader");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnHeaderFromItem",locale));
+        }
+        String returnStatus=returnHeader.getString("statusId");
+        if (!returnStatus.equals("RETURN_CANCELLED")) {
+          returnedQty=returnedQty.add(returnItem.getBigDecimal("returnQuantity"));
+        }
+      }
+      if (returnedQty.compareTo(orderQty) < 0) {
+        returnableQuantity=orderQty.subtract(returnedQty);
+      }
+    }
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("returnableQuantity",returnableQuantity);
+  result.put("returnablePrice",orderItem.getBigDecimal("unitPrice"));
+  return result;
+}

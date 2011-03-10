@@ -1,0 +1,205 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productId=(String)context.get("productId");
+  productId=productId.trim();
+  String productContentTypeId=(String)context.get("productContentTypeId");
+  ByteBuffer imageData=(ByteBuffer)context.get("uploadedFile");
+  String uploadFileName=(String)context.get("_uploadedFile_fileName");
+  String imageResize=(String)context.get("imageResize");
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isNotEmpty(uploadFileName)) {
+    String imageFilenameFormat=UtilProperties.getPropertyValue("catalog","image.filename.format");
+    String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.path"),context);
+    String imageServerUrl=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.url"),context);
+    String rootTargetDirectory=imageServerPath;
+    File rootTargetDir=new File(rootTargetDirectory);
+    if (!rootTargetDir.exists()) {
+      boolean created=rootTargetDir.mkdirs();
+      if (!created) {
+        String errMsg="Not create target directory";
+        Debug.logFatal(errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+    String sizeType=null;
+    if (UtilValidate.isNotEmpty(imageResize)) {
+      if (imageResize.equals("IMAGE_AVATAR")) {
+        sizeType="100x75";
+      }
+ else       if (imageResize.equals("IMAGE_THUMBNAIL")) {
+        sizeType="150x112";
+      }
+ else       if (imageResize.equals("IMAGE_WEBSITE")) {
+        sizeType="320x240";
+      }
+ else       if (imageResize.equals("IMAGE_BOARD")) {
+        sizeType="640x480";
+      }
+ else       if (imageResize.equals("IMAGE_MONITOR15")) {
+        sizeType="800x600";
+      }
+ else       if (imageResize.equals("IMAGE_MONITOR17")) {
+        sizeType="1024x768";
+      }
+ else       if (imageResize.equals("IMAGE_MONITOR19")) {
+        sizeType="1280x1024";
+      }
+ else       if (imageResize.equals("IMAGE_MONITOR21")) {
+        sizeType="1600x1200";
+      }
+    }
+    Map<String,Object> contentCtx=FastMap.newInstance();
+    contentCtx.put("contentTypeId","DOCUMENT");
+    contentCtx.put("userLogin",userLogin);
+    Map<String,Object> contentResult=FastMap.newInstance();
+    try {
+      contentResult=dispatcher.runSync("createContent",contentCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    String contentId=(String)contentResult.get("contentId");
+    result.put("contentFrameId",contentId);
+    result.put("contentId",(String)context.get("contentId"));
+    result.put("dataResourceId",(String)context.get("dataResourceId"));
+    FlexibleStringExpander filenameExpander=FlexibleStringExpander.getInstance(imageFilenameFormat);
+    String fileLocation=filenameExpander.expandString(UtilMisc.toMap("location","products","type",sizeType,"id",contentId));
+    String filenameToUse=fileLocation;
+    if (fileLocation.lastIndexOf("/") != -1) {
+      filenameToUse=fileLocation.substring(fileLocation.lastIndexOf("/") + 1);
+    }
+    String fileContentType=(String)context.get("_uploadedFile_contentType");
+    if (fileContentType.equals("image/pjpeg")) {
+      fileContentType="image/jpeg";
+    }
+ else     if (fileContentType.equals("image/x-png")) {
+      fileContentType="image/png";
+    }
+    List<GenericValue> fileExtension=FastList.newInstance();
+    try {
+      fileExtension=delegator.findByAnd("FileExtension",UtilMisc.toMap("mimeTypeId",fileContentType));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    GenericValue extension=EntityUtil.getFirst(fileExtension);
+    if (extension != null) {
+      filenameToUse+="." + extension.getString("fileExtensionId");
+    }
+    String targetDirectory=imageServerPath + "/" + productId;
+    File targetDir=new File(targetDirectory);
+    if (!targetDir.exists()) {
+      boolean created=targetDir.mkdirs();
+      if (!created) {
+        String errMsg="Not create target directory";
+        Debug.logFatal(errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+    File file=new File(imageServerPath + "/" + productId+ "/"+ uploadFileName);
+    String imageName=null;
+    imagePath=imageServerPath + "/" + productId+ "/"+ uploadFileName;
+    file=checkExistsImage(file);
+    if (UtilValidate.isNotEmpty(file)) {
+      imageName=file.getPath();
+      imageName=imageName.substring(imageName.lastIndexOf("/") + 1);
+    }
+    if (UtilValidate.isEmpty(imageResize)) {
+      try {
+        RandomAccessFile out=new RandomAccessFile(file,"rw");
+        out.write(imageData.array());
+        out.close();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
+catch (      IOException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
+    }
+    if (UtilValidate.isNotEmpty(imageResize)) {
+      File fileOriginal=new File(imageServerPath + "/" + productId+ "/"+ imageName);
+      fileOriginal=checkExistsImage(fileOriginal);
+      uploadFileName=fileOriginal.getName();
+      try {
+        RandomAccessFile outFile=new RandomAccessFile(fileOriginal,"rw");
+        outFile.write(imageData.array());
+        outFile.close();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",fileOriginal.getAbsolutePath()),locale));
+      }
+catch (      IOException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",fileOriginal.getAbsolutePath()),locale));
+      }
+      Map<String,Object> resultResize=FastMap.newInstance();
+      try {
+        resultResize.putAll(ImageManagementServices.scaleImageMangementInAllSize(context,imageName,sizeType,productId));
+      }
+ catch (      IOException e) {
+        String errMsg="Scale additional image in all different sizes is impossible : " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+catch (      JDOMException e) {
+        String errMsg="Errors occur in parsing ImageProperties.xml : " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+    Map<String,Object> contentThumbnail=createContentThumbnail(dctx,context,userLogin,imageData,productId,imageName);
+    String filenameToUseThumb=(String)contentThumbnail.get("filenameToUseThumb");
+    String contentIdThumb=(String)contentThumbnail.get("contentIdThumb");
+    String imageUrl=imageServerUrl + "/" + productId+ "/"+ imageName;
+    String imageUrlThumb=imageServerUrl + "/" + productId+ "/"+ filenameToUseThumb;
+    createContentAndDataResource(dctx,userLogin,imageName,imageUrl,contentId,fileContentType);
+    createContentAndDataResource(dctx,userLogin,filenameToUseThumb,imageUrlThumb,contentIdThumb,fileContentType);
+    Map<String,Object> createContentAssocMap=FastMap.newInstance();
+    createContentAssocMap.put("contentAssocTypeId","IMAGE_THUMBNAIL");
+    createContentAssocMap.put("contentId",contentId);
+    createContentAssocMap.put("contentIdTo",contentIdThumb);
+    createContentAssocMap.put("userLogin",userLogin);
+    createContentAssocMap.put("mapKey","100");
+    try {
+      dispatcher.runSync("createContentAssoc",createContentAssocMap);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    Map<String,Object> productContentCtx=FastMap.newInstance();
+    productContentCtx.put("productId",productId);
+    productContentCtx.put("productContentTypeId",productContentTypeId);
+    productContentCtx.put("fromDate",UtilDateTime.nowTimestamp());
+    productContentCtx.put("userLogin",userLogin);
+    productContentCtx.put("contentId",contentId);
+    productContentCtx.put("statusId","IM_PENDING");
+    try {
+      dispatcher.runSync("createProductContent",productContentCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    Map<String,Object> contentApprovalCtx=FastMap.newInstance();
+    contentApprovalCtx.put("contentId",contentId);
+    contentApprovalCtx.put("userLogin",userLogin);
+    try {
+      dispatcher.runSync("createImageContentApproval",contentApprovalCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  return result;
+}

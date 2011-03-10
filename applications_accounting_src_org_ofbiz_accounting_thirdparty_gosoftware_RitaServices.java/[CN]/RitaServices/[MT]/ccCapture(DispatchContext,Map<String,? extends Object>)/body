@@ -1,0 +1,49 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue authTransaction=(GenericValue)context.get("authTrans");
+  if (authTransaction == null) {
+    authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTransaction == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentTransactionAuthorizationNotFoundCannotCapture",locale));
+  }
+  Properties props=buildPccProperties(context);
+  RitaApi api=getApi(props,"CREDIT");
+  if (api == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaErrorGettingPaymentGatewayConfig",locale));
+  }
+  api.set(RitaApi.ORIG_SEQ_NUM,authTransaction.getString("referenceNum"));
+  api.set(RitaApi.COMMAND,"COMPLETION");
+  RitaApi out=null;
+  try {
+    out=api.send();
+  }
+ catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (out != null) {
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    String resultCode=out.get(RitaApi.RESULT);
+    if ("CAPTURED".equals(resultCode)) {
+      result.put("captureResult",Boolean.TRUE);
+    }
+ else {
+      result.put("captureResult",Boolean.FALSE);
+    }
+    result.put("captureAmount",context.get("captureAmount"));
+    result.put("captureRefNum",out.get(RitaApi.INTRN_SEQ_NUM) != null ? out.get(RitaApi.INTRN_SEQ_NUM) : "");
+    result.put("captureCode",out.get(RitaApi.AUTH_CODE));
+    result.put("captureFlag",out.get(RitaApi.REFERENCE));
+    result.put("captureMessage",out.get(RitaApi.RESULT));
+    return result;
+  }
+ else {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaResultIsNull",locale));
+  }
+}

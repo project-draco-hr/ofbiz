@@ -1,0 +1,137 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.path"),context);
+  String imageServerUrl=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.url"),context);
+  String nameOfThumb=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.nameofthumbnail"),context);
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productId=(String)context.get("productId");
+  String imageName=(String)context.get("imageName");
+  String imageWidth=(String)context.get("imageWidth");
+  String imageHeight=(String)context.get("imageHeight");
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isEmpty(context.get("frameContentId")) || UtilValidate.isEmpty(context.get("frameDataResourceId"))) {
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageFrameContentIdRequired",locale));
+    result.putAll(context);
+  }
+  if (UtilValidate.isEmpty(context.get("imageWidth")) || UtilValidate.isEmpty(context.get("imageHeight"))) {
+    result=ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageWidthAndHeightRequired",locale));
+    result.putAll(context);
+  }
+  String frameContentId=(String)context.get("frameContentId");
+  String frameDataResourceId=(String)context.get("frameDataResourceId");
+  String frameImageName=null;
+  try {
+    GenericValue contentDataResourceView=delegator.findByPrimaryKey("ContentDataResourceView",UtilMisc.toMap("contentId",frameContentId,"drDataResourceId",frameDataResourceId));
+    frameImageName=contentDataResourceView.getString("contentName");
+  }
+ catch (  Exception e) {
+    Debug.logError(e,module);
+    result=ServiceUtil.returnError(e.getMessage());
+    result.putAll(context);
+  }
+  if (UtilValidate.isNotEmpty(imageName)) {
+    BufferedImage bufImg1=ImageIO.read(new File(imageServerPath + "/" + productId+ "/"+ imageName));
+    BufferedImage bufImg2=ImageIO.read(new File(imageServerPath + "/frame/" + frameImageName));
+    int bufImgType;
+    if (BufferedImage.TYPE_CUSTOM == bufImg1.getType()) {
+      bufImgType=BufferedImage.TYPE_INT_ARGB_PRE;
+    }
+ else {
+      bufImgType=bufImg1.getType();
+    }
+    int width=Integer.parseInt(imageWidth);
+    int height=Integer.parseInt(imageHeight);
+    Map<String,Object> contentCtx=FastMap.newInstance();
+    contentCtx.put("contentTypeId","DOCUMENT");
+    contentCtx.put("userLogin",userLogin);
+    Map<String,Object> contentResult=FastMap.newInstance();
+    try {
+      contentResult=dispatcher.runSync("createContent",contentCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      result=ServiceUtil.returnError(e.getMessage());
+      result.putAll(context);
+    }
+    Map<String,Object> contentThumb=FastMap.newInstance();
+    contentThumb.put("contentTypeId","DOCUMENT");
+    contentThumb.put("userLogin",userLogin);
+    Map<String,Object> contentThumbResult=FastMap.newInstance();
+    try {
+      contentThumbResult=dispatcher.runSync("createContent",contentThumb);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      result=ServiceUtil.returnError(e.getMessage());
+      result.putAll(context);
+    }
+    String contentIdThumb=(String)contentThumbResult.get("contentId");
+    String contentId=(String)contentResult.get("contentId");
+    String filenameToUse=(String)contentResult.get("contentId") + ".jpg";
+    String filenameTouseThumb=(String)contentResult.get("contentId") + nameOfThumb + ".jpg";
+    Image newImg1=bufImg1.getScaledInstance((int)width,(int)height,Image.SCALE_SMOOTH);
+    Image newImg2=bufImg2.getScaledInstance((int)width,(int)height,Image.SCALE_SMOOTH);
+    BufferedImage bufNewImg=combineBufferedImage(newImg1,newImg2,bufImgType);
+    String mimeType=imageName.substring(imageName.lastIndexOf(".") + 1);
+    ImageIO.write((RenderedImage)bufNewImg,mimeType,new File(imageServerPath + "/" + productId+ "/"+ filenameToUse));
+    double imgHeight=bufNewImg.getHeight();
+    double imgWidth=bufNewImg.getWidth();
+    Map<String,Object> resultResize=ImageManagementServices.resizeImageThumbnail(bufNewImg,imgHeight,imgWidth);
+    ImageIO.write((RenderedImage)resultResize.get("bufferedImage"),mimeType,new File(imageServerPath + "/" + productId+ "/"+ filenameTouseThumb));
+    String imageUrlResource=imageServerUrl + "/" + productId+ "/"+ filenameToUse;
+    String imageUrlThumb=imageServerUrl + "/" + productId+ "/"+ filenameTouseThumb;
+    ImageManagementServices.createContentAndDataResource(dctx,userLogin,filenameToUse,imageUrlResource,contentId,"image/jpeg");
+    ImageManagementServices.createContentAndDataResource(dctx,userLogin,filenameTouseThumb,imageUrlThumb,contentIdThumb,"image/jpeg");
+    Map<String,Object> createContentAssocMap=FastMap.newInstance();
+    createContentAssocMap.put("contentAssocTypeId","IMAGE_THUMBNAIL");
+    createContentAssocMap.put("contentId",contentId);
+    createContentAssocMap.put("contentIdTo",contentIdThumb);
+    createContentAssocMap.put("userLogin",userLogin);
+    createContentAssocMap.put("mapKey","100");
+    try {
+      dispatcher.runSync("createContentAssoc",createContentAssocMap);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      result=ServiceUtil.returnError(e.getMessage());
+      result.putAll(context);
+    }
+    Map<String,Object> productContentCtx=FastMap.newInstance();
+    productContentCtx.put("productId",productId);
+    productContentCtx.put("productContentTypeId","IMAGE");
+    productContentCtx.put("fromDate",UtilDateTime.nowTimestamp());
+    productContentCtx.put("userLogin",userLogin);
+    productContentCtx.put("contentId",contentId);
+    productContentCtx.put("statusId","IM_PENDING");
+    try {
+      dispatcher.runSync("createProductContent",productContentCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      result=ServiceUtil.returnError(e.getMessage());
+      result.putAll(context);
+    }
+    Map<String,Object> contentApprovalCtx=FastMap.newInstance();
+    contentApprovalCtx.put("contentId",contentId);
+    contentApprovalCtx.put("userLogin",userLogin);
+    try {
+      dispatcher.runSync("createImageContentApproval",contentApprovalCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      result=ServiceUtil.returnError(e.getMessage());
+      result.putAll(context);
+    }
+  }
+ else {
+    String errMsg="Please select Image.";
+    Debug.logFatal(errMsg,module);
+    result=ServiceUtil.returnError(errMsg);
+    result.putAll(context);
+  }
+  String successMsg="Frame image successfully.";
+  result=ServiceUtil.returnSuccess(successMsg);
+  return result;
+}

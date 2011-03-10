@@ -1,14 +1,18 @@
 {
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
   GenericValue shipmentRouteSegment=(GenericValue)context.get("shipmentRouteSegment");
+  Locale locale=(Locale)context.get("locale");
   Document requestDocument;
   boolean certify=false;
-  if (!"Y".equalsIgnoreCase(UtilProperties.getPropertyValue("shipment.properties","shipment.usps.test"))) {
-    requestDocument=createUspsRequestDocument("PriorityMailIntlRequest",false);
+  String test=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"test",resource,"shipment.usps.test");
+  if (!"Y".equalsIgnoreCase(test)) {
+    requestDocument=createUspsRequestDocument("PriorityMailIntlRequest",false,delegator,shipmentGatewayConfigId,resource);
   }
  else {
-    requestDocument=createUspsRequestDocument("PriorityMailIntlCertifyRequest",false);
+    requestDocument=createUspsRequestDocument("PriorityMailIntlCertifyRequest",false,delegator,shipmentGatewayConfigId,resource);
     certify=true;
   }
   Element rootElement=requestDocument.getDocumentElement();
@@ -34,7 +38,7 @@
     Debug.logError(e,module);
   }
   if (originAddress == null || originTelecomNumber == null) {
-    return ServiceUtil.returnError("Unable to request a USPS Priority Mail International Label: ShipmentRouteSegment is missing origin phone or address details");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsPriorityMailLabelOriginAddressMissing",locale));
   }
   String fromAttnName=originAddress.getString("attnName");
   String fromFirstName=StringUtils.defaultIfEmpty(StringUtils.substringBefore(fromAttnName," "),fromAttnName);
@@ -129,21 +133,21 @@
     Document responseDocument=null;
     String api=certify ? "PriorityMailIntlCertify" : "PriorityMailIntl";
     try {
-      responseDocument=sendUspsRequest(api,requestDocument);
+      responseDocument=sendUspsRequest(api,requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
     }
  catch (    UspsRequestException e) {
       Debug.log(e,module);
-      return ServiceUtil.returnError("Error sending request for USPS Priority Mail International service: " + e.getMessage());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsPriorityMailLabelSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
     }
     Element responseElement=responseDocument.getDocumentElement();
     String labelImageString=UtilXml.childElementValue(responseElement,"LabelImage");
     if (UtilValidate.isEmpty(labelImageString)) {
-      return ServiceUtil.returnError("Incomplete response from the USPS Priority Mail International service: " + "missing or empty LabelImage element");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsPriorityMailLabelResponseIncompleteElementLabelImage",locale));
     }
     shipmentPackageRouteSeg.setBytes("labelImage",Base64.base64Decode(labelImageString.getBytes()));
     String trackingCode=UtilXml.childElementValue(responseElement,"BarcodeNumber");
     if (UtilValidate.isEmpty(trackingCode)) {
-      return ServiceUtil.returnError("Incomplete response from the USPS Priority Mail International service: " + "missing or empty BarcodeNumber element");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsPriorityMailLabelResponseIncompleteElementBarcodeNumber",locale));
     }
     shipmentPackageRouteSeg.set("trackingCode",trackingCode);
     try {

@@ -2,6 +2,7 @@
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
   String surveyId=null;
   try {
@@ -11,7 +12,7 @@
     PdfReader pdfReader=new PdfReader(byteBuffer.array());
     PdfStamper pdfStamper=new PdfStamper(pdfReader,os);
     AcroFields acroFields=pdfStamper.getAcroFields();
-    Map acroFieldMap=acroFields.getFields();
+    Map<String,Object> acroFieldMap=UtilGenerics.checkMap(acroFields.getFields());
     String contentId=(String)context.get("contentId");
     GenericValue survey=null;
     surveyId=(String)context.get("surveyId");
@@ -23,12 +24,12 @@
       survey=delegator.createSetNextSeqId(survey);
       surveyId=survey.getString("surveyId");
     }
-    Map createCategoryResultMap=dispatcher.runSync("createSurveyQuestionCategory",UtilMisc.<String,Object>toMap("description","From AcroForm in Content [" + contentId + "] for Survey ["+ surveyId+ "]","userLogin",userLogin));
+    Map<String,Object> createCategoryResultMap=dispatcher.runSync("createSurveyQuestionCategory",UtilMisc.<String,Object>toMap("description","From AcroForm in Content [" + contentId + "] for Survey ["+ surveyId+ "]","userLogin",userLogin));
     String surveyQuestionCategoryId=(String)createCategoryResultMap.get("surveyQuestionCategoryId");
     pdfStamper.setFormFlattening(true);
-    Iterator i=acroFieldMap.keySet().iterator();
+    Iterator<String> i=acroFieldMap.keySet().iterator();
     while (i.hasNext()) {
-      String fieldName=(String)i.next();
+      String fieldName=i.next();
       AcroFields.Item item=acroFields.getFieldItem(fieldName);
       int type=acroFields.getFieldType(fieldName);
       String value=acroFields.getField(fieldName);
@@ -50,8 +51,8 @@
         surveyQuestion.set("surveyQuestionTypeId","TEXT_SHORT");
         Debug.logWarning("Building Survey from PDF, fieldName=[" + fieldName + "]: don't know how to handle field type: "+ type+ "; defaulting to short text",module);
       }
-      Integer tabPage=(Integer)item.page.get(0);
-      Integer tabOrder=(Integer)item.tabOrder.get(0);
+      Integer tabPage=item.getPage(0);
+      Integer tabOrder=item.getTabOrder(0);
       Debug.logInfo("tabPage=" + tabPage + ", tabOrder="+ tabOrder,module);
       float[] fieldPositions=acroFields.getFieldPositions(fieldName);
       float fieldPage=fieldPositions[0];
@@ -70,15 +71,14 @@
         Debug.logInfo("fieldPage=" + fieldPage + ", fieldLlx="+ fieldLlx+ ", fieldLly="+ fieldLly+ ", fieldUrx="+ fieldUrx+ ", fieldUry="+ fieldUry+ ", sequenceNum="+ sequenceNum,module);
       }
       String annotation=null;
-      Iterator widgetIter=item.widgets.iterator();
-      while (widgetIter.hasNext()) {
-        PdfDictionary dict=(PdfDictionary)widgetIter.next();
+      for (int k=0; k < item.size(); ++k) {
+        PdfDictionary dict=item.getWidget(k);
         PdfObject typeValue=null;
         PdfObject tuValue=null;
-        Set dictKeys=dict.getKeys();
-        Iterator dictKeyIter=dictKeys.iterator();
+        Set<PdfName> dictKeys=UtilGenerics.checkSet(dict.getKeys());
+        Iterator<PdfName> dictKeyIter=dictKeys.iterator();
         while (dictKeyIter.hasNext()) {
-          PdfName dictKeyName=(PdfName)dictKeyIter.next();
+          PdfName dictKeyName=dictKeyIter.next();
           PdfObject dictObject=dict.get(dictKeyName);
           if ("/Type".equals(dictKeyName.toString())) {
             typeValue=dictObject;
@@ -115,20 +115,18 @@
     }
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error generating PDF: " + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error generating PDF: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPDFGeneratingError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
 catch (  GeneralException e) {
-    System.err.println(e.getMessage());
-    return ServiceUtil.returnError(e.getMessage());
+    Debug.logError(e,"Error generating PDF: " + e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPDFGeneratingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
 catch (  Exception e) {
-    String errMsg="Error generating PDF: " + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error generating PDF: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPDFGeneratingError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
-  Map results=ServiceUtil.returnSuccess();
+  Map<String,Object> results=ServiceUtil.returnSuccess();
   results.put("surveyId",surveyId);
   return results;
 }

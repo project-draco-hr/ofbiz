@@ -18,7 +18,7 @@
   if (orderHeader != null) {
     grandTotal=orderHeader.getBigDecimal("grandTotal");
   }
-  List paymentMethodTypes=null;
+  List<GenericValue> paymentMethodTypes=null;
   try {
     EntityExpr ee=EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.NOT_EQUAL,"EXT_OFFLINE");
     paymentMethodTypes=delegator.findList("PaymentMethodType",ee,null,null,null,false);
@@ -32,10 +32,10 @@
     request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderProblemsWithPaymentTypeLookup",locale));
     return "error";
   }
-  List toBeStored=new LinkedList();
+  List<GenericValue> toBeStored=FastList.newInstance();
   GenericValue placingCustomer=null;
   try {
-    List pRoles=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","PLACING_CUSTOMER"));
+    List<GenericValue> pRoles=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","PLACING_CUSTOMER"));
     if (UtilValidate.isNotEmpty(pRoles))     placingCustomer=EntityUtil.getFirst(pRoles);
   }
  catch (  GenericEntityException e) {
@@ -43,9 +43,9 @@
     request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderErrorProcessingOfflinePayments",locale));
     return "error";
   }
-  Iterator pmti=paymentMethodTypes.iterator();
+  Iterator<GenericValue> pmti=paymentMethodTypes.iterator();
   while (pmti.hasNext()) {
-    GenericValue paymentMethodType=(GenericValue)pmti.next();
+    GenericValue paymentMethodType=pmti.next();
     String paymentMethodTypeId=paymentMethodType.getString("paymentMethodTypeId");
     String amountStr=request.getParameter(paymentMethodTypeId + "_amount");
     String paymentReference=request.getParameter(paymentMethodTypeId + "_reference");
@@ -59,7 +59,7 @@
         return "error";
       }
       if (paymentTypeAmount.compareTo(BigDecimal.ZERO) > 0) {
-        Map prefFields=UtilMisc.toMap("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference"));
+        Map<String,String> prefFields=UtilMisc.<String,String>toMap("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference"));
         GenericValue paymentPreference=delegator.makeValue("OrderPaymentPreference",prefFields);
         paymentPreference.set("paymentMethodTypeId",paymentMethodType.getString("paymentMethodTypeId"));
         paymentPreference.set("maxAmount",paymentTypeAmount);
@@ -77,7 +77,7 @@
           request.setAttribute("_ERROR_MESSAGE_",ex.getMessage());
           return "error";
         }
-        Map results=null;
+        Map<String,Object> results=null;
         try {
           results=dispatcher.runSync("createPaymentFromPreference",UtilMisc.toMap("userLogin",userLogin,"orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"),"paymentRefNum",paymentReference,"paymentFromId",placingCustomer.getString("partyId"),"comments","Payment received offline and manually entered."));
         }
@@ -88,14 +88,14 @@
         }
         if ((results == null) || (results.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
           Debug.logError((String)results.get(ModelService.ERROR_MESSAGE),module);
-          request.setAttribute("_ERROR_MESSAGE_",(String)results.get(ModelService.ERROR_MESSAGE));
+          request.setAttribute("_ERROR_MESSAGE_",results.get(ModelService.ERROR_MESSAGE));
           return "error";
         }
       }
     }
   }
   GenericValue offlineValue=null;
-  List currentPrefs=null;
+  List<GenericValue> currentPrefs=null;
   BigDecimal paymentTally=BigDecimal.ZERO;
   try {
     EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED")),EntityOperator.AND);
@@ -105,9 +105,9 @@
     Debug.logError(e,"ERROR: Unable to get existing payment preferences from order",module);
   }
   if (UtilValidate.isNotEmpty(currentPrefs)) {
-    Iterator cpi=currentPrefs.iterator();
+    Iterator<GenericValue> cpi=currentPrefs.iterator();
     while (cpi.hasNext()) {
-      GenericValue cp=(GenericValue)cpi.next();
+      GenericValue cp=cpi.next();
       String paymentMethodType=cp.getString("paymentMethodTypeId");
       if ("EXT_OFFLINE".equals(paymentMethodType)) {
         offlineValue=cp;

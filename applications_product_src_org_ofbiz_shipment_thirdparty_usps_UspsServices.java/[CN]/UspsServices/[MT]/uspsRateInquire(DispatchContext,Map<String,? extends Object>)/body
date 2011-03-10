@@ -1,8 +1,11 @@
 {
   Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
   BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
   if (shippableWeight.compareTo(BigDecimal.ZERO) == 0) {
-    return ServiceUtil.returnFailure("shippableWeight must be greater than 0");
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsShippableWeightMustGreaterThanZero",locale));
   }
   String originationZip=null;
   GenericValue productStore=ProductStoreWorker.getProductStore(((String)context.get("productStoreId")),delegator);
@@ -21,7 +24,7 @@
     }
   }
   if (UtilValidate.isEmpty(originationZip)) {
-    return ServiceUtil.returnError("Unable to determine the origination ZIP");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineOriginationZip",locale));
   }
   String destinationZip=null;
   String shippingContactMechId=(String)context.get("shippingContactMechId");
@@ -30,7 +33,7 @@
       GenericValue shipToAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
       if (shipToAddress != null) {
         if (!domesticCountries.contains(shipToAddress.getString("countryGeoId"))) {
-          return ServiceUtil.returnFailure("uspsRateInquire is only valid for US destinations.");
+          return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateInquiryOnlyInUsDestinations",locale));
         }
         destinationZip=shipToAddress.getString("postalCode");
       }
@@ -40,24 +43,24 @@
     }
   }
   if (UtilValidate.isEmpty(destinationZip)) {
-    return ServiceUtil.returnError("Unable to determine the destination ZIP");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineDestinationZip",locale));
   }
   String serviceCode=null;
   try {
     GenericValue carrierShipmentMethod=delegator.findByPrimaryKey("CarrierShipmentMethod",UtilMisc.toMap("shipmentMethodTypeId",(String)context.get("shipmentMethodTypeId"),"partyId",(String)context.get("carrierPartyId"),"roleTypeId",(String)context.get("carrierRoleTypeId")));
     if (carrierShipmentMethod != null) {
-      serviceCode=carrierShipmentMethod.getString("carrierServiceCode");
+      serviceCode=carrierShipmentMethod.getString("carrierServiceCode").toUpperCase();
     }
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
   }
   if (UtilValidate.isEmpty(serviceCode)) {
-    return ServiceUtil.returnError("Unable to determine the service code");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineServiceCode",locale));
   }
-  Document requestDocument=createUspsRequestDocument("RateV2Request",true);
+  Document requestDocument=createUspsRequestDocument("RateV2Request",true,delegator,shipmentGatewayConfigId,resource);
   BigDecimal maxWeight=new BigDecimal("70");
-  String maxWeightStr=UtilProperties.getPropertyValue((String)context.get("serviceConfigProps"),"shipment.usps.max.estimate.weight","70");
+  String maxWeightStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"maxEstimateWeight",resource,"shipment.usps.max.estimate.weight","70");
   try {
     maxWeight=new BigDecimal(maxWeightStr);
   }
@@ -66,11 +69,11 @@
     maxWeight=new BigDecimal("70");
   }
   List<Map<String,Object>> shippableItemInfo=UtilGenerics.checkList(context.get("shippableItemInfo"));
-  List<Map<String,BigDecimal>> packages=getPackageSplit(dctx,shippableItemInfo,maxWeight);
+  List<Map<String,BigDecimal>> packages=ShipmentWorker.getPackageSplit(dctx,shippableItemInfo,maxWeight);
   boolean isOnePackage=packages.size() == 1;
   for (ListIterator<Map<String,BigDecimal>> li=packages.listIterator(); li.hasNext(); ) {
     Map<String,BigDecimal> packageMap=li.next();
-    BigDecimal packageWeight=isOnePackage ? shippableWeight : calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
+    BigDecimal packageWeight=isOnePackage ? shippableWeight : ShipmentWorker.calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
     if (packageWeight.compareTo(BigDecimal.ZERO) == 0) {
       continue;
     }
@@ -90,23 +93,23 @@
     if ("Parcel".equalsIgnoreCase(serviceCode)) {
       UtilXml.addChildElementValue(packageElement,"Container","None",requestDocument);
     }
-    UtilXml.addChildElementValue(packageElement,"Size","Regular",requestDocument);
-    UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Size","REGULAR",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Machinable","false",requestDocument);
   }
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("RateV2",requestDocument);
+    responseDocument=sendUspsRequest("RateV2",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnError("Error sending request for USPS Domestic Rate Calculation service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   if (responseDocument == null) {
-    return ServiceUtil.returnError("No rate available at this time");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
   }
   List<? extends Element> rates=UtilXml.childElementList(responseDocument.getDocumentElement(),"Package");
   if (UtilValidate.isEmpty(rates)) {
-    return ServiceUtil.returnError("No rate available at this time");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
   }
   BigDecimal estimateAmount=BigDecimal.ZERO;
   for (  Element packageElement : rates) {

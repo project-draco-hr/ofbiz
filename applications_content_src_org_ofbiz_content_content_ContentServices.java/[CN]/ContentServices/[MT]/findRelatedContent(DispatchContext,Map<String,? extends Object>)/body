@@ -1,37 +1,38 @@
 {
   LocalDispatcher dispatcher=dctx.getDispatcher();
-  Map results=FastMap.newInstance();
+  Map<String,Object> results=FastMap.newInstance();
   GenericValue currentContent=(GenericValue)context.get("currentContent");
   String fromDate=(String)context.get("fromDate");
   String thruDate=(String)context.get("thruDate");
   String toFrom=(String)context.get("toFrom");
+  Locale locale=(Locale)context.get("locale");
   if (toFrom == null) {
     toFrom="TO";
   }
  else {
     toFrom=toFrom.toUpperCase();
   }
-  List assocTypes=(List)context.get("contentAssocTypeList");
-  List targetOperations=(List)context.get("targetOperationList");
-  List contentList=null;
-  List contentTypes=(List)context.get("contentTypeList");
+  List<String> assocTypes=UtilGenerics.checkList(context.get("contentAssocTypeList"));
+  List<String> targetOperations=UtilGenerics.checkList(context.get("targetOperationList"));
+  List<String> contentTypes=UtilGenerics.checkList(context.get("contentTypeList"));
+  List<GenericValue> contentList=null;
   try {
     contentList=ContentWorker.getAssociatedContent(currentContent,toFrom,assocTypes,contentTypes,fromDate,thruDate);
   }
  catch (  GenericEntityException e) {
-    return ServiceUtil.returnError("Error getting associated content: " + e.toString());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentAssocRetrievingError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   if (targetOperations == null || targetOperations.isEmpty()) {
     results.put("contentList",contentList);
     return results;
   }
-  Map serviceInMap=FastMap.newInstance();
+  Map<String,Object> serviceInMap=FastMap.newInstance();
   serviceInMap.put("userLogin",context.get("userLogin"));
   serviceInMap.put("targetOperationList",targetOperations);
   serviceInMap.put("entityOperation",context.get("entityOperation"));
-  List permittedList=FastList.newInstance();
-  Iterator it=contentList.iterator();
-  Map permResults=null;
+  List<GenericValue> permittedList=FastList.newInstance();
+  Iterator<GenericValue> it=contentList.iterator();
+  Map<String,Object> permResults=null;
   while (it.hasNext()) {
     GenericValue content=(GenericValue)it.next();
     serviceInMap.put("currentContent",content);
@@ -40,7 +41,7 @@
     }
  catch (    GenericServiceException e) {
       Debug.logError(e,"Problem checking permissions","ContentServices");
-      return ServiceUtil.returnError("Problem checking permissions");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentPermissionNotGranted",locale));
     }
     String permissionStatus=(String)permResults.get("permissionStatus");
     if (permissionStatus != null && permissionStatus.equalsIgnoreCase("granted")) {

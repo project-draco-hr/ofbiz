@@ -1,18 +1,20 @@
 {
   final StringBuilder buf=new StringBuilder();
   final Environment env=Environment.getCurrentEnvironment();
-  final Map templateCtx=(Map)FreeMarkerWorker.getWrappedObject("context",env);
-  final Map savedValues=FreeMarkerWorker.saveValues(templateCtx,saveKeyNames);
+  final Map<String,Object> templateCtx=FreeMarkerWorker.getWrappedObject("context",env);
+  final Map<String,Object> savedValues=FreeMarkerWorker.saveValues(templateCtx,saveKeyNames);
   FreeMarkerWorker.overrideWithArgs(templateCtx,args);
-  final Delegator delegator=(Delegator)FreeMarkerWorker.getWrappedObject("delegator",env);
-  final LocalDispatcher dispatcher=(LocalDispatcher)FreeMarkerWorker.getWrappedObject("dispatcher",env);
-  GenericValue view=(GenericValue)FreeMarkerWorker.getWrappedObject("subContentDataResourceView",env);
+  final Delegator delegator=FreeMarkerWorker.getWrappedObject("delegator",env);
+  final LocalDispatcher dispatcher=FreeMarkerWorker.getWrappedObject("dispatcher",env);
+  GenericValue view=FreeMarkerWorker.getWrappedObject("subContentDataResourceView",env);
   final Integer indent=(templateCtx.get("indent") == null) ? Integer.valueOf(0) : (Integer)templateCtx.get("indent");
   String contentId=(String)templateCtx.get("contentId");
   String subContentId=(String)templateCtx.get("subContentId");
   if (view == null) {
     String thisContentId=subContentId;
-    if (UtilValidate.isEmpty(thisContentId))     thisContentId=contentId;
+    if (UtilValidate.isEmpty(thisContentId)) {
+      thisContentId=contentId;
+    }
     if (UtilValidate.isNotEmpty(thisContentId)) {
       try {
         view=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",thisContentId));
@@ -24,13 +26,13 @@
     }
   }
   final GenericValue subContentDataResourceView=view;
-  final Map traverseContext=FastMap.newInstance();
+  final Map<String,Object> traverseContext=FastMap.newInstance();
   traverseContext.put("delegator",delegator);
-  Map whenMap=FastMap.newInstance();
-  whenMap.put("followWhen",(String)templateCtx.get("followWhen"));
-  whenMap.put("pickWhen",(String)templateCtx.get("pickWhen"));
-  whenMap.put("returnBeforePickWhen",(String)templateCtx.get("returnBeforePickWhen"));
-  whenMap.put("returnAfterPickWhen",(String)templateCtx.get("returnAfterPickWhen"));
+  Map<String,Object> whenMap=FastMap.newInstance();
+  whenMap.put("followWhen",templateCtx.get("followWhen"));
+  whenMap.put("pickWhen",templateCtx.get("pickWhen"));
+  whenMap.put("returnBeforePickWhen",templateCtx.get("returnBeforePickWhen"));
+  whenMap.put("returnAfterPickWhen",templateCtx.get("returnAfterPickWhen"));
   traverseContext.put("whenMap",whenMap);
   String fromDateStr=(String)templateCtx.get("fromDateStr");
   String thruDateStr=(String)templateCtx.get("thruDateStr");
@@ -58,10 +60,9 @@
       out.flush();
     }
     @Override public int onStart() throws TemplateModelException, IOException {
-      List nodeTrail=FastList.newInstance();
+      List<Map<String,Object>> nodeTrail=FastList.newInstance();
       traverseContext.put("nodeTrail",nodeTrail);
-      GenericValue content=null;
-      Map rootNode=ContentWorker.makeNode(subContentDataResourceView);
+      Map<String,Object> rootNode=ContentWorker.makeNode(subContentDataResourceView);
       ContentWorker.traceNodeTrail("1",nodeTrail);
       ContentWorker.selectKids(rootNode,traverseContext);
       ContentWorker.traceNodeTrail("2",nodeTrail);
@@ -83,7 +84,7 @@
       }
     }
     @Override public int afterBody() throws TemplateModelException, IOException {
-      List nodeTrail=(List)traverseContext.get("nodeTrail");
+      List<Map<String,Object>> nodeTrail=UtilGenerics.checkList(traverseContext.get("nodeTrail"));
       ContentWorker.traceNodeTrail("6",nodeTrail);
       boolean inProgress=ContentWorker.traverseSubContent(traverseContext);
       ContentWorker.traceNodeTrail("7",nodeTrail);
@@ -104,7 +105,7 @@
       String wrapTemplateId=(String)templateCtx.get("wrapTemplateId");
       if (UtilValidate.isNotEmpty(wrapTemplateId)) {
         templateCtx.put("wrappedFTL",wrappedFTL);
-        Map templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
+        Map<String,Object> templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
         templateRoot.put("context",templateCtx);
         String mimeTypeId=(String)templateCtx.get("mimeTypeId");
         Locale locale=(Locale)templateCtx.get("locale");
@@ -125,27 +126,23 @@
     }
     private boolean checkWhen(    GenericValue thisContent,    String contentAssocTypeId){
       boolean isPick=false;
-      Map assocContext=FastMap.newInstance();
-      if (UtilValidate.isEmpty(contentAssocTypeId))       contentAssocTypeId="";
+      Map<String,Object> assocContext=FastMap.newInstance();
+      if (UtilValidate.isEmpty(contentAssocTypeId)) {
+        contentAssocTypeId="";
+      }
       assocContext.put("contentAssocTypeId",contentAssocTypeId);
-      String assocRelation=null;
       String thisDirection=(String)templateCtx.get("direction");
       String thisContentId=(String)templateCtx.get("thisContentId");
-      String relatedDirection=null;
       if (thisDirection != null && thisDirection.equalsIgnoreCase("From")) {
         assocContext.put("contentIdFrom",thisContentId);
-        assocRelation="FromContent";
-        relatedDirection="From";
       }
  else {
         assocContext.put("contentIdTo",thisContentId);
-        assocRelation="ToContent";
-        relatedDirection="To";
       }
       assocContext.put("content",thisContent);
-      List purposes=ContentWorker.getPurposes(thisContent);
+      List<Object> purposes=ContentWorker.getPurposes(thisContent);
       assocContext.put("purposes",purposes);
-      List contentTypeAncestry=FastList.newInstance();
+      List<String> contentTypeAncestry=FastList.newInstance();
       String contentTypeId=(String)thisContent.get("contentTypeId");
       try {
         ContentWorker.getContentTypeAncestry(delegator,contentTypeId,contentTypeAncestry);
@@ -154,27 +151,24 @@
         return false;
       }
       assocContext.put("typeAncestry",contentTypeAncestry);
-      Map whenMap=(Map)traverseContext.get("whenMap");
-      String pickWhen=(String)whenMap.get("pickWhen");
-      List nodeTrail=(List)traverseContext.get("nodeTrail");
+      Map<String,Object> whenMap=UtilGenerics.checkMap(traverseContext.get("whenMap"));
+      List<Map<String,? extends Object>> nodeTrail=UtilGenerics.checkList(traverseContext.get("nodeTrail"));
       int indentSz=indent.intValue() + nodeTrail.size();
       assocContext.put("indentObj",Integer.valueOf(indentSz));
       isPick=ContentWorker.checkWhen(assocContext,(String)whenMap.get("pickWhen"));
       return isPick;
     }
-    public void populateContext(    Map traverseContext,    Map templateContext){
-      List nodeTrail=(List)traverseContext.get("nodeTrail");
+    public void populateContext(    Map<String,Object> traverseContext,    Map<String,Object> templateContext){
+      List<Map<String,Object>> nodeTrail=UtilGenerics.checkList(traverseContext.get("nodeTrail"));
       int sz=nodeTrail.size();
-      Map node=(Map)nodeTrail.get(sz - 1);
-      GenericValue content=(GenericValue)node.get("value");
+      Map<String,Object> node=nodeTrail.get(sz - 1);
       String contentId=(String)node.get("contentId");
-      String subContentId=(String)node.get("subContentId");
       templateContext.put("subContentId",contentId);
       templateContext.put("subContentDataResourceView",null);
       int indentSz=indent.intValue() + nodeTrail.size();
       templateContext.put("indent",Integer.valueOf(indentSz));
       if (sz >= 2) {
-        Map parentNode=(Map)nodeTrail.get(sz - 2);
+        Map<String,Object> parentNode=nodeTrail.get(sz - 2);
         GenericValue parentContent=(GenericValue)parentNode.get("value");
         String parentContentId=(String)parentNode.get("contentId");
         templateContext.put("parentContentId",parentContentId);

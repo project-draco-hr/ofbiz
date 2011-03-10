@@ -6,6 +6,7 @@
   String invoiceId=(String)context.get("invoiceId");
   String billingAccountId=(String)context.get("billingAccountId");
   BigDecimal amountToCapture=(BigDecimal)context.get("captureAmount");
+  Locale locale=(Locale)context.get("locale");
   amountToCapture=amountToCapture.setScale(decimals,rounding);
   GenericValue orderHeader=null;
   List<GenericValue> paymentPrefs=null;
@@ -22,10 +23,10 @@
   }
  catch (  GenericEntityException gee) {
     Debug.logError(gee,"Problems getting entity record(s), see stack trace",module);
-    return ServiceUtil.returnError("ERROR: Could not get order information (" + gee.toString() + ").");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale) + " " + gee.toString());
   }
   if (orderHeader == null) {
-    return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   BigDecimal orderGrandTotal=orh.getOrderGrandTotal();
@@ -43,7 +44,7 @@
   if (UtilValidate.isNotEmpty(paymentPrefsBa)) {
     Iterator<GenericValue> paymentsBa=paymentPrefsBa.iterator();
     while (paymentsBa.hasNext()) {
-      GenericValue paymentPref=(GenericValue)paymentsBa.next();
+      GenericValue paymentPref=paymentsBa.next();
       BigDecimal authAmount=paymentPref.getBigDecimal("maxAmount");
       if (authAmount == null)       authAmount=ZERO;
       authAmount=authAmount.setScale(decimals,rounding);
@@ -76,11 +77,11 @@
           captureResult.put("orderPaymentPreference",paymentPref);
           captureResult.put("captureRefNum","");
           try {
-            processResult(dctx,captureResult,userLogin,paymentPref);
+            processResult(dctx,captureResult,userLogin,paymentPref,locale);
           }
  catch (          GeneralException e) {
             Debug.logError(e,"Trouble processing the result; captureResult: " + captureResult,module);
-            return ServiceUtil.returnError("Trouble processing the capture results");
+            return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingPaymentCannotBeCaptured",locale) + " " + captureResult);
           }
           if (authAmount.compareTo(amountCaptured) > 0) {
             BigDecimal splitAmount=authAmount.subtract(amountCaptured);
@@ -135,7 +136,7 @@
         Debug.logError("The amount to capture was more then what was authorized; we only captured the authorized amount : " + paymentPref,module);
         amountThisCapture=authAmount;
       }
-      Map<String,Object> captureResult=capturePayment(dctx,userLogin,orh,paymentPref,amountThisCapture);
+      Map<String,Object> captureResult=capturePayment(dctx,userLogin,orh,paymentPref,amountThisCapture,locale);
       if (captureResult != null && !ServiceUtil.isError(captureResult)) {
         BigDecimal amountCaptured=(BigDecimal)captureResult.get("captureAmount");
         if (amountCaptured == null) {
@@ -147,11 +148,11 @@
           captureResult.put("invoiceId",invoiceId);
         }
         try {
-          processResult(dctx,captureResult,userLogin,paymentPref);
+          processResult(dctx,captureResult,userLogin,paymentPref,locale);
         }
  catch (        GeneralException e) {
           Debug.logError(e,"Trouble processing the result; captureResult: " + captureResult,module);
-          return ServiceUtil.returnError("Trouble processing the capture results");
+          return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingPaymentCannotBeCaptured",locale) + " " + captureResult);
         }
         if (authAmount.compareTo(amountCaptured) > 0) {
           BigDecimal splitAmount=authAmount.subtract(amountCaptured);
@@ -175,7 +176,7 @@
     if (!UtilValidate.isEmpty(productStore)) {
       boolean shipIfCaptureFails=UtilValidate.isEmpty(productStore.get("shipIfCaptureFails")) || "Y".equalsIgnoreCase(productStore.getString("shipIfCaptureFails"));
       if (!shipIfCaptureFails) {
-        return ServiceUtil.returnError("Cannot ship order because credit card captures were unsuccessful");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingPaymentCannotBeCaptured",locale));
       }
  else {
         Debug.logWarning("Payment capture failed, shipping order anyway as per ProductStore setting (shipIfCaptureFails)",module);

@@ -1,0 +1,139 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String shoppingListTypeId=(String)context.get("shoppingListTypeId");
+  String shoppingListId=(String)context.get("shoppingListId");
+  String orderId=(String)context.get("orderId");
+  String partyId=(String)context.get("partyId");
+  Timestamp startDate=(Timestamp)context.get("startDateTime");
+  Timestamp endDate=(Timestamp)context.get("endDateTime");
+  Integer frequency=(Integer)context.get("frequency");
+  Integer interval=(Integer)context.get("intervalNumber");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  boolean beganTransaction=false;
+  try {
+    beganTransaction=TransactionUtil.begin();
+    GenericValue orderHeader=null;
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToLocateOrder",UtilMisc.toMap("orderId",orderId),locale));
+    }
+    String productStoreId=orderHeader.getString("productStoreId");
+    if (UtilValidate.isEmpty(shoppingListId)) {
+      if (partyId == null) {
+        partyId=userLogin.getString("partyId");
+      }
+      Map<String,Object> serviceCtx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"partyId",partyId,"productStoreId",productStoreId,"listName","List Created From Order #" + orderId);
+      if (UtilValidate.isNotEmpty(shoppingListTypeId)) {
+        serviceCtx.put("shoppingListTypeId",shoppingListTypeId);
+      }
+      Map<String,Object> newListResult=null;
+      try {
+        newListResult=dispatcher.runSync("createShoppingList",serviceCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problems creating new ShoppingList",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToCreateNewShoppingList",locale));
+      }
+      if (ServiceUtil.isError(newListResult)) {
+        return ServiceUtil.returnError(ServiceUtil.getErrorMessage(newListResult));
+      }
+      if (newListResult != null) {
+        shoppingListId=(String)newListResult.get("shoppingListId");
+      }
+    }
+    GenericValue shoppingList=null;
+    shoppingList=delegator.findByPrimaryKey("ShoppingList",UtilMisc.toMap("shoppingListId",shoppingListId));
+    if (shoppingList == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderNoShoppingListAvailable",locale));
+    }
+    shoppingListTypeId=shoppingList.getString("shoppingListTypeId");
+    OrderReadHelper orh=new OrderReadHelper(orderHeader);
+    if (orh == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToLoadOrderReadHelper",UtilMisc.toMap("orderId",orderId),locale));
+    }
+    List<GenericValue> orderItems=orh.getOrderItems();
+    Iterator<GenericValue> i=orderItems.iterator();
+    String productId=null;
+    while (i.hasNext()) {
+      GenericValue orderItem=i.next();
+      productId=orderItem.getString("productId");
+      if (UtilValidate.isNotEmpty(productId)) {
+        Map<String,Object> ctx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"shoppingListId",shoppingListId,"productId",orderItem.get("productId"),"quantity",orderItem.get("quantity"));
+        if ("AGGREGATED_CONF".equals(ProductWorker.getProductTypeId(delegator,productId))) {
+          try {
+            GenericValue instanceProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+            String configId=instanceProduct.getString("configId");
+            ctx.put("configId",configId);
+            String aggregatedProductId=ProductWorker.getInstanceAggregatedId(delegator,productId);
+            ctx.put("productId",aggregatedProductId);
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+          }
+        }
+        Map<String,Object> serviceResult=null;
+        try {
+          serviceResult=dispatcher.runSync("createShoppingListItem",ctx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+        }
+        if (serviceResult == null || ServiceUtil.isError(serviceResult)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToAddItemToShoppingList",UtilMisc.toMap("shoppingListId",shoppingListId),locale));
+        }
+      }
+    }
+    if ("SLT_AUTO_REODR".equals(shoppingListTypeId)) {
+      GenericValue paymentPref=EntityUtil.getFirst(orh.getPaymentPreferences());
+      GenericValue shipGroup=EntityUtil.getFirst(orh.getOrderItemShipGroups());
+      Map<String,Object> slCtx=FastMap.newInstance();
+      slCtx.put("shipmentMethodTypeId",shipGroup.get("shipmentMethodTypeId"));
+      slCtx.put("carrierRoleTypeId",shipGroup.get("carrierRoleTypeId"));
+      slCtx.put("carrierPartyId",shipGroup.get("carrierPartyId"));
+      slCtx.put("contactMechId",shipGroup.get("contactMechId"));
+      slCtx.put("paymentMethodId",paymentPref.get("paymentMethodId"));
+      slCtx.put("currencyUom",orh.getCurrency());
+      slCtx.put("startDateTime",startDate);
+      slCtx.put("endDateTime",endDate);
+      slCtx.put("frequency",frequency);
+      slCtx.put("intervalNumber",interval);
+      slCtx.put("isActive","Y");
+      slCtx.put("shoppingListId",shoppingListId);
+      slCtx.put("userLogin",userLogin);
+      Map<String,Object> slUpResp=null;
+      try {
+        slUpResp=dispatcher.runSync("updateShoppingList",slCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+      }
+      if (slUpResp == null || ServiceUtil.isError(slUpResp)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderUnableToUpdateShoppingListInformation",UtilMisc.toMap("shoppingListId",shoppingListId),locale));
+      }
+    }
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("shoppingListId",shoppingListId);
+    return result;
+  }
+ catch (  GenericEntityException e) {
+    try {
+      TransactionUtil.rollback(beganTransaction,"Error making shopping list from order",e);
+    }
+ catch (    GenericEntityException e2) {
+      Debug.logError(e2,"[Delegator] Could not rollback transaction: " + e2.toString(),module);
+    }
+    String errMsg="Error while creating new shopping list based on order" + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+ finally {
+    try {
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Could not commit transaction for creating new shopping list based on order",module);
+    }
+  }
+}

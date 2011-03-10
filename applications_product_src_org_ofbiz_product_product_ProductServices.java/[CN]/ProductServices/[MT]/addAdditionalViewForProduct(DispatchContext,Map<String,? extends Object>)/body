@@ -1,10 +1,10 @@
 {
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Delegator delegator=dctx.getDelegator();
-  GenericValue userLogin=(GenericValue)context.get("userLogin");
   String productId=(String)context.get("productId");
   String productContentTypeId=(String)context.get("productContentTypeId");
   ByteBuffer imageData=(ByteBuffer)context.get("uploadedFile");
+  Locale locale=(Locale)context.get("locale");
   if (UtilValidate.isNotEmpty(context.get("_uploadedFile_fileName"))) {
     String imageFilenameFormat=UtilProperties.getPropertyValue("catalog","image.filename.format");
     String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.server.path"),context);
@@ -38,11 +38,11 @@
     }
  catch (    FileNotFoundException e) {
       Debug.logError(e,module);
-      return ServiceUtil.returnError("Unable to open file for writing: " + file.getAbsolutePath());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
     }
 catch (    IOException e) {
       Debug.logError(e,module);
-      return ServiceUtil.returnError("Unable to write binary data to: " + file.getAbsolutePath());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
     }
     String viewNumber=String.valueOf(productContentTypeId.charAt(productContentTypeId.length() - 1));
     Map<String,Object> resultResize=FastMap.newInstance();
@@ -50,119 +50,25 @@ catch (    IOException e) {
       resultResize.putAll(ScaleImage.scaleImageInAllSize(context,filenameToUse,"additional",viewNumber));
     }
  catch (    IOException e) {
-      String errMsg="Scale additional image in all different sizes is impossible : " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Scale additional image in all different sizes is impossible : " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewScaleImpossible",UtilMisc.toMap("errorString",e.toString()),locale));
     }
 catch (    JDOMException e) {
-      String errMsg="Errors occur in parsing ImageProperties.xml : " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Errors occur in parsing ImageProperties.xml : " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewParsingError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
     String imageUrl=imageUrlPrefix + "/" + filePathPrefix+ filenameToUse;
-    if (UtilValidate.isNotEmpty(imageUrl) && imageUrl.length() > 0) {
-      String contentId=(String)context.get("contentId");
-      Map<String,Object> dataResourceCtx=FastMap.newInstance();
-      dataResourceCtx.put("objectInfo",imageUrl);
-      dataResourceCtx.put("dataResourceName",(String)context.get("_uploadedFile_fileName"));
-      dataResourceCtx.put("userLogin",userLogin);
-      Map<String,Object> productContentCtx=FastMap.newInstance();
-      productContentCtx.put("productId",productId);
-      productContentCtx.put("productContentTypeId",productContentTypeId);
-      productContentCtx.put("fromDate",(Timestamp)context.get("fromDate"));
-      productContentCtx.put("thruDate",(Timestamp)context.get("thruDate"));
-      productContentCtx.put("userLogin",userLogin);
-      if (UtilValidate.isNotEmpty(contentId)) {
-        GenericValue content=null;
-        try {
-          content=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),false);
-        }
- catch (        GenericEntityException e) {
-          Debug.logError(e,module);
-          return ServiceUtil.returnError(e.getMessage());
-        }
-        if (content != null) {
-          GenericValue dataResource=null;
-          try {
-            dataResource=content.getRelatedOne("DataResource");
-          }
- catch (          GenericEntityException e) {
-            Debug.logError(e,module);
-            return ServiceUtil.returnError(e.getMessage());
-          }
-          if (dataResource != null) {
-            dataResourceCtx.put("dataResourceId",dataResource.getString("dataResourceId"));
-            try {
-              dispatcher.runSync("updateDataResource",dataResourceCtx);
-            }
- catch (            GenericServiceException e) {
-              Debug.logError(e,module);
-              return ServiceUtil.returnError(e.getMessage());
-            }
-          }
- else {
-            dataResourceCtx.put("dataResourceTypeId","SHORT_TEXT");
-            dataResourceCtx.put("mimeTypeId","text/html");
-            Map<String,Object> dataResourceResult=FastMap.newInstance();
-            try {
-              dataResourceResult=dispatcher.runSync("createDataResource",dataResourceCtx);
-            }
- catch (            GenericServiceException e) {
-              Debug.logError(e,module);
-              return ServiceUtil.returnError(e.getMessage());
-            }
-            Map<String,Object> contentCtx=FastMap.newInstance();
-            contentCtx.put("contentId",contentId);
-            contentCtx.put("dataResourceId",dataResourceResult.get("dataResourceId"));
-            contentCtx.put("userLogin",userLogin);
-            try {
-              dispatcher.runSync("updateContent",contentCtx);
-            }
- catch (            GenericServiceException e) {
-              Debug.logError(e,module);
-              return ServiceUtil.returnError(e.getMessage());
-            }
-          }
-          productContentCtx.put("contentId",contentId);
-          try {
-            dispatcher.runSync("updateProductContent",productContentCtx);
-          }
- catch (          GenericServiceException e) {
-            Debug.logError(e,module);
-            return ServiceUtil.returnError(e.getMessage());
-          }
-        }
-      }
- else {
-        dataResourceCtx.put("dataResourceTypeId","SHORT_TEXT");
-        dataResourceCtx.put("mimeTypeId","text/html");
-        Map<String,Object> dataResourceResult=FastMap.newInstance();
-        try {
-          dataResourceResult=dispatcher.runSync("createDataResource",dataResourceCtx);
-        }
- catch (        GenericServiceException e) {
-          Debug.logError(e,module);
-          return ServiceUtil.returnError(e.getMessage());
-        }
-        Map<String,Object> contentCtx=FastMap.newInstance();
-        contentCtx.put("contentTypeId","DOCUMENT");
-        contentCtx.put("dataResourceId",dataResourceResult.get("dataResourceId"));
-        contentCtx.put("userLogin",userLogin);
-        Map<String,Object> contentResult=FastMap.newInstance();
-        try {
-          contentResult=dispatcher.runSync("createContent",contentCtx);
-        }
- catch (        GenericServiceException e) {
-          Debug.logError(e,module);
-          return ServiceUtil.returnError(e.getMessage());
-        }
-        productContentCtx.put("contentId",contentResult.get("contentId"));
-        try {
-          dispatcher.runSync("createProductContent",productContentCtx);
-        }
- catch (        GenericServiceException e) {
-          Debug.logError(e,module);
-          return ServiceUtil.returnError(e.getMessage());
+    Map<String,Object> result=addImageResource(dispatcher,delegator,context,imageUrl,productContentTypeId);
+    if (ServiceUtil.isError(result)) {
+      return result;
+    }
+    Map<String,String> imageUrlMap=UtilGenerics.checkMap(resultResize.get("imageUrlMap"));
+    for (    String sizeType : ScaleImage.sizeTypeList) {
+      imageUrl=imageUrlMap.get(sizeType);
+      if (UtilValidate.isNotEmpty(imageUrl)) {
+        result=addImageResource(dispatcher,delegator,context,imageUrl,"XTRA_IMG_" + viewNumber + "_"+ sizeType.toUpperCase());
+        if (ServiceUtil.isError(result)) {
+          return result;
         }
       }
     }

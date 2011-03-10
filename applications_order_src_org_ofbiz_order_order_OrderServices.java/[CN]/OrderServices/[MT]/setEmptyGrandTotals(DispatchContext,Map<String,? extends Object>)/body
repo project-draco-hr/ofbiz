@@ -1,0 +1,50 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Boolean forceAll=(Boolean)context.get("forceAll");
+  Locale locale=(Locale)context.get("locale");
+  if (forceAll == null) {
+    forceAll=Boolean.FALSE;
+  }
+  EntityCondition cond=null;
+  if (!forceAll.booleanValue()) {
+    List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("grandTotal",EntityOperator.EQUALS,null),EntityCondition.makeCondition("remainingSubTotal",EntityOperator.EQUALS,null));
+    cond=EntityCondition.makeCondition(exprs,EntityOperator.OR);
+  }
+  Set<String> fields=UtilMisc.toSet("orderId");
+  EntityListIterator eli=null;
+  try {
+    eli=delegator.find("OrderHeader",cond,null,fields,null,null);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (eli != null) {
+    GenericValue orderHeader=null;
+    while ((orderHeader=(GenericValue)eli.next()) != null) {
+      String orderId=orderHeader.getString("orderId");
+      Map<String,Object> resetResult=null;
+      try {
+        resetResult=dispatcher.runSync("resetGrandTotal",UtilMisc.<String,Object>toMap("orderId",orderId,"userLogin",userLogin));
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"ERROR: Cannot reset order totals - " + orderId,module);
+      }
+      if (resetResult != null && ServiceUtil.isError(resetResult)) {
+        Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderErrorCannotResetOrderTotals",UtilMisc.toMap("orderId",orderId,"resetResult",ServiceUtil.getErrorMessage(resetResult)),locale),module);
+      }
+    }
+    try {
+      eli.close();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+ else {
+    Debug.logInfo("No orders found for reset processing",module);
+  }
+  return ServiceUtil.returnSuccess();
+}

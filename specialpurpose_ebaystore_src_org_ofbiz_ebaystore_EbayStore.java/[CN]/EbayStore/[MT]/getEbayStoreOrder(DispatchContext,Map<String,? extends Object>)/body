@@ -1,0 +1,45 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  List<Map<String,Object>> orderList=FastList.newInstance();
+  String productStoreId=(String)context.get("productStoreId");
+  ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+  try {
+    Calendar fromDate=Calendar.getInstance();
+    Calendar toDate=Calendar.getInstance();
+    if (UtilValidate.isNotEmpty(context.get("thruDate"))) {
+      SimpleDateFormat dateFormat=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+      dateFormat.parse(context.get("fromDate").toString());
+      fromDate.setTime(dateFormat.parse(context.get("fromDate").toString()));
+      SimpleDateFormat dateFormat2=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+      dateFormat2.parse(context.get("thruDate").toString());
+      toDate.setTime(dateFormat.parse(context.get("thruDate").toString()));
+    }
+ else {
+      toDate.setTime(UtilDateTime.nowDate());
+      fromDate=null;
+    }
+    GetOrdersCall getOrder=new GetOrdersCall(apiContext);
+    DetailLevelCodeType[] detailLevels=new DetailLevelCodeType[]{DetailLevelCodeType.RETURN_ALL,DetailLevelCodeType.ITEM_RETURN_ATTRIBUTES,DetailLevelCodeType.ITEM_RETURN_DESCRIPTION};
+    getOrder.setDetailLevel(detailLevels);
+    getOrder.setCreateTimeFrom(fromDate);
+    getOrder.setCreateTimeTo(toDate);
+    getOrder.setOrderRole(TradingRoleCodeType.SELLER);
+    getOrder.setOrderStatus(OrderStatusCodeType.COMPLETED);
+    OrderType[] orders=getOrder.getOrders();
+    for (int orderCount=0; orderCount < orders.length; orderCount++) {
+      OrderType order=orders[orderCount];
+      Map<String,Object> orderMap=EbayStore.getOrderHelper(order,locale);
+      orderList.add(orderMap);
+    }
+  }
+ catch (  Exception e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+  System.out.println(orderList);
+  result.put("productStoreId",productStoreId);
+  result.put("formSelect","order");
+  result.put("orderList",orderList);
+  return result;
+}

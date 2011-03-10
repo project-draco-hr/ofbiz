@@ -1,0 +1,26 @@
+{
+  Delegator delegator=product.getDelegator();
+  if (UtilValidate.isNotEmpty(listComponent)) {
+    Iterator<BOMNode> listComponentIter=listComponent.iterator();
+    while (listComponentIter.hasNext()) {
+      BOMNode node=(BOMNode)listComponentIter.next();
+      GenericValue productComponent=node.getProductAssoc();
+      String routingTask=node.getProductAssoc().getString("routingWorkEffortId");
+      Timestamp eventDate=(routingTask == null || !routingTaskStartDate.containsKey(routingTask)) ? startDate : (Timestamp)routingTaskStartDate.get(routingTask);
+      if (EntityUtil.isValueActive(productComponent,eventDate)) {
+        Map<String,Object> parameters=UtilMisc.<String,Object>toMap("productId",node.getProduct().getString("productId"));
+        parameters.put("mrpId",mrpId);
+        parameters.put("eventDate",eventDate);
+        parameters.put("mrpEventTypeId","MRP_REQUIREMENT");
+        BigDecimal componentEventQuantity=node.getQuantity();
+        try {
+          InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,componentEventQuantity.negate(),null,product.get("productId") + ": " + eventDate,false,delegator);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError("Error : findByPrimaryKey(\"MrpEvent\", parameters) =" + parameters + "--"+ e.getMessage(),module);
+          logMrpError(mrpId,node.getProduct().getString("productId"),"Unable to create event (processBomComponent)",delegator);
+        }
+      }
+    }
+  }
+}

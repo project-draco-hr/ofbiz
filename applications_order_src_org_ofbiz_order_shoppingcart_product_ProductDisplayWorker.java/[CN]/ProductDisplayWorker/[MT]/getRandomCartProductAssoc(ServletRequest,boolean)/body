@@ -3,27 +3,27 @@
   HttpServletRequest httpRequest=(HttpServletRequest)request;
   ShoppingCart cart=(ShoppingCart)httpRequest.getSession().getAttribute("shoppingCart");
   if (cart == null || cart.size() <= 0)   return null;
-  ArrayList cartAssocs=null;
+  List<GenericValue> cartAssocs=null;
   try {
-    Map products=new HashMap();
-    Iterator cartiter=cart.iterator();
+    Map<String,GenericValue> products=FastMap.newInstance();
+    Iterator<ShoppingCartItem> cartiter=cart.iterator();
     while (cartiter != null && cartiter.hasNext()) {
-      ShoppingCartItem item=(ShoppingCartItem)cartiter.next();
-      List complementProducts=delegator.findByAndCache("ProductAssoc",UtilMisc.toMap("productId",item.getProductId(),"productAssocTypeId","PRODUCT_COMPLEMENT"),null);
+      ShoppingCartItem item=cartiter.next();
+      List<GenericValue> complementProducts=delegator.findByAndCache("ProductAssoc",UtilMisc.toMap("productId",item.getProductId(),"productAssocTypeId","PRODUCT_COMPLEMENT"),null);
       complementProducts=EntityUtil.filterByDate(complementProducts);
-      List productsCategories=delegator.findByAndCache("ProductCategoryMember",UtilMisc.toMap("productId",item.getProductId()),null);
+      List<GenericValue> productsCategories=delegator.findByAndCache("ProductCategoryMember",UtilMisc.toMap("productId",item.getProductId()),null);
       productsCategories=EntityUtil.filterByDate(productsCategories,true);
       if (productsCategories != null) {
-        Iterator productsCategoriesIter=productsCategories.iterator();
+        Iterator<GenericValue> productsCategoriesIter=productsCategories.iterator();
         while (productsCategoriesIter.hasNext()) {
-          GenericValue productsCategoryMember=(GenericValue)productsCategoriesIter.next();
+          GenericValue productsCategoryMember=productsCategoriesIter.next();
           GenericValue productsCategory=productsCategoryMember.getRelatedOneCache("ProductCategory");
           if ("CROSS_SELL_CATEGORY".equals(productsCategory.getString("productCategoryTypeId"))) {
-            List curPcms=productsCategory.getRelatedCache("ProductCategoryMember");
+            List<GenericValue> curPcms=productsCategory.getRelatedCache("ProductCategoryMember");
             if (curPcms != null) {
-              Iterator curPcmsIter=curPcms.iterator();
+              Iterator<GenericValue> curPcmsIter=curPcms.iterator();
               while (curPcmsIter.hasNext()) {
-                GenericValue curPcm=(GenericValue)curPcmsIter.next();
+                GenericValue curPcm=curPcmsIter.next();
                 if (!products.containsKey(curPcm.getString("productId"))) {
                   GenericValue product=curPcm.getRelatedOneCache("Product");
                   products.put(product.getString("productId"),product);
@@ -34,9 +34,9 @@
         }
       }
       if (UtilValidate.isNotEmpty(complementProducts)) {
-        Iterator complIter=complementProducts.iterator();
+        Iterator<GenericValue> complIter=complementProducts.iterator();
         while (complIter.hasNext()) {
-          GenericValue productAssoc=(GenericValue)complIter.next();
+          GenericValue productAssoc=complIter.next();
           if (!products.containsKey(productAssoc.getString("productIdTo"))) {
             GenericValue product=productAssoc.getRelatedOneCache("AssocProduct");
             products.put(product.getString("productId"),product);
@@ -46,20 +46,23 @@
     }
     cartiter=cart.iterator();
     while (cartiter != null && cartiter.hasNext()) {
-      ShoppingCartItem item=(ShoppingCartItem)cartiter.next();
+      ShoppingCartItem item=cartiter.next();
       products.remove(item.getProductId());
     }
     if (checkViewAllow) {
       String currentCatalogId=CatalogWorker.getCurrentCatalogId(request);
       String viewProductCategoryId=CatalogWorker.getCatalogViewAllowCategoryId(delegator,currentCatalogId);
       if (viewProductCategoryId != null) {
-        List tempList=new ArrayList(products.values());
+        List<GenericValue> tempList=FastList.newInstance();
+        tempList.addAll(products.values());
         tempList=CategoryWorker.filterProductsInCategory(delegator,tempList,viewProductCategoryId,"productId");
-        cartAssocs=new ArrayList(tempList);
+        cartAssocs=FastList.newInstance();
+        cartAssocs.addAll(tempList);
       }
     }
     if (cartAssocs == null) {
-      cartAssocs=new ArrayList(products.values());
+      cartAssocs=FastList.newInstance();
+      cartAssocs.addAll(products.values());
     }
     while (cartAssocs.size() > 3) {
       int toRemove=(int)(Math.random() * cartAssocs.size());

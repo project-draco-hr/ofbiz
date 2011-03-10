@@ -4,8 +4,16 @@
   String webSiteId=(String)serviceContext.remove("webSiteId");
   String bodyText=(String)serviceContext.remove("bodyText");
   String bodyScreenUri=(String)serviceContext.remove("bodyScreenUri");
-  String xslfoAttachScreenLocation=(String)serviceContext.remove("xslfoAttachScreenLocation");
-  String attachmentName=(String)serviceContext.remove("attachmentName");
+  String xslfoAttachScreenLocationParam=(String)serviceContext.remove("xslfoAttachScreenLocation");
+  String attachmentNameParam=(String)serviceContext.remove("attachmentName");
+  List<String> xslfoAttachScreenLocationListParam=UtilGenerics.checkList(serviceContext.remove("xslfoAttachScreenLocationList"));
+  List<String> attachmentNameListParam=UtilGenerics.checkList(serviceContext.remove("attachmentNameList"));
+  List<String> xslfoAttachScreenLocationList=FastList.newInstance();
+  List<String> attachmentNameList=FastList.newInstance();
+  if (UtilValidate.isNotEmpty(xslfoAttachScreenLocationParam))   xslfoAttachScreenLocationList.add(xslfoAttachScreenLocationParam);
+  if (UtilValidate.isNotEmpty(attachmentNameParam))   attachmentNameList.add(attachmentNameParam);
+  if (UtilValidate.isNotEmpty(xslfoAttachScreenLocationListParam))   xslfoAttachScreenLocationList.addAll(xslfoAttachScreenLocationListParam);
+  if (UtilValidate.isNotEmpty(attachmentNameListParam))   attachmentNameList.addAll(attachmentNameListParam);
   Locale locale=(Locale)serviceContext.get("locale");
   Map<String,Object> bodyParameters=UtilGenerics.checkMap(serviceContext.remove("bodyParameters"));
   if (bodyParameters == null) {
@@ -26,9 +34,6 @@
   bodyParameters.put("communicationEventId",serviceContext.get("communicationEventId"));
   NotificationServices.setBaseUrl(dctx.getDelegator(),webSiteId,bodyParameters);
   String contentType=(String)serviceContext.remove("contentType");
-  if (UtilValidate.isEmpty(attachmentName)) {
-    attachmentName="Details.pdf";
-  }
   StringWriter bodyWriter=new StringWriter();
   MapStack<String> screenContext=MapStack.create();
   screenContext.put("locale",locale);
@@ -40,77 +45,75 @@
       screens.render(bodyScreenUri);
     }
  catch (    GeneralException e) {
-      String errMsg="Error rendering screen for email: " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Error rendering screen for email: " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenEmailError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
 catch (    IOException e) {
-      String errMsg="Error rendering screen for email: " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Error rendering screen for email: " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenEmailError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
 catch (    SAXException e) {
-      String errMsg="Error rendering screen for email: " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Error rendering screen for email: " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenEmailError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
 catch (    ParserConfigurationException e) {
-      String errMsg="Error rendering screen for email: " + e.toString();
-      Debug.logError(e,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logError(e,"Error rendering screen for email: " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenEmailError",UtilMisc.toMap("errorString",e.toString()),locale));
     }
   }
   boolean isMultiPart=false;
-  if (UtilValidate.isNotEmpty(xslfoAttachScreenLocation)) {
-    isMultiPart=true;
-    try {
-      Writer writer=new StringWriter();
-      MapStack<String> screenContextAtt=MapStack.create();
-      ScreenRenderer screensAtt=new ScreenRenderer(writer,screenContext,foScreenRenderer);
-      screensAtt.populateContextForService(dctx,bodyParameters);
-      screenContextAtt.putAll(bodyParameters);
-      screensAtt.render(xslfoAttachScreenLocation);
-      StreamSource src=new StreamSource(new StringReader(writer.toString()));
-      ByteArrayOutputStream baos=new ByteArrayOutputStream();
-      Fop fop=ApacheFopWorker.createFopInstance(baos,MimeConstants.MIME_PDF);
-      ApacheFopWorker.transform(src,null,fop);
-      baos.flush();
-      baos.close();
-      List<Map<String,? extends Object>> bodyParts=FastList.newInstance();
-      if (bodyText != null) {
-        bodyText=FlexibleStringExpander.expandString(bodyText,screenContext,locale);
-        bodyParts.add(UtilMisc.<String,Object>toMap("content",bodyText,"type","text/html"));
-      }
+  if (UtilValidate.isNotEmpty(xslfoAttachScreenLocationList)) {
+    List<Map<String,? extends Object>> bodyParts=FastList.newInstance();
+    if (bodyText != null) {
+      bodyText=FlexibleStringExpander.expandString(bodyText,screenContext,locale);
+      bodyParts.add(UtilMisc.<String,Object>toMap("content",bodyText,"type","text/html"));
+    }
  else {
-        bodyParts.add(UtilMisc.<String,Object>toMap("content",bodyWriter.toString(),"type","text/html"));
+      bodyParts.add(UtilMisc.<String,Object>toMap("content",bodyWriter.toString(),"type","text/html"));
+    }
+    for (int i=0; i < xslfoAttachScreenLocationList.size(); i++) {
+      String xslfoAttachScreenLocation=xslfoAttachScreenLocationList.get(i);
+      String attachmentName="Details.pdf";
+      if (UtilValidate.isNotEmpty(attachmentNameList) && attachmentNameList.size() >= i) {
+        attachmentName=attachmentNameList.get(i);
       }
-      bodyParts.add(UtilMisc.<String,Object>toMap("content",baos.toByteArray(),"type","application/pdf","filename",attachmentName));
+      isMultiPart=true;
+      try {
+        Writer writer=new StringWriter();
+        MapStack<String> screenContextAtt=MapStack.create();
+        ScreenRenderer screensAtt=new ScreenRenderer(writer,screenContext,foScreenRenderer);
+        screensAtt.populateContextForService(dctx,bodyParameters);
+        screenContextAtt.putAll(bodyParameters);
+        screensAtt.render(xslfoAttachScreenLocation);
+        StreamSource src=new StreamSource(new StringReader(writer.toString()));
+        ByteArrayOutputStream baos=new ByteArrayOutputStream();
+        Fop fop=ApacheFopWorker.createFopInstance(baos,MimeConstants.MIME_PDF);
+        ApacheFopWorker.transform(src,null,fop);
+        baos.flush();
+        baos.close();
+        bodyParts.add(UtilMisc.<String,Object>toMap("content",baos.toByteArray(),"type","application/pdf","filename",attachmentName));
+      }
+ catch (      GeneralException ge) {
+        Debug.logError(ge,"Error rendering PDF attachment for email: " + ge.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenPdfError",UtilMisc.toMap("errorString",ge.toString()),locale));
+      }
+catch (      IOException ie) {
+        Debug.logError(ie,"Error rendering PDF attachment for email: " + ie.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenPdfError",UtilMisc.toMap("errorString",ie.toString()),locale));
+      }
+catch (      FOPException fe) {
+        Debug.logError(fe,"Error rendering PDF attachment for email: " + fe.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenPdfError",UtilMisc.toMap("errorString",fe.toString()),locale));
+      }
+catch (      SAXException se) {
+        Debug.logError(se,"Error rendering PDF attachment for email: " + se.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenPdfError",UtilMisc.toMap("errorString",se.toString()),locale));
+      }
+catch (      ParserConfigurationException pe) {
+        Debug.logError(pe,"Error rendering PDF attachment for email: " + pe.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendRenderingScreenPdfError",UtilMisc.toMap("errorString",pe.toString()),locale));
+      }
       serviceContext.put("bodyParts",bodyParts);
-    }
- catch (    GeneralException ge) {
-      String errMsg="Error rendering PDF attachment for email: " + ge.toString();
-      Debug.logError(ge,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
-    }
-catch (    IOException ie) {
-      String errMsg="Error rendering PDF attachment for email: " + ie.toString();
-      Debug.logError(ie,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
-    }
-catch (    FOPException fe) {
-      String errMsg="Error rendering PDF attachment for email: " + fe.toString();
-      Debug.logError(fe,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
-    }
-catch (    SAXException se) {
-      String errMsg="Error rendering PDF attachment for email: " + se.toString();
-      Debug.logError(se,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
-    }
-catch (    ParserConfigurationException pe) {
-      String errMsg="Error rendering PDF attachment for email: " + pe.toString();
-      Debug.logError(pe,errMsg,module);
-      return ServiceUtil.returnError(errMsg);
     }
   }
  else {
@@ -152,9 +155,8 @@ catch (    ParserConfigurationException pe) {
     }
   }
  catch (  Exception e) {
-    String errMsg="Error send email :" + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error send email:" + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonEmailSendError",UtilMisc.toMap("errorString",e.toString()),locale));
   }
   if (ServiceUtil.isError(sendMailResult)) {
     return ServiceUtil.returnError(ServiceUtil.getErrorMessage(sendMailResult));
@@ -162,6 +164,7 @@ catch (    ParserConfigurationException pe) {
   result.put("messageWrapper",sendMailResult.get("messageWrapper"));
   result.put("body",bodyWriter.toString());
   result.put("subject",subject);
+  result.put("communicationEventId",sendMailResult.get("communicationEventId"));
   if (UtilValidate.isNotEmpty(orderId)) {
     result.put("orderId",orderId);
   }

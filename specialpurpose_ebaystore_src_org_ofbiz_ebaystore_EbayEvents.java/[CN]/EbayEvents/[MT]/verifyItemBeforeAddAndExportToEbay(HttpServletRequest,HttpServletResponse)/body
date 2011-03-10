@@ -1,0 +1,62 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map<String,Object> requestParams=UtilHttp.getParameterMap(request);
+  Locale locale=UtilHttp.getLocale(request);
+  String productStoreId=(String)requestParams.get("productStoreId");
+  HttpSession session=request.getSession(true);
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  try {
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    VerifyAddItemRequestType req=new VerifyAddItemRequestType();
+    VerifyAddItemResponseType resp=null;
+    AddItemResponseType addItemResp=null;
+    VerifyAddItemCall verifyCall=new VerifyAddItemCall(apiContext);
+    Map<String,Object> addItemObject=getAddItemListingObject(request,apiContext);
+    List<Map<String,Object>> listAddItem=null;
+    if (UtilValidate.isNotEmpty(addItemObject.get("itemListing"))) {
+      listAddItem=UtilGenerics.checkList(addItemObject.get("itemListing"));
+    }
+ else {
+      listAddItem=FastList.newInstance();
+    }
+    double feesummary=0.0;
+    for (    Map<String,Object> itemObj : listAddItem) {
+      AddItemCall addItemCall=(AddItemCall)itemObj.get("addItemCall");
+      ItemType item=addItemCall.getItem();
+      String SKU=item.getSKU();
+      if (UtilValidate.isNotEmpty(requestParams.get("productId"))) {
+        String productId=requestParams.get("productId").toString();
+        if (productId.equals(SKU)) {
+          req.setItem(item);
+          resp=(VerifyAddItemResponseType)verifyCall.execute(req);
+          if (resp != null && "SUCCESS".equals(resp.getAck().toString())) {
+            itemObj.put("isVerify","Y");
+            FeesType feest=resp.getFees();
+            FeeType[] fees=feest.getFee();
+            for (            FeeType fee : fees) {
+              double dfee=fee.getFee().getValue();
+              feesummary=feesummary + dfee;
+            }
+            AddItemRequestType addItemReq=new AddItemRequestType();
+            addItemReq.setItem(item);
+            addItemResp=(AddItemResponseType)addItemCall.execute(addItemReq);
+            if (addItemResp != null && "SUCCESS".equals(addItemResp.getAck().toString())) {
+              removeProductFromListing(request,response);
+            }
+          }
+ else {
+            EbayStoreHelper.createErrorLogMessage(userLogin,dispatcher,productStoreId,resp.getAck().toString(),"Verify Item : verifyItemBeforeAdd",resp.getErrors(0).getLongMessage());
+          }
+        }
+      }
+    }
+    request.setAttribute("productStoreId",requestParams.get("productStoreId"));
+  }
+ catch (  Exception e) {
+    Debug.logError(e.getMessage(),module);
+    request.setAttribute("_ERROR_MESSAGE_","Exception: ".concat(e.getMessage()));
+    return "error";
+  }
+  return "success";
+}

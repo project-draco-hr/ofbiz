@@ -1,0 +1,103 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  String orderId=(String)context.get("orderId");
+  String productId=(String)context.get("productId");
+  String prodCatalogId=(String)context.get("prodCatalogId");
+  BigDecimal basePrice=(BigDecimal)context.get("basePrice");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  Timestamp itemDesiredDeliveryDate=(Timestamp)context.get("itemDesiredDeliveryDate");
+  String overridePrice=(String)context.get("overridePrice");
+  String reasonEnumId=(String)context.get("reasonEnumId");
+  String changeComments=(String)context.get("changeComments");
+  Boolean calcTax=(Boolean)context.get("calcTax");
+  if (calcTax == null) {
+    calcTax=Boolean.TRUE;
+  }
+  if (amount == null) {
+    amount=BigDecimal.ZERO;
+  }
+  int shipGroupIdx=-1;
+  try {
+    shipGroupIdx=Integer.parseInt(shipGroupSeqId);
+    shipGroupIdx--;
+  }
+ catch (  NumberFormatException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (shipGroupIdx < 0) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderShipGroupSeqIdInvalid",UtilMisc.toMap("shipGroupSeqId",shipGroupSeqId),locale));
+  }
+  ShoppingCart cart=null;
+  try {
+    cart=loadCartForUpdate(dispatcher,delegator,userLogin,orderId);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (cart == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderShoppingCartEmpty",locale));
+  }
+  try {
+    if ("PURCHASE_ORDER".equals(cart.getOrderType())) {
+      GenericValue supplierProduct=cart.getSupplierProduct(productId,quantity,dispatcher);
+      ShoppingCartItem item=null;
+      if (supplierProduct != null) {
+        item=ShoppingCartItem.makePurchaseOrderItem(null,productId,null,quantity,null,null,prodCatalogId,null,null,null,dispatcher,cart,supplierProduct,itemDesiredDeliveryDate,itemDesiredDeliveryDate,null);
+        cart.addItem(0,item);
+      }
+ else {
+        throw new CartItemModifyException("No supplier information found for product [" + productId + "] and quantity quantity ["+ quantity+ "], cannot add to cart.");
+      }
+      if (basePrice != null) {
+        item.setBasePrice(basePrice);
+        item.setIsModifiedPrice(true);
+      }
+      cart.setItemShipGroupQty(item,item.getQuantity(),shipGroupIdx);
+    }
+ else {
+      ShoppingCartItem item=ShoppingCartItem.makeItem(null,productId,null,quantity,null,null,null,null,null,null,null,null,prodCatalogId,null,null,null,dispatcher,cart,null,null,null,Boolean.FALSE,Boolean.FALSE);
+      if (basePrice != null && overridePrice != null) {
+        item.setBasePrice(basePrice);
+        item.setQuantity(quantity.add(BigDecimal.ONE),dispatcher,cart,false);
+        item.setQuantity(quantity,dispatcher,cart,false);
+        item.setBasePrice(basePrice);
+        item.setIsModifiedPrice(true);
+      }
+      item.setShipBeforeDate(itemDesiredDeliveryDate);
+      cart.clearItemShipInfo(item);
+      cart.setItemShipGroupQty(item,item.getQuantity(),shipGroupIdx);
+    }
+  }
+ catch (  CartItemModifyException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  ItemNotFoundException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map<String,Object> changeMap=UtilMisc.<String,Object>toMap("itemReasonMap",UtilMisc.<String,Object>toMap("reasonEnumId",reasonEnumId),"itemCommentMap",UtilMisc.<String,Object>toMap("changeComments",changeComments));
+  try {
+    saveUpdatedCartToOrder(dispatcher,delegator,cart,locale,userLogin,orderId,changeMap,calcTax,false);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  try {
+    String addedItemToOrder=UtilProperties.getMessage(resource,"OrderAddedItemToOrder",locale);
+    dispatcher.runSync("createOrderNote",UtilMisc.<String,Object>toMap("orderId",orderId,"note",addedItemToOrder + productId + " ("+ quantity+ ")","internalNote","Y","userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("shoppingCart",cart);
+  result.put("orderId",orderId);
+  return result;
+}

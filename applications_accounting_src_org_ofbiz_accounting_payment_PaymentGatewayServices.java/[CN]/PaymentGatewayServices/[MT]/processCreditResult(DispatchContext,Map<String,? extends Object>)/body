@@ -5,6 +5,7 @@
   String currencyUomId=(String)context.get("currencyUomId");
   GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
   Boolean creditResponse=(Boolean)context.get("creditResult");
+  Locale locale=(Locale)context.get("locale");
   String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
   GenericValue pgCredit=delegator.makeValue("PaymentGatewayResponse");
   pgCredit.set("paymentGatewayResponseId",responseId);
@@ -21,20 +22,21 @@
   pgCredit.set("gatewayMessage",context.get("creditMessage"));
   pgCredit.set("transactionDate",UtilDateTime.nowTimestamp());
   pgCredit.set("currencyUomId",currencyUomId);
-  savePgr(dctx,pgCredit);
+  List<GenericValue> messageEntities=FastList.newInstance();
   List<String> messages=UtilGenerics.cast(context.get("internalRespMsgs"));
   if (UtilValidate.isNotEmpty(messages)) {
     Iterator<String> i=messages.iterator();
     while (i.hasNext()) {
       GenericValue respMsg=delegator.makeValue("PaymentGatewayRespMsg");
       String respMsgId=delegator.getNextSeqId("PaymentGatewayRespMsg");
-      String message=(String)i.next();
+      String message=i.next();
       respMsg.set("paymentGatewayRespMsgId",respMsgId);
       respMsg.set("paymentGatewayResponseId",responseId);
       respMsg.set("pgrMessage",message);
-      savePgr(dctx,respMsg);
+      messageEntities.add(respMsg);
     }
   }
+  savePgrAndMsgs(dctx,pgCredit,messageEntities);
   if (creditResponse != null && creditResponse.booleanValue()) {
     paymentPref.set("statusId","PAYMENT_CANCELLED");
     try {
@@ -53,7 +55,7 @@
     if (paymentList != null) {
       Iterator<GenericValue> pi=paymentList.iterator();
       while (pi.hasNext()) {
-        GenericValue pay=(GenericValue)pi.next();
+        GenericValue pay=pi.next();
         try {
           Map<String,Object> cancelResults=dispatcher.runSync("setPaymentStatus",UtilMisc.toMap("userLogin",userLogin,"paymentId",pay.get("paymentId"),"statusId","PMNT_CANCELLED"));
           if (ServiceUtil.isError(cancelResults)) {
@@ -67,9 +69,8 @@
     }
   }
  else {
-    String errMsg="Credit failed for pref : " + paymentPref;
-    Debug.logError(errMsg,module);
-    return ServiceUtil.returnFailure(errMsg);
+    Debug.logError("Credit failed for pref : " + paymentPref,module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"AccountingTroubleCallingCreditOrderPaymentPreferenceService",UtilMisc.toMap("paymentPref",paymentPref),locale));
   }
   return ServiceUtil.returnSuccess();
 }

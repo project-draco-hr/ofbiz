@@ -1,0 +1,52 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  String productId=(String)context.get("productId");
+  String fromDateStr=(String)context.get("fromDate");
+  String bomType=(String)context.get("bomType");
+  Locale locale=(Locale)context.get("locale");
+  Date fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    try {
+      fromDate=Timestamp.valueOf(fromDateStr);
+    }
+ catch (    Exception e) {
+    }
+  }
+  if (fromDate == null) {
+    fromDate=new Date();
+  }
+  List<String> bomTypes=FastList.newInstance();
+  if (bomType == null) {
+    try {
+      List<GenericValue> bomTypesValues=delegator.findByAnd("ProductAssocType",UtilMisc.toMap("parentTypeId","PRODUCT_COMPONENT"));
+      Iterator<GenericValue> bomTypesValuesIt=bomTypesValues.iterator();
+      while (bomTypesValuesIt.hasNext()) {
+        bomTypes.add(((GenericValue)bomTypesValuesIt.next()).getString("productAssocTypeId"));
+      }
+    }
+ catch (    GenericEntityException gee) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomErrorRunningMaxDethAlgorithm",UtilMisc.toMap("errorString",gee.getMessage()),locale));
+    }
+  }
+ else {
+    bomTypes.add(bomType);
+  }
+  int depth=0;
+  int maxDepth=0;
+  Iterator<String> bomTypesIt=bomTypes.iterator();
+  try {
+    while (bomTypesIt.hasNext()) {
+      String oneBomType=(String)bomTypesIt.next();
+      depth=BOMHelper.getMaxDepth(productId,oneBomType,fromDate,delegator);
+      if (depth > maxDepth) {
+        maxDepth=depth;
+      }
+    }
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomErrorRunningMaxDethAlgorithm",UtilMisc.toMap("errorString",gee.getMessage()),locale));
+  }
+  result.put("depth",Long.valueOf(maxDepth));
+  return result;
+}

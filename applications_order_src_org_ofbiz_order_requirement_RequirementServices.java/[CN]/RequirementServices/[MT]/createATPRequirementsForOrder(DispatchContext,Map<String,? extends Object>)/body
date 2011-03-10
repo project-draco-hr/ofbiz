@@ -1,0 +1,54 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  try {
+    GenericValue order=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    GenericValue productStore=order.getRelatedOneCache("ProductStore");
+    String facilityId=productStore.getString("inventoryFacilityId");
+    List<GenericValue> orderItems=order.getRelated("OrderItem");
+    for (Iterator<GenericValue> iter=orderItems.iterator(); iter.hasNext(); ) {
+      GenericValue item=(GenericValue)iter.next();
+      GenericValue product=item.getRelatedOne("Product");
+      if (product == null)       continue;
+      if (!("PRODRQM_ATP".equals(product.get("requirementMethodEnumId")) || ("PRODRQM_ATP".equals(productStore.get("requirementMethodEnumId")) && product.get("requirementMethodEnumId") == null)))       continue;
+      BigDecimal quantity=item.getBigDecimal("quantity");
+      BigDecimal cancelQuantity=item.getBigDecimal("cancelQuantity");
+      BigDecimal ordered=quantity.subtract(cancelQuantity == null ? BigDecimal.ZERO : cancelQuantity);
+      if (ordered.compareTo(BigDecimal.ZERO) <= 0)       continue;
+      GenericValue productFacility=delegator.findByPrimaryKey("ProductFacility",UtilMisc.toMap("facilityId",facilityId,"productId",product.get("productId")));
+      BigDecimal minimumStock=BigDecimal.ZERO;
+      if (productFacility != null && productFacility.get("minimumStock") != null) {
+        minimumStock=productFacility.getBigDecimal("minimumStock");
+      }
+      Map<String,Object> results=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("userLogin",userLogin,"productId",product.get("productId"),"facilityId",facilityId));
+      if (ServiceUtil.isError(results))       return results;
+      BigDecimal atp=((BigDecimal)results.get("availableToPromiseTotal"));
+      BigDecimal pendingRequirements=BigDecimal.ZERO;
+      EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("facilityId",EntityOperator.EQUALS,facilityId),EntityCondition.makeCondition("productId",EntityOperator.EQUALS,product.get("productId")),EntityCondition.makeCondition("requirementTypeId",EntityOperator.EQUALS,"PRODUCT_REQUIREMENT"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"REQ_ORDERED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"REQ_REJECTED")),EntityOperator.AND);
+      List<GenericValue> requirements=delegator.findList("Requirement",ecl,null,null,null,false);
+      for (Iterator<GenericValue> riter=requirements.iterator(); riter.hasNext(); ) {
+        GenericValue requirement=(GenericValue)riter.next();
+        pendingRequirements=pendingRequirements.add(requirement.get("quantity") == null ? BigDecimal.ZERO : requirement.getBigDecimal("quantity"));
+      }
+      BigDecimal shortfall=minimumStock.subtract(atp).subtract(pendingRequirements);
+      BigDecimal required=ordered.compareTo(shortfall) < 0 ? ordered : shortfall;
+      if (required.compareTo(BigDecimal.ZERO) <= 0)       continue;
+      Map<String,Object> input=UtilMisc.toMap("userLogin",userLogin,"facilityId",facilityId,"productId",product.get("productId"),"quantity",required,"requirementTypeId","PRODUCT_REQUIREMENT");
+      results=dispatcher.runSync("createRequirement",input);
+      if (ServiceUtil.isError(results))       return results;
+      String requirementId=(String)results.get("requirementId");
+      input=UtilMisc.toMap("userLogin",userLogin,"orderId",order.get("orderId"),"orderItemSeqId",item.get("orderItemSeqId"),"requirementId",requirementId,"quantity",required);
+      results=dispatcher.runSync("createOrderRequirementCommitment",input);
+      if (ServiceUtil.isError(results))       return results;
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+  }
+  return ServiceUtil.returnSuccess();
+}

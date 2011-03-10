@@ -1,0 +1,132 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String productionRunTaskId=(String)context.get("productionRunTaskId");
+  try {
+    GenericValue workEffort=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",productionRunTaskId));
+    if (UtilValidate.isEmpty(workEffort)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotFound",UtilMisc.toMap("productionRunTaskId",productionRunTaskId),locale));
+    }
+    double actualTotalMilliSeconds=0.0;
+    Double actualSetupMillis=workEffort.getDouble("actualSetupMillis");
+    Double actualMilliSeconds=workEffort.getDouble("actualMilliSeconds");
+    if (actualSetupMillis == null) {
+      actualSetupMillis=new Double(0.0);
+    }
+    if (actualMilliSeconds == null) {
+      actualMilliSeconds=new Double(0.0);
+    }
+    actualTotalMilliSeconds+=actualSetupMillis.doubleValue();
+    actualTotalMilliSeconds+=actualMilliSeconds.doubleValue();
+    GenericValue routingTaskAssoc=EntityUtil.getFirst(EntityUtil.filterByDate(delegator.findByAnd("WorkEffortAssoc",UtilMisc.toMap("workEffortIdTo",productionRunTaskId,"workEffortAssocTypeId","WORK_EFF_TEMPLATE"))));
+    GenericValue routingTask=null;
+    if (UtilValidate.isNotEmpty(routingTaskAssoc)) {
+      routingTask=routingTaskAssoc.getRelatedOne("FromWorkEffort");
+    }
+    List<GenericValue> workEffortCostCalcs=delegator.findByAnd("WorkEffortCostCalc",UtilMisc.toMap("workEffortId",productionRunTaskId));
+    workEffortCostCalcs=EntityUtil.filterByDate(workEffortCostCalcs);
+    Iterator<GenericValue> workEffortCostCalcsIt=workEffortCostCalcs.iterator();
+    while (workEffortCostCalcsIt.hasNext()) {
+      GenericValue workEffortCostCalc=(GenericValue)workEffortCostCalcsIt.next();
+      GenericValue costComponentCalc=workEffortCostCalc.getRelatedOne("CostComponentCalc");
+      GenericValue customMethod=costComponentCalc.getRelatedOne("CustomMethod");
+      if (UtilValidate.isEmpty(customMethod) || UtilValidate.isEmpty(customMethod.getString("customMethodName"))) {
+        double totalTime=actualTotalMilliSeconds;
+        if (costComponentCalc.get("perMilliSecond") != null) {
+          long perMilliSecond=costComponentCalc.getLong("perMilliSecond").longValue();
+          if (perMilliSecond != 0) {
+            totalTime=totalTime / perMilliSecond;
+          }
+        }
+        BigDecimal fixedCost=costComponentCalc.getBigDecimal("fixedCost");
+        BigDecimal variableCost=costComponentCalc.getBigDecimal("variableCost");
+        if (fixedCost == null) {
+          fixedCost=BigDecimal.ZERO;
+        }
+        if (variableCost == null) {
+          variableCost=BigDecimal.ZERO;
+        }
+        BigDecimal totalCost=fixedCost.add(variableCost.multiply(BigDecimal.valueOf(totalTime))).setScale(decimals,rounding);
+        Map<String,Object> inMap=UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",productionRunTaskId);
+        inMap.put("costComponentTypeId","ACTUAL_" + workEffortCostCalc.getString("costComponentTypeId"));
+        inMap.put("costComponentCalcId",costComponentCalc.getString("costComponentCalcId"));
+        inMap.put("costUomId",costComponentCalc.getString("currencyUomId"));
+        inMap.put("cost",totalCost);
+        dispatcher.runSync("createCostComponent",inMap);
+      }
+ else {
+        Map<String,Object> inMap=UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffort",workEffort);
+        inMap.put("workEffortCostCalc",workEffortCostCalc);
+        inMap.put("costComponentCalc",costComponentCalc);
+        dispatcher.runSync(customMethod.getString("customMethodName"),inMap);
+      }
+    }
+    GenericValue fixedAsset=workEffort.getRelatedOne("FixedAsset");
+    if (UtilValidate.isEmpty(fixedAsset) && UtilValidate.isNotEmpty(routingTask)) {
+      fixedAsset=routingTask.getRelatedOne("FixedAsset");
+    }
+    if (UtilValidate.isNotEmpty(fixedAsset)) {
+      List<GenericValue> setupCosts=fixedAsset.getRelatedByAnd("FixedAssetStdCost",UtilMisc.toMap("fixedAssetStdCostTypeId","SETUP_COST"));
+      GenericValue setupCost=EntityUtil.getFirst(EntityUtil.filterByDate(setupCosts));
+      List<GenericValue> usageCosts=fixedAsset.getRelatedByAnd("FixedAssetStdCost",UtilMisc.toMap("fixedAssetStdCostTypeId","USAGE_COST"));
+      GenericValue usageCost=EntityUtil.getFirst(EntityUtil.filterByDate(usageCosts));
+      if (UtilValidate.isNotEmpty(setupCost) || UtilValidate.isNotEmpty(usageCost)) {
+        String currencyUomId=(setupCost != null ? setupCost.getString("amountUomId") : usageCost.getString("amountUomId"));
+        BigDecimal setupCostAmount=ZERO;
+        if (setupCost != null) {
+          setupCostAmount=setupCost.getBigDecimal("amount").multiply(BigDecimal.valueOf(actualSetupMillis.doubleValue()));
+        }
+        BigDecimal usageCostAmount=ZERO;
+        if (usageCost != null) {
+          usageCostAmount=usageCost.getBigDecimal("amount").multiply(BigDecimal.valueOf(actualMilliSeconds.doubleValue()));
+        }
+        BigDecimal fixedAssetCost=setupCostAmount.add(usageCostAmount).setScale(decimals,rounding);
+        fixedAssetCost=fixedAssetCost.divide(BigDecimal.valueOf(3600000),decimals,rounding);
+        Map<String,Object> inMap=UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",productionRunTaskId);
+        inMap.put("costComponentTypeId","ACTUAL_ROUTE_COST");
+        inMap.put("costUomId",currencyUomId);
+        inMap.put("cost",fixedAssetCost);
+        inMap.put("fixedAssetId",fixedAsset.get("fixedAssetId"));
+        dispatcher.runSync("createCostComponent",inMap);
+      }
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunUnableToCreateRoutingCosts",UtilMisc.toMap("productionRunTaskId",productionRunTaskId,"errorString",e.getMessage()),locale));
+  }
+  try {
+    Iterator<GenericValue> inventoryAssignIt=delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",productionRunTaskId)).iterator();
+    Map<String,BigDecimal> materialsCostByCurrency=FastMap.newInstance();
+    while (inventoryAssignIt.hasNext()) {
+      GenericValue inventoryConsumed=(GenericValue)inventoryAssignIt.next();
+      BigDecimal quantity=inventoryConsumed.getBigDecimal("quantity");
+      BigDecimal unitCost=inventoryConsumed.getBigDecimal("unitCost");
+      if (UtilValidate.isEmpty(unitCost) || UtilValidate.isEmpty(quantity)) {
+        continue;
+      }
+      String currencyUomId=inventoryConsumed.getString("currencyUomId");
+      if (!materialsCostByCurrency.containsKey(currencyUomId)) {
+        materialsCostByCurrency.put(currencyUomId,BigDecimal.ZERO);
+      }
+      BigDecimal materialsCost=(BigDecimal)materialsCostByCurrency.get(currencyUomId);
+      materialsCost=materialsCost.add(unitCost.multiply(quantity)).setScale(decimals,rounding);
+      materialsCostByCurrency.put(currencyUomId,materialsCost);
+    }
+    Iterator<String> currencyIt=materialsCostByCurrency.keySet().iterator();
+    while (currencyIt.hasNext()) {
+      String currencyUomId=(String)currencyIt.next();
+      BigDecimal materialsCost=(BigDecimal)materialsCostByCurrency.get(currencyUomId);
+      Map<String,Object> inMap=UtilMisc.<String,Object>toMap("userLogin",userLogin,"workEffortId",productionRunTaskId);
+      inMap.put("costComponentTypeId","ACTUAL_MAT_COST");
+      inMap.put("costUomId",currencyUomId);
+      inMap.put("cost",materialsCost);
+      dispatcher.runSync("createCostComponent",inMap);
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunUnableToCreateMaterialsCosts",UtilMisc.toMap("productionRunTaskId",productionRunTaskId,"errorString",e.getMessage()),locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

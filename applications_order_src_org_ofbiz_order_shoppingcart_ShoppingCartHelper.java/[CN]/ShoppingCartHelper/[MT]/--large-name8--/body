@@ -1,0 +1,119 @@
+{
+  Map<String,Object> result=null;
+  Map<String,Object> attributes=null;
+  String pProductId=null;
+  pProductId=parentProductId;
+  if (productId == null && price != null && price.compareTo(BigDecimal.ZERO) < 0) {
+    String errMsg=UtilProperties.getMessage(resource_error,"cart.price_not_positive_number",this.cart.getLocale());
+    result=ServiceUtil.returnError(errMsg);
+    return result;
+  }
+  if (quantity.compareTo(BigDecimal.ONE) < 0) {
+    String errMsg=UtilProperties.getMessage(resource_error,"cart.quantity_not_positive_number",this.cart.getLocale());
+    result=ServiceUtil.returnError(errMsg);
+    return result;
+  }
+  if (amount != null && amount.compareTo(BigDecimal.ZERO) < 0) {
+    String errMsg=UtilProperties.getMessage(resource_error,"cart.amount_not_positive_number",this.cart.getLocale());
+    result=ServiceUtil.returnError(errMsg);
+    return result;
+  }
+  String ddDate=(String)context.get("itemDesiredDeliveryDate");
+  if (!UtilValidate.isEmpty(ddDate)) {
+    try {
+      java.sql.Timestamp.valueOf((String)context.get("itemDesiredDeliveryDate"));
+    }
+ catch (    IllegalArgumentException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderInvalidDesiredDeliveryDateSyntaxError",this.cart.getLocale()));
+    }
+  }
+ else {
+    context.remove("itemDesiredDeliveryDate");
+  }
+  String comment=(String)context.get("itemComment");
+  if (UtilValidate.isEmpty(comment)) {
+    context.remove("itemComment");
+  }
+  if (!UtilValidate.isEmpty(context.get("useAsDefaultDesiredDeliveryDate"))) {
+    cart.setDefaultItemDeliveryDate((String)context.get("itemDesiredDeliveryDate"));
+  }
+ else {
+    cart.setDefaultItemDeliveryDate(null);
+  }
+  if (!UtilValidate.isEmpty(context.get("useAsDefaultComment"))) {
+    cart.setDefaultItemComment((String)context.get("itemComment"));
+  }
+ else {
+    cart.setDefaultItemComment(null);
+  }
+  for (int namesIdx=0; namesIdx < ShoppingCartItem.attributeNames.length; namesIdx++) {
+    if (attributes == null)     attributes=new HashMap<String,Object>();
+    if (context.containsKey(ShoppingCartItem.attributeNames[namesIdx])) {
+      attributes.put(ShoppingCartItem.attributeNames[namesIdx],context.get(ShoppingCartItem.attributeNames[namesIdx]));
+    }
+  }
+  GenericValue product=null;
+  if (productId != null) {
+    try {
+      product=delegator.findByPrimaryKeyCache("Product",UtilMisc.toMap("productId",productId));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Unable to lookup product : " + productId,module);
+    }
+    if (product == null || product.get("requireAmount") == null || "N".equals(product.getString("requireAmount"))) {
+      amount=null;
+    }
+    Debug.logInfo("carthelper productid " + productId,module);
+    Debug.logInfo("parent productid " + pProductId,module);
+  }
+  Map<String,Object> selectedFeatures=UtilHttp.makeParamMapWithPrefix(context,null,"FT",null);
+  Iterator<String> selectedFeaturesTypes=selectedFeatures.keySet().iterator();
+  Map<String,GenericValue> additionalFeaturesMap=FastMap.newInstance();
+  while (selectedFeaturesTypes.hasNext()) {
+    String selectedFeatureType=selectedFeaturesTypes.next();
+    String selectedFeatureValue=(String)selectedFeatures.get(selectedFeatureType);
+    if (UtilValidate.isNotEmpty(selectedFeatureValue)) {
+      GenericValue productFeatureAndAppl=null;
+      try {
+        productFeatureAndAppl=EntityUtil.getFirst(EntityUtil.filterByDate(delegator.findByAnd("ProductFeatureAndAppl",UtilMisc.toMap("productId",productId,"productFeatureTypeId",selectedFeatureType,"productFeatureId",selectedFeatureValue))));
+      }
+ catch (      GenericEntityException gee) {
+        Debug.logError(gee,module);
+      }
+      if (UtilValidate.isNotEmpty(productFeatureAndAppl)) {
+        productFeatureAndAppl.set("productFeatureApplTypeId","STANDARD_FEATURE");
+      }
+      additionalFeaturesMap.put(selectedFeatureType,productFeatureAndAppl);
+    }
+  }
+  try {
+    int itemId=-1;
+    if (productId != null) {
+      itemId=cart.addOrIncreaseItem(productId,amount,quantity,reservStart,reservLength,reservPersons,accommodationMapId,accommodationSpotId,shipBeforeDate,shipAfterDate,additionalFeaturesMap,attributes,catalogId,configWrapper,itemType,itemGroupNumber,pProductId,dispatcher);
+    }
+ else {
+      itemId=cart.addNonProductItem(itemType,itemDescription,productCategoryId,price,quantity,attributes,catalogId,itemGroupNumber,dispatcher);
+    }
+    if (itemId > -1 && shoppingListId != null && shoppingListItemSeqId != null) {
+      ShoppingCartItem item=cart.findCartItem(itemId);
+      item.setShoppingList(shoppingListId,shoppingListItemSeqId);
+    }
+  }
+ catch (  CartItemModifyException e) {
+    if (cart.getOrderType().equals("PURCHASE_ORDER")) {
+      String errMsg=UtilProperties.getMessage(resource_error,"cart.product_not_valid_for_supplier",this.cart.getLocale());
+      errMsg=errMsg + " (" + e.getMessage()+ ")";
+      result=ServiceUtil.returnError(errMsg);
+    }
+ else {
+      result=ServiceUtil.returnError(e.getMessage());
+    }
+    return result;
+  }
+catch (  ItemNotFoundException e) {
+    result=ServiceUtil.returnError(e.getMessage());
+    return result;
+  }
+  result=ServiceUtil.returnSuccess();
+  return result;
+}

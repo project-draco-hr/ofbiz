@@ -1,0 +1,230 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue orderItem=(GenericValue)context.get("orderItem");
+  Locale locale=(Locale)context.get("locale");
+  String orderId=orderItem.getString("orderId");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=orderItem.getRelatedOne("OrderHeader");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to get OrderHeader from OrderItem",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
+  }
+  OrderReadHelper orh=new OrderReadHelper(orderHeader);
+  String currency=orh.getCurrency();
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  String productStoreId=null;
+  if (orderHeader != null) {
+    productStoreId=orh.getProductStoreId();
+  }
+  if (productStoreId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotProcess",locale));
+  }
+  GenericValue paymentSetting=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStoreId,"GIFT_CARD",null,true);
+  String paymentConfig=null;
+  if (paymentSetting != null) {
+    paymentConfig=paymentSetting.getString("paymentPropertiesPath");
+  }
+  if (paymentConfig == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId","GIFT_CARD"),locale));
+  }
+  GenericValue placingParty=orh.getPlacingParty();
+  String partyId=null;
+  if (placingParty != null) {
+    partyId=placingParty.getString("partyId");
+  }
+  BigDecimal amount=orderItem.getBigDecimal("unitPrice");
+  BigDecimal quantity=orderItem.getBigDecimal("quantity");
+  GenericValue product=null;
+  try {
+    product=orderItem.getRelatedOne("Product");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Unable to get Product from OrderItem",module);
+  }
+  if (product == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotFulfill",locale));
+  }
+  GenericValue typeFeature=null;
+  try {
+    Map<String,Object> fields=UtilMisc.toMap("productId",product.get("productId"),"productFeatureTypeId","TYPE");
+    List<String> order=UtilMisc.toList("-fromDate");
+    List<GenericValue> featureAppls=delegator.findByAndCache("ProductFeatureAndAppl",fields,order);
+    featureAppls=EntityUtil.filterByDate(featureAppls);
+    typeFeature=EntityUtil.getFirst(featureAppls);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkUnableToGetFeatureType",locale));
+  }
+  if (typeFeature == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkFeatureTypeRequested",UtilMisc.toMap("productId",product.get("productId")),locale));
+  }
+  String promoCode=typeFeature.getString("idCode");
+  if (UtilValidate.isEmpty(promoCode)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkPromoCodeInvalid",locale));
+  }
+  String surveyId=UtilProperties.getPropertyValue(paymentConfig,"payment.giftcert.purchase.surveyId");
+  GenericValue surveyResponse=null;
+  try {
+    Map<String,Object> fields=UtilMisc.<String,Object>toMap("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"surveyId",surveyId);
+    List<String> order=UtilMisc.toList("-responseDate");
+    List<GenericValue> responses=delegator.findByAnd("SurveyResponse",fields,order);
+    surveyResponse=EntityUtil.getFirst(responses);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotFulfill",locale));
+  }
+  List<GenericValue> responseAnswers=null;
+  try {
+    responseAnswers=surveyResponse.getRelated("SurveyResponseAnswer");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotFulfillFromSurveyAnswers",locale));
+  }
+  Map<String,Object> answerMap=FastMap.newInstance();
+  if (responseAnswers != null) {
+    Iterator<GenericValue> rai=responseAnswers.iterator();
+    while (rai.hasNext()) {
+      GenericValue answer=(GenericValue)rai.next();
+      GenericValue question=null;
+      try {
+        question=answer.getRelatedOne("SurveyQuestion");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotFulfillFromSurveyAnswers",locale));
+      }
+      if (question != null) {
+        String desc=question.getString("description");
+        String ans=answer.getString("textResponse");
+        answerMap.put(desc,ans);
+      }
+    }
+  }
+  String sendToKey=UtilProperties.getPropertyValue(paymentConfig,"payment.giftcert.purchase.survey.sendToEmail");
+  String sendToEmail=(String)answerMap.get(sendToKey);
+  String orderEmails=orh.getOrderEmailString();
+  String copyMeField=UtilProperties.getPropertyValue(paymentConfig,"payment.giftcert.purchase.survey.copyMe");
+  String copyMeResp=copyMeField != null ? (String)answerMap.get(copyMeField) : null;
+  boolean copyMe=(UtilValidate.isNotEmpty(copyMeField) && UtilValidate.isNotEmpty(copyMeResp) && "true".equalsIgnoreCase(copyMeResp)) ? true : false;
+  int qtyLoop=quantity.intValue();
+  for (int i=0; i < qtyLoop; i++) {
+    Map<String,Object> activateCtx=FastMap.newInstance();
+    activateCtx.put("paymentConfig",paymentConfig);
+    activateCtx.put("vlPromoCode",promoCode);
+    activateCtx.put("currency",currency);
+    activateCtx.put("partyId",partyId);
+    activateCtx.put("orderId",orderId);
+    activateCtx.put("amount",amount);
+    activateCtx.put("userLogin",userLogin);
+    boolean failure=false;
+    Map<String,Object> activateResult=null;
+    try {
+      activateResult=dispatcher.runSync("activateGiftCard",activateCtx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Unable to activate gift card(s)",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkUnableToActivateGiftCard",locale));
+    }
+    Boolean processResult=(Boolean)activateResult.get("processResult");
+    if (activateResult == null || activateResult.containsKey(ModelService.ERROR_MESSAGE) || !processResult.booleanValue()) {
+      failure=true;
+    }
+    if (!failure) {
+      ServiceXaWrapper xaw=new ServiceXaWrapper(dctx);
+      activateCtx.put("cardNumber",activateResult.get("cardNumber"));
+      activateCtx.put("pin",activateResult.get("pin"));
+      xaw.setRollbackService("voidActivateGiftCard",activateCtx);
+      try {
+        xaw.enlist();
+      }
+ catch (      XAException e) {
+        Debug.logError(e,"Unable to setup Activate/Void on error",module);
+      }
+    }
+    Map<String,Object> vlFulFill=FastMap.newInstance();
+    vlFulFill.put("typeEnumId","GC_ACTIVATE");
+    vlFulFill.put("merchantId",UtilProperties.getPropertyValue(paymentConfig,"payment.valuelink.merchantId"));
+    vlFulFill.put("partyId",partyId);
+    vlFulFill.put("orderId",orderId);
+    vlFulFill.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
+    vlFulFill.put("surveyResponseId",surveyResponse.get("surveyResponseId"));
+    vlFulFill.put("cardNumber",activateResult.get("cardNumber"));
+    vlFulFill.put("pinNumber",activateResult.get("pin"));
+    vlFulFill.put("amount",activateResult.get("amount"));
+    vlFulFill.put("responseCode",activateResult.get("responseCode"));
+    vlFulFill.put("referenceNum",activateResult.get("referenceNum"));
+    vlFulFill.put("authCode",activateResult.get("authCode"));
+    vlFulFill.put("userLogin",userLogin);
+    try {
+      dispatcher.runAsync("createGcFulFillmentRecord",vlFulFill,true);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotStoreFulfillmentInfo",UtilMisc.toMap("errorString",e.toString()),locale));
+    }
+    if (failure) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkUnableToActivateGiftCard",locale));
+    }
+    answerMap.put("cardNumber",activateResult.get("cardNumber"));
+    answerMap.put("pinNumber",activateResult.get("pin"));
+    answerMap.put("amount",activateResult.get("amount"));
+    GenericValue productStoreEmail=null;
+    String emailType="PRDS_GC_PURCHASE";
+    try {
+      productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",productStoreId,"emailType",emailType));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Unable to get product store email setting for gift card purchase",module);
+    }
+    if (productStoreEmail == null) {
+      Debug.logError("No gift card purchase email setting found for this store; cannot send gift card information",module);
+    }
+ else {
+      ResourceBundleMapWrapper uiLabelMap=(ResourceBundleMapWrapper)UtilProperties.getResourceBundleMap("EcommerceUiLabels",locale);
+      uiLabelMap.addBottomResourceBundle("OrderUiLabels");
+      uiLabelMap.addBottomResourceBundle("CommonUiLabels");
+      answerMap.put("uiLabelMap",uiLabelMap);
+      answerMap.put("locale",locale);
+      String bcc=productStoreEmail.getString("bccAddress");
+      if (copyMe) {
+        if (UtilValidate.isNotEmpty(bcc)) {
+          bcc=bcc + "," + orderEmails;
+        }
+ else {
+          bcc=orderEmails;
+        }
+      }
+      Map<String,Object> emailCtx=FastMap.newInstance();
+      String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+      if (UtilValidate.isEmpty(bodyScreenLocation)) {
+        bodyScreenLocation=ProductStoreWorker.getDefaultProductStoreEmailScreenLocation(emailType);
+      }
+      emailCtx.put("bodyScreenUri",bodyScreenLocation);
+      emailCtx.put("bodyParameters",answerMap);
+      emailCtx.put("sendTo",sendToEmail);
+      emailCtx.put("contentType",productStoreEmail.get("contentType"));
+      emailCtx.put("sendFrom",productStoreEmail.get("fromAddress"));
+      emailCtx.put("sendCc",productStoreEmail.get("ccAddress"));
+      emailCtx.put("sendBcc",bcc);
+      emailCtx.put("subject",productStoreEmail.getString("subject"));
+      emailCtx.put("userLogin",userLogin);
+      try {
+        dispatcher.runAsync("sendMailFromScreen",emailCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem sending mail",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotSendEmailNotice",UtilMisc.toMap("errorString",e.toString()),locale));
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

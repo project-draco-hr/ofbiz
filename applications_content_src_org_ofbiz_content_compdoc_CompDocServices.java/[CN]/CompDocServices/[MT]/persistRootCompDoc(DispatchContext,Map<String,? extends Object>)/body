@@ -1,23 +1,17 @@
 {
-  Map result=FastMap.newInstance();
+  Map<String,Object> result=FastMap.newInstance();
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Locale locale=(Locale)context.get("locale");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String contentId=(String)context.get("contentId");
-  boolean contentExists=true;
-  if (UtilValidate.isEmpty(contentId)) {
-    contentExists=false;
-  }
- else {
+  if (UtilValidate.isNotEmpty(contentId)) {
     try {
-      GenericValue val=delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
-      if (val == null)       contentExists=false;
+      delegator.findByPrimaryKey("Content",UtilMisc.toMap("contentId",contentId));
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Error running serviceName persistContentAndAssoc",module);
-      String errMsg=UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.error_modelservice_for_srv_name",locale);
-      return ServiceUtil.returnError(errMsg);
+      return ServiceUtil.returnError(UtilProperties.getMessage(CoreEvents.err_resource,"ContentNoContentFound",UtilMisc.toMap("contentId",contentId),locale));
     }
   }
   ModelService modelService=null;
@@ -25,33 +19,31 @@
     modelService=dispatcher.getDispatchContext().getModelService("persistContentAndAssoc");
   }
  catch (  GenericServiceException e) {
-    String errMsg="Error getting model service for serviceName, 'persistContentAndAssoc'. " + e.toString();
-    Debug.logError(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError("Error getting model service for serviceName, 'persistContentAndAssoc'. " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(CoreEvents.err_resource,"coreEvents.error_modelservice_for_srv_name",locale));
   }
-  Map persistMap=modelService.makeValid(context,ModelService.IN_PARAM);
+  Map<String,Object> persistMap=modelService.makeValid(context,ModelService.IN_PARAM);
   persistMap.put("userLogin",userLogin);
   try {
-    Map persistContentResult=dispatcher.runSync("persistContentAndAssoc",persistMap);
+    Map<String,Object> persistContentResult=dispatcher.runSync("persistContentAndAssoc",persistMap);
     if (ServiceUtil.isError(persistContentResult)) {
-      return ServiceUtil.returnError("Error saving content information: ",null,null,persistContentResult);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentContentCreatingError",UtilMisc.toMap("serviceName","persistContentAndAssoc"),locale),null,null,persistContentResult);
     }
     contentId=(String)persistContentResult.get("contentId");
     result.putAll(persistContentResult);
-    Map contentRevisionMap=FastMap.newInstance();
+    Map<String,Object> contentRevisionMap=FastMap.newInstance();
     contentRevisionMap.put("itemContentId",contentId);
     contentRevisionMap.put("contentId",contentId);
     contentRevisionMap.put("userLogin",userLogin);
-    Map persistRevResult=dispatcher.runSync("persistContentRevisionAndItem",contentRevisionMap);
+    Map<String,Object> persistRevResult=dispatcher.runSync("persistContentRevisionAndItem",contentRevisionMap);
     if (ServiceUtil.isError(persistRevResult)) {
-      return ServiceUtil.returnError("Error saving revision information: ",null,null,persistRevResult);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentContentCreatingError",UtilMisc.toMap("serviceName","persistContentRevisionAndItem"),locale),null,null,persistRevResult);
     }
     result.putAll(persistRevResult);
     return result;
   }
  catch (  GenericServiceException e) {
-    String errMsg="Error running serviceName, 'persistContentAndAssoc'. " + e.toString();
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Error running serviceName, 'persistContentAndAssoc'. " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentContentCreatingError",UtilMisc.toMap("serviceName","persistContentAndAssoc"),locale) + e.toString());
   }
 }

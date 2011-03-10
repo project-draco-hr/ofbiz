@@ -1,0 +1,52 @@
+{
+  String orderId=(String)context.get("orderId");
+  String cvv2=(String)context.get("cardSecurityCode");
+  String custIp=(String)context.get("customerIpAddress");
+  BigDecimal processAmount=(BigDecimal)context.get("processAmount");
+  GenericValue cc=(GenericValue)context.get("creditCard");
+  GenericValue address=(GenericValue)context.get("billingAddress");
+  GenericValue party=(GenericValue)context.get("billToParty");
+  GatewayRequest req=initRequest(dctx,context,false);
+  req.setCustomerInvoiceRef(orderId);
+  req.setTotalAmount(processAmount);
+  req.setCustomerIPAddress(custIp);
+  req.setCustomerFirstName(UtilFormatOut.checkNull(party.getString("firstName")));
+  req.setCustomerLastName(UtilFormatOut.checkNull(party.getString("lastName")));
+  String ccName=cc.getString("firstNameOnCard") + " " + cc.getString("lastNameOnCard");
+  req.setCardHoldersName(ccName);
+  req.setCardNumber(cc.getString("cardNumber"));
+  if (cc.get("expireDate") != null) {
+    String[] exp=cc.getString("expireDate").split("\\/");
+    req.setCardExpiryMonth(exp[0]);
+    req.setCardExpiryYear(exp[1]);
+  }
+  if (UtilValidate.isNotEmpty(cvv2)) {
+    req.setCVN(cvv2);
+  }
+  if (address != null) {
+    String street=address.getString("address1") + ((UtilValidate.isNotEmpty(address.getString("address2"))) ? " " + address.getString("address2") : "");
+    req.setCustomerAddress(street);
+    req.setCustomerPostcode(address.getString("postalCode"));
+    req.setCustomerBillingCountry(address.getString("countryGeoId"));
+  }
+  GatewayConnector con=new GatewayConnector();
+  GatewayResponse reply;
+  try {
+    reply=con.sendRequest(req);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  Boolean authResult=reply.getTrxnStatus();
+  result.put("authResult",new Boolean(authResult.booleanValue()));
+  result.put("authMessage",reply.getTrxnError());
+  result.put("authCode",reply.getAuthCode());
+  result.put("authRefNum",reply.getTrxnNumber());
+  result.put("scoreCode",Double.valueOf(reply.getBeagleScore()).toString());
+  result.put("processAmount",reply.getTransactionAmount());
+  result.put("captureResult",result.get("authResult"));
+  result.put("captureMessage",result.get("authMessage"));
+  result.put("captureRefNum",result.get("authRefNum"));
+  return result;
+}

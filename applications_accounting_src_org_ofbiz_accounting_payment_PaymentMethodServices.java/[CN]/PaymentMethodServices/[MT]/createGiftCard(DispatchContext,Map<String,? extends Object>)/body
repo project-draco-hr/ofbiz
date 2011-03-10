@@ -1,0 +1,44 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  String partyId=ServiceUtil.getPartyIdCheckSecurity(userLogin,security,context,result,"PAY_INFO","_CREATE");
+  if (result.size() > 0)   return result;
+  List<GenericValue> toBeStored=FastList.newInstance();
+  GenericValue newPm=delegator.makeValue("PaymentMethod");
+  toBeStored.add(newPm);
+  GenericValue newGc=delegator.makeValue("GiftCard");
+  toBeStored.add(newGc);
+  String newPmId=(String)context.get("paymentMethodId");
+  if (UtilValidate.isEmpty(newPmId)) {
+    try {
+      newPmId=delegator.getNextSeqId("PaymentMethod");
+    }
+ catch (    IllegalArgumentException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCardCannotBeCreated",locale));
+    }
+  }
+  newPm.set("partyId",partyId);
+  newPm.set("fromDate",(context.get("fromDate") != null ? context.get("fromDate") : now));
+  newPm.set("thruDate",context.get("thruDate"));
+  newPm.set("description",context.get("description"));
+  newGc.set("cardNumber",context.get("cardNumber"));
+  newGc.set("pinNumber",context.get("pinNumber"));
+  newGc.set("expireDate",context.get("expireDate"));
+  newPm.set("paymentMethodId",newPmId);
+  newPm.set("paymentMethodTypeId","GIFT_CARD");
+  newGc.set("paymentMethodId",newPmId);
+  try {
+    delegator.storeAll(toBeStored);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCardCannotBeCreatedWriteFailure",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+  result.put("paymentMethodId",newGc.getString("paymentMethodId"));
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

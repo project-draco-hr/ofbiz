@@ -6,7 +6,7 @@
   String webSiteId=(String)servletContext.getAttribute("webSiteId");
   Delegator delegator=(Delegator)request.getAttribute("delegator");
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
-  Map paramMap=UtilHttp.getParameterMap(request);
+  Map<String,Object> paramMap=UtilHttp.getParameterMap(request);
   String targContentId=(String)paramMap.get("contentId");
   String roles=null;
   String authorId=null;
@@ -19,22 +19,22 @@
     return "error";
   }
   String userLoginId=userLogin.getString("userLoginId");
-  List roleTypeList=null;
+  List<String> roleTypeList=null;
   if (authorId != null && userLoginId != null && authorId.equals(userLoginId)) {
     roles="OWNER";
     roleTypeList=StringUtil.split(roles,"|");
   }
-  List targetOperationList=UtilMisc.toList("CONTENT_PUBLISH");
-  List contentPurposeList=null;
+  List<String> targetOperationList=UtilMisc.<String>toList("CONTENT_PUBLISH");
+  List<String> contentPurposeList=null;
   String permittedAction=(String)paramMap.get("permittedAction");
   String permittedOperations=(String)paramMap.get("permittedOperations");
   if (UtilValidate.isEmpty(targContentId)) {
     request.setAttribute("_ERROR_MESSAGE_","targContentId is empty.");
     return "error";
   }
-  List origPublishedLinkList=null;
+  List<Object[]> origPublishedLinkList=null;
   try {
-    GenericValue authorUserLogin=delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId",authorId));
+    delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId",authorId));
     origPublishedLinkList=ContentManagementWorker.getPublishedLinks(delegator,targContentId,webSiteId,userLogin,security,permittedAction,permittedOperations,roles);
   }
  catch (  GenericEntityException e) {
@@ -45,11 +45,11 @@ catch (  GeneralException e2) {
     request.setAttribute("_ERROR_MESSAGE_",e2.getMessage());
     return "error";
   }
-  Set keySet=paramMap.keySet();
-  Iterator itKeySet=keySet.iterator();
-  Map siteIdLookup=FastMap.newInstance();
+  Set<String> keySet=paramMap.keySet();
+  Iterator<String> itKeySet=keySet.iterator();
+  Map<String,String> siteIdLookup=FastMap.newInstance();
   while (itKeySet.hasNext()) {
-    String param=(String)itKeySet.next();
+    String param=itKeySet.next();
     int pos=param.indexOf("select_");
     if (pos >= 0) {
       String siteId=param.substring(7);
@@ -57,24 +57,21 @@ catch (  GeneralException e2) {
       siteIdLookup.put(siteId,subSiteVal);
     }
   }
-  Iterator it=origPublishedLinkList.iterator();
+  Iterator<Object[]> it=origPublishedLinkList.iterator();
   Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
-  int counter=0;
   String responseMessage=null;
   String errorMessage=null;
-  String permissionMessage=null;
   boolean statusIdUpdated=false;
-  Map results=null;
+  Map<String,Object> results=null;
   while (it.hasNext()) {
     Object[] arr=(Object[])it.next();
     String contentId=(String)arr[0];
     String origSubContentId=null;
-    List origSubList=(List)arr[1];
-    Timestamp topFromDate=(Timestamp)arr[3];
+    List<Object[]> origSubList=UtilGenerics.checkList(arr[1]);
     Timestamp origFromDate=null;
-    Iterator itOrigSubPt=origSubList.iterator();
+    Iterator<Object[]> itOrigSubPt=origSubList.iterator();
     while (itOrigSubPt.hasNext()) {
-      Object[] pubArr=(Object[])itOrigSubPt.next();
+      Object[] pubArr=itOrigSubPt.next();
       Timestamp fromDate=(Timestamp)pubArr[2];
       origSubContentId=null;
       if (fromDate != null) {
@@ -88,15 +85,15 @@ catch (  GeneralException e2) {
       if (UtilValidate.isNotEmpty(currentSubContentId)) {
         if (!currentSubContentId.equals(origSubContentId)) {
           if (UtilValidate.isNotEmpty(origSubContentId) && origFromDate != null) {
-            List oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",origSubContentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
-            Iterator iterOldActive=oldActiveValues.iterator();
+            List<GenericValue> oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",origSubContentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
+            Iterator<GenericValue> iterOldActive=oldActiveValues.iterator();
             while (iterOldActive.hasNext()) {
-              GenericValue cAssoc=(GenericValue)iterOldActive.next();
+              GenericValue cAssoc=iterOldActive.next();
               cAssoc.set("thruDate",nowTimestamp);
               cAssoc.store();
             }
           }
-          Map serviceIn=FastMap.newInstance();
+          Map<String,Object> serviceIn=FastMap.newInstance();
           serviceIn.put("userLogin",userLogin);
           serviceIn.put("contentId",targContentId);
           serviceIn.put("contentAssocTypeId","PUBLISH_LINK");
@@ -140,10 +137,10 @@ catch (  GeneralException e2) {
         }
       }
  else       if (UtilValidate.isNotEmpty(origSubContentId)) {
-        List oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",origSubContentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
-        Iterator iterOldActive=oldActiveValues.iterator();
+        List<GenericValue> oldActiveValues=delegator.findByAnd("ContentAssoc",UtilMisc.toMap("contentId",targContentId,"contentIdTo",origSubContentId,"contentAssocTypeId","PUBLISH_LINK","thruDate",null));
+        Iterator<GenericValue> iterOldActive=oldActiveValues.iterator();
         while (iterOldActive.hasNext()) {
-          GenericValue cAssoc=(GenericValue)iterOldActive.next();
+          GenericValue cAssoc=iterOldActive.next();
           cAssoc.set("thruDate",nowTimestamp);
           cAssoc.store();
         }

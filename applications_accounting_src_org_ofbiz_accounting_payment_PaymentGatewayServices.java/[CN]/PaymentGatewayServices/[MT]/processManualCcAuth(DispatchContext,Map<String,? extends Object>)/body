@@ -1,11 +1,12 @@
 {
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Delegator delegator=dctx.getDelegator();
   Security security=dctx.getSecurity();
   if (!security.hasEntityPermission("MANUAL","_PAYMENT",userLogin)) {
     Debug.logWarning("**** Security [" + (new Date()).toString() + "]: "+ userLogin.get("userLoginId")+ " attempt to run manual payment transaction!",module);
-    return ServiceUtil.returnError("You do not have permission for this transaction.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentTransactionNotAuthorized",locale));
   }
   String paymentMethodId=(String)context.get("paymentMethodId");
   String productStoreId=(String)context.get("productStoreId");
@@ -20,7 +21,7 @@
     return ServiceUtil.returnError(e.getMessage());
   }
   if (paymentMethod == null || !"CREDIT_CARD".equals(paymentMethod.getString("paymentMethodTypeId"))) {
-    return ServiceUtil.returnError("Manual CC auth service can only be used with PaymentMethodType of CREDIT_CARD");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentManualAuthOnlyForCreditCard",locale));
   }
   GenericValue billToParty;
   try {
@@ -39,14 +40,14 @@
     return ServiceUtil.returnError(e.getMessage());
   }
   if (UtilValidate.isEmpty(creditCard)) {
-    return ServiceUtil.returnError("CreditCard object not found for paymentMethodId: " + paymentMethodId);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentCreditCardNotFound",UtilMisc.toMap("paymentMethodId",paymentMethodId),locale));
   }
   String paymentService=null;
   String paymentConfig=null;
   String paymentGatewayConfigId=null;
   GenericValue paymentSettings=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStoreId,"CREDIT_CARD","PRDS_PAY_AUTH",false);
   if (paymentSettings == null) {
-    return ServiceUtil.returnError("No valid payment settings found for : " + productStoreId + "/"+ "");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentSettingNotFound",UtilMisc.toMap("productStoreId",productStoreId,"transactionType",""),locale));
   }
  else {
     String customMethodId=paymentSettings.getString("paymentCustomMethodId");
@@ -91,7 +92,7 @@
   }
  catch (  GenericServiceException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Error calling service : " + paymentService + " / "+ authContext);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentServiceError",UtilMisc.toMap("paymentService",paymentService,"authContext",authContext),locale));
   }
   if (ServiceUtil.isError(response)) {
     return ServiceUtil.returnError(ServiceUtil.getErrorMessage(response));
@@ -102,6 +103,6 @@
     return ServiceUtil.returnSuccess();
   }
  else {
-    return ServiceUtil.returnError("Authorization failed");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentAuthorizationFailed",locale));
   }
 }

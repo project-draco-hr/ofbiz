@@ -1,0 +1,52 @@
+{
+  String shipmentCustomMethodId=storeShipMeth.getString("shipmentCustomMethodId");
+  String serviceName="";
+  if (UtilValidate.isNotEmpty(shipmentCustomMethodId)) {
+    serviceName=getShipmentCustomMethod(dispatcher.getDelegator(),shipmentCustomMethodId);
+  }
+  if (UtilValidate.isEmpty(serviceName)) {
+    serviceName=storeShipMeth.getString("serviceName");
+  }
+  BigDecimal externalShipAmt=null;
+  if (serviceName != null) {
+    String doEstimates=UtilProperties.getPropertyValue("shipment.properties","shipment.doratecheck","true");
+    if ("true".equals(doEstimates)) {
+      String dothisEstimate=UtilProperties.getPropertyValue("shipment.properties","shipment.doratecheck." + serviceName,"true");
+      if ("false".equals(dothisEstimate))       serviceName=null;
+    }
+ else {
+      serviceName=null;
+    }
+  }
+  if (serviceName != null) {
+    String shipmentGatewayConfigId=storeShipMeth.getString("shipmentGatewayConfigId");
+    String configProps=storeShipMeth.getString("configProps");
+    if (UtilValidate.isNotEmpty(serviceName)) {
+      context.put("serviceConfigProps",configProps);
+      context.put("shipmentCustomMethodId",shipmentCustomMethodId);
+      context.put("shipmentGatewayConfigId",shipmentGatewayConfigId);
+      Map<String,Object> serviceResp=null;
+      try {
+        Debug.log("Service : " + serviceName + " / shipmentGatewayConfigId : "+ shipmentGatewayConfigId+ " / configProps : "+ configProps+ " -- "+ context,module);
+        serviceResp=dispatcher.runSync(serviceName,context,0,true);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Shipment Service Error",module);
+        throw new GeneralException(e);
+      }
+      if (ServiceUtil.isError(serviceResp)) {
+        String errMsg="Error getting external shipment cost estimate: " + ServiceUtil.getErrorMessage(serviceResp);
+        Debug.logError(errMsg,module);
+        throw new GeneralException(errMsg);
+      }
+ else       if (ServiceUtil.isFailure(serviceResp)) {
+        String errMsg="Failure getting external shipment cost estimate: " + ServiceUtil.getErrorMessage(serviceResp);
+        Debug.logError(errMsg,module);
+      }
+ else {
+        externalShipAmt=(BigDecimal)serviceResp.get("shippingEstimateAmount");
+      }
+    }
+  }
+  return externalShipAmt;
+}

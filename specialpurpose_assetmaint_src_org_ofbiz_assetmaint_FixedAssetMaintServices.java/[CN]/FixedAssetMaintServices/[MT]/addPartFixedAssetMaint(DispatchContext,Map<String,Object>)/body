@@ -11,13 +11,13 @@
   try {
     GenericValue product=ProductWorker.findProduct(delegator,productId);
     if (product == null) {
-      return ServiceUtil.returnError(UtilProperties.getMessage("AssetMaintUiLabels","AssetMaintInvalidPartProductIdError",UtilMisc.toMap("productId",productId),locale));
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AssetMaintInvalidPartProductIdError",UtilMisc.toMap("productId",productId),locale));
     }
     Map<String,? extends Object> findCurrInventoryParams=UtilMisc.toMap("productId",productId,"facilityId",facilityId);
     GenericValue userLogin=(GenericValue)context.get("userLogin");
     Map<String,Object> result=dispatcher.runSync("getInventoryAvailableByFacility",findCurrInventoryParams);
     if (ServiceUtil.isError(result)) {
-      return ServiceUtil.returnError("Problem in getting Inventory level for " + productId,null,null,result);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AssetMaintProblemGettingInventoryLevel",locale) + productId,null,null,result);
     }
     Object atpObj=result.get("availableToPromiseTotal");
     double atp=0.0;
@@ -25,13 +25,13 @@
       atp=Double.parseDouble(atpObj.toString());
     }
     if (requestedQty > atp) {
-      return ServiceUtil.returnError(UtilProperties.getMessage("AssetMaintUiLabels","AssetMaintLowPartInventoryError",UtilMisc.toMap("productId",productId,"quantity",Double.toString(atp)),locale));
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AssetMaintLowPartInventoryError",UtilMisc.toMap("productId",productId,"quantity",Double.toString(atp)),locale));
     }
     EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId),EntityCondition.makeCondition("facilityId",EntityOperator.EQUALS,facilityId),EntityCondition.makeCondition("availableToPromiseTotal",EntityOperator.GREATER_THAN,"0")),EntityOperator.AND);
-    List<GenericValue> inventoryItems=delegator.findByAnd("InventoryItem",ecl,null,null,null,false);
+    List<GenericValue> inventoryItems=delegator.findList("InventoryItem",ecl,null,null,null,false);
     Iterator<GenericValue> itr=inventoryItems.iterator();
     while (requestedQty > 0 && itr.hasNext()) {
-      GenericValue inventoryItem=(GenericValue)itr.next();
+      GenericValue inventoryItem=itr.next();
       String inventoryItemId=inventoryItem.getString("inventoryItemId");
       atp=inventoryItem.getDouble("availableToPromiseTotal").doubleValue();
       findCurrInventoryParams=UtilMisc.toMap("inventoryItemId",inventoryItemId);
@@ -50,7 +50,7 @@
       itemIssuanceCtx.put("quantity",issueQuantity);
       result=dispatcher.runSync("issueInventoryItemToFixedAssetMaint",itemIssuanceCtx);
       if (ServiceUtil.isError(result)) {
-        return ServiceUtil.returnError("Problem in calling service issueInventoryItemToFixedAssetMaint",null,null,result);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AssetMaintProblemCallingService",locale),null,null,result);
       }
       requestedQty=requestedQty - issueQuantity.doubleValue();
     }
@@ -59,9 +59,8 @@
     Debug.logError("Problem in retriving data from database",module);
   }
 catch (  GenericServiceException e) {
-    String msg="Problem in calling service issueInventoryItemToFixedAssetMaint";
-    Debug.logError(msg,module);
-    return ServiceUtil.returnError(msg);
+    Debug.logError("Problem in calling service issueInventoryItemToFixedAssetMaint",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AssetMaintProblemCallingService",locale));
   }
   return ServiceUtil.returnSuccess();
 }

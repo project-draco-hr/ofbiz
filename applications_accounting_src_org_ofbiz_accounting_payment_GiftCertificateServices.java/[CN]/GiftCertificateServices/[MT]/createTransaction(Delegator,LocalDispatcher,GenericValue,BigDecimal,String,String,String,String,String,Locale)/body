@@ -1,0 +1,73 @@
+{
+  final String coParty=getPayToPartyId(delegator,productStoreId);
+  final String paymentMethodType="GIFT_CERTIFICATE";
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId="_NA_";
+  }
+  String paymentType=null;
+  String partyIdFrom=null;
+  String partyIdTo=null;
+  if ("DEPOSIT".equals(txType)) {
+    paymentType="GC_DEPOSIT";
+    partyIdFrom=partyId;
+    partyIdTo=coParty;
+  }
+ else   if ("WITHDRAWAL".equals(txType)) {
+    paymentType="GC_WITHDRAWAL";
+    partyIdFrom=coParty;
+    partyIdTo=partyId;
+  }
+ else {
+    throw new GeneralException(UtilProperties.getMessage(resourceError,"AccountingFinAccountCannotCreateTransaction",locale));
+  }
+  Map<String,Object> paymentCtx=UtilMisc.<String,Object>toMap("paymentTypeId",paymentType);
+  paymentCtx.put("paymentMethodTypeId",paymentMethodType);
+  paymentCtx.put("partyIdTo",partyIdTo);
+  paymentCtx.put("partyIdFrom",partyIdFrom);
+  paymentCtx.put("statusId","PMNT_RECEIVED");
+  paymentCtx.put("currencyUomId",currencyUom);
+  paymentCtx.put("amount",amount);
+  paymentCtx.put("userLogin",userLogin);
+  paymentCtx.put("paymentRefNum","N/A");
+  String paymentId=null;
+  Map<String,Object> payResult=null;
+  try {
+    payResult=dispatcher.runSync("createPayment",paymentCtx);
+  }
+ catch (  GenericServiceException e) {
+    throw new GeneralException(e);
+  }
+  if (payResult == null) {
+    throw new GeneralException("Unknow error in creating financial account transaction!");
+  }
+  if (ServiceUtil.isError(payResult)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(payResult));
+  }
+ else {
+    paymentId=(String)payResult.get("paymentId");
+  }
+  Map<String,Object> transCtx=UtilMisc.<String,Object>toMap("finAccountTransTypeId",txType);
+  transCtx.put("finAccountId",finAccountId);
+  transCtx.put("partyId",userLogin.getString("partyId"));
+  transCtx.put("userLogin",userLogin);
+  transCtx.put("paymentId",paymentId);
+  transCtx.put("amount",amount);
+  Map<String,Object> transResult=null;
+  String txId=null;
+  try {
+    transResult=dispatcher.runSync("createFinAccountTrans",transCtx);
+  }
+ catch (  GenericServiceException e) {
+    throw new GeneralException(e);
+  }
+  if (transResult == null) {
+    throw new GeneralException("Unknown error in creating financial account transaction!");
+  }
+  if (ServiceUtil.isError(transResult)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(transResult));
+  }
+ else {
+    txId=(String)transResult.get("finAccountTransId");
+  }
+  return txId;
+}

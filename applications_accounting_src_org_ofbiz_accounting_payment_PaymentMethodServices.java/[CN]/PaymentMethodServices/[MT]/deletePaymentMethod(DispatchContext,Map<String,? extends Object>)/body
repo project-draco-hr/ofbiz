@@ -1,0 +1,35 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  Security security=ctx.getSecurity();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  String paymentMethodId=(String)context.get("paymentMethodId");
+  GenericValue paymentMethod=null;
+  try {
+    paymentMethod=delegator.findByPrimaryKey("PaymentMethod",UtilMisc.toMap("paymentMethodId",paymentMethodId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentMethodCannotBeDeleted",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+  if (paymentMethod == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentMethodCannotBeDeleted",UtilMisc.toMap("errorString",""),locale));
+  }
+  if (paymentMethod.get("partyId") == null || !paymentMethod.getString("partyId").equals(userLogin.getString("partyId"))) {
+    if (!security.hasEntityPermission("PAY_INFO","_DELETE",userLogin)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentMethodNoPermissionToDelete",locale));
+    }
+  }
+  paymentMethod.set("thruDate",now);
+  try {
+    paymentMethod.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingPaymentMethodCannotBeDeletedWriteFailure",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

@@ -4,6 +4,7 @@
   InputStream in=(InputStream)context.get("inputStream");
   List<Map<String,String>> errorList=FastList.newInstance();
   Boolean isErrorRetry=(Boolean)context.get("isErrorRetry");
+  Locale locale=(Locale)context.get("locale");
   GenericValue userLogin=null;
   try {
     userLogin=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId","system"));
@@ -43,7 +44,7 @@ catch (  IOException e) {
     Debug.logError(e,errMsg,module);
   }
   if (UtilValidate.isNotEmpty(errorList)) {
-    return ServiceUtil.returnError("Unable to parse received message");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorParsingMessage",locale));
   }
   Element rootElement=doc.getDocumentElement();
   rootElement.normalize();
@@ -57,7 +58,7 @@ catch (  IOException e) {
   String task=UtilXml.childElementValue(senderElement,"of:TASK");
   String referenceId=UtilXml.childElementValue(senderElement,"of:REFERENCEID");
   if (UtilValidate.isEmpty(bsrVerb) || UtilValidate.isEmpty(bsrNoun)) {
-    return ServiceUtil.returnError("Was able to receive and parse the XML message, but BSR->NOUN [" + bsrNoun + "] and/or BSR->VERB ["+ bsrVerb+ "] are empty");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorParsingXMLMessage",UtilMisc.toMap("bsrNoun",bsrNoun,"bsrVerb",bsrVerb),locale));
   }
   GenericValue oagisMessageInfo=null;
   Map<String,Object> oagisMessageInfoKey=UtilMisc.toMap("logicalId",(Object)logicalId,"component",component,"task",task,"referenceId",referenceId);
@@ -65,8 +66,7 @@ catch (  IOException e) {
     oagisMessageInfo=delegator.findByPrimaryKey("OagisMessageInfo",oagisMessageInfoKey);
   }
  catch (  GenericEntityException e) {
-    String errMsg="Error Getting Entity OagisMessageInfo: " + e.toString();
-    Debug.logError(e,errMsg,module);
+    Debug.logError(e,"Error Getting Entity OagisMessageInfo: " + e.toString(),module);
   }
   Map<String,Object> messageProcessContext=UtilMisc.toMap("document",doc,"userLogin",userLogin);
   if (UtilValidate.isNotEmpty(oagisMessageInfo)) {
@@ -88,8 +88,7 @@ catch (  IOException e) {
         dispatcher.runAsync("oagisSendConfirmBod",sendConfirmBodCtx,null,true,60,true);
       }
  catch (      GenericServiceException e) {
-        String errMsg="Error sending Confirm BOD: " + e.toString();
-        Debug.logError(e,errMsg,module);
+        Debug.logError(e,"Error sending Confirm BOD: " + e.toString(),module);
       }
       Map<String,Object> result=ServiceUtil.returnSuccess(responseMsg);
       result.put("contentType","text/plain");
@@ -165,13 +164,12 @@ catch (  IOException e) {
       }
     }
  else {
-      return ServiceUtil.returnError("For Acknowledge Delivery message could not determine if it is for a PO or RMA or Status Change. DOCTYPE from message is [" + docType + "], DISPOSITN is ["+ disposition+ "]");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorDeliveryMessage",UtilMisc.toMap("docType",docType,"disposition",disposition),locale));
     }
   }
  else {
-    String errMsg="Unknown Message Type Received, verb/noun combination not supported: verb=[" + bsrVerb + "], noun=["+ bsrNoun+ "]";
-    Debug.logError(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError("Unknown Message Type Received, verb/noun combination not supported: verb=[" + bsrVerb + "], noun=["+ bsrNoun+ "]",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorUnknownMessageType",UtilMisc.toMap("bsrVerb",bsrVerb,"bsrNoun",bsrNoun),locale));
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   result.put("contentType","text/plain");

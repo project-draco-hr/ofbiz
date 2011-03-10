@@ -5,14 +5,15 @@
   GenericValue inventoryItem=null;
   GenericValue newItem=null;
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   try {
     inventoryItem=delegator.findByPrimaryKey("InventoryItem",UtilMisc.toMap("inventoryItemId",inventoryItemId));
   }
  catch (  GenericEntityException e) {
-    return ServiceUtil.returnError("Inventory item lookup problem [" + e.getMessage() + "]");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductNotFindInventoryItemWithId",locale) + inventoryItemId);
   }
   if (inventoryItem == null) {
-    return ServiceUtil.returnError("Cannot locate inventory item.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductNotFindInventoryItemWithId",locale) + inventoryItemId);
   }
   try {
     Map<String,Object> results=ServiceUtil.returnSuccess();
@@ -21,13 +22,13 @@
       BigDecimal atp=inventoryItem.getBigDecimal("availableToPromiseTotal");
       BigDecimal qoh=inventoryItem.getBigDecimal("quantityOnHandTotal");
       if (atp == null) {
-        return ServiceUtil.returnError("The request transfer amount is not available, there is no available to promise on the Inventory Item with ID " + inventoryItem.getString("inventoryItemId"));
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemATPNotAvailable",UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId")),locale));
       }
       if (qoh == null) {
         qoh=atp;
       }
       if (xferQty.compareTo(atp) > 0) {
-        return ServiceUtil.returnError("The request transfer amount is not available, the available to promise [" + atp + "] is not sufficient for the desired transfer quantity ["+ xferQty+ "] on the Inventory Item with ID "+ inventoryItem.getString("inventoryItemId"));
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemATPIsNotSufficient",UtilMisc.toMap("inventoryItemId",inventoryItem.getString("inventoryItemId"),"atp",atp,"xferQty",xferQty),locale));
       }
       if (xferQty.compareTo(atp) < 0 || atp.compareTo(qoh) < 0) {
         BigDecimal negXferQty=xferQty.negate();
@@ -41,15 +42,15 @@
         try {
           Map<String,Object> resultNew=dctx.getDispatcher().runSync("createInventoryItemDetail",createNewDetailMap);
           if (ServiceUtil.isError(resultNew)) {
-            return ServiceUtil.returnError("Inventory Item Detail create problem in prepare inventory transfer",null,null,resultNew);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemDetailCreateProblem",UtilMisc.toMap("errorString",""),locale),null,null,resultNew);
           }
           Map<String,Object> resultUpdate=dctx.getDispatcher().runSync("createInventoryItemDetail",createUpdateDetailMap);
           if (ServiceUtil.isError(resultNew)) {
-            return ServiceUtil.returnError("Inventory Item Detail create problem in prepare inventory transfer",null,null,resultUpdate);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemDetailCreateProblem",UtilMisc.toMap("errorString",""),locale),null,null,resultUpdate);
           }
         }
  catch (        GenericServiceException e1) {
-          return ServiceUtil.returnError("Inventory Item Detail create problem in prepare inventory transfer: [" + e1.getMessage() + "]");
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemDetailCreateProblem",UtilMisc.toMap("errorString",e1.getMessage()),locale));
         }
       }
  else {
@@ -58,7 +59,7 @@
     }
  else     if (inventoryType.equals("SERIALIZED_INV_ITEM")) {
       if (!"INV_AVAILABLE".equals(inventoryItem.getString("statusId"))) {
-        return ServiceUtil.returnError("Serialized inventory is not available for transfer.");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductSerializedInventoryNotAvailable",locale));
       }
     }
     if (inventoryType.equals("NON_SERIAL_INV_ITEM")) {
@@ -70,11 +71,11 @@
         try {
           Map<String,Object> result=dctx.getDispatcher().runSync("createInventoryItemDetail",createDetailMap);
           if (ServiceUtil.isError(result)) {
-            return ServiceUtil.returnError("Inventory Item Detail create problem in complete inventory transfer",null,null,result);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemDetailCreateProblem",UtilMisc.toMap("errorString",""),locale),null,null,result);
           }
         }
  catch (        GenericServiceException e1) {
-          return ServiceUtil.returnError("Inventory Item Detail create problem in complete inventory transfer: [" + e1.getMessage() + "]");
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemDetailCreateProblem",UtilMisc.toMap("errorString",e1.getMessage()),locale));
         }
       }
     }
@@ -95,6 +96,6 @@
     return results;
   }
  catch (  GenericEntityException e) {
-    return ServiceUtil.returnError("Inventory store/create problem [" + e.getMessage() + "]");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemStoreProblem",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
 }

@@ -35,11 +35,13 @@
   List<GenericValue> quoteAdjs=null;
   List<GenericValue> quoteRoles=null;
   List<GenericValue> quoteAttributes=null;
+  List<GenericValue> quoteTerms=null;
   try {
     quoteItems=quote.getRelated("QuoteItem",UtilMisc.toList("quoteItemSeqId"));
     quoteAdjs=quote.getRelated("QuoteAdjustment");
     quoteRoles=quote.getRelated("QuoteRole");
     quoteAttributes=quote.getRelated("QuoteAttribute");
+    quoteTerms=quote.getRelated("QuoteTerm");
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
@@ -70,6 +72,20 @@
       }
     }
   }
+  if (UtilValidate.isNotEmpty(quoteTerms)) {
+    for (    GenericValue quoteTerm : quoteTerms) {
+      BigDecimal termValue=BigDecimal.ZERO;
+      if (UtilValidate.isNotEmpty(quoteTerm.getString("termValue"))) {
+        termValue=new BigDecimal(quoteTerm.getString("termValue"));
+      }
+      long termDays=0;
+      if (UtilValidate.isNotEmpty(quoteTerm.getString("termDays"))) {
+        termDays=Long.parseLong(quoteTerm.getString("termDays").trim());
+      }
+      String orderItemSeqId=quoteTerm.getString("quoteItemSeqId");
+      cart.addOrderTerm(quoteTerm.getString("termTypeId"),orderItemSeqId,termValue,termDays,quoteTerm.getString("textValue"),quoteTerm.getString("description"));
+    }
+  }
   if (UtilValidate.isNotEmpty(quoteAttributes)) {
     for (    GenericValue quoteAttribute : quoteAttributes) {
       cart.setOrderAttribute(quoteAttribute.getString("attrName"),quoteAttribute.getString("attrValue"));
@@ -77,7 +93,7 @@
   }
   Map<String,List<GenericValue>> orderAdjsMap=FastMap.newInstance();
   for (  GenericValue quoteAdj : quoteAdjs) {
-    List<GenericValue> orderAdjs=(List<GenericValue>)orderAdjsMap.get(UtilValidate.isNotEmpty(quoteAdj.getString("quoteItemSeqId")) ? quoteAdj.getString("quoteItemSeqId") : quoteId);
+    List<GenericValue> orderAdjs=orderAdjsMap.get(UtilValidate.isNotEmpty(quoteAdj.getString("quoteItemSeqId")) ? quoteAdj.getString("quoteItemSeqId") : quoteId);
     if (orderAdjs == null) {
       orderAdjs=FastList.newInstance();
       orderAdjsMap.put(UtilValidate.isNotEmpty(quoteAdj.getString("quoteItemSeqId")) ? quoteAdj.getString("quoteItemSeqId") : quoteId,orderAdjs);
@@ -184,17 +200,17 @@ catch (        CartItemModifyException e) {
     }
   }
   if (applyQuoteAdjustments) {
-    List<GenericValue> adjs=(List<GenericValue>)orderAdjsMap.get(quoteId);
+    List<GenericValue> adjs=orderAdjsMap.get(quoteId);
     if (adjs != null) {
       cart.getAdjustments().addAll(adjs);
     }
     if (quoteItems != null) {
-      Iterator i=cart.iterator();
+      Iterator<ShoppingCartItem> i=cart.iterator();
       while (i.hasNext()) {
-        ShoppingCartItem item=(ShoppingCartItem)i.next();
+        ShoppingCartItem item=i.next();
         String orderItemSeqId=item.getOrderItemSeqId();
         if (orderItemSeqId != null) {
-          adjs=(List)orderAdjsMap.get(orderItemSeqId);
+          adjs=orderAdjsMap.get(orderItemSeqId);
         }
  else {
           adjs=null;

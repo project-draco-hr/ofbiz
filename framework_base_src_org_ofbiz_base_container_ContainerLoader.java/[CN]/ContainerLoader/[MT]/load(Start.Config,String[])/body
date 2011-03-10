@@ -5,33 +5,51 @@
   Collection<ContainerConfig.Container> containers=null;
   try {
     containers=ContainerConfig.getContainers(configFile);
+    if (UtilValidate.isEmpty(containers)) {
+      throw new StartupException("No containers loaded; problem with configuration");
+    }
   }
  catch (  ContainerException e) {
     throw new StartupException(e);
   }
-  if (containers != null) {
-    for (    ContainerConfig.Container containerCfg : containers) {
-      Container tmpContainer=loadContainer(containerCfg,args);
-      loadedContainers.add(tmpContainer);
-      if (containerCfg.name.equals("rmi-dispatcher") && configFile.equals("limited-containers.xml")) {
-        try {
-          ContainerConfig.Container.Property initialCtxProp=containerCfg.getProperty("use-initial-context");
-          String useCtx=initialCtxProp == null || initialCtxProp.value == null ? "false" : initialCtxProp.value;
-          if (!useCtx.equalsIgnoreCase("true")) {
-            if (System.getSecurityManager() == null) {
-              System.setSecurityManager(new java.rmi.RMISecurityManager());
-            }
-            tmpContainer.start();
-            rmiLoadedContainer=tmpContainer;
+  for (  ContainerConfig.Container containerCfg : containers) {
+    Container tmpContainer=loadContainer(containerCfg,args);
+    loadedContainers.add(tmpContainer);
+    if (containerCfg.name.equals("rmi-dispatcher") && configFile.equals("limited-containers.xml")) {
+      try {
+        ContainerConfig.Container.Property initialCtxProp=containerCfg.getProperty("use-initial-context");
+        String useCtx=initialCtxProp == null || initialCtxProp.value == null ? "false" : initialCtxProp.value;
+        if (!useCtx.equalsIgnoreCase("true")) {
+          if (System.getSecurityManager() == null) {
+            System.setSecurityManager(new java.rmi.RMISecurityManager());
           }
-        }
- catch (        ContainerException e) {
-          throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
-        }
-catch (        java.lang.AbstractMethodError e) {
-          throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+          tmpContainer.start();
+          rmiLoadedContainer=tmpContainer;
         }
       }
+ catch (      ContainerException e) {
+        throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+      }
+catch (      java.lang.AbstractMethodError e) {
+        throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+      }
     }
+  }
+  ClassLoader loader=Thread.currentThread().getContextClassLoader();
+  Enumeration<URL> resources;
+  try {
+    resources=loader.getResources("hot-deploy-containers.xml");
+    while (resources.hasMoreElements()) {
+      URL xmlUrl=resources.nextElement();
+      Debug.logInfo("Loading hot-deploy containers from " + xmlUrl,module);
+      Collection<ContainerConfig.Container> hotDeployContainers=ContainerConfig.getContainers(xmlUrl);
+      for (      ContainerConfig.Container containerCfg : hotDeployContainers) {
+        loadedContainers.add(loadContainer(containerCfg,args));
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Could not load hot-deploy-containers.xml",module);
+    throw new StartupException(e);
   }
 }

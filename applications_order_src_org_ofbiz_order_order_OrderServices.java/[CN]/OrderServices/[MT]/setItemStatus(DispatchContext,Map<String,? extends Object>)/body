@@ -1,0 +1,75 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  String fromStatusId=(String)context.get("fromStatusId");
+  String statusId=(String)context.get("statusId");
+  Timestamp statusDateTime=(Timestamp)context.get("statusDateTime");
+  Locale locale=(Locale)context.get("locale");
+  Security security=ctx.getSecurity();
+  boolean hasPermission=OrderServices.hasPermission(orderId,userLogin,"UPDATE",security,delegator);
+  if (!hasPermission) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderYouDoNotHavePermissionToChangeThisOrdersStatus",locale));
+  }
+  Map<String,String> fields=UtilMisc.<String,String>toMap("orderId",orderId);
+  if (orderItemSeqId != null)   fields.put("orderItemSeqId",orderItemSeqId);
+  if (fromStatusId != null)   fields.put("statusId",fromStatusId);
+  List<GenericValue> orderItems=null;
+  try {
+    orderItems=delegator.findByAnd("OrderItem",fields);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetOrderItemEntity",locale) + e.getMessage());
+  }
+  if (UtilValidate.isNotEmpty(orderItems)) {
+    List<GenericValue> toBeStored=new ArrayList<GenericValue>();
+    Iterator<GenericValue> itemsIterator=orderItems.iterator();
+    while (itemsIterator.hasNext()) {
+      GenericValue orderItem=itemsIterator.next();
+      if (orderItem == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotChangeItemStatusItemNotFound",locale));
+      }
+      if (Debug.verboseOn())       Debug.logVerbose("[OrderServices.setItemStatus] : Status Change: [" + orderId + "] ("+ orderItem.getString("orderItemSeqId"),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[OrderServices.setItemStatus] : From Status : " + orderItem.getString("statusId"),module);
+      if (Debug.verboseOn())       Debug.logVerbose("[OrderServices.setOrderStatus] : To Status : " + statusId,module);
+      if (orderItem.getString("statusId").equals(statusId)) {
+        continue;
+      }
+      try {
+        Map<String,String> statusFields=UtilMisc.<String,String>toMap("statusId",orderItem.getString("statusId"),"statusIdTo",statusId);
+        GenericValue statusChange=delegator.findByPrimaryKeyCache("StatusValidChange",statusFields);
+        if (statusChange == null) {
+          Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderItemStatusNotChangedIsNotAValidChange",UtilMisc.toMap("orderStatusId",orderItem.getString("statusId"),"statusId",statusId),locale),module);
+          continue;
+        }
+      }
+ catch (      GenericEntityException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeItemStatus",locale) + e.getMessage());
+      }
+      orderItem.set("statusId",statusId);
+      toBeStored.add(orderItem);
+      if (statusDateTime == null) {
+        statusDateTime=UtilDateTime.nowTimestamp();
+      }
+      Map<String,Object> changeFields=new HashMap<String,Object>();
+      changeFields.put("orderStatusId",delegator.getNextSeqId("OrderStatus"));
+      changeFields.put("statusId",statusId);
+      changeFields.put("orderId",orderId);
+      changeFields.put("orderItemSeqId",orderItem.getString("orderItemSeqId"));
+      changeFields.put("statusDatetime",statusDateTime);
+      changeFields.put("statusUserLogin",userLogin.getString("userLoginId"));
+      GenericValue orderStatus=delegator.makeValue("OrderStatus",changeFields);
+      toBeStored.add(orderStatus);
+    }
+    if (toBeStored.size() > 0) {
+      try {
+        delegator.storeAll(toBeStored);
+      }
+ catch (      GenericEntityException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotStoreStatusChanges",locale) + e.getMessage());
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

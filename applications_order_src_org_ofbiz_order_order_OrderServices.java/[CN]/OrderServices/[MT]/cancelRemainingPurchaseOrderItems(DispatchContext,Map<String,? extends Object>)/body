@@ -1,0 +1,62 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  try {
+    GenericValue orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (UtilValidate.isEmpty(orderHeader)) {
+      String errorMessage=UtilProperties.getMessage(resource_error,"OrderErrorOrderIdNotFound",UtilMisc.toMap("orderId",orderId),locale);
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    if (!"PURCHASE_ORDER".equals(orderHeader.getString("orderTypeId"))) {
+      String errorMessage=UtilProperties.getMessage(resource_error,"OrderErrorOrderNotPurchaseOrder",UtilMisc.toMap("orderId",orderId),locale);
+      Debug.logError(errorMessage,module);
+      return ServiceUtil.returnError(errorMessage);
+    }
+    List<GenericValue> orderItems=orderHeader.getRelated("OrderItem");
+    Iterator<GenericValue> oiit=orderItems.iterator();
+    while (oiit.hasNext()) {
+      GenericValue orderItem=oiit.next();
+      if (!"PRODUCT_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId")))       continue;
+      BigDecimal orderItemQuantity=BigDecimal.ZERO;
+      if (!UtilValidate.isEmpty(orderItem.get("quantity"))) {
+        orderItemQuantity=orderItem.getBigDecimal("quantity");
+      }
+      BigDecimal orderItemCancelQuantity=BigDecimal.ZERO;
+      if (!UtilValidate.isEmpty(orderItem.get("cancelQuantity"))) {
+        orderItemCancelQuantity=orderItem.getBigDecimal("cancelQuantity");
+      }
+      List<GenericValue> shipmentReceipts=orderItem.getRelated("ShipmentReceipt");
+      BigDecimal receivedQuantity=BigDecimal.ZERO;
+      Iterator<GenericValue> srit=shipmentReceipts.iterator();
+      while (srit.hasNext()) {
+        GenericValue shipmentReceipt=srit.next();
+        if (!UtilValidate.isEmpty(shipmentReceipt.get("quantityAccepted"))) {
+          receivedQuantity=receivedQuantity.add(shipmentReceipt.getBigDecimal("quantityAccepted"));
+        }
+      }
+      BigDecimal quantityToCancel=orderItemQuantity.subtract(orderItemCancelQuantity).subtract(receivedQuantity);
+      if (quantityToCancel.compareTo(BigDecimal.ZERO) > 0) {
+        Map<String,Object> cancelOrderItemResult=dispatcher.runSync("cancelOrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"cancelQuantity",quantityToCancel,"userLogin",userLogin));
+        if (ServiceUtil.isError(cancelOrderItemResult))         return cancelOrderItemResult;
+      }
+      orderItem.refresh();
+      if ("ITEM_APPROVED".equals(orderItem.getString("statusId"))) {
+        Map<String,Object> changeOrderItemStatusResult=dispatcher.runSync("changeOrderItemStatus",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"statusId","ITEM_COMPLETED","userLogin",userLogin));
+        if (ServiceUtil.isError(changeOrderItemStatusResult))         return changeOrderItemStatusResult;
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException se) {
+    Debug.logError(se,module);
+    return ServiceUtil.returnError(se.getMessage());
+  }
+  return ServiceUtil.returnSuccess();
+}

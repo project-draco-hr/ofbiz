@@ -1,8 +1,11 @@
 {
   Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
   BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
   if (shippableWeight.compareTo(BigDecimal.ZERO) == 0) {
-    return ServiceUtil.returnFailure("shippableWeight must be greater than 0");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsShippableWeightMustGreaterThanZero",locale));
   }
   String destinationCountry=null;
   String shippingContactMechId=(String)context.get("shippingContactMechId");
@@ -10,7 +13,7 @@
     try {
       GenericValue shipToAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
       if (domesticCountries.contains(shipToAddress.get("countryGeoId"))) {
-        return ServiceUtil.returnError("The USPS International Rate Calculation service is not applicable to US destinations (including Possesions), use uspsRateInquire");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateInternationCannotBeUsedForUsDestinations",locale));
       }
       if (shipToAddress != null && UtilValidate.isNotEmpty(shipToAddress.getString("countryGeoId"))) {
         GenericValue countryGeo=shipToAddress.getRelatedOne("CountryGeo");
@@ -22,7 +25,7 @@
     }
   }
   if (UtilValidate.isEmpty(destinationCountry)) {
-    return ServiceUtil.returnError("Unable to determine the destination country");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineDestinationCountry",locale));
   }
   String serviceCode=null;
   try {
@@ -35,10 +38,10 @@
     Debug.logError(e,module);
   }
   if (UtilValidate.isEmpty(serviceCode)) {
-    return ServiceUtil.returnError("Unable to determine the service code");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineServiceCode",locale));
   }
   BigDecimal maxWeight=new BigDecimal("70");
-  String maxWeightStr=UtilProperties.getPropertyValue((String)context.get("serviceConfigProps"),"shipment.usps.max.estimate.weight","70");
+  String maxWeightStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"maxEstimateWeight",resource,"shipment.usps.max.estimate.weight","70");
   try {
     maxWeight=new BigDecimal(maxWeightStr);
   }
@@ -47,14 +50,14 @@
     maxWeight=new BigDecimal("70");
   }
   List<Map<String,Object>> shippableItemInfo=UtilGenerics.checkList(context.get("shippableItemInfo"));
-  List<Map<String,BigDecimal>> packages=getPackageSplit(dctx,shippableItemInfo,maxWeight);
+  List<Map<String,BigDecimal>> packages=ShipmentWorker.getPackageSplit(dctx,shippableItemInfo,maxWeight);
   boolean isOnePackage=packages.size() == 1;
-  Document requestDocument=createUspsRequestDocument("IntlRateRequest",false);
+  Document requestDocument=createUspsRequestDocument("IntlRateRequest",false,delegator,shipmentGatewayConfigId,resource);
   for (ListIterator<Map<String,BigDecimal>> li=packages.listIterator(); li.hasNext(); ) {
     Map<String,BigDecimal> packageMap=li.next();
     Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
     packageElement.setAttribute("ID",String.valueOf(li.nextIndex() - 1));
-    BigDecimal packageWeight=isOnePackage ? shippableWeight : calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
+    BigDecimal packageWeight=isOnePackage ? shippableWeight : ShipmentWorker.calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
     if (packageWeight.compareTo(BigDecimal.ZERO) == 0) {
       continue;
     }
@@ -71,18 +74,18 @@
   }
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("IntlRate",requestDocument);
+    responseDocument=sendUspsRequest("IntlRate",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnError("Error sending request for USPS International Rate Calculation service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateInternationalSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   if (responseDocument == null) {
-    return ServiceUtil.returnError("No rate available at this time");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
   }
   List<? extends Element> packageElements=UtilXml.childElementList(responseDocument.getDocumentElement(),"Package");
   if (UtilValidate.isEmpty(packageElements)) {
-    return ServiceUtil.returnError("No rate available at this time");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
   }
   BigDecimal estimateAmount=BigDecimal.ZERO;
   for (  Element packageElement : packageElements) {
@@ -90,7 +93,7 @@
     if (errorElement != null) {
       String errorDescription=UtilXml.childElementValue(errorElement,"Description");
       Debug.log("USPS International Rate Calculation returned a package error: " + errorDescription);
-      return ServiceUtil.returnError("No rate available at this time");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
     }
     List<? extends Element> serviceElements=UtilXml.childElementList(packageElement,"Service");
     for (    Element serviceElement : serviceElements) {
@@ -104,7 +107,7 @@
       }
  catch (      NumberFormatException e) {
         Debug.log("USPS International Rate Calculation returned an unparsable postage amount: " + UtilXml.childElementValue(serviceElement,"Postage"));
-        return ServiceUtil.returnError("No rate available at this time");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
       }
     }
   }

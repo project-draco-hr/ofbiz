@@ -1,0 +1,405 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
+  String facilityId=(String)context.get("facilityId");
+  Integer defaultYearsOffset=(Integer)context.get("defaultYearsOffset");
+  String mrpId=(String)context.get("mrpId");
+  List<GenericValue> listResult=null;
+  try {
+    listResult=delegator.findList("MrpEvent",null,null,null,null,false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error : findList(\"MrpEvent\", null, null, null, null, false)",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  if (listResult != null) {
+    try {
+      delegator.removeAll(listResult);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error : removeAll(listResult), listResult =" + listResult,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventRemoveError",locale));
+    }
+  }
+  listResult=null;
+  List<GenericValue> listResultRoles=FastList.newInstance();
+  try {
+    listResult=delegator.findByAnd("Requirement",UtilMisc.toMap("requirementTypeId","PRODUCT_REQUIREMENT","statusId","REQ_PROPOSED"));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  if (listResult != null) {
+    try {
+      Iterator<GenericValue> listResultIt=listResult.iterator();
+      while (listResultIt.hasNext()) {
+        GenericValue tmpRequirement=(GenericValue)listResultIt.next();
+        listResultRoles.addAll(tmpRequirement.getRelated("RequirementRole"));
+      }
+      delegator.removeAll(listResultRoles);
+      delegator.removeAll(listResult);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventRemoveError",locale));
+    }
+  }
+  listResult=null;
+  try {
+    listResult=delegator.findByAnd("Requirement",UtilMisc.toMap("requirementTypeId","INTERNAL_REQUIREMENT","statusId","REQ_PROPOSED"));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  if (listResult != null) {
+    try {
+      delegator.removeAll(listResult);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventRemoveError",locale));
+    }
+  }
+  GenericValue genericResult=null;
+  Map<String,Object> parameters=null;
+  List<GenericValue> resultList=null;
+  Iterator<GenericValue> iteratorResult=null;
+  Timestamp notAssignedDate=null;
+  if (UtilValidate.isEmpty(defaultYearsOffset)) {
+    notAssignedDate=now;
+  }
+ else {
+    Calendar calendar=UtilDateTime.toCalendar(now);
+    calendar.add(Calendar.YEAR,defaultYearsOffset.intValue());
+    notAssignedDate=new Timestamp(calendar.getTimeInMillis());
+  }
+  resultList=null;
+  iteratorResult=null;
+  parameters=UtilMisc.<String,Object>toMap("orderTypeId","SALES_ORDER","oiStatusId","ITEM_APPROVED");
+  parameters.put("facilityId",facilityId);
+  try {
+    resultList=delegator.findByAnd("OrderHeaderItemAndShipGroup",parameters,UtilMisc.toList("orderId"));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error : findByAnd(\"OrderItem\", parameters\")",module);
+    Debug.logError(e,"Error : parameters = " + parameters,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  iteratorResult=resultList.iterator();
+  while (iteratorResult.hasNext()) {
+    genericResult=(GenericValue)iteratorResult.next();
+    String productId=genericResult.getString("productId");
+    BigDecimal reservedQuantity=genericResult.getBigDecimal("reservedQuantity");
+    BigDecimal shipGroupQuantity=genericResult.getBigDecimal("quantity");
+    BigDecimal cancelledQuantity=genericResult.getBigDecimal("cancelQuantity");
+    BigDecimal eventQuantityTmp=BigDecimal.ZERO;
+    if (UtilValidate.isNotEmpty(reservedQuantity)) {
+      eventQuantityTmp=reservedQuantity.negate();
+    }
+ else {
+      if (UtilValidate.isNotEmpty(cancelledQuantity)) {
+        shipGroupQuantity=shipGroupQuantity.subtract(cancelledQuantity);
+      }
+      eventQuantityTmp=shipGroupQuantity.negate();
+    }
+    if (eventQuantityTmp.compareTo(BigDecimal.ZERO) == 0) {
+      continue;
+    }
+    Timestamp requiredByDate=genericResult.getTimestamp("shipByDate");
+    if (UtilValidate.isEmpty(requiredByDate)) {
+      requiredByDate=genericResult.getTimestamp("shipAfterDate");
+      if (UtilValidate.isEmpty(requiredByDate)) {
+        requiredByDate=genericResult.getTimestamp("oiShipBeforeDate");
+        if (UtilValidate.isEmpty(requiredByDate)) {
+          requiredByDate=genericResult.getTimestamp("oiShipAfterDate");
+          if (UtilValidate.isEmpty(requiredByDate)) {
+            requiredByDate=genericResult.getTimestamp("oiEstimatedDeliveryDate");
+            if (requiredByDate == null) {
+              requiredByDate=notAssignedDate;
+            }
+          }
+        }
+      }
+    }
+    parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",requiredByDate,"mrpEventTypeId","SALES_ORDER_SHIP");
+    try {
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,genericResult.getString("orderId") + "-" + genericResult.getString("orderItemSeqId"),false,delegator);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","SALES_ORDER_SHIP"),locale));
+    }
+  }
+  resultList=null;
+  iteratorResult=null;
+  parameters=UtilMisc.<String,Object>toMap("requirementTypeId","PRODUCT_REQUIREMENT","statusId","REQ_APPROVED","facilityId",facilityId);
+  try {
+    resultList=delegator.findByAnd("Requirement",parameters);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  iteratorResult=resultList.iterator();
+  while (iteratorResult.hasNext()) {
+    genericResult=(GenericValue)iteratorResult.next();
+    String productId=genericResult.getString("productId");
+    BigDecimal eventQuantityTmp=genericResult.getBigDecimal("quantity");
+    if (productId == null || eventQuantityTmp == null) {
+      continue;
+    }
+    Timestamp estimatedShipDate=genericResult.getTimestamp("requiredByDate");
+    if (estimatedShipDate == null) {
+      estimatedShipDate=now;
+    }
+    parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",estimatedShipDate,"mrpEventTypeId","PROD_REQ_RECP");
+    try {
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,genericResult.getString("requirementId"),false,delegator);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","PROD_REQ_RECP"),locale));
+    }
+  }
+  resultList=null;
+  iteratorResult=null;
+  String orderId=null;
+  GenericValue orderDeliverySchedule=null;
+  try {
+    List<GenericValue> facilityContactMechs=EntityUtil.filterByDate(delegator.findByAnd("FacilityContactMech",UtilMisc.toMap("facilityId",facilityId)));
+    List<GenericValue> facilityContactMechIds=EntityUtil.getFieldListFromEntityList(facilityContactMechs,"contactMechId",true);
+    List<EntityExpr> searchConditions=UtilMisc.toList(EntityCondition.makeCondition("orderTypeId",EntityOperator.EQUALS,"PURCHASE_ORDER"),EntityCondition.makeCondition("oiStatusId",EntityOperator.EQUALS,"ITEM_APPROVED"),EntityCondition.makeCondition("contactMechId",EntityOperator.IN,facilityContactMechIds));
+    Set<String> fieldsToSelect=UtilMisc.toSet("orderId","orderItemSeqId","productId","quantity","cancelQuantity","oiEstimatedDeliveryDate");
+    resultList=delegator.findList("OrderHeaderItemAndShipGroup",EntityCondition.makeCondition(searchConditions,EntityOperator.AND),fieldsToSelect,UtilMisc.toList("orderDate"),null,false);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  iteratorResult=resultList.iterator();
+  while (iteratorResult.hasNext()) {
+    genericResult=(GenericValue)iteratorResult.next();
+    String newOrderId=genericResult.getString("orderId");
+    if (!newOrderId.equals(orderId)) {
+      orderDeliverySchedule=null;
+      orderId=newOrderId;
+      try {
+        orderDeliverySchedule=delegator.findByPrimaryKey("OrderDeliverySchedule",UtilMisc.toMap("orderId",orderId,"orderItemSeqId","_NA_"));
+      }
+ catch (      GenericEntityException e) {
+      }
+    }
+    String productId=genericResult.getString("productId");
+    BigDecimal shipGroupQuantity=genericResult.getBigDecimal("quantity");
+    BigDecimal cancelledQuantity=genericResult.getBigDecimal("cancelQuantity");
+    if (UtilValidate.isEmpty(shipGroupQuantity)) {
+      shipGroupQuantity=BigDecimal.ZERO;
+    }
+    if (UtilValidate.isNotEmpty(cancelledQuantity)) {
+      shipGroupQuantity=shipGroupQuantity.subtract(cancelledQuantity);
+    }
+    OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+    BigDecimal shippedQuantity=null;
+    try {
+      shippedQuantity=orh.getItemShippedQuantity(genericResult.getRelatedOne("OrderItem"));
+    }
+ catch (    GenericEntityException e) {
+    }
+    if (UtilValidate.isNotEmpty(shippedQuantity)) {
+      shipGroupQuantity=shipGroupQuantity.subtract(shippedQuantity);
+    }
+    GenericValue orderItemDeliverySchedule=null;
+    try {
+      orderItemDeliverySchedule=delegator.findByPrimaryKey("OrderDeliverySchedule",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",genericResult.getString("orderItemSeqId")));
+    }
+ catch (    GenericEntityException e) {
+    }
+    Timestamp estimatedShipDate=null;
+    if (orderItemDeliverySchedule != null && orderItemDeliverySchedule.get("estimatedReadyDate") != null) {
+      estimatedShipDate=orderItemDeliverySchedule.getTimestamp("estimatedReadyDate");
+    }
+ else     if (orderDeliverySchedule != null && orderDeliverySchedule.get("estimatedReadyDate") != null) {
+      estimatedShipDate=orderDeliverySchedule.getTimestamp("estimatedReadyDate");
+    }
+ else {
+      estimatedShipDate=genericResult.getTimestamp("oiEstimatedDeliveryDate");
+    }
+    if (estimatedShipDate == null) {
+      estimatedShipDate=now;
+    }
+    parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",estimatedShipDate,"mrpEventTypeId","PUR_ORDER_RECP");
+    try {
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,shipGroupQuantity,null,genericResult.getString("orderId") + "-" + genericResult.getString("orderItemSeqId"),false,delegator);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","PUR_ORDER_RECP"),locale));
+    }
+  }
+  resultList=null;
+  iteratorResult=null;
+  parameters=UtilMisc.<String,Object>toMap("workEffortGoodStdTypeId","PRUNT_PROD_NEEDED","statusId","WEGS_CREATED","facilityId",facilityId);
+  try {
+    resultList=delegator.findByAnd("WorkEffortAndGoods",parameters);
+    iteratorResult=resultList.iterator();
+    while (iteratorResult.hasNext()) {
+      genericResult=(GenericValue)iteratorResult.next();
+      if ("PRUN_CLOSED".equals(genericResult.getString("currentStatusId")) || "PRUN_COMPLETED".equals(genericResult.getString("currentStatusId")) || "PRUN_CANCELLED".equals(genericResult.getString("currentStatusId"))) {
+        continue;
+      }
+      String productId=genericResult.getString("productId");
+      BigDecimal consumedInventoryTotal=BigDecimal.ZERO;
+      List<GenericValue> consumedInventoryItems=delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",genericResult.getString("workEffortId"),"productId",productId));
+      for (      GenericValue consumedInventoryItem : consumedInventoryItems) {
+        consumedInventoryTotal=consumedInventoryTotal.add(consumedInventoryItem.getBigDecimal("quantity"));
+      }
+      BigDecimal eventQuantityTmp=consumedInventoryTotal.subtract(genericResult.getBigDecimal("estimatedQuantity"));
+      Timestamp estimatedShipDate=genericResult.getTimestamp("estimatedStartDate");
+      if (estimatedShipDate == null) {
+        estimatedShipDate=now;
+      }
+      parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",estimatedShipDate,"mrpEventTypeId","MANUF_ORDER_REQ");
+      String eventName=(UtilValidate.isEmpty(genericResult.getString("workEffortParentId")) ? genericResult.getString("workEffortId") : genericResult.getString("workEffortParentId") + "-" + genericResult.getString("workEffortId"));
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,eventName,false,delegator);
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","MANUF_ORDER_REQ"),locale) + " " + e.getMessage());
+  }
+  resultList=null;
+  iteratorResult=null;
+  parameters=UtilMisc.<String,Object>toMap("workEffortGoodStdTypeId","PRUN_PROD_DELIV","statusId","WEGS_CREATED","workEffortTypeId","PROD_ORDER_HEADER","facilityId",facilityId);
+  try {
+    resultList=delegator.findByAnd("WorkEffortAndGoods",parameters);
+    iteratorResult=resultList.iterator();
+    while (iteratorResult.hasNext()) {
+      genericResult=(GenericValue)iteratorResult.next();
+      if ("PRUN_CLOSED".equals(genericResult.getString("currentStatusId")) || "PRUN_COMPLETED".equals(genericResult.getString("currentStatusId")) || "PRUN_CANCELLED".equals(genericResult.getString("currentStatusId"))) {
+        continue;
+      }
+      BigDecimal qtyToProduce=genericResult.getBigDecimal("quantityToProduce");
+      if (qtyToProduce == null) {
+        qtyToProduce=BigDecimal.ZERO;
+      }
+      BigDecimal qtyProduced=genericResult.getBigDecimal("quantityProduced");
+      if (qtyProduced == null) {
+        qtyProduced=BigDecimal.ZERO;
+      }
+      if (qtyProduced.compareTo(qtyToProduce) >= 0) {
+        continue;
+      }
+      BigDecimal qtyDiff=qtyToProduce.subtract(qtyProduced);
+      String productId=genericResult.getString("productId");
+      BigDecimal eventQuantityTmp=qtyDiff;
+      Timestamp estimatedShipDate=genericResult.getTimestamp("estimatedCompletionDate");
+      if (estimatedShipDate == null) {
+        estimatedShipDate=now;
+      }
+      parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",estimatedShipDate,"mrpEventTypeId","MANUF_ORDER_RECP");
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,genericResult.getString("workEffortId"),false,delegator);
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","MANUF_ORDER_RECP"),locale) + " " + e.getMessage());
+  }
+  resultList=null;
+  iteratorResult=null;
+  parameters=UtilMisc.<String,Object>toMap("facilityId",facilityId);
+  try {
+    resultList=delegator.findByAnd("ProductFacility",parameters);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Unable to retrieve ProductFacility records.",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindProductFacility",locale));
+  }
+  iteratorResult=resultList.iterator();
+  while (iteratorResult.hasNext()) {
+    genericResult=(GenericValue)iteratorResult.next();
+    String productId=genericResult.getString("productId");
+    BigDecimal minimumStock=genericResult.getBigDecimal("minimumStock");
+    if (minimumStock == null) {
+      minimumStock=BigDecimal.ZERO;
+    }
+    try {
+      EntityFieldMap ecl=EntityCondition.makeCondition(UtilMisc.toMap("mrpId",mrpId,"productId",productId),EntityOperator.AND);
+      long numOfEvents=delegator.findCountByCondition("MrpEvent",ecl,null,null);
+      if (numOfEvents > 0) {
+        continue;
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Unable to count MrpEvent records.",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotCountRecords",locale));
+    }
+    BigDecimal qoh=findProductMrpQoh(mrpId,productId,facilityId,dispatcher,delegator);
+    if (qoh.compareTo(minimumStock) >= 0) {
+      continue;
+    }
+    parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",now,"mrpEventTypeId","REQUIRED_MRP");
+    try {
+      InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,BigDecimal.ZERO,null,null,false,delegator);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","REQUIRED_MRP"),locale));
+    }
+  }
+  resultList=null;
+  iteratorResult=null;
+  GenericValue facility=null;
+  try {
+    facility=delegator.findOne("Facility",UtilMisc.toMap("facilityId",facilityId),false);
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventFindError",locale));
+  }
+  String partyId=(String)facility.get("ownerPartyId");
+  try {
+    resultList=delegator.findByAnd("SalesForecast",UtilMisc.toMap("organizationPartyId",partyId));
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindSalesForecasts",locale));
+  }
+  iteratorResult=resultList.iterator();
+  while (iteratorResult.hasNext()) {
+    genericResult=(GenericValue)iteratorResult.next();
+    String customTimePeriodId=genericResult.getString("customTimePeriodId");
+    GenericValue customTimePeriod=null;
+    try {
+      customTimePeriod=delegator.findOne("CustomTimePeriod",UtilMisc.toMap("customTimePeriodId",customTimePeriodId),false);
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindCustomTimePeriod",locale));
+    }
+    if (customTimePeriod != null) {
+      if (customTimePeriod.getDate("thruDate") != null && customTimePeriod.getDate("thruDate").before(UtilDateTime.nowDate())) {
+        continue;
+      }
+ else {
+        List<GenericValue> salesForecastDetails=null;
+        Iterator<GenericValue> sfdIter=null;
+        try {
+          salesForecastDetails=delegator.findByAnd("SalesForecastDetail",UtilMisc.toMap("salesForecastId",genericResult.getString("salesForecastId")));
+        }
+ catch (        GenericEntityException e) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindSalesForecastDetails",locale));
+        }
+        sfdIter=salesForecastDetails.iterator();
+        while (sfdIter.hasNext()) {
+          genericResult=(GenericValue)sfdIter.next();
+          String productId=genericResult.getString("productId");
+          BigDecimal eventQuantityTmp=genericResult.getBigDecimal("quantity");
+          if (productId == null || eventQuantityTmp == null) {
+            continue;
+          }
+          eventQuantityTmp=eventQuantityTmp.negate();
+          parameters=UtilMisc.toMap("mrpId",mrpId,"productId",productId,"eventDate",customTimePeriod.getDate("fromDate"),"mrpEventTypeId","SALES_FORECAST");
+          try {
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(parameters,eventQuantityTmp,null,genericResult.getString("salesForecastDetailId"),false,delegator);
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpEventProblemInitializing",UtilMisc.toMap("mrpEventTypeId","SALES_FORECAST"),locale));
+          }
+        }
+      }
+    }
+  }
+  Map<String,Object> result=FastMap.newInstance();
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  Debug.logInfo("return from initMrpEvent",module);
+  return result;
+}

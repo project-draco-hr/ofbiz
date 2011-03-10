@@ -1,0 +1,91 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  List<GenericValue> ordersToCheck=null;
+  List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("orderTypeId",EntityOperator.EQUALS,"SALES_ORDER"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_COMPLETED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"));
+  EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(exprs,EntityOperator.AND);
+  try {
+    ordersToCheck=delegator.findList("OrderHeader",ecl,null,UtilMisc.toList("orderDate"),null,false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting order headers",module);
+  }
+  if (UtilValidate.isEmpty(ordersToCheck)) {
+    Debug.logInfo("No orders to check, finished",module);
+    return ServiceUtil.returnSuccess();
+  }
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  Iterator<GenericValue> i=ordersToCheck.iterator();
+  while (i.hasNext()) {
+    GenericValue orderHeader=i.next();
+    String orderId=orderHeader.getString("orderId");
+    String orderStatus=orderHeader.getString("statusId");
+    if (orderStatus.equals("ORDER_CREATED")) {
+      Timestamp orderDate=orderHeader.getTimestamp("entryDate");
+      GenericValue productStore=null;
+      try {
+        productStore=orderHeader.getRelatedOne("ProductStore");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Unable to get ProductStore from OrderHeader",module);
+      }
+      int daysTillCancel=30;
+      if (productStore != null && productStore.get("daysToCancelNonPay") != null) {
+        daysTillCancel=productStore.getLong("daysToCancelNonPay").intValue();
+      }
+      if (daysTillCancel > 0) {
+        Calendar cal=Calendar.getInstance();
+        cal.setTimeInMillis(orderDate.getTime());
+        cal.add(Calendar.DAY_OF_YEAR,daysTillCancel);
+        Date cancelDate=cal.getTime();
+        Date nowDate=new Date();
+        if (cancelDate.equals(nowDate) || nowDate.after(cancelDate)) {
+          Map<String,Object> svcCtx=UtilMisc.<String,Object>toMap("orderId",orderId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
+          try {
+            dispatcher.runSync("changeOrderItemStatus",svcCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,"Problem calling change item status service : " + svcCtx,module);
+          }
+        }
+      }
+    }
+ else {
+      List itemsExprs=new ArrayList();
+      itemsExprs.add(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId));
+      itemsExprs.add(EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"ITEM_CREATED"),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"ITEM_APPROVED")),EntityOperator.OR));
+      itemsExprs.add(EntityCondition.makeCondition("dontCancelSetUserLogin",EntityOperator.EQUALS,GenericEntity.NULL_FIELD));
+      itemsExprs.add(EntityCondition.makeCondition("dontCancelSetDate",EntityOperator.EQUALS,GenericEntity.NULL_FIELD));
+      itemsExprs.add(EntityCondition.makeCondition("autoCancelDate",EntityOperator.NOT_EQUAL,GenericEntity.NULL_FIELD));
+      ecl=EntityCondition.makeCondition(itemsExprs);
+      List<GenericValue> orderItems=null;
+      try {
+        orderItems=delegator.findList("OrderItem",ecl,null,null,null,false);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Problem getting order item records",module);
+      }
+      if (UtilValidate.isNotEmpty(orderItems)) {
+        Iterator<GenericValue> oii=orderItems.iterator();
+        while (oii.hasNext()) {
+          GenericValue orderItem=oii.next();
+          String orderItemSeqId=orderItem.getString("orderItemSeqId");
+          Timestamp autoCancelDate=orderItem.getTimestamp("autoCancelDate");
+          if (autoCancelDate != null) {
+            if (nowTimestamp.equals(autoCancelDate) || nowTimestamp.after(autoCancelDate)) {
+              Map<String,Object> svcCtx=UtilMisc.<String,Object>toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"statusId","ITEM_CANCELLED","userLogin",userLogin);
+              try {
+                dispatcher.runSync("changeOrderItemStatus",svcCtx);
+              }
+ catch (              GenericServiceException e) {
+                Debug.logError(e,"Problem calling change item status service : " + svcCtx,module);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

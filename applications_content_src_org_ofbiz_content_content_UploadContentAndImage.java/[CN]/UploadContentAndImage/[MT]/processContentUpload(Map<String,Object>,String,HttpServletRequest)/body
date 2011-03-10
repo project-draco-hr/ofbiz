@@ -1,0 +1,136 @@
+{
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+  Map<String,Object> ftlContext=FastMap.newInstance();
+  String contentPurposeString=(String)passedParams.get("contentPurposeString" + suffix);
+  if (UtilValidate.isEmpty(contentPurposeString)) {
+    contentPurposeString=(String)passedParams.get("contentPurposeString");
+  }
+  List<String> contentPurposeList=StringUtil.split(contentPurposeString,"|");
+  ftlContext.put("contentPurposeList",contentPurposeList);
+  String targetOperationString=(String)passedParams.get("targetOperationString" + suffix);
+  if (UtilValidate.isEmpty(targetOperationString)) {
+    targetOperationString=(String)passedParams.get("targetOperationString");
+  }
+  List<String> targetOperationList=StringUtil.split(targetOperationString,"|");
+  ftlContext.put("targetOperationList",targetOperationList);
+  ftlContext.put("userLogin",userLogin);
+  Object objSequenceNum=passedParams.get("caSequenceNum");
+  if (objSequenceNum != null) {
+    if (objSequenceNum instanceof String) {
+      Long sequenceNum=null;
+      try {
+        sequenceNum=Long.valueOf((String)objSequenceNum);
+      }
+ catch (      NumberFormatException e) {
+      }
+      passedParams.put("caSequenceNum",sequenceNum);
+    }
+  }
+  ModelEntity modelEntity=delegator.getModelEntity("ContentAssocDataResourceViewFrom");
+  List<String> fieldNames=modelEntity.getAllFieldNames();
+  Iterator<String> iter=fieldNames.iterator();
+  Map<String,Object> ftlContext2=FastMap.newInstance();
+  Map<String,Object> ftlContext3=FastMap.newInstance();
+  while (iter.hasNext()) {
+    String keyName=(String)iter.next();
+    Object obj=passedParams.get(keyName + suffix);
+    ftlContext2.put(keyName,obj);
+  }
+  if (Debug.infoOn()) {
+    Debug.logInfo("[UploadContentStuff]ftlContext2:" + ftlContext2,module);
+  }
+  List<Object> errorMessages=FastList.newInstance();
+  Locale loc=Locale.getDefault();
+  try {
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentIn",ftlContext2,ftlContext3,errorMessages,loc);
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentOut",ftlContext3,ftlContext,errorMessages,loc);
+    ftlContext3=FastMap.newInstance();
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","dataResourceIn",ftlContext2,ftlContext3,errorMessages,loc);
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","dataResourceOut",ftlContext3,ftlContext,errorMessages,loc);
+    ftlContext3=FastMap.newInstance();
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentAssocIn",ftlContext2,ftlContext3,errorMessages,loc);
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentAssocOut",ftlContext3,ftlContext,errorMessages,loc);
+  }
+ catch (  MiniLangException e) {
+    throw new GenericServiceException(e.getMessage());
+  }
+  ftlContext.put("textData",passedParams.get("textData" + suffix));
+  byte[] bytes=(byte[])passedParams.get("imageData" + suffix);
+  ftlContext.put("imageData",bytes);
+  if (Debug.infoOn()) {
+    Debug.logInfo("[UploadContentStuff]ftlContext:" + ftlContext,module);
+  }
+  Map<String,Object> ftlResults=null;
+  try {
+    ftlResults=dispatcher.runSync("persistContentAndAssoc",ftlContext);
+  }
+ catch (  ServiceAuthException e) {
+    String msg=e.getMessage();
+    request.setAttribute("_ERROR_MESSAGE_",msg);
+    List<String> errorMsgList=UtilGenerics.checkList(request.getAttribute("_EVENT_MESSAGE_LIST_"));
+    if (Debug.infoOn()) {
+      Debug.logInfo("[UploadContentStuff]errorMsgList:" + errorMsgList,module);
+    }
+    if (Debug.infoOn()) {
+      Debug.logInfo("[UploadContentStuff]msg:" + msg,module);
+    }
+    if (errorMsgList == null) {
+      errorMsgList=FastList.newInstance();
+      request.setAttribute("errorMessageList",errorMsgList);
+    }
+    errorMsgList.add(msg);
+    return "error";
+  }
+  String msg=ServiceUtil.getErrorMessage(ftlResults);
+  if (UtilValidate.isNotEmpty(msg)) {
+    request.setAttribute("_ERROR_MESSAGE_",msg);
+    List<String> errorMsgList=UtilGenerics.checkList(request.getAttribute("_EVENT_MESSAGE_LIST_"));
+    if (errorMsgList == null) {
+      errorMsgList=FastList.newInstance();
+      request.setAttribute("errorMessageList",errorMsgList);
+    }
+    errorMsgList.add(msg);
+    return "error";
+  }
+  String returnedContentId=(String)ftlResults.get("contentId");
+  if (Debug.infoOn()) {
+    Debug.logInfo("returnedContentId:" + returnedContentId,module);
+  }
+  request.setAttribute("contentId" + suffix,ftlResults.get("contentId"));
+  request.setAttribute("caContentIdTo" + suffix,ftlResults.get("contentIdTo"));
+  request.setAttribute("caContentIdStart" + suffix,ftlResults.get("contentIdTo"));
+  request.setAttribute("caContentAssocTypeId" + suffix,ftlResults.get("contentAssocTypeId"));
+  request.setAttribute("caFromDate" + suffix,ftlResults.get("fromDate"));
+  request.setAttribute("drDataResourceId" + suffix,ftlResults.get("dataResourceId"));
+  request.setAttribute("caContentId" + suffix,ftlResults.get("contentId"));
+  String caContentIdTo=(String)passedParams.get("caContentIdTo");
+  if (UtilValidate.isNotEmpty(caContentIdTo)) {
+    Map<String,Object> resequenceContext=FastMap.newInstance();
+    resequenceContext.put("contentIdTo",caContentIdTo);
+    resequenceContext.put("userLogin",userLogin);
+    try {
+      ftlResults=dispatcher.runSync("resequence",resequenceContext);
+    }
+ catch (    ServiceAuthException e) {
+      msg=e.getMessage();
+      request.setAttribute("_ERROR_MESSAGE_",msg);
+      List<String> errorMsgList=UtilGenerics.checkList(request.getAttribute("_EVENT_MESSAGE_LIST_"));
+      if (Debug.infoOn()) {
+        Debug.logInfo("[UploadContentStuff]errorMsgList:" + errorMsgList,module);
+      }
+      if (Debug.infoOn()) {
+        Debug.logInfo("[UploadContentStuff]msg:" + msg,module);
+      }
+      if (errorMsgList == null) {
+        errorMsgList=FastList.newInstance();
+        request.setAttribute("errorMessageList",errorMsgList);
+      }
+      errorMsgList.add(msg);
+      return "error";
+    }
+  }
+  return "success";
+}

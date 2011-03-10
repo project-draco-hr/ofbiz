@@ -2,6 +2,7 @@
   Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   String orderId=(String)context.get("orderId");
+  Locale locale=(Locale)context.get("locale");
   Map<String,Object> result=FastMap.newInstance();
   boolean reAuth=false;
   if (context.get("reAuth") != null) {
@@ -27,7 +28,7 @@
     return result;
   }
   if (orderHeader == null) {
-    return ServiceUtil.returnError("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   BigDecimal totalRemaining=orh.getOrderGrandTotal();
@@ -36,7 +37,7 @@
   List<String> messages=FastList.newInstance();
   Iterator<GenericValue> payments=paymentPrefs.iterator();
   while (payments.hasNext()) {
-    GenericValue paymentPref=(GenericValue)payments.next();
+    GenericValue paymentPref=payments.next();
     if (reAuth && "PAYMENT_AUTHORIZED".equals(paymentPref.getString("statusId"))) {
       String paymentConfig=null;
       GenericValue paymentSettings=getPaymentSettings(orh.getOrderHeader(),paymentPref,AUTH_SERVICE_TYPE,false);
@@ -64,15 +65,25 @@
       messages.add("Could not authorize OrderPaymentPreference [" + paymentPref.getString("orderPaymentPreferenceId") + "] for order ["+ orderId+ "]: "+ se.toString());
       continue;
     }
+    result.put("authCode",results.get("authCode"));
     if (ServiceUtil.isError(results)) {
       hadError+=1;
       messages.add("Could not authorize OrderPaymentPreference [" + paymentPref.getString("orderPaymentPreferenceId") + "] for order ["+ orderId+ "]: "+ results.get(ModelService.ERROR_MESSAGE));
       continue;
     }
-    if (((Boolean)results.get("finished")).booleanValue())     finished+=1;
-    if (((Boolean)results.get("errors")).booleanValue())     hadError+=1;
-    if (results.get("messages") != null)     messages.addAll((List)results.get("messages"));
-    if (results.get("processAmount") != null)     totalRemaining=totalRemaining.subtract(((BigDecimal)results.get("processAmount")));
+    if (((Boolean)results.get("finished")).booleanValue()) {
+      finished+=1;
+    }
+    if (((Boolean)results.get("errors")).booleanValue()) {
+      hadError+=1;
+    }
+    if (results.get("messages") != null) {
+      List<String> message=UtilGenerics.checkList(results.get("messages"));
+      messages.addAll(message);
+    }
+    if (results.get("processAmount") != null) {
+      totalRemaining=totalRemaining.subtract(((BigDecimal)results.get("processAmount")));
+    }
   }
   Debug.logInfo("Finished with auth(s) checking results",module);
   result.put("authResultMsgs",messages);

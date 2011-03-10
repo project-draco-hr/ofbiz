@@ -1,13 +1,16 @@
 {
+  Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
   String state=(String)context.get("state");
   String city=(String)context.get("city");
   String zip5=(String)context.get("zip5");
+  Locale locale=(Locale)context.get("locale");
   if ((UtilValidate.isEmpty(state) && UtilValidate.isEmpty(city) && UtilValidate.isEmpty(zip5)) || (UtilValidate.isEmpty(zip5) && (UtilValidate.isEmpty(state) || UtilValidate.isEmpty(city)))) {
-    String errorMessage=UtilProperties.getMessage(errorResource,"ProductUspsAddressValidationStateAndCityOrZipRqd",(Locale)context.get("locale"));
-    Debug.logError(errorMessage,module);
-    return ServiceUtil.returnError(errorMessage);
+    Debug.logError("USPS address validation requires either zip5 or city and state",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsAddressValidationStateAndCityOrZipRqd",locale));
   }
-  Document requestDocument=createUspsRequestDocument("AddressValidateRequest",true);
+  Document requestDocument=createUspsRequestDocument("AddressValidateRequest",true,delegator,shipmentGatewayConfigId,resource);
   Element addressElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Address",requestDocument);
   addressElement.setAttribute("ID","0");
   UtilXml.addChildElementValue(addressElement,"FirmName",(String)context.get("firmName"),requestDocument);
@@ -19,19 +22,19 @@
   UtilXml.addChildElementValue(addressElement,"Zip4",(String)context.get("zip4"),requestDocument);
   Document responseDocument=null;
   try {
-    responseDocument=sendUspsRequest("Verify",requestDocument);
+    responseDocument=sendUspsRequest("Verify",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
   }
  catch (  UspsRequestException e) {
     Debug.log(e,module);
-    return ServiceUtil.returnFailure("Error sending request for USPS Address Validation service: " + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsAddressValidationSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
   Element respAddressElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"Address");
   if (respAddressElement == null) {
-    return ServiceUtil.returnFailure("Incomplete response from USPS Address Validation service: no Address element found");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsAddressValidationIncompleteResponse",locale));
   }
   Element respErrorElement=UtilXml.firstChildElement(respAddressElement,"Error");
   if (respErrorElement != null) {
-    return ServiceUtil.returnFailure("The following error was returned by the USPS Address Validation service: " + UtilXml.childElementValue(respErrorElement,"Description"));
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsAddressValidationIncompleteResponse",UtilMisc.toMap("errorString",UtilXml.childElementValue(respErrorElement,"Description")),locale));
   }
   Map<String,Object> result=ServiceUtil.returnSuccess();
   String firmName=UtilXml.childElementValue(respAddressElement,"FirmName");

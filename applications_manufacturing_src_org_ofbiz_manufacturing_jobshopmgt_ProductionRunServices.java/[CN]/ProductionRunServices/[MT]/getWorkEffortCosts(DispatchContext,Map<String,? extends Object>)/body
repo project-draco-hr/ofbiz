@@ -1,0 +1,31 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=ctx.getDelegator();
+  String workEffortId=(String)context.get("workEffortId");
+  Locale locale=(Locale)context.get("locale");
+  try {
+    GenericValue workEffort=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",workEffortId));
+    if (workEffort == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingWorkEffortNotExist",locale) + " " + workEffortId);
+    }
+    List<GenericValue> costComponents=EntityUtil.filterByDate(delegator.findByAnd("CostComponent",UtilMisc.toMap("workEffortId",workEffortId)));
+    result.put("costComponents",costComponents);
+    Iterator<GenericValue> costComponentsIt=costComponents.iterator();
+    BigDecimal totalCost=ZERO;
+    BigDecimal totalCostNoMaterials=ZERO;
+    while (costComponentsIt.hasNext()) {
+      GenericValue costComponent=(GenericValue)costComponentsIt.next();
+      BigDecimal cost=costComponent.getBigDecimal("cost");
+      totalCost=totalCost.add(cost);
+      if (!"ACTUAL_MAT_COST".equals(costComponent.getString("costComponentTypeId"))) {
+        totalCostNoMaterials=totalCostNoMaterials.add(cost);
+      }
+    }
+    result.put("totalCost",totalCost);
+    result.put("totalCostNoMaterials",totalCostNoMaterials);
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunUnableToFindCostsForWorkEffort",UtilMisc.toMap("workEffortId",workEffortId,"errorString",gee.getMessage()),locale));
+  }
+  return result;
+}

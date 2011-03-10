@@ -1,0 +1,84 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue giftCard=(GenericValue)context.get("giftCard");
+  String currency=(String)context.get("currency");
+  String orderId=(String)context.get("orderId");
+  BigDecimal amount=(BigDecimal)context.get("processAmount");
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  OrderReadHelper orh=new OrderReadHelper(delegator,orderId);
+  String productStoreId=orh.getProductStoreId();
+  try {
+    GenericValue giftCertSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId));
+    GenericValue finAccount=null;
+    String finAccountId=null;
+    if (UtilValidate.isNotEmpty(giftCertSettings)) {
+      if ("Y".equals(giftCertSettings.getString("requirePinCode"))) {
+        if (validatePin(delegator,giftCard.getString("cardNumber"),giftCard.getString("pinNumber"))) {
+          finAccountId=giftCard.getString("cardNumber");
+          finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+        }
+      }
+ else {
+        finAccount=FinAccountHelper.getFinAccountFromCode(giftCard.getString("cardNumber"),delegator);
+        if (finAccount == null) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberNotFound",UtilMisc.toMap("finAccountId",""),locale));
+        }
+        finAccountId=finAccount.getString("finAccountId");
+      }
+    }
+ else {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId),locale));
+    }
+    if (finAccountId == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberPinNotValid",locale));
+    }
+    if ((finAccount.getTimestamp("thruDate") != null) && (finAccount.getTimestamp("thruDate").before(UtilDateTime.nowTimestamp()))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberExpired",UtilMisc.toMap("thruDate",finAccount.getTimestamp("thruDate")),locale));
+    }
+    BigDecimal availableBalance=finAccount.getBigDecimal("availableBalance");
+    Boolean processResult=null;
+    String refNum=null;
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    amount=amount.setScale(FinAccountHelper.decimals,FinAccountHelper.rounding);
+    if (UtilValidate.isNotEmpty(availableBalance) && availableBalance.compareTo(amount) >= 0) {
+      Timestamp thruDate=null;
+      if (giftCertSettings.getLong("authValidDays") != null) {
+        thruDate=UtilDateTime.getDayEnd(UtilDateTime.nowTimestamp(),giftCertSettings.getLong("authValidDays"));
+      }
+      Map<String,Object> tmpResult=dispatcher.runSync("createFinAccountAuth",UtilMisc.<String,Object>toMap("finAccountId",finAccountId,"amount",amount,"currencyUomId",currency,"thruDate",thruDate,"userLogin",userLogin));
+      if (ServiceUtil.isError(tmpResult)) {
+        return tmpResult;
+      }
+ else {
+        refNum=(String)tmpResult.get("finAccountAuthId");
+        processResult=Boolean.TRUE;
+      }
+    }
+ else {
+      Debug.logError("Attempted to authorize [" + amount + "] against a balance of only ["+ availableBalance+ "]",module);
+      refNum="N/A";
+      processResult=Boolean.FALSE;
+    }
+    result.put("processAmount",amount);
+    result.put("authResult",processResult);
+    result.put("processAmount",amount);
+    result.put("authFlag","2");
+    result.put("authCode","A");
+    result.put("captureCode","C");
+    result.put("authRefNum",refNum);
+    return result;
+  }
+ catch (  GenericEntityException ex) {
+    Debug.logError(ex,"Cannot authorize gift certificate",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotAuthorize",UtilMisc.toMap("errorString",ex.getMessage()),locale));
+  }
+catch (  GenericServiceException ex) {
+    Debug.logError(ex,"Cannot authorize gift certificate",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotAuthorize",UtilMisc.toMap("errorString",ex.getMessage()),locale));
+  }
+}

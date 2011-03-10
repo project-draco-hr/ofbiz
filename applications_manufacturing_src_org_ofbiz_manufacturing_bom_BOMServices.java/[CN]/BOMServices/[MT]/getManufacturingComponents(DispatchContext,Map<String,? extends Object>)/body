@@ -1,0 +1,76 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productId=(String)context.get("productId");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  String fromDateStr=(String)context.get("fromDate");
+  Boolean excludeWIPs=(Boolean)context.get("excludeWIPs");
+  Locale locale=(Locale)context.get("locale");
+  if (quantity == null) {
+    quantity=BigDecimal.ONE;
+  }
+  if (amount == null) {
+    amount=BigDecimal.ZERO;
+  }
+  Date fromDate=null;
+  if (UtilValidate.isNotEmpty(fromDateStr)) {
+    try {
+      fromDate=Timestamp.valueOf(fromDateStr);
+    }
+ catch (    Exception e) {
+    }
+  }
+  if (fromDate == null) {
+    fromDate=new Date();
+  }
+  if (excludeWIPs == null) {
+    excludeWIPs=Boolean.TRUE;
+  }
+  BOMTree tree=null;
+  List<BOMNode> components=FastList.newInstance();
+  try {
+    tree=new BOMTree(productId,"MANUF_COMPONENT",fromDate,BOMTree.EXPLOSION_SINGLE_LEVEL,delegator,dispatcher,userLogin);
+    tree.setRootQuantity(quantity);
+    tree.setRootAmount(amount);
+    tree.print(components,excludeWIPs.booleanValue());
+    if (components.size() > 0)     components.remove(0);
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomErrorCreatingBillOfMaterialsTree",UtilMisc.toMap("errorString",gee.getMessage()),locale));
+  }
+  String workEffortId=null;
+  try {
+    Map<String,Object> routingInMap=UtilMisc.toMap("productId",productId,"ignoreDefaultRouting","Y","userLogin",userLogin);
+    Map<String,Object> routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+    GenericValue routing=(GenericValue)routingOutMap.get("routing");
+    if (routing == null) {
+      routingInMap=UtilMisc.toMap("productId",tree.getRoot().getProduct().getString("productId"),"userLogin",userLogin);
+      routingOutMap=dispatcher.runSync("getProductRouting",routingInMap);
+      routing=(GenericValue)routingOutMap.get("routing");
+    }
+    if (routing != null) {
+      workEffortId=routing.getString("workEffortId");
+    }
+  }
+ catch (  GenericServiceException gse) {
+    Debug.logWarning(gse.getMessage(),module);
+  }
+  if (workEffortId != null) {
+    result.put("workEffortId",workEffortId);
+  }
+  result.put("components",components);
+  List<Map<String,Object>> componentsMap=FastList.newInstance();
+  Iterator<BOMNode> componentsIt=components.iterator();
+  while (componentsIt.hasNext()) {
+    Map<String,Object> componentMap=FastMap.newInstance();
+    BOMNode node=(BOMNode)componentsIt.next();
+    componentMap.put("product",node.getProduct());
+    componentMap.put("quantity",node.getQuantity());
+    componentsMap.add(componentMap);
+  }
+  result.put("componentsMap",componentsMap);
+  return result;
+}

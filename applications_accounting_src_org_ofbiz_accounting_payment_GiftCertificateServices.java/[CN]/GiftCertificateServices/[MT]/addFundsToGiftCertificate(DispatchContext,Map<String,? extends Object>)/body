@@ -1,0 +1,74 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  final String deposit="DEPOSIT";
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productStoreId=(String)context.get("productStoreId");
+  String cardNumber=(String)context.get("cardNumber");
+  String pinNumber=(String)context.get("pinNumber");
+  BigDecimal amount=(BigDecimal)context.get("amount");
+  String partyId=(String)context.get("partyId");
+  if (UtilValidate.isEmpty(partyId)) {
+    partyId="_NA_";
+  }
+  String currencyUom=(String)context.get("currency");
+  if (UtilValidate.isEmpty(currencyUom)) {
+    currencyUom=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  String finAccountId=null;
+  GenericValue finAccount=null;
+  try {
+    GenericValue giftCertSettings=delegator.findByPrimaryKeyCache("ProductStoreFinActSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId));
+    if ("Y".equals(giftCertSettings.getString("requirePinCode"))) {
+      if (!validatePin(delegator,cardNumber,pinNumber)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberPinNotValid",locale));
+      }
+      finAccountId=cardNumber;
+    }
+ else {
+      finAccount=FinAccountHelper.getFinAccountFromCode(cardNumber,delegator);
+      if (finAccount != null) {
+        finAccountId=finAccount.getString("finAccountId");
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountSetting",UtilMisc.toMap("productStoreId",productStoreId,"finAccountTypeId",FinAccountHelper.giftCertFinAccountTypeId),locale));
+  }
+  if (finAccountId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountNotFound",UtilMisc.toMap("finAccountId",""),locale));
+  }
+  if (finAccount == null) {
+    try {
+      finAccount=delegator.findByPrimaryKey("FinAccount",UtilMisc.toMap("finAccountId",finAccountId));
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountNotFound",UtilMisc.toMap("finAccountId",finAccountId),locale));
+    }
+  }
+  BigDecimal previousBalance=ZERO;
+  if (finAccount.get("availableBalance") != null) {
+    previousBalance=finAccount.getBigDecimal("availableBalance");
+  }
+  BigDecimal balance=ZERO;
+  String refNum=null;
+  try {
+    refNum=GiftCertificateServices.createTransaction(delegator,dispatcher,userLogin,amount,productStoreId,partyId,currencyUom,deposit,finAccountId,locale);
+    finAccount.refresh();
+    balance=finAccount.getBigDecimal("availableBalance");
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("previousBalance",previousBalance);
+  result.put("balance",balance);
+  result.put("amount",amount);
+  result.put("processResult",Boolean.TRUE);
+  result.put("responseCode","1");
+  result.put("referenceNum",refNum);
+  Debug.log("Add Funds GC Result - " + result,module);
+  return result;
+}

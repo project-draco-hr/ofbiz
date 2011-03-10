@@ -13,6 +13,7 @@
   BigDecimal shippableQuantity=(BigDecimal)context.get("shippableQuantity");
   BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
   BigDecimal initialEstimateAmt=(BigDecimal)context.get("initialEstimateAmt");
+  Locale locale=(Locale)context.get("locale");
   if (shippableTotal == null) {
     shippableTotal=BigDecimal.ZERO;
   }
@@ -37,36 +38,41 @@
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Unable to locate estimates from database");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductShipmentCostEstimateCannotRetrieve",locale));
   }
   if (estimates == null || estimates.size() < 1) {
     if (initialEstimateAmt.compareTo(BigDecimal.ZERO) == 0) {
       Debug.logWarning("Using the passed context : " + context,module);
-      Debug.logWarning("No shipping estimates found; the shipping amount returned is 0!",module);
+      Debug.logWarning("No shipping estimates found; the shipping amount returned is 0! Condition used was: " + estFieldsCond,module);
     }
     Map<String,Object> respNow=ServiceUtil.returnSuccess();
     respNow.put("shippingEstimateAmount",BigDecimal.ZERO);
     return respNow;
   }
   GenericValue shipAddress=null;
-  try {
-    shipAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
-  }
- catch (  GenericEntityException e) {
-    return ServiceUtil.returnFailure("Cannot get shipping address entity");
-  }
   if (shippingContactMechId != null) {
     try {
       shipAddress=delegator.findByPrimaryKey("PostalAddress",UtilMisc.toMap("contactMechId",shippingContactMechId));
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
-      return ServiceUtil.returnError("Cannot get shipping address entity");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductShipmentCostEstimateCannotGetShippingAddress",locale));
     }
   }
  else   if (shippingPostalCode != null) {
+    String countryGeoId=null;
+    try {
+      EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toMap("geoTypeId","COUNTRY","geoCode",shippingCountryCode));
+      GenericValue countryGeo=EntityUtil.getFirst(delegator.findList("Geo",cond,null,null,null,true));
+      if (countryGeo != null) {
+        countryGeoId=countryGeo.getString("geoId");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
     shipAddress=delegator.makeValue("PostalAddress");
-    shipAddress.set("countryGeoId",shippingCountryCode);
+    shipAddress.set("countryGeoId",countryGeoId);
     shipAddress.set("postalCodeGeoId",shippingPostalCode);
   }
   List<GenericValue> estimateList=FastList.newInstance();
@@ -154,7 +160,7 @@
     }
   }
   if (estimateList.size() < 1) {
-    return ServiceUtil.returnFailure("No shipping estimate found for carrier [" + carrierPartyId + "] and shipment method type ["+ shipmentMethodTypeId+ "]");
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ProductShipmentCostEstimateCannotFoundForCarrier",UtilMisc.toMap("carrierPartyId",carrierPartyId,"shipmentMethodTypeId",shipmentMethodTypeId),locale));
   }
   List<BigDecimal> shippableItemSizes=FastList.newInstance();
   Map<String,BigDecimal> shippableFeatureMap=FastMap.newInstance();

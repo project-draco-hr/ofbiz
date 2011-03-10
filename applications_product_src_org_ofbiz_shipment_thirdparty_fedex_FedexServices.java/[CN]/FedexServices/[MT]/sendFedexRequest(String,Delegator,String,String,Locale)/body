@@ -1,0 +1,39 @@
+{
+  String url=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"connectUrl",resource,"shipment.fedex.connect.url");
+  if (UtilValidate.isEmpty(url)) {
+    throw new FedexConnectException(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexConnectUrlIncomplete",locale));
+  }
+  if (!xmlString.matches("^(?s)<\\?xml\\s+version=\"1\\.0\"\\s+encoding=\"UTF-8\"\\s*\\?>.*")) {
+    throw new FedexConnectException(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexXmlHeaderMalformed",locale));
+  }
+  url=url.trim();
+  String timeOutStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"connectTimeout",resource,"shipment.fedex.connect.timeout","60");
+  int timeout=60;
+  try {
+    timeout=Integer.parseInt(timeOutStr);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logError(e,"Unable to set timeout to " + timeOutStr + " using default "+ timeout);
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("Fedex Connect URL : " + url,module);
+    Debug.logVerbose("Fedex XML String : " + xmlString,module);
+  }
+  HttpClient http=new HttpClient(url);
+  http.setTimeout(timeout * 1000);
+  String response=null;
+  try {
+    response=http.post(xmlString);
+  }
+ catch (  HttpClientException e) {
+    Debug.logError(e,"Problem connecting to Fedex server",module);
+    throw new FedexConnectException(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexConnectUrlProblem",UtilMisc.toMap("errorString",e.toString()),locale));
+  }
+  if (response == null) {
+    throw new FedexConnectException(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexReceivedNullResponse",locale));
+  }
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("Fedex Response : " + response,module);
+  }
+  return response;
+}

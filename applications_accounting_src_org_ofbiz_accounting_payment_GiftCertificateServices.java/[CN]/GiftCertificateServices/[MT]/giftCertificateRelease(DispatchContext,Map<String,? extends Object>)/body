@@ -1,0 +1,27 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  Locale locale=(Locale)context.get("locale");
+  String err=UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotBeExpired",locale);
+  try {
+    GenericValue authTransaction=PaymentGatewayServices.getAuthTransaction(paymentPref);
+    if (authTransaction == null) {
+      return ServiceUtil.returnError(err + UtilProperties.getMessage(resourceError,"AccountingFinAccountCannotFindAuthorization",locale));
+    }
+    Map<String,Object> input=UtilMisc.<String,Object>toMap("userLogin",userLogin,"finAccountAuthId",authTransaction.get("referenceNum"));
+    Map<String,Object> serviceResults=dispatcher.runSync("expireFinAccountAuth",input);
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("releaseRefNum",authTransaction.getString("referenceNum"));
+    result.put("releaseAmount",authTransaction.getBigDecimal("amount"));
+    result.put("releaseResult",Boolean.TRUE);
+    if (ServiceUtil.isError(serviceResults)) {
+      return ServiceUtil.returnError(err + ServiceUtil.getErrorMessage(serviceResults));
+    }
+    return result;
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,e.getMessage(),module);
+    return ServiceUtil.returnError(err + e.getMessage());
+  }
+}

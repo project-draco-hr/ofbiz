@@ -3,20 +3,19 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
+  Locale locale=(Locale)context.get("locale");
   Map<String,Object> result=ServiceUtil.returnSuccess();
   GenericValue paymentPref=null;
   try {
     paymentPref=delegator.findByPrimaryKey("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId));
   }
  catch (  GenericEntityException e) {
-    String errMsg="Problem getting OrderPaymentPreference for orderPaymentPreferenceId " + orderPaymentPreferenceId;
-    Debug.logWarning(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning(e,"Problem getting OrderPaymentPreference for orderPaymentPreferenceId " + orderPaymentPreferenceId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale) + " " + orderPaymentPreferenceId);
   }
   if (paymentPref == null) {
-    String errMsg="Could not find OrderPaymentPreference with orderPaymentPreferenceId: " + orderPaymentPreferenceId;
-    Debug.logWarning(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning("Could not find OrderPaymentPreference with orderPaymentPreferenceId: " + orderPaymentPreferenceId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale) + " " + orderPaymentPreferenceId);
   }
   GenericValue orderHeader=null;
   String orderId=paymentPref.getString("orderId");
@@ -24,14 +23,12 @@
     orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
   }
  catch (  GenericEntityException e) {
-    String errMsg="Problem getting OrderHeader for orderId " + orderId;
-    Debug.logWarning(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning(e,"Problem getting OrderHeader for orderId " + orderId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
   }
   if (orderHeader == null) {
-    String errMsg="Could not find OrderHeader with orderId: " + orderId + "; not processing payments.";
-    Debug.logWarning(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   String currency=orh.getCurrency();
@@ -50,15 +47,13 @@
     paymentConfig=paymentSettings.getString("paymentPropertiesPath");
     paymentGatewayConfigId=paymentSettings.getString("paymentGatewayConfigId");
     if (serviceName == null) {
-      String errMsg="No payment release service for - " + paymentPref.getString("paymentMethodTypeId");
-      Debug.logWarning(errMsg,module);
-      return ServiceUtil.returnError(errMsg);
+      Debug.logWarning("No payment release service for - " + paymentPref.getString("paymentMethodTypeId"),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingTroubleCallingReleaseOrderPaymentPreferenceService",locale) + " " + paymentPref.getString("paymentMethodTypeId"));
     }
   }
  else {
-    String errMsg="No payment release settings found for - " + paymentPref.getString("paymentMethodTypeId");
-    Debug.logWarning(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning("No payment release settings found for - " + paymentPref.getString("paymentMethodTypeId"),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingTroubleCallingReleaseOrderPaymentPreferenceService",locale) + " " + paymentPref.getString("paymentMethodTypeId"));
   }
   if (UtilValidate.isEmpty(paymentConfig)) {
     paymentConfig="payment.properties";
@@ -76,9 +71,8 @@
     releaseResult=dispatcher.runSync(serviceName,releaseContext,TX_TIME,true);
   }
  catch (  GenericServiceException e) {
-    String errMsg="Problem releasing payment";
-    Debug.logError(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logError(e,"Problem releasing payment",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingTroubleCallingReleaseOrderPaymentPreferenceService",locale));
   }
   if (releaseResult != null && !ServiceUtil.isError(releaseResult)) {
     Map<String,Object> releaseResRes;
@@ -90,8 +84,8 @@
       releaseResRes=dispatcher.runSync(model.name,resCtx);
     }
  catch (    GenericServiceException e) {
-      Debug.logError(e,module);
-      return ServiceUtil.returnError("Trouble processing the release results: " + e.getMessage());
+      Debug.logError(e,"Trouble processing the release results: " + e.getMessage(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingTroubleCallingReleaseOrderPaymentPreferenceService",locale) + " " + e.getMessage());
     }
     if (releaseResRes != null && ServiceUtil.isError(releaseResRes)) {
       return ServiceUtil.returnError(ServiceUtil.getErrorMessage(releaseResRes));

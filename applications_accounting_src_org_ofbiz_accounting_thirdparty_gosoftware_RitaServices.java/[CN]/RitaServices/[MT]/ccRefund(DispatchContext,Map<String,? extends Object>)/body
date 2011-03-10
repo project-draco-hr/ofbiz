@@ -1,0 +1,53 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=orderPaymentPreference.getRelatedOne("OrderHeader");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderPaymentPreference.getString("orderId")),locale));
+  }
+  if (orderHeader != null) {
+    String terminalId=orderHeader.getString("terminalId");
+    boolean isVoid=false;
+    if (terminalId != null) {
+      Timestamp orderDate=orderHeader.getTimestamp("orderDate");
+      GenericValue terminalState=null;
+      try {
+        List<GenericValue> states=delegator.findByAnd("PosTerminalState",UtilMisc.toMap("posTerminalId",terminalId));
+        states=EntityUtil.filterByDate(states,UtilDateTime.nowTimestamp(),"openedDate","closedDate",true);
+        terminalState=EntityUtil.getFirst(states);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (terminalState != null) {
+        Timestamp openDate=terminalState.getTimestamp("openedDate");
+        if (orderDate.after(openDate)) {
+          isVoid=true;
+        }
+      }
+    }
+    Map<String,Object> refundResp=null;
+    try {
+      if (isVoid) {
+        refundResp=dispatcher.runSync("ritaCCVoidRefund",context);
+      }
+ else {
+        refundResp=dispatcher.runSync("ritaCCCreditRefund",context);
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"AccountingRitaErrorServiceException",locale));
+    }
+    return refundResp;
+  }
+ else {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderPaymentPreference.getString("orderId")),locale));
+  }
+}

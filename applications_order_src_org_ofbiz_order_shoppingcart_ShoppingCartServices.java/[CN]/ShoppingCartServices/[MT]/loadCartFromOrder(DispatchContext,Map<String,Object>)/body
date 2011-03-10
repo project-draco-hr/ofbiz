@@ -37,6 +37,7 @@
   cart.setOrderName(orderHeader.getString("orderName"));
   cart.setOrderStatusId(orderHeader.getString("statusId"));
   cart.setOrderStatusString(currentStatusString);
+  cart.setFacilityId(orderHeader.getString("originFacilityId"));
   try {
     cart.setUserLogin(userLogin,dispatcher);
   }
@@ -101,7 +102,7 @@
   if (UtilValidate.isNotEmpty(orderPaymentPrefs)) {
     Iterator<GenericValue> oppi=orderPaymentPrefs.iterator();
     while (oppi.hasNext()) {
-      GenericValue opp=(GenericValue)oppi.next();
+      GenericValue opp=oppi.next();
       String paymentId=opp.getString("paymentMethodId");
       if (paymentId == null) {
         paymentId=opp.getString("paymentMethodTypeId");
@@ -150,8 +151,9 @@
     cartShipInfo.setFacilityId(orderItemShipGroup.getString("facilityId"));
     cartShipInfo.setVendorPartyId(orderItemShipGroup.getString("vendorPartyId"));
     cartShipInfo.setShipGroupSeqId(orderItemShipGroup.getString("shipGroupSeqId"));
+    cartShipInfo.shipTaxAdj.addAll(orh.getOrderHeaderAdjustmentsTax(orderItemShipGroup.getString("shipGroupSeqId")));
   }
-  List<GenericValue> orderItems=orh.getValidOrderItems();
+  List<GenericValue> orderItems=orh.getOrderItems();
   long nextItemSeq=0;
   if (UtilValidate.isNotEmpty(orderItems)) {
     for (    GenericValue item : orderItems) {
@@ -159,7 +161,18 @@
       orderItemSeqId=orderItemSeqId.replaceAll("\\P{Digit}","");
       String productId=item.getString("productId");
       GenericValue product=null;
-      Map surveyResponseResult=null;
+      Map<String,Object> surveyResponseResult=null;
+      try {
+        long seq=Long.parseLong(orderItemSeqId);
+        if (seq > nextItemSeq) {
+          nextItemSeq=seq;
+        }
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      if ("ITEM_REJECTED".equals(item.getString("statusId")) || "ITEM_CANCELLED".equals(item.getString("statusId")))       continue;
       try {
         product=delegator.findOne("Product",UtilMisc.toMap("productId",productId),false);
         if ("DIGITAL_GOOD".equals(product.getString("productTypeId"))) {
@@ -184,16 +197,6 @@
 catch (      GenericServiceException e) {
         Debug.logError(e.toString(),module);
         return ServiceUtil.returnError(e.toString());
-      }
-      try {
-        long seq=Long.parseLong(orderItemSeqId);
-        if (seq > nextItemSeq) {
-          nextItemSeq=seq;
-        }
-      }
- catch (      NumberFormatException e) {
-        Debug.logError(e,module);
-        return ServiceUtil.returnError(e.getMessage());
       }
       if (!includePromoItems && item.get("isPromo") != null && "Y".equals(item.getString("isPromo"))) {
         continue;
@@ -336,6 +339,9 @@ catch (        CartItemModifyException e) {
       List<GenericValue> itemAdjustments=orh.getOrderItemAdjustments(item);
       if (itemAdjustments != null) {
         for (        GenericValue itemAdjustment : itemAdjustments) {
+          if ("SALES_TAX".equals(itemAdjustment.get("orderAdjustmentTypeId")) || "VAT_TAX".equals(itemAdjustment.get("orderAdjustmentTypeId")) || "VAT_PRICE_CORRECT".equals(itemAdjustment.get("orderAdjustmentTypeId"))) {
+            continue;
+          }
           cartItem.addAdjustment(itemAdjustment);
         }
       }
@@ -343,9 +349,11 @@ catch (        CartItemModifyException e) {
     if (UtilValidate.isNotEmpty(orderItems)) {
       int itemIndex=0;
       for (      GenericValue item : orderItems) {
+        if ("ITEM_REJECTED".equals(item.getString("statusId")) || "ITEM_CANCELLED".equals(item.getString("statusId")))         continue;
+        List<GenericValue> orderItemAdjustments=orh.getOrderItemAdjustments(item);
         List<GenericValue> shipGroupAssocs=orh.getOrderItemShipGroupAssocs(item);
         for (int g=0; g < shipGroupAssocs.size(); g++) {
-          GenericValue sgAssoc=(GenericValue)shipGroupAssocs.get(g);
+          GenericValue sgAssoc=shipGroupAssocs.get(g);
           BigDecimal shipGroupQty=OrderReadHelper.getOrderItemShipGroupQuantity(sgAssoc);
           if (shipGroupQty == null) {
             shipGroupQty=BigDecimal.ZERO;
@@ -356,7 +364,33 @@ catch (        CartItemModifyException e) {
           if (cartShipGroupIndex > 0) {
             cart.positionItemToGroup(itemIndex,shipGroupQty,0,cartShipGroupIndex,false);
           }
-          cart.setItemShipGroupQty(itemIndex,shipGroupQty,cartShipGroupIndex);
+          ShoppingCart.CartShipInfo csi=cart.getShipInfo(cartShipGroupIndex);
+          ShoppingCartItem cartItem=cart.findCartItem(itemIndex);
+          if (cartItem == null || cartItem.getQuantity() == null || BigDecimal.ZERO.equals(cartItem.getQuantity()) || shipGroupQty.equals(cartItem.getQuantity())) {
+            Debug.logInfo("In loadCartFromOrder not adding item [" + item.getString("orderItemSeqId") + "] to ship group with index ["+ itemIndex+ "]; group quantity is ["+ shipGroupQty+ "] item quantity is ["+ (cartItem != null ? cartItem.getQuantity() : "no cart item")+ "] cartShipGroupIndex is ["+ cartShipGroupIndex+ "], csi.shipItemInfo.size(): "+ csi.shipItemInfo.size(),module);
+          }
+ else {
+            cart.setItemShipGroupQty(itemIndex,shipGroupQty,cartShipGroupIndex);
+          }
+          List<GenericValue> shipGroupItemAdjustments=EntityUtil.filterByAnd(orderItemAdjustments,UtilMisc.toMap("shipGroupSeqId",cartShipGroupIndexStr));
+          if (cartItem == null) {
+            Debug.logWarning("In loadCartFromOrder could not find cart item for itemIndex=" + itemIndex + ", for orderId="+ orderId,module);
+          }
+ else {
+            CartShipItemInfo cartShipItemInfo=csi.getShipItemInfo(cartItem);
+            if (cartShipItemInfo == null) {
+              Debug.logWarning("In loadCartFromOrder could not find CartShipItemInfo for itemIndex=" + itemIndex + ", for orderId="+ orderId,module);
+            }
+ else {
+              List<GenericValue> itemTaxAdj=cartShipItemInfo.itemTaxAdj;
+              for (              GenericValue shipGroupItemAdjustment : shipGroupItemAdjustments) {
+                if ("SALES_TAX".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId")) || "VAT_TAX".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId")) || "VAT_PRICE_CORRECT".equals(shipGroupItemAdjustment.get("orderAdjustmentTypeId"))) {
+                  itemTaxAdj.add(shipGroupItemAdjustment);
+                  continue;
+                }
+              }
+            }
+          }
         }
         itemIndex++;
       }
@@ -379,7 +413,7 @@ catch (        CartItemModifyException e) {
       cart.addProductPromoUse(productPromoUse.getString("productPromoId"),productPromoUse.getString("productPromoCodeId"),productPromoUse.getBigDecimal("totalDiscountAmount"),productPromoUse.getBigDecimal("quantityLeftInActions"));
     }
   }
-  List adjustments=orh.getOrderHeaderAdjustments();
+  List<GenericValue> adjustments=orh.getOrderHeaderAdjustments();
   if (!adjustments.isEmpty()) {
     cart.getAdjustments().addAll(adjustments);
   }

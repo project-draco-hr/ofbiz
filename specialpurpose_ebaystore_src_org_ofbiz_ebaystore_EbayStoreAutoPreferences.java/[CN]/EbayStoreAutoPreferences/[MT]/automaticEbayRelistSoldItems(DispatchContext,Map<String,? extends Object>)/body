@@ -1,5 +1,4 @@
 {
-  Map<String,Object> result=FastMap.newInstance();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Delegator delegator=dctx.getDelegator();
   Locale locale=(Locale)context.get("locale");
@@ -8,7 +7,6 @@
     GenericValue userLogin=delegator.findOne("UserLogin",false,"userLoginId","system");
     Map<String,Object> serviceMap=FastMap.newInstance();
     serviceMap.put("userLogin",userLogin);
-    List<GenericValue> stores=delegator.findByAnd("ProductStore",UtilMisc.toMap());
     List<GenericValue> productStores=delegator.findByAnd("EbayProductStorePref",UtilMisc.toMap("autoPrefJobId",jobId));
     if (productStores.size() != 0) {
       String productStoreId=productStores.get(0).getString("productStoreId");
@@ -19,15 +17,15 @@
       Timestamp nowTime=UtilDateTime.nowTimestamp();
       if (nowTime.after(fromDate) && nowTime.before(thruDate)) {
         serviceMap.put("productStoreId",productStoreId);
-        Map eBayUserLogin=dispatcher.runSync("getEbayStoreUser",serviceMap);
+        Map<String,Object> eBayUserLogin=dispatcher.runSync("getEbayStoreUser",serviceMap);
         String eBayUserLoginId=(String)eBayUserLogin.get("userLoginId");
         GenericValue party=delegator.findByPrimaryKey("UserLogin",UtilMisc.toMap("userLoginId",eBayUserLoginId));
         String partyId=party.getString("partyId");
-        Map resultService=dispatcher.runSync("getEbaySoldItems",serviceMap);
-        List soldItems=(List)resultService.get("soldItems");
+        Map<String,Object> resultService=dispatcher.runSync("getEbaySoldItems",serviceMap);
+        List<Map<String,Object>> soldItems=UtilGenerics.checkList(resultService.get("soldItems"));
         if (soldItems.size() != 0) {
           for (int itemCount=0; itemCount < soldItems.size(); itemCount++) {
-            Map soldItemMap=(Map)soldItems.get(itemCount);
+            Map<String,Object> soldItemMap=soldItems.get(itemCount);
             if (UtilValidate.isNotEmpty(soldItemMap.get("itemId"))) {
               GenericValue productCheck=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",soldItemMap.get("itemId")));
               if (productCheck == null) {
@@ -37,7 +35,7 @@
                 inMap.put("internalName","eBay Item " + soldItemMap.get("title"));
                 inMap.put("userLogin",userLogin);
                 dispatcher.runSync("createProduct",inMap);
-                List productRole=delegator.findByAnd("ProductRole",UtilMisc.toMap("partyId",partyId,"productId",soldItemMap.get("itemId"),"roleTypeId","VENDOR"));
+                List<GenericValue> productRole=delegator.findByAnd("ProductRole",UtilMisc.toMap("partyId",partyId,"productId",soldItemMap.get("itemId"),"roleTypeId","VENDOR"));
                 if (productRole.size() == 0) {
                   Map<String,Object> addRole=FastMap.newInstance();
                   addRole.put("productId",soldItemMap.get("itemId"));
@@ -55,11 +53,11 @@
         serviceMap.put("userLogin",userLogin);
         serviceMap.put("productStoreId",productStoreId);
         resultService=dispatcher.runSync("getEbayActiveItems",serviceMap);
-        List activeItems=(List)resultService.get("activeItems");
+        List<Map<String,Object>> activeItems=UtilGenerics.checkList(resultService.get("activeItems"));
         List<String> activeItemMaps=FastList.newInstance();
         if (activeItems.size() != 0) {
           for (int itemCount=0; itemCount < activeItems.size(); itemCount++) {
-            Map activeItemMap=(Map)activeItems.get(itemCount);
+            Map<String,Object> activeItemMap=UtilGenerics.checkMap(activeItems.get(itemCount));
             if (UtilValidate.isNotEmpty(activeItemMap.get("itemId"))) {
               activeItemMaps.add((String)activeItemMap.get("itemId"));
             }
@@ -73,7 +71,7 @@
             productRoleIds.add(productId);
           }
         }
-        List andExpr=FastList.newInstance();
+        List<EntityCondition> andExpr=FastList.newInstance();
         EntityCondition activeItemCond=EntityCondition.makeCondition("productId",EntityOperator.NOT_IN,activeItemMaps);
         andExpr.add(activeItemCond);
         EntityCondition productTypeCond=EntityCondition.makeCondition("productTypeId",EntityOperator.EQUALS,"EBAY_ITEM");
@@ -83,13 +81,8 @@
         EntityCondition productRole=EntityCondition.makeCondition("productId",EntityOperator.IN,productRoleIds);
         andExpr.add(productRole);
         EntityCondition andCond=EntityCondition.makeCondition(andExpr,EntityOperator.AND);
-        List itemsToRelist=delegator.findList("Product",andCond,null,null,null,false);
+        List<GenericValue> itemsToRelist=delegator.findList("Product",andCond,null,null,null,false);
         if (itemsToRelist.size() != 0) {
-          Map<String,Object> inMap=FastMap.newInstance();
-          inMap.put("productStoreId",productStoreId);
-          inMap.put("userLogin",userLogin);
-          Map<String,Object> resultUser=dispatcher.runSync("getEbayStoreUser",inMap);
-          String userID=(String)resultUser.get("userLoginId");
           ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
           for (int itemRelist=0; itemRelist < itemsToRelist.size(); itemRelist++) {
             RelistItemCall relistItemCall=new RelistItemCall(apiContext);

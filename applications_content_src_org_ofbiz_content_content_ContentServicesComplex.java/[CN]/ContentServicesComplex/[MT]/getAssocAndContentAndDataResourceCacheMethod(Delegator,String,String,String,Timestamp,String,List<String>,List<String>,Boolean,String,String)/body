@@ -1,0 +1,100 @@
+{
+  String viewName=null;
+  GenericValue contentAssoc=null;
+  String contentFieldName=null;
+  if (direction != null && direction.equalsIgnoreCase("From")) {
+    contentFieldName="contentIdTo";
+  }
+ else {
+    contentFieldName="contentId";
+  }
+  if (direction != null && direction.equalsIgnoreCase("From")) {
+    viewName="ContentAssocDataResourceViewFrom";
+  }
+ else {
+    viewName="ContentAssocDataResourceViewTo";
+  }
+  Map<String,Object> fieldMap=UtilMisc.<String,Object>toMap(contentFieldName,contentId);
+  if (assocTypes != null && assocTypes.size() == 1) {
+    fieldMap.putAll(UtilMisc.<String,Object>toMap("contentAssocTypeId",assocTypes.get(0)));
+  }
+  if (UtilValidate.isNotEmpty(mapKey)) {
+    if (mapKey.equalsIgnoreCase("is null"))     fieldMap.putAll(UtilMisc.<String,Object>toMap("mapKey",null));
+ else     fieldMap.putAll(UtilMisc.<String,Object>toMap("mapKey",mapKey));
+  }
+  if (UtilValidate.isNotEmpty(contentAssocPredicateId)) {
+    if (contentAssocPredicateId.equalsIgnoreCase("is null"))     fieldMap.putAll(UtilMisc.<String,Object>toMap("contentAssocPredicateId",null));
+ else     fieldMap.putAll(UtilMisc.<String,Object>toMap("contentAssocPredicateId",contentAssocPredicateId));
+  }
+  if (nullThruDatesOnly != null && nullThruDatesOnly.booleanValue()) {
+    fieldMap.putAll(UtilMisc.<String,Object>toMap("thruDate",null));
+  }
+  List<GenericValue> contentAssocsUnfiltered=null;
+  contentAssocsUnfiltered=delegator.findByAndCache("ContentAssoc",fieldMap,UtilMisc.toList("-fromDate"));
+  if (fromDate == null && fromDateStr != null) {
+    fromDate=UtilDateTime.toTimestamp(fromDateStr);
+  }
+  List<GenericValue> contentAssocsDateFiltered2=EntityUtil.filterByDate(contentAssocsUnfiltered,fromDate);
+  List<GenericValue> contentAssocsDateFiltered=EntityUtil.orderBy(contentAssocsDateFiltered2,UtilMisc.toList("sequenceNum","fromDate DESC"));
+  String contentAssocTypeId=null;
+  List<GenericValue> contentAssocsTypeFiltered=FastList.newInstance();
+  if (assocTypes != null && assocTypes.size() > 1) {
+    Iterator<GenericValue> it=contentAssocsDateFiltered.iterator();
+    while (it.hasNext()) {
+      contentAssoc=(GenericValue)it.next();
+      contentAssocTypeId=(String)contentAssoc.get("contentAssocTypeId");
+      if (assocTypes.contains(contentAssocTypeId)) {
+        contentAssocsTypeFiltered.add(contentAssoc);
+      }
+    }
+  }
+ else {
+    contentAssocsTypeFiltered=contentAssocsDateFiltered;
+  }
+  String assocRelationName=null;
+  if (direction != null && direction.equalsIgnoreCase("To")) {
+    assocRelationName="ToContent";
+  }
+ else {
+    assocRelationName="FromContent";
+  }
+  GenericValue contentAssocDataResourceView=null;
+  GenericValue content=null;
+  GenericValue dataResource=null;
+  List<GenericValue> contentAssocDataResourceList=FastList.newInstance();
+  Locale locale=Locale.getDefault();
+  Iterator<GenericValue> it=contentAssocsTypeFiltered.iterator();
+  while (it.hasNext()) {
+    contentAssoc=(GenericValue)it.next();
+    content=contentAssoc.getRelatedOneCache(assocRelationName);
+    if (UtilValidate.isNotEmpty(contentTypes)) {
+      String contentTypeId=(String)content.get("contentTypeId");
+      if (contentTypes.contains(contentTypeId)) {
+        contentAssocDataResourceView=delegator.makeValue(viewName);
+        contentAssocDataResourceView.setAllFields(content,true,null,null);
+      }
+    }
+ else {
+      contentAssocDataResourceView=delegator.makeValue(viewName);
+      contentAssocDataResourceView.setAllFields(content,true,null,null);
+    }
+    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentAssocOut",contentAssoc,contentAssocDataResourceView,FastList.newInstance(),locale);
+    String dataResourceId=content.getString("dataResourceId");
+    if (UtilValidate.isNotEmpty(dataResourceId))     dataResource=content.getRelatedOneCache("DataResource");
+    if (dataResource != null) {
+      SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","dataResourceOut",dataResource,contentAssocDataResourceView,FastList.newInstance(),locale);
+    }
+    contentAssocDataResourceList.add(contentAssocDataResourceView);
+  }
+  List<String> orderByList=null;
+  if (UtilValidate.isNotEmpty(orderBy)) {
+    orderByList=StringUtil.split(orderBy,"|");
+    contentAssocDataResourceList=EntityUtil.orderBy(contentAssocDataResourceList,orderByList);
+  }
+  Map<String,Object> results=FastMap.newInstance();
+  results.put("entityList",contentAssocDataResourceList);
+  if (UtilValidate.isNotEmpty(contentAssocDataResourceList)) {
+    results.put("view",contentAssocDataResourceList.get(0));
+  }
+  return results;
+}

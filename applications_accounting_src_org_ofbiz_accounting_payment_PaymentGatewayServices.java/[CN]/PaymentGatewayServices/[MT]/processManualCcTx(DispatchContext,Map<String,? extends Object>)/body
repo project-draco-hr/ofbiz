@@ -1,11 +1,12 @@
 {
   GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Delegator delegator=dctx.getDelegator();
   Security security=dctx.getSecurity();
   if (!security.hasEntityPermission("MANUAL","_PAYMENT",userLogin)) {
     Debug.logWarning("**** Security [" + (new Date()).toString() + "]: "+ userLogin.get("userLoginId")+ " attempt to run manual payment transaction!",module);
-    return ServiceUtil.returnError("You do not have permission for this transaction.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentTransactionNotAuthorized",locale));
   }
   String orderPaymentPreferenceId=(String)context.get("orderPaymentPreferenceId");
   String paymentMethodTypeId=(String)context.get("paymentMethodTypeId");
@@ -20,14 +21,12 @@
     paymentPref=delegator.findOne("OrderPaymentPreference",UtilMisc.toMap("orderPaymentPreferenceId",orderPaymentPreferenceId),false);
   }
  catch (  GenericEntityException e) {
-    String errMsg="Problem getting OrderPaymentPreference for orderPaymentPreferenceId " + orderPaymentPreferenceId;
-    Debug.logWarning(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning(e,"Problem getting OrderPaymentPreference for orderPaymentPreferenceId " + orderPaymentPreferenceId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale) + " " + orderPaymentPreferenceId);
   }
   if (paymentPref == null) {
-    String errMsg="Could not find OrderPaymentPreference with orderPaymentPreferenceId: " + orderPaymentPreferenceId;
-    Debug.logWarning(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning("Could not find OrderPaymentPreference with orderPaymentPreferenceId: " + orderPaymentPreferenceId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingOrderPaymentPreferences",locale) + " " + orderPaymentPreferenceId);
   }
   GenericValue orderHeader=null;
   String orderId=paymentPref.getString("orderId");
@@ -35,18 +34,16 @@
     orderHeader=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
   }
  catch (  GenericEntityException e) {
-    String errMsg="Problem getting OrderHeader for orderId " + orderId;
-    Debug.logWarning(e,errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning(e,"Problem getting OrderHeader for orderId " + orderId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
   }
   if (orderHeader == null) {
-    String errMsg="Could not find OrderHeader with orderId: " + orderId + "; not processing payments.";
-    Debug.logWarning(errMsg,module);
-    return ServiceUtil.returnError(errMsg);
+    Debug.logWarning("Could not find OrderHeader with orderId: " + orderId + "; not processing payments.",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceOrder,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
   }
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   if (!transactionType.equals(CREDIT_SERVICE_TYPE)) {
-    return ServiceUtil.returnError("This transaction type is not yet supported.");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentTransactionNotYetSupported",locale));
   }
   Map<String,Object> requestContext=FastMap.newInstance();
   String paymentService=null;
@@ -54,7 +51,7 @@
   String paymentGatewayConfigId=null;
   GenericValue paymentSettings=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStoreId,paymentMethodTypeId,transactionType,false);
   if (paymentSettings == null) {
-    return ServiceUtil.returnError("No valid payment settings found for : " + productStoreId + "/"+ transactionType);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentSettingNotFound",UtilMisc.toMap("productStoreId",productStoreId,"transactionType",transactionType),locale));
   }
  else {
     paymentGatewayConfigId=paymentSettings.getString("paymentGatewayConfigId");
@@ -73,13 +70,13 @@
     requestContext.put("paymentGatewayConfigId",paymentGatewayConfigId);
   }
   if (paymentService == null || (paymentGatewayConfigId == null && paymentConfig == null)) {
-    return ServiceUtil.returnError("Invalid product store payment settings");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentSettingNotValid",locale));
   }
   if (paymentMethodTypeId.equals("CREDIT_CARD")) {
     GenericValue creditCard=delegator.makeValue("CreditCard");
     creditCard.setAllFields(context,true,null,null);
     if (creditCard.get("firstNameOnCard") == null || creditCard.get("lastNameOnCard") == null || creditCard.get("cardType") == null || creditCard.get("cardNumber") == null) {
-      return ServiceUtil.returnError("Credit card is missing required fields.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentCreditCardMissingMandatoryFields",locale));
     }
     String expMonth=(String)context.get("expMonth");
     String expYear=(String)context.get("expYear");
@@ -90,13 +87,13 @@
     GenericValue billingAddress=delegator.makeValue("PostalAddress");
     billingAddress.setAllFields(context,true,null,null);
     if (billingAddress.get("address1") == null || billingAddress.get("city") == null || billingAddress.get("postalCode") == null) {
-      return ServiceUtil.returnError("Credit card billing address is missing required fields.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentCreditCardBillingAddressMssingMandatoryFields",locale));
     }
     requestContext.put("billingAddress",billingAddress);
     GenericValue billToEmail=delegator.makeValue("ContactMech");
     billToEmail.set("infoString",context.get("infoString"));
     if (billToEmail.get("infoString") == null) {
-      return ServiceUtil.returnError("Email address field cannot be empty.");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentCreditCardEmailAddressCannotBeEmpty",locale));
     }
     requestContext.put("billToParty",orh.getBillToParty());
     requestContext.put("billToEmail",billToEmail);
@@ -106,7 +103,7 @@
     requestContext.put("creditAmount",context.get("amount"));
   }
  else {
-    return ServiceUtil.returnError("Payment method type : " + paymentMethodTypeId + " is not yet implemented for manual transactions");
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentTransactionNotYetSupported",locale) + " " + paymentMethodTypeId);
   }
   Map<String,Object> response=null;
   try {
@@ -114,7 +111,7 @@
   }
  catch (  GenericServiceException e) {
     Debug.logError(e,module);
-    return ServiceUtil.returnError("Error calling service : " + paymentService + " / "+ requestContext);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentServiceError",UtilMisc.toMap("paymentService",paymentService,"authContext",requestContext),locale));
   }
   if (response != null && !ServiceUtil.isError(response)) {
     Map<String,Object> responseRes;
@@ -127,7 +124,7 @@
     }
  catch (    GenericServiceException e) {
       Debug.logError(e,module);
-      return ServiceUtil.returnError("Trouble processing the release results: " + e.getMessage());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentCreditError",UtilMisc.toMap("errorString",e.getMessage()),locale));
     }
     if (responseRes != null && ServiceUtil.isError(responseRes)) {
       return ServiceUtil.returnError(ServiceUtil.getErrorMessage(responseRes));
@@ -143,7 +140,7 @@
   String refNum=(String)response.get("creditRefNum");
   String code=(String)response.get("creditCode");
   String msg=(String)response.get("creditMessage");
-  Map<String,Object> returnResults=ServiceUtil.returnSuccess("Transaction result [" + msg + "/"+ code+ "] Ref#: "+ refNum);
+  Map<String,Object> returnResults=ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"AccountingPaymentTransactionManualResult",UtilMisc.toMap("msg",msg,"code",code,"refNum",refNum),locale));
   returnResults.put("referenceNum",refNum);
   return returnResults;
 }

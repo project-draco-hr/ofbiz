@@ -1,0 +1,72 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String emailType=(String)context.get("emailType");
+  String quoteId=(String)context.get("quoteId");
+  String sendTo=(String)context.get("sendTo");
+  String sendCc=(String)context.get("sendCc");
+  String note=(String)context.get("note");
+  Map<String,Object> sendMap=FastMap.newInstance();
+  GenericValue quote=null;
+  try {
+    quote=delegator.findByPrimaryKey("Quote",UtilMisc.toMap("quoteId",quoteId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting Quote",module);
+  }
+  if (quote == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderQuoteCannotBeFound",UtilMisc.toMap("quoteId",quoteId),locale));
+  }
+  GenericValue productStoreEmail=null;
+  try {
+    productStoreEmail=delegator.findByPrimaryKey("ProductStoreEmailSetting",UtilMisc.toMap("productStoreId",quote.get("productStoreId"),"emailType",emailType));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting the ProductStoreEmailSetting for productStoreId=" + quote.get("productStoreId") + " and emailType="+ emailType,module);
+  }
+  if (productStoreEmail == null) {
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceProduct,"ProductProductStoreEmailSettingsNotValid",UtilMisc.toMap("productStoreId",quote.get("productStoreId"),"emailType",emailType),locale));
+  }
+  String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+  if (UtilValidate.isEmpty(bodyScreenLocation)) {
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceProduct,"ProductProductStoreEmailSettingsNotValidBodyScreenLocation",UtilMisc.toMap("productStoreId",quote.get("productStoreId"),"emailType",emailType),locale));
+  }
+  sendMap.put("bodyScreenUri",bodyScreenLocation);
+  String xslfoAttachScreenLocation=productStoreEmail.getString("xslfoAttachScreenLocation");
+  sendMap.put("xslfoAttachScreenLocation",xslfoAttachScreenLocation);
+  if ((sendTo == null) || !UtilValidate.isEmail(sendTo)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceProduct,"ProductProductStoreEmailSettingsNoSendToFound",locale));
+  }
+  Map<String,Object> bodyParameters=UtilMisc.<String,Object>toMap("quoteId",quoteId,"userLogin",userLogin,"locale",locale);
+  bodyParameters.put("note",note);
+  bodyParameters.put("partyId",quote.getString("partyId"));
+  sendMap.put("bodyParameters",bodyParameters);
+  sendMap.put("userLogin",userLogin);
+  String subjectString=productStoreEmail.getString("subject");
+  sendMap.put("subject",subjectString);
+  sendMap.put("contentType",productStoreEmail.get("contentType"));
+  sendMap.put("sendFrom",productStoreEmail.get("fromAddress"));
+  sendMap.put("sendCc",productStoreEmail.get("ccAddress"));
+  sendMap.put("sendBcc",productStoreEmail.get("bccAddress"));
+  sendMap.put("sendTo",sendTo);
+  if ((sendCc != null) && UtilValidate.isEmail(sendCc)) {
+    sendMap.put("sendCc",sendCc);
+  }
+ else {
+    sendMap.put("sendCc",productStoreEmail.get("ccAddress"));
+  }
+  Map<String,Object> sendResp=null;
+  try {
+    sendResp=dispatcher.runSync("sendMailFromScreen",sendMap);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderServiceExceptionSeeLogs",locale));
+  }
+  if (sendResp != null && !ServiceUtil.isError(sendResp)) {
+    sendResp.put("emailType",emailType);
+  }
+  return sendResp;
+}

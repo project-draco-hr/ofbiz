@@ -1,0 +1,39 @@
+{
+  Map<String,Object> result=new HashMap<String,Object>();
+  Delegator delegator=dctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  Locale locale=(Locale)context.get("locale");
+  String purpose[]={"BILLING_LOCATION","SHIPPING_LOCATION"};
+  String outKey[]={"billingAddress","shippingAddress"};
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    if (orderHeader != null)     result.put("orderHeader",orderHeader);
+  }
+ catch (  GenericEntityException e) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,UtilProperties.getMessage(resource,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
+    return result;
+  }
+  if (orderHeader == null) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,UtilProperties.getMessage(resource,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
+    return result;
+  }
+  for (int i=0; i < purpose.length; i++) {
+    try {
+      GenericValue orderContactMech=EntityUtil.getFirst(orderHeader.getRelatedByAnd("OrderContactMech",UtilMisc.toMap("contactMechPurposeTypeId",purpose[i])));
+      GenericValue contactMech=orderContactMech.getRelatedOne("ContactMech");
+      if (contactMech != null) {
+        result.put(outKey[i],contactMech.getRelatedOne("PostalAddress"));
+      }
+    }
+ catch (    GenericEntityException e) {
+      result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+      result.put(ModelService.ERROR_MESSAGE,UtilProperties.getMessage(resource,"OrderOrderContachMechNotFound",UtilMisc.toMap("errorString",e.getMessage()),locale));
+      return result;
+    }
+  }
+  result.put("orderId",orderId);
+  return result;
+}

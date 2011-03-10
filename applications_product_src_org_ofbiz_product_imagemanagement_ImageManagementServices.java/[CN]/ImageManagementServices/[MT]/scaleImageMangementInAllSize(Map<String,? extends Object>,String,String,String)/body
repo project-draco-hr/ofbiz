@@ -1,0 +1,93 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  List<String> sizeTypeList=null;
+  if (UtilValidate.isNotEmpty(resizeType)) {
+    sizeTypeList=UtilMisc.toList(resizeType);
+  }
+ else {
+    sizeTypeList=UtilMisc.toList("small","100x75","150x112","320x240","640x480","800x600","1024x768","1280x1024","1600x1200");
+  }
+  int index;
+  Map<String,Map<String,String>> imgPropertyMap=FastMap.newInstance();
+  BufferedImage bufImg, bufNewImg;
+  double imgHeight, imgWidth;
+  Map<String,String> imgUrlMap=FastMap.newInstance();
+  Map<String,Object> resultXMLMap=FastMap.newInstance();
+  Map<String,Object> resultBufImgMap=FastMap.newInstance();
+  Map<String,Object> resultScaleImgMap=FastMap.newInstance();
+  Map<String,Object> result=FastMap.newInstance();
+  String imgPropertyFullPath=System.getProperty("ofbiz.home") + "/applications/product/config/ImageProperties.xml";
+  resultXMLMap.putAll((Map<String,Object>)ImageTransform.getXMLValue(imgPropertyFullPath,locale));
+  if (resultXMLMap.containsKey("responseMessage") && resultXMLMap.get("responseMessage").equals("success")) {
+    imgPropertyMap.putAll(UtilGenerics.<Map<String,Map<String,String>>>cast(resultXMLMap.get("xml")));
+  }
+ else {
+    String errMsg=UtilProperties.getMessage(resource,"ScaleImage.unable_to_parse",locale) + " : ImageProperties.xml";
+    Debug.logError(errMsg,module);
+    result.put("errorMessage",errMsg);
+    return result;
+  }
+  index=filenameToUse.lastIndexOf(".");
+  String imgExtension=filenameToUse.substring(index + 1);
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.path"),context);
+  String imageServerUrl=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.url"),context);
+  resultBufImgMap.putAll(ImageTransform.getBufferedImage(imageServerPath + "/" + productId+ "/"+ filenameToUse,locale));
+  if (resultBufImgMap.containsKey("responseMessage") && resultBufImgMap.get("responseMessage").equals("success")) {
+    bufImg=(BufferedImage)resultBufImgMap.get("bufferedImage");
+    imgHeight=(double)bufImg.getHeight();
+    imgWidth=(double)bufImg.getWidth();
+    if (imgHeight == 0.0 || imgWidth == 0.0) {
+      String errMsg=UtilProperties.getMessage(resource,"ScaleImage.one_current_image_dimension_is_null",locale) + " : imgHeight = " + imgHeight+ " ; imgWidth = "+ imgWidth;
+      Debug.logError(errMsg,module);
+      result.put("errorMessage",errMsg);
+      return result;
+    }
+    Iterator<String> sizeIter=sizeTypeList.iterator();
+    while (sizeIter.hasNext()) {
+      String sizeType=sizeIter.next();
+      resultScaleImgMap.putAll(ImageTransform.scaleImage(bufImg,imgHeight,imgWidth,imgPropertyMap,sizeType,locale));
+      if (resultScaleImgMap.containsKey("responseMessage") && resultScaleImgMap.get("responseMessage").equals("success")) {
+        bufNewImg=(BufferedImage)resultScaleImgMap.get("bufferedImage");
+        String targetDirectory=imageServerPath + "/" + productId;
+        File targetDir=new File(targetDirectory);
+        if (!targetDir.exists()) {
+          boolean created=targetDir.mkdirs();
+          if (!created) {
+            String errMsg=UtilProperties.getMessage(resource,"ScaleImage.unable_to_create_target_directory",locale) + " - " + targetDirectory;
+            Debug.logFatal(errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+        }
+        try {
+          ImageIO.write((RenderedImage)bufNewImg,imgExtension,new File(imageServerPath + "/" + productId+ "/"+ filenameToUse));
+          File deleteFile=new File(imageServerPath + "/" + filenameToUse);
+          deleteFile.delete();
+        }
+ catch (        IllegalArgumentException e) {
+          String errMsg=UtilProperties.getMessage(resource,"ScaleImage.one_parameter_is_null",locale) + e.toString();
+          Debug.logError(errMsg,module);
+          result.put("errorMessage",errMsg);
+          return result;
+        }
+catch (        IOException e) {
+          String errMsg=UtilProperties.getMessage(resource,"ScaleImage.error_occurs_during_writing",locale) + e.toString();
+          Debug.logError(errMsg,module);
+          result.put("errorMessage",errMsg);
+          return result;
+        }
+        String imageUrl=imageServerUrl + "/" + productId+ "/"+ filenameToUse;
+        imgUrlMap.put(sizeType,imageUrl);
+      }
+    }
+    result.put("responseMessage","success");
+    result.put("imageUrlMap",imgUrlMap);
+    result.put("original",resultBufImgMap);
+    return result;
+  }
+ else {
+    String errMsg=UtilProperties.getMessage(resource,"ScaleImage.unable_to_scale_original_image",locale) + " : " + filenameToUse;
+    Debug.logError(errMsg,module);
+    result.put("errorMessage",errMsg);
+    return ServiceUtil.returnError(errMsg);
+  }
+}

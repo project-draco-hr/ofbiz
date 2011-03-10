@@ -1,0 +1,88 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  List<GenericValue> orderItems=UtilGenerics.checkList(context.get("orderItems"));
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isNotEmpty(orderItems)) {
+    Iterator<GenericValue> itemsIterator=orderItems.iterator();
+    while (itemsIterator.hasNext()) {
+      GenericValue orderItem=itemsIterator.next();
+      if (orderItem == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotCheckForFulfillmentItemNotFound",locale));
+      }
+      GenericValue product=null;
+      List<GenericValue> productContent=null;
+      try {
+        product=orderItem.getRelatedOne("Product");
+        if (product == null) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotCheckForFulfillmentProductNotFound",locale));
+        }
+        List<GenericValue> allProductContent=product.getRelated("ProductContent");
+        if (UtilValidate.isEmpty(allProductContent) && ("Y".equals(product.getString("isVariant")))) {
+          GenericValue parentProduct=ProductWorker.getParentProduct(product.getString("productId"),delegator);
+          if (allProductContent == null) {
+            allProductContent=FastList.newInstance();
+          }
+          if (parentProduct != null) {
+            allProductContent.addAll(parentProduct.getRelated("ProductContent"));
+          }
+        }
+        if (UtilValidate.isNotEmpty(allProductContent)) {
+          productContent=EntityUtil.filterByDate(allProductContent,UtilDateTime.nowTimestamp(),"fromDate","thruDate",true);
+          Debug.logInfo("Product has " + allProductContent.size() + " associations, "+ (productContent == null ? "0" : "" + productContent.size())+ " has valid from/thru dates",module);
+        }
+      }
+ catch (      GenericEntityException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCannotGetProductEntity",locale) + e.getMessage());
+      }
+      if (UtilValidate.isNotEmpty(productContent)) {
+        Iterator<GenericValue> prodcontentIterator=productContent.iterator();
+        while (prodcontentIterator.hasNext()) {
+          GenericValue productContentItem=prodcontentIterator.next();
+          GenericValue content=null;
+          try {
+            content=productContentItem.getRelatedOne("Content");
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"ERROR: Cannot get Content entity: " + e.getMessage(),module);
+            continue;
+          }
+          String fulfillmentType=productContentItem.getString("productContentTypeId");
+          if ("FULFILLMENT_EXTASYNC".equals(fulfillmentType) || "FULFILLMENT_EXTSYNC".equals(fulfillmentType)) {
+            String fulfillmentService=(String)content.get("serviceName");
+            if (fulfillmentService == null) {
+              Debug.logError("ProductContent of type FULFILLMENT_EXTERNAL had Content with empty serviceName, can not run fulfillment",module);
+            }
+            Map<String,Object> serviceCtx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"orderItem",orderItem);
+            serviceCtx.putAll(productContentItem.getPrimaryKey());
+            try {
+              Debug.logInfo("Running external fulfillment '" + fulfillmentService + "'",module);
+              if ("FULFILLMENT_EXTASYNC".equals(fulfillmentType)) {
+                dispatcher.runAsync(fulfillmentService,serviceCtx,true);
+              }
+ else               if ("FULFILLMENT_EXTSYNC".equals(fulfillmentType)) {
+                Map<String,Object> resp=dispatcher.runSync(fulfillmentService,serviceCtx);
+                if (ServiceUtil.isError(resp)) {
+                  return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderExternalFulfillmentError",locale),null,null,resp);
+                }
+              }
+            }
+ catch (            GenericServiceException e) {
+              Debug.logError(e,"ERROR: Could not run external fulfillment service '" + fulfillmentService + "'; "+ e.getMessage(),module);
+            }
+          }
+ else           if ("FULFILLMENT_EMAIL".equals(fulfillmentType)) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderEmailFulfillmentTypeNotYetImplemented",locale));
+          }
+ else           if ("DIGITAL_DOWNLOAD".equals(fulfillmentType)) {
+          }
+ else {
+            Debug.logError("Invalid fulfillment type : " + fulfillmentType + " not supported.",module);
+          }
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

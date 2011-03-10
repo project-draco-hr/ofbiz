@@ -21,11 +21,13 @@
     }
     ShoppingCart cart=new ShoppingCart(delegator,productStoreId,locale,defaultCurrencyUomId);
     String externalId=(String)context.get("externalId");
+    String transactionId=(String)context.get("transactionId");
     if (UtilValidate.isNotEmpty(externalId)) {
       if (externalOrderExists(delegator,externalId) != null && create) {
         return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.externalIdAlreadyExist",locale));
       }
       cart.setExternalId(externalId);
+      cart.setTransactionId(transactionId);
     }
  else {
       return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.externalIdNotAvailable",locale));
@@ -55,7 +57,7 @@
     List<Map<String,Object>> orderItemList=UtilGenerics.checkList(context.get("orderItemList"));
     Iterator<Map<String,Object>> orderItemIter=orderItemList.iterator();
     while (orderItemIter.hasNext()) {
-      Map<String,Object> orderItem=(Map<String,Object>)orderItemIter.next();
+      Map<String,Object> orderItem=orderItemIter.next();
       addItem(cart,orderItem,dispatcher,delegator,0);
     }
     if (UtilValidate.isNotEmpty(payToPartyId)) {
@@ -105,13 +107,13 @@
       Map<String,Object> shippingAddressCtx=UtilGenerics.checkMap(context.get("shippingAddressCtx"));
       if (UtilValidate.isNotEmpty(shippingAddressCtx)) {
         String buyerName=(String)shippingAddressCtx.get("buyerName");
-        String firstName=(String)buyerName.substring(0,buyerName.indexOf(" "));
-        String lastName=(String)buyerName.substring(buyerName.indexOf(" ") + 1);
+        String firstName=buyerName.substring(0,buyerName.indexOf(" "));
+        String lastName=buyerName.substring(buyerName.indexOf(" ") + 1);
         String country=(String)shippingAddressCtx.get("shippingAddressCountry");
         String state=(String)shippingAddressCtx.get("shippingAddressStateOrProvince");
         String city=(String)shippingAddressCtx.get("shippingAddressCityName");
         EbayHelper.correctCityStateCountry(dispatcher,shippingAddressCtx,city,state,country);
-        List<GenericValue> shipInfo=PartyWorker.findMatchingPartyAndPostalAddress(delegator,shippingAddressCtx.get("shippingAddressStreet1").toString(),(UtilValidate.isEmpty(shippingAddressCtx.get("shippingAddressStreet2")) ? null : shippingAddressCtx.get("shippingAddressStreet2").toString()),shippingAddressCtx.get("city").toString(),shippingAddressCtx.get("stateProvinceGeoId").toString(),shippingAddressCtx.get("shippingAddressPostalCode").toString(),null,shippingAddressCtx.get("countryGeoId").toString(),firstName,null,lastName);
+        List<GenericValue> shipInfo=PartyWorker.findMatchingPersonPostalAddresses(delegator,shippingAddressCtx.get("shippingAddressStreet1").toString(),(UtilValidate.isEmpty(shippingAddressCtx.get("shippingAddressStreet2")) ? null : shippingAddressCtx.get("shippingAddressStreet2").toString()),shippingAddressCtx.get("city").toString(),(UtilValidate.isEmpty(shippingAddressCtx.get("stateProvinceGeoId")) ? null : shippingAddressCtx.get("stateProvinceGeoId").toString()),shippingAddressCtx.get("shippingAddressPostalCode").toString(),null,shippingAddressCtx.get("countryGeoId").toString(),firstName,null,lastName);
         if (UtilValidate.isNotEmpty(shipInfo)) {
           GenericValue first=EntityUtil.getFirst(shipInfo);
           partyId=first.getString("partyId");
@@ -152,7 +154,7 @@
         Debug.logInfo("Creating new postal address for party: " + partyId,module);
         contactMechId=EbayHelper.createAddress(dispatcher,partyId,userLogin,"SHIPPING_LOCATION",shippingAddressCtx);
         if (UtilValidate.isEmpty(contactMechId)) {
-          return ServiceUtil.returnFailure("Unable to create postalAddress with input map: " + shippingAddressCtx);
+          return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"EbayStoreUnableToCreatePostalAddress",locale) + shippingAddressCtx);
         }
         Debug.logInfo("Created postal address: " + contactMechId,module);
         Debug.logInfo("Creating new phone number for party: " + partyId,module);
@@ -196,7 +198,7 @@
         Debug.logInfo("Order approved with result: " + approved,module);
         if (approved) {
           Debug.logInfo("Creating payment for approved order.",module);
-          EbayHelper.createPaymentFromPaymentPreferences(delegator,dispatcher,userLogin,orderId,externalId,cart.getOrderDate(),partyId);
+          EbayHelper.createPaymentFromPaymentPreferences(delegator,dispatcher,userLogin,orderId,externalId,cart.getOrderDate(),amountPaid,partyId);
           Debug.logInfo("Payment created.",module);
         }
       }

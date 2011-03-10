@@ -1,0 +1,50 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue paymentPref=(GenericValue)context.get("orderPaymentPreference");
+  String paymentConfig=(String)context.get("paymentConfig");
+  String currency=(String)context.get("currency");
+  BigDecimal amount=(BigDecimal)context.get("releaseAmount");
+  String orderId=paymentPref.getString("orderId");
+  GenericValue giftCard=null;
+  try {
+    giftCard=paymentPref.getRelatedOne("GiftCard");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError("Unable to get GiftCard from OrderPaymentPreference",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingGiftCerticateNumberCannotLocateItFromOrderPaymentPreference",locale));
+  }
+  if (giftCard == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkUnableToReleaseGiftCard",locale));
+  }
+  if (currency == null) {
+    currency=UtilProperties.getPropertyValue("general.properties","currency.uom.id.default","USD");
+  }
+  Map<String,Object> redeemCtx=FastMap.newInstance();
+  redeemCtx.put("userLogin",userLogin);
+  redeemCtx.put("paymentConfig",paymentConfig);
+  redeemCtx.put("cardNumber",giftCard.get("cardNumber"));
+  redeemCtx.put("pin",giftCard.get("pinNumber"));
+  redeemCtx.put("currency",currency);
+  redeemCtx.put("orderId",orderId);
+  redeemCtx.put("amount",amount);
+  Map<String,Object> redeemResult=null;
+  try {
+    redeemResult=dispatcher.runSync("voidRedeemGiftCard",redeemCtx);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Problem calling the redeem service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingValueLinkUnableToRedeemGiftCardFailure",locale));
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (redeemResult != null) {
+    Boolean processResult=(Boolean)redeemResult.get("processResult");
+    result.put("releaseAmount",redeemResult.get("amount"));
+    result.put("releaseFlag",redeemResult.get("responseCode"));
+    result.put("releaseResult",processResult);
+    result.put("releaseCode",redeemResult.get("authCode"));
+    result.put("releaseRefNum",redeemResult.get("referenceNum"));
+  }
+  return result;
+}

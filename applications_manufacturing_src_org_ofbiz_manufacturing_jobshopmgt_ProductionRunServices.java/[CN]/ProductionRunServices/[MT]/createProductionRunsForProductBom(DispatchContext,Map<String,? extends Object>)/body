@@ -1,0 +1,36 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String productId=(String)context.get("productId");
+  Timestamp startDate=(Timestamp)context.get("startDate");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  String facilityId=(String)context.get("facilityId");
+  String workEffortName=(String)context.get("workEffortName");
+  String description=(String)context.get("description");
+  String routingId=(String)context.get("routingId");
+  String workEffortId=null;
+  if (quantity == null) {
+    quantity=BigDecimal.ONE;
+  }
+  try {
+    List<BOMNode> components=FastList.newInstance();
+    BOMTree tree=new BOMTree(productId,"MANUF_COMPONENT",startDate,BOMTree.EXPLOSION_MANUFACTURING,delegator,dispatcher,userLogin);
+    tree.setRootQuantity(quantity);
+    tree.setRootAmount(BigDecimal.ZERO);
+    tree.print(components);
+    workEffortId=tree.createManufacturingOrders(facilityId,startDate,workEffortName,description,routingId,null,null,null,null,userLogin);
+  }
+ catch (  GenericEntityException gee) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingBomErrorCreatingBillOfMaterialsTree",UtilMisc.toMap("errorString",gee.getMessage()),locale));
+  }
+  if (workEffortId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunIsNotRequiredForProductId",UtilMisc.toMap("productId",productId,"startDate",startDate),locale));
+  }
+  List<String> productionRuns=FastList.newInstance();
+  result.put("productionRuns",productionRuns);
+  result.put("productionRunId",workEffortId);
+  return result;
+}

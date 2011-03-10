@@ -1,0 +1,71 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.path"),context);
+  String nameOfThumb=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.nameofthumbnail"),context);
+  Map<String,Object> contentThumb=FastMap.newInstance();
+  contentThumb.put("contentTypeId","DOCUMENT");
+  contentThumb.put("userLogin",userLogin);
+  Map<String,Object> contentThumbResult=FastMap.newInstance();
+  try {
+    contentThumbResult=dispatcher.runSync("createContent",contentThumb);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String contentIdThumb=(String)contentThumbResult.get("contentId");
+  result.put("contentIdThumb",contentIdThumb);
+  String filenameToUseThumb=imageName.substring(0,imageName.indexOf(".")) + nameOfThumb;
+  String fileContentType=(String)context.get("_uploadedFile_contentType");
+  if (fileContentType.equals("image/pjpeg")) {
+    fileContentType="image/jpeg";
+  }
+ else   if (fileContentType.equals("image/x-png")) {
+    fileContentType="image/png";
+  }
+  List<GenericValue> fileExtensionThumb=FastList.newInstance();
+  try {
+    fileExtensionThumb=delegator.findByAnd("FileExtension",UtilMisc.toMap("mimeTypeId",fileContentType));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  GenericValue extensionThumb=EntityUtil.getFirst(fileExtensionThumb);
+  if (extensionThumb != null) {
+    filenameToUseThumb+="." + extensionThumb.getString("fileExtensionId");
+  }
+  result.put("filenameToUseThumb",filenameToUseThumb);
+  File fileOriginalThumb=new File(imageServerPath + "/" + productId+ "/"+ filenameToUseThumb);
+  try {
+    RandomAccessFile outFileThumb=new RandomAccessFile(fileOriginalThumb,"rw");
+    outFileThumb.write(imageData.array());
+    outFileThumb.close();
+  }
+ catch (  FileNotFoundException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",fileOriginalThumb.getAbsolutePath()),locale));
+  }
+catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",fileOriginalThumb.getAbsolutePath()),locale));
+  }
+  Map<String,Object> resultResizeThumb=FastMap.newInstance();
+  try {
+    resultResizeThumb.putAll(ImageManagementServices.scaleImageMangementInAllSize(context,filenameToUseThumb,"thumbnail",productId));
+  }
+ catch (  IOException e) {
+    String errMsg="Scale additional image in all different sizes is impossible : " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+catch (  JDOMException e) {
+    String errMsg="Errors occur in parsing ImageProperties.xml : " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return result;
+}

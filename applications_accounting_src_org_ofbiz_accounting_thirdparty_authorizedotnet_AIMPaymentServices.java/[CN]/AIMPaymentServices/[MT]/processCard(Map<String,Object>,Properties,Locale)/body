@@ -1,0 +1,37 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  String url=props.getProperty("url");
+  if (UtilValidate.isEmpty(url)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingAuthorizeNetTransactionUrlNotFound",locale));
+  }
+  if (isTestMode()) {
+    Debug.logInfo("TEST Authorize.net using url [" + url + "]",module);
+    Debug.logInfo("TEST Authorize.net request string " + request.toString(),module);
+    Debug.logInfo("TEST Authorize.net properties string " + props.toString(),module);
+  }
+  int apiType=UtilValidate.isEmpty(props.get("cpMarketType")) ? AuthorizeResponse.AIM_RESPONSE : AuthorizeResponse.CP_RESPONSE;
+  try {
+    HttpClient httpClient=new HttpClient(url,request);
+    String certificateAlias=props.getProperty("certificateAlias");
+    httpClient.setClientCertificateAlias(certificateAlias);
+    String httpResponse=httpClient.post();
+    Debug.logInfo("transaction response: " + httpResponse,module);
+    AuthorizeResponse ar=new AuthorizeResponse(httpResponse,apiType);
+    if (ar.isApproved()) {
+      result.put("authResult",Boolean.TRUE);
+    }
+ else {
+      result.put("authResult",Boolean.FALSE);
+      Debug.logInfo("responseCode:   " + ar.getResponseCode(),module);
+      Debug.logInfo("responseReason: " + ar.getReasonCode(),module);
+      Debug.logInfo("reasonText:     " + ar.getReasonText(),module);
+    }
+    result.put("httpResponse",httpResponse);
+    result.put("authorizeResponse",ar);
+  }
+ catch (  HttpClientException e) {
+    Debug.logInfo(e,"Could not complete Authorize.Net transaction: " + e.toString(),module);
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

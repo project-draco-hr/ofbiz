@@ -1,0 +1,90 @@
+{
+  Locale locale=UtilHttp.getLocale(request);
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  String orderId=(String)request.getAttribute("orderId");
+  String issuerId=(String)request.getAttribute("issuerId");
+  GenericValue orderHeader=null;
+  List<GenericValue> orderItemList=null;
+  try {
+    orderHeader=delegator.findByPrimaryKey("OrderHeader",UtilMisc.toMap("orderId",orderId));
+    orderItemList=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsGettingOrderHeader",locale));
+    return "error";
+  }
+  BigDecimal orderTotal=orderHeader.getBigDecimal("grandTotal");
+  GenericValue productStore=ProductStoreWorker.getProductStore(request);
+  if (productStore == null) {
+    Debug.logError("ProductStore is null",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsGettingMerchantConfiguration",locale));
+    return "error";
+  }
+  GenericValue paymentConfig=ProductStoreWorker.getProductStorePaymentSetting(delegator,productStore.getString("productStoreId"),"EXT_IDEAL",null,true);
+  String configString=null;
+  String paymentGatewayConfigId=null;
+  if (paymentConfig != null) {
+    paymentGatewayConfigId=paymentConfig.getString("paymentGatewayConfigId");
+    configString=paymentConfig.getString("paymentPropertiesPath");
+  }
+  if (configString == null) {
+    configString="payment.properties";
+  }
+  String merchantId=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"merchantId",configString,"merchantId");
+  String merchantSubId=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"merchantSubId",configString,"merchantSubId");
+  String merchantReturnURL=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"merchantReturnURL",configString,"merchantReturnURL");
+  String acquirerURL=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"acquirerURL",configString,"acquirerURL");
+  String acquirerTimeout=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"acquirerTimeout",configString,"acquirerTimeout");
+  String privateCert=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"privateCert",configString,"privateCert");
+  String acquirerKeyStoreFilename=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"acquirerKeyStoreFilename",configString,"acquirerKeyStoreFilename");
+  String acquirerKeyStorePassword=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"acquirerKeyStorePassword",configString,"acquirerKeyStorePassword");
+  String merchantKeyStoreFilename=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"merchantKeyStoreFilename",configString,"merchantKeyStoreFilename");
+  String merchantKeyStorePassword=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"merchantKeyStorePassword",configString,"merchantKeyStorePassword");
+  String expirationPeriod=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"expirationPeriod",configString,"expirationPeriod");
+  if (UtilValidate.isEmpty(merchantId) || UtilValidate.isEmpty(merchantReturnURL) || UtilValidate.isEmpty(privateCert)|| UtilValidate.isEmpty(merchantKeyStoreFilename)|| UtilValidate.isEmpty(merchantKeyStoreFilename)) {
+    Debug.logError("Payment properties is not configured properly, some notify URL from iDEAL is not correctly defined!",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsGettingMerchantConfiguration",locale));
+    return "error";
+  }
+  List<String> descriptionList=FastList.newInstance();
+  for (  GenericValue orderItem : orderItemList) {
+    if (UtilValidate.isNotEmpty(orderItem.get("itemDescription"))) {
+      descriptionList.add((String)orderItem.get("itemDescription"));
+    }
+  }
+  String orderDescription=StringUtil.join(descriptionList,",");
+  String amount=orderTotal.setScale(decimals,rounding).movePointRight(2).toPlainString();
+  String redirectString=null;
+  try {
+    IdealConnector connector=new IdealConnector("payment");
+    Transaction transaction=new Transaction();
+    transaction.setIssuerID(issuerId);
+    transaction.setAmount(amount);
+    transaction.setPurchaseID(orderId);
+    transaction.setDescription(orderDescription);
+    String returnURL=merchantReturnURL + "?orderId=" + orderId;
+    Random random=new Random();
+    String EntranceCode=Long.toString(Math.abs(random.nextLong()),36);
+    transaction.setEntranceCode(EntranceCode);
+    transaction.setMerchantReturnURL(returnURL);
+    Transaction trx=connector.requestTransaction(transaction);
+    redirectString=trx.getIssuerAuthenticationURL();
+    request.getSession().setAttribute("purchaseID",orderId);
+    request.getSession().setAttribute("payAmount",orderTotal.toPlainString());
+  }
+ catch (  IdealException ex) {
+    Debug.logError(ex.getMessage(),module);
+    request.setAttribute("_ERROR_MESSAGE_",ex.getConsumerMessage());
+    return "error";
+  }
+  try {
+    response.sendRedirect(redirectString);
+  }
+ catch (  IOException e) {
+    Debug.logError(e,"Problems redirecting to iDEAL",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.problemsConnectingWithIdeal",locale));
+    return "error";
+  }
+  return "success";
+}

@@ -1,0 +1,111 @@
+{
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String productId=(String)context.get("productId");
+  if (UtilValidate.isNotEmpty(imageUrl) && imageUrl.length() > 0) {
+    String contentId=(String)context.get("contentId");
+    Map<String,Object> dataResourceCtx=FastMap.newInstance();
+    dataResourceCtx.put("objectInfo",imageUrl);
+    dataResourceCtx.put("dataResourceName",context.get("_uploadedFile_fileName"));
+    dataResourceCtx.put("userLogin",userLogin);
+    Map<String,Object> productContentCtx=FastMap.newInstance();
+    productContentCtx.put("productId",productId);
+    productContentCtx.put("productContentTypeId",productContentTypeId);
+    productContentCtx.put("fromDate",context.get("fromDate"));
+    productContentCtx.put("thruDate",context.get("thruDate"));
+    productContentCtx.put("userLogin",userLogin);
+    if (UtilValidate.isNotEmpty(contentId)) {
+      GenericValue content=null;
+      try {
+        content=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),false);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      if (content != null) {
+        GenericValue dataResource=null;
+        try {
+          dataResource=content.getRelatedOne("DataResource");
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+        if (dataResource != null) {
+          dataResourceCtx.put("dataResourceId",dataResource.getString("dataResourceId"));
+          try {
+            dispatcher.runSync("updateDataResource",dataResourceCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+        }
+ else {
+          dataResourceCtx.put("dataResourceTypeId","SHORT_TEXT");
+          dataResourceCtx.put("mimeTypeId","text/html");
+          Map<String,Object> dataResourceResult=FastMap.newInstance();
+          try {
+            dataResourceResult=dispatcher.runSync("createDataResource",dataResourceCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+          Map<String,Object> contentCtx=FastMap.newInstance();
+          contentCtx.put("contentId",contentId);
+          contentCtx.put("dataResourceId",dataResourceResult.get("dataResourceId"));
+          contentCtx.put("userLogin",userLogin);
+          try {
+            dispatcher.runSync("updateContent",contentCtx);
+          }
+ catch (          GenericServiceException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+        }
+        productContentCtx.put("contentId",contentId);
+        try {
+          dispatcher.runSync("updateProductContent",productContentCtx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          return ServiceUtil.returnError(e.getMessage());
+        }
+      }
+    }
+ else {
+      dataResourceCtx.put("dataResourceTypeId","SHORT_TEXT");
+      dataResourceCtx.put("mimeTypeId","text/html");
+      Map<String,Object> dataResourceResult=FastMap.newInstance();
+      try {
+        dataResourceResult=dispatcher.runSync("createDataResource",dataResourceCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      Map<String,Object> contentCtx=FastMap.newInstance();
+      contentCtx.put("contentTypeId","DOCUMENT");
+      contentCtx.put("dataResourceId",dataResourceResult.get("dataResourceId"));
+      contentCtx.put("userLogin",userLogin);
+      Map<String,Object> contentResult=FastMap.newInstance();
+      try {
+        contentResult=dispatcher.runSync("createContent",contentCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      productContentCtx.put("contentId",contentResult.get("contentId"));
+      try {
+        dispatcher.runSync("createProductContent",productContentCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,72 @@
+{
+  String itemGroupNumber=(String)context.get("itemGroupNumber");
+  String keyPrefix="quantity_";
+  String productQuantityKeyPrefix="product_";
+  String ignSeparator="_ign_";
+  for (  Map.Entry<String,? extends Object> entry : context.entrySet()) {
+    String productId=null;
+    String quantStr=null;
+    String itemGroupNumberToUse=itemGroupNumber;
+    String originalProductId=null;
+    if (entry.getKey() instanceof String) {
+      String key=(String)entry.getKey();
+      int ignIndex=key.indexOf(ignSeparator);
+      if (ignIndex > 0) {
+        itemGroupNumberToUse=key.substring(ignIndex + ignSeparator.length());
+        key=key.substring(0,ignIndex);
+      }
+      if (key.startsWith(keyPrefix)) {
+        productId=key.substring(keyPrefix.length());
+        quantStr=(String)entry.getValue();
+      }
+ else       if (key.startsWith(productQuantityKeyPrefix)) {
+        productId=(String)entry.getValue();
+        quantStr="1";
+      }
+ else {
+        continue;
+      }
+    }
+ else {
+      continue;
+    }
+    if (UtilValidate.isNotEmpty(quantStr)) {
+      BigDecimal quantity=BigDecimal.ZERO;
+      try {
+        quantity=new BigDecimal(quantStr);
+      }
+ catch (      NumberFormatException nfe) {
+        quantity=BigDecimal.ZERO;
+      }
+      if (quantity.compareTo(BigDecimal.ZERO) > 0) {
+        if (ProductWorker.isAlternativePacking(delegator,null,productId)) {
+          GenericValue originalProduct=null;
+          originalProductId=productId;
+          productId=ProductWorker.getOriginalProductId(delegator,productId);
+          try {
+            originalProduct=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",originalProductId));
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"Error getting parent product",module);
+          }
+          BigDecimal piecesIncluded=BigDecimal.ZERO;
+          if (originalProduct != null) {
+            piecesIncluded=new BigDecimal(originalProduct.getLong("piecesIncluded"));
+            quantity=quantity.multiply(piecesIncluded);
+          }
+        }
+        try {
+          if (Debug.verboseOn())           Debug.logVerbose("Bulk Adding to cart [" + quantity + "] of ["+ productId+ "] in Item Group ["+ itemGroupNumber+ "]",module);
+          this.cart.addOrIncreaseItem(productId,null,quantity,null,null,null,null,null,null,null,catalogId,null,null,itemGroupNumberToUse,originalProductId,dispatcher);
+        }
+ catch (        CartItemModifyException e) {
+          return ServiceUtil.returnError(e.getMessage());
+        }
+catch (        ItemNotFoundException e) {
+          return ServiceUtil.returnError(e.getMessage());
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -50,9 +50,9 @@
     if (!request.isSecure() && requestMap.securityCert) {
       throw new RequestHandlerException(requestMissingErrorMessage);
     }
-    String defaultRequest=controllerConfig.getDefaultRequest();
-    if (!requestMap.securityDirectRequest && defaultRequest != null) {
-      if (!requestMapMap.get(defaultRequest).securityDirectRequest) {
+    if (!requestMap.securityDirectRequest) {
+      String defaultRequest=controllerConfig.getDefaultRequest();
+      if (defaultRequest == null || !requestMapMap.get(defaultRequest).securityDirectRequest) {
         throw new RequestHandlerException(requestMissingErrorMessage);
       }
  else {
@@ -60,7 +60,9 @@
       }
     }
     boolean forceHttpSession="true".equals(context.getInitParameter("forceHttpSession"));
-    if (!request.isSecure() && requestMap.securityHttps) {
+    String forwardedProto=request.getHeader("X-Forwarded-Proto");
+    boolean isForwardedSecure=UtilValidate.isNotEmpty(forwardedProto) && "HTTPS".equals(forwardedProto.toUpperCase());
+    if ((!request.isSecure() && !isForwardedSecure) && requestMap.securityHttps) {
       if (request.getMethod().equalsIgnoreCase("POST")) {
         Locale locale=UtilHttp.getLocale(request);
         String errMsg=UtilProperties.getMessage("WebappUiLabels","requestHandler.InsecureFormPostToSecureRequest",locale);
@@ -95,6 +97,7 @@
         String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString());
         if (newUrl.toUpperCase().startsWith("HTTPS")) {
           callRedirect(newUrl,response,request);
+          return;
         }
       }
     }
@@ -107,6 +110,7 @@
       String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString(),true,false,false);
       if (newUrl.toUpperCase().startsWith("HTTP")) {
         callRedirect(newUrl,response,request);
+        return;
       }
     }
     if (request.isSecure() && requestMap.securityCert) {
@@ -136,23 +140,21 @@
         throw new RequestHandlerException(requestMissingErrorMessage);
       }
     }
-    if (this.trackVisit(request) && session.getAttribute("visit") == null) {
+    if (this.trackVisit(request) && session.getAttribute("_FIRST_VISIT_EVENTS_") == null) {
       if (Debug.infoOn())       Debug.logInfo("This is the first request in this visit." + " sessionId=" + UtilHttp.getSessionId(request),module);
-      GenericValue visit=VisitHandler.getVisit(session);
-      if (visit != null) {
-        for (        ConfigXMLReader.Event event : controllerConfig.getFirstVisitEventList().values()) {
-          try {
-            String returnString=this.runEvent(request,response,event,null,"firstvisit");
-            if (returnString != null && !returnString.equalsIgnoreCase("success")) {
-              throw new EventHandlerException("First-Visit event did not return 'success'.");
-            }
- else             if (returnString == null) {
-              interruptRequest=true;
-            }
+      session.setAttribute("_FIRST_VISIT_EVENTS_","complete");
+      for (      ConfigXMLReader.Event event : controllerConfig.getFirstVisitEventList().values()) {
+        try {
+          String returnString=this.runEvent(request,response,event,null,"firstvisit");
+          if (returnString != null && !returnString.equalsIgnoreCase("success")) {
+            throw new EventHandlerException("First-Visit event did not return 'success'.");
           }
- catch (          EventHandlerException e) {
-            Debug.logError(e,module);
+ else           if (returnString == null) {
+            interruptRequest=true;
           }
+        }
+ catch (        EventHandlerException e) {
+          Debug.logError(e,module);
         }
       }
     }

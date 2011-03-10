@@ -1,0 +1,34 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  BigDecimal totalWeight=BigDecimal.ZERO;
+  String defaultWeightUomId=UtilProperties.getPropertyValue("shipment.properties","shipment.default.weight.uom");
+  for (  Map.Entry<String,BigDecimal> entry : packageMap.entrySet()) {
+    String productId=entry.getKey();
+    Map<String,Object> productInfo=getProductItemInfo(shippableItemInfo,productId);
+    BigDecimal productWeight=(BigDecimal)productInfo.get("weight");
+    BigDecimal quantity=packageMap.get(productId);
+    String weightUomId=(String)productInfo.get("weightUomId");
+    Debug.logInfo("Product Id : " + productId.toString() + " Product Weight : "+ String.valueOf(productWeight)+ " Product UomId : "+ weightUomId+ " assuming "+ defaultWeightUomId+ " if null. Quantity : "+ String.valueOf(quantity),module);
+    if (UtilValidate.isEmpty(weightUomId)) {
+      weightUomId=defaultWeightUomId;
+    }
+    if (!"WT_lb".equals(weightUomId)) {
+      Map<String,Object> result=FastMap.newInstance();
+      try {
+        result=dispatcher.runSync("convertUom",UtilMisc.<String,Object>toMap("uomId",weightUomId,"uomIdTo","WT_lb","originalValue",productWeight));
+      }
+ catch (      GenericServiceException ex) {
+        Debug.logError(ex,module);
+      }
+      if (result.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_SUCCESS) && UtilValidate.isNotEmpty(result.get("convertedValue"))) {
+        productWeight=(BigDecimal)result.get("convertedValue");
+      }
+ else {
+        Debug.logError("Unsupported weightUom [" + weightUomId + "] for calcPackageWeight running productId "+ productId+ ", could not find a conversion factor to WT_lb",module);
+      }
+    }
+    totalWeight=totalWeight.add(productWeight.multiply(quantity));
+  }
+  Debug.logInfo("Package Weight : " + String.valueOf(totalWeight) + " lbs.",module);
+  return totalWeight.add(additionalWeight);
+}

@@ -1,0 +1,236 @@
+{
+  Map<String,Object> result=null;
+  if (locale == null) {
+    locale=this.cart.getLocale();
+  }
+  ArrayList<ShoppingCartItem> deleteList=new ArrayList<ShoppingCartItem>();
+  ArrayList<String> errorMsgs=new ArrayList<String>();
+  Set<String> parameterNames=context.keySet();
+  Iterator<String> parameterNameIter=parameterNames.iterator();
+  BigDecimal oldQuantity=BigDecimal.ONE.negate();
+  String oldDescription="";
+  BigDecimal oldPrice=BigDecimal.ONE.negate();
+  if (this.cart.isReadOnlyCart()) {
+    String errMsg=UtilProperties.getMessage(resource_error,"cart.cart_is_in_read_only_mode",this.cart.getLocale());
+    errorMsgs.add(errMsg);
+    result=ServiceUtil.returnError(errorMsgs);
+    return result;
+  }
+  while (parameterNameIter.hasNext()) {
+    String parameterName=parameterNameIter.next();
+    int underscorePos=parameterName.lastIndexOf('_');
+    if (underscorePos >= 0) {
+      try {
+        String indexStr=parameterName.substring(underscorePos + 1);
+        int index=Integer.parseInt(indexStr);
+        String quantString=(String)context.get(parameterName);
+        BigDecimal quantity=BigDecimal.ONE.negate();
+        String itemDescription="";
+        if (quantString != null)         quantString=quantString.trim();
+        ShoppingCartItem item=this.cart.findCartItem(index);
+        if (parameterName.toUpperCase().startsWith("OPTION")) {
+          if (quantString.toUpperCase().startsWith("NO^")) {
+            if (quantString.length() > 2) {
+              String featureTypeId=this.getRemoveFeatureTypeId(parameterName);
+              if (featureTypeId != null) {
+                item.removeAdditionalProductFeatureAndAppl(featureTypeId);
+              }
+            }
+          }
+ else {
+            GenericValue featureAppl=this.getFeatureAppl(item.getProductId(),parameterName,quantString);
+            if (featureAppl != null) {
+              item.putAdditionalProductFeatureAndAppl(featureAppl);
+            }
+          }
+        }
+ else         if (parameterName.toUpperCase().startsWith("DESCRIPTION")) {
+          itemDescription=quantString;
+        }
+ else         if (parameterName.startsWith("reservStart")) {
+          if (quantString.length() == 0) {
+            quantString+=" 00:00:00.000000000";
+          }
+          if (item != null) {
+            Timestamp reservStart=Timestamp.valueOf(quantString);
+            item.setReservStart(reservStart);
+          }
+        }
+ else         if (parameterName.startsWith("reservLength")) {
+          if (item != null) {
+            BigDecimal reservLength=(BigDecimal)ObjectType.simpleTypeConvert(quantString,"BigDecimal",null,locale);
+            item.setReservLength(reservLength);
+          }
+        }
+ else         if (parameterName.startsWith("reservPersons")) {
+          if (item != null) {
+            BigDecimal reservPersons=(BigDecimal)ObjectType.simpleTypeConvert(quantString,"BigDecimal",null,locale);
+            item.setReservPersons(reservPersons);
+          }
+        }
+ else         if (parameterName.startsWith("shipBeforeDate")) {
+          if (UtilValidate.isNotEmpty(quantString)) {
+            if (quantString.length() == 10)             quantString+=" 00:00:00.000";
+            item.setShipBeforeDate(Timestamp.valueOf(quantString));
+          }
+        }
+ else         if (parameterName.startsWith("shipAfterDate")) {
+          if (UtilValidate.isNotEmpty(quantString)) {
+            if (quantString.length() == 10)             quantString+=" 00:00:00.000";
+            item.setShipAfterDate(Timestamp.valueOf(quantString));
+          }
+        }
+ else         if (parameterName.startsWith("amount")) {
+          if (UtilValidate.isNotEmpty(quantString)) {
+            BigDecimal amount=new BigDecimal(quantString);
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+              String errMsg=UtilProperties.getMessage(resource_error,"cart.amount_not_positive_number",this.cart.getLocale());
+              errorMsgs.add(errMsg);
+              result=ServiceUtil.returnError(errorMsgs);
+              return result;
+            }
+            item.setSelectedAmount(amount);
+          }
+        }
+ else         if (parameterName.startsWith("itemType")) {
+          if (UtilValidate.isNotEmpty(quantString)) {
+            item.setItemType(quantString);
+          }
+        }
+ else {
+          quantity=(BigDecimal)ObjectType.simpleTypeConvert(quantString,"BigDecimal",null,locale);
+          if (quantity.compareTo(BigDecimal.ZERO) < 0) {
+            String errMsg=UtilProperties.getMessage(resource_error,"cart.quantity_not_positive_number",this.cart.getLocale());
+            errorMsgs.add(errMsg);
+            result=ServiceUtil.returnError(errorMsgs);
+            return result;
+          }
+        }
+        if (parameterName.startsWith("shipAfterDate") || parameterName.startsWith("shipBeforeDate")) {
+          this.cart.setShipGroupShipDatesFromItem(item);
+        }
+        if (parameterName.toUpperCase().startsWith("UPDATE")) {
+          if (quantity.compareTo(BigDecimal.ZERO) == 0) {
+            deleteList.add(item);
+          }
+ else {
+            if (item != null) {
+              try {
+                if (cart.getOrderType().equals("PURCHASE_ORDER")) {
+                  oldQuantity=item.getQuantity();
+                  if (oldQuantity.compareTo(quantity) != 0) {
+                    oldDescription=item.getName();
+                    oldPrice=item.getBasePrice();
+                    GenericValue supplierProduct=this.cart.getSupplierProduct(item.getProductId(),quantity,this.dispatcher);
+                    if (supplierProduct == null) {
+                      if ("_NA_".equals(cart.getPartyId())) {
+                        item.setQuantity(quantity,dispatcher,this.cart);
+                        item.setName(item.getProduct().getString("internalName"));
+                      }
+ else {
+                        String errMsg=UtilProperties.getMessage(resource_error,"cart.product_not_valid_for_supplier",this.cart.getLocale());
+                        errMsg=errMsg + " (" + item.getProductId()+ ", "+ quantity+ ", "+ cart.getCurrency()+ ")";
+                        errorMsgs.add(errMsg);
+                      }
+                    }
+ else {
+                      item.setSupplierProductId(supplierProduct.getString("supplierProductId"));
+                      item.setQuantity(quantity,dispatcher,this.cart);
+                      item.setBasePrice(supplierProduct.getBigDecimal("lastPrice"));
+                      item.setName(ShoppingCartItem.getPurchaseOrderItemDescription(item.getProduct(),supplierProduct,cart.getLocale()));
+                    }
+                  }
+                }
+ else {
+                  BigDecimal minQuantity=ShoppingCart.getMinimumOrderQuantity(delegator,item.getBasePrice(),item.getProductId());
+                  if (quantity.compareTo(minQuantity) < 0) {
+                    quantity=minQuantity;
+                  }
+                  item.setQuantity(quantity,dispatcher,this.cart,true,false);
+                  cart.setItemShipGroupQty(item,quantity,0);
+                }
+              }
+ catch (              CartItemModifyException e) {
+                errorMsgs.add(e.getMessage());
+              }
+            }
+          }
+        }
+        if (parameterName.toUpperCase().startsWith("DESCRIPTION")) {
+          if (!oldDescription.equals(itemDescription)) {
+            if (security.hasEntityPermission("ORDERMGR","_CREATE",userLogin)) {
+              if (item != null) {
+                item.setName(itemDescription);
+              }
+            }
+          }
+        }
+        if (parameterName.toUpperCase().startsWith("PRICE")) {
+          NumberFormat pf=NumberFormat.getCurrencyInstance(locale);
+          String tmpQuantity=pf.format(quantity);
+          String tmpOldPrice=pf.format(oldPrice);
+          if (!tmpOldPrice.equals(tmpQuantity)) {
+            if (security.hasEntityPermission("ORDERMGR","_CREATE",userLogin)) {
+              if (item != null) {
+                item.setBasePrice(quantity);
+                item.setDisplayPrice(quantity);
+                item.setIsModifiedPrice(true);
+              }
+            }
+          }
+        }
+        if (parameterName.toUpperCase().startsWith("DELETE")) {
+          deleteList.add(this.cart.findCartItem(index));
+        }
+      }
+ catch (      NumberFormatException nfe) {
+        Debug.logWarning(nfe,UtilProperties.getMessage(resource_error,"OrderCaughtNumberFormatExceptionOnCartUpdate",cart.getLocale()));
+      }
+catch (      Exception e) {
+        Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderCaughtExceptionOnCartUpdate",cart.getLocale()));
+      }
+    }
+  }
+  if (removeSelected) {
+    for (int si=0; si < selectedItems.length; si++) {
+      String indexStr=selectedItems[si];
+      ShoppingCartItem item=null;
+      try {
+        int index=Integer.parseInt(indexStr);
+        item=this.cart.findCartItem(index);
+      }
+ catch (      Exception e) {
+        Debug.logWarning(e,UtilProperties.getMessage(resource_error,"OrderProblemsGettingTheCartItemByIndex",cart.getLocale()));
+      }
+      if (item != null) {
+        deleteList.add(item);
+      }
+    }
+  }
+  Iterator<ShoppingCartItem> di=deleteList.iterator();
+  while (di.hasNext()) {
+    ShoppingCartItem item=di.next();
+    int itemIndex=this.cart.getItemIndex(item);
+    if (Debug.infoOn())     Debug.logInfo("Removing item index: " + itemIndex,module);
+    try {
+      this.cart.removeCartItem(itemIndex,dispatcher);
+    }
+ catch (    CartItemModifyException e) {
+      result=ServiceUtil.returnError(new ArrayList<String>());
+      errorMsgs.add(e.getMessage());
+    }
+  }
+  if (context.containsKey("alwaysShowcart")) {
+    this.cart.setViewCartOnAdd(true);
+  }
+ else {
+    this.cart.setViewCartOnAdd(false);
+  }
+  ProductPromoWorker.doPromotions(this.cart,dispatcher);
+  if (errorMsgs.size() > 0) {
+    result=ServiceUtil.returnError(errorMsgs);
+    return result;
+  }
+  result=ServiceUtil.returnSuccess();
+  return result;
+}

@@ -1,0 +1,64 @@
+{
+  Locale locale=UtilHttp.getLocale(request);
+  String paymentAmount=(String)request.getAttribute("paymentAmount");
+  String paymentStatus=(String)request.getAttribute("paymentStatus");
+  String transactionId=(String)request.getAttribute("transactionId");
+  List<GenericValue> toStore=new LinkedList<GenericValue>();
+  java.sql.Timestamp authDate=UtilDateTime.nowTimestamp();
+  paymentPreference.set("maxAmount",new BigDecimal(paymentAmount));
+  if ("Success".equals(paymentStatus)) {
+    paymentPreference.set("statusId","PAYMENT_RECEIVED");
+  }
+ else   if ("Cancelled".equals(paymentStatus)) {
+    paymentPreference.set("statusId","PAYMENT_CANCELLED");
+  }
+ else {
+    paymentPreference.set("statusId","PAYMENT_NOT_RECEIVED");
+  }
+  toStore.add(paymentPreference);
+  Delegator delegator=paymentPreference.getDelegator();
+  String responseId=delegator.getNextSeqId("PaymentGatewayResponse");
+  GenericValue response=delegator.makeValue("PaymentGatewayResponse");
+  response.set("paymentGatewayResponseId",responseId);
+  response.set("paymentServiceTypeEnumId","PRDS_PAY_EXTERNAL");
+  response.set("orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"));
+  response.set("paymentMethodTypeId",paymentPreference.get("paymentMethodTypeId"));
+  response.set("paymentMethodId",paymentPreference.get("paymentMethodId"));
+  response.set("amount",new BigDecimal(paymentAmount));
+  response.set("currencyUomId","EUR");
+  response.set("referenceNum",transactionId);
+  response.set("gatewayCode",paymentStatus);
+  response.set("gatewayFlag",paymentStatus.substring(0,1));
+  response.set("transactionDate",authDate);
+  toStore.add(response);
+  try {
+    delegator.storeAll(toStore);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot set payment preference/payment info",module);
+    return false;
+  }
+  GenericValue userLoginId=null;
+  try {
+    userLoginId=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId","system"),false);
+  }
+ catch (  GenericEntityException e) {
+    return false;
+  }
+  Map<String,Object> results=null;
+  try {
+    String comment=UtilProperties.getMessage(resource,"AccountingPaymentReceiveViaiDEAL",locale);
+    results=dispatcher.runSync("createPaymentFromPreference",UtilMisc.toMap("userLogin",userLoginId,"orderPaymentPreferenceId",paymentPreference.get("orderPaymentPreferenceId"),"comments",comment));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Failed to execute service createPaymentFromPreference",module);
+    request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resourceErr,"idealEvents.failedToExecuteServiceCreatePaymentFromPreference",locale));
+    return false;
+  }
+  if ((results == null) || (results.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR))) {
+    Debug.logError((String)results.get(ModelService.ERROR_MESSAGE),module);
+    request.setAttribute("_ERROR_MESSAGE_",results.get(ModelService.ERROR_MESSAGE));
+    return false;
+  }
+  return true;
+}

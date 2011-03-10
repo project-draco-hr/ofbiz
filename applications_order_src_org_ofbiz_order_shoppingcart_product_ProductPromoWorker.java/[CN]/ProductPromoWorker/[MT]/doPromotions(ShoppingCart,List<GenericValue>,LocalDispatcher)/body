@@ -1,0 +1,54 @@
+{
+  if (!cart.getDoPromotions()) {
+    return;
+  }
+  Delegator delegator=cart.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  cart.clearAllPromotionInformation();
+  try {
+    if (productPromoList == null) {
+      if (cart.getOrderType().equals("SALES_ORDER")) {
+        productPromoList=ProductPromoWorker.getProductStorePromotions(cart,nowTimestamp,dispatcher);
+      }
+ else {
+        productPromoList=ProductPromoWorker.getAgreementPromotions(cart,nowTimestamp,dispatcher);
+      }
+    }
+    runProductPromos(productPromoList,cart,delegator,dispatcher,nowTimestamp,true);
+    List<Map<Object,Object>> productPromoDiscountMapList=FastList.newInstance();
+    List<Map<Object,Object>> productPromoDiscountMapListOrderTotal=FastList.newInstance();
+    Iterator<GenericValue> productPromoIter=productPromoList.iterator();
+    while (productPromoIter.hasNext()) {
+      GenericValue productPromo=(GenericValue)productPromoIter.next();
+      Map<Object,Object> productPromoDiscountMap=UtilGenerics.checkMap(UtilMisc.toMap("productPromo",productPromo,"totalDiscountAmount",cart.getProductPromoUseTotalDiscount(productPromo.getString("productPromoId"))));
+      if (hasOrderTotalCondition(productPromo,delegator)) {
+        productPromoDiscountMapListOrderTotal.add(productPromoDiscountMap);
+      }
+ else {
+        productPromoDiscountMapList.add(productPromoDiscountMap);
+      }
+    }
+    productPromoDiscountMapList=UtilMisc.sortMaps(productPromoDiscountMapList,UtilMisc.toList("+totalDiscountAmount"));
+    productPromoDiscountMapListOrderTotal=UtilMisc.sortMaps(productPromoDiscountMapListOrderTotal,UtilMisc.toList("+totalDiscountAmount"));
+    productPromoDiscountMapList.addAll(productPromoDiscountMapListOrderTotal);
+    List<GenericValue> sortedProductPromoList=new ArrayList<GenericValue>(productPromoDiscountMapList.size());
+    Iterator<Map<Object,Object>> productPromoDiscountMapIter=productPromoDiscountMapList.iterator();
+    while (productPromoDiscountMapIter.hasNext()) {
+      Map<Object,Object> productPromoDiscountMap=UtilGenerics.checkMap(productPromoDiscountMapIter.next());
+      GenericValue productPromo=(GenericValue)productPromoDiscountMap.get("productPromo");
+      sortedProductPromoList.add(productPromo);
+      if (Debug.verboseOn())       Debug.logVerbose("Sorted Promo [" + productPromo.getString("productPromoId") + "] with total discount: "+ productPromoDiscountMap.get("totalDiscountAmount"),module);
+    }
+    cart.clearAllPromotionInformation();
+    runProductPromos(sortedProductPromoList,cart,delegator,dispatcher,nowTimestamp,false);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logError(e,"Number not formatted correctly in promotion rules, not completed...",module);
+  }
+catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up promotion data while doing promotions",module);
+  }
+catch (  Exception e) {
+    Debug.logError(e,"Error running promotions, will ignore: " + e.toString(),module);
+  }
+}

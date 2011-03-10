@@ -45,6 +45,8 @@
       return;
     }
   }
+  String requestPath=null;
+  String contextUri=null;
   if (request.getAttribute(ContextFilter.FORWARDED_FROM_SERVLET) == null) {
     String allowedPath=config.getInitParameter("allowedPaths");
     String redirectPath=config.getInitParameter("redirectPath");
@@ -53,7 +55,7 @@
     allowList.add("/");
     allowList.add("");
     if (debug)     Debug.log("[Request]: " + httpRequest.getRequestURI(),module);
-    String requestPath=httpRequest.getServletPath();
+    requestPath=httpRequest.getServletPath();
     if (requestPath == null)     requestPath="";
     if (requestPath.lastIndexOf("/") > 0) {
       if (requestPath.indexOf("/") == 0) {
@@ -78,7 +80,7 @@
     if (httpRequest.getPathInfo() != null) {
       contextUriBuffer.append(httpRequest.getPathInfo());
     }
-    String contextUri=contextUriBuffer.toString();
+    contextUri=contextUriBuffer.toString();
     if (Debug.verboseOn()) {
       for (      String allow : allowList) {
         Debug.logVerbose("[Allow]: " + allow,module);
@@ -111,6 +113,41 @@
       }
       Debug.logWarning(filterMessage,module);
       return;
+    }
+  }
+  String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
+  if ("Y".equals(useMultitenant)) {
+    String serverName=request.getServerName();
+    try {
+      Delegator delegator=getDelegator(config.getServletContext());
+      List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
+      if (UtilValidate.isNotEmpty(tenants)) {
+        GenericValue tenant=EntityUtil.getFirst(tenants);
+        String tenantId=tenant.getString("tenantId");
+        if (UtilValidate.isNotEmpty(requestPath) && requestPath.equals(contextUri)) {
+          String initialPath=tenant.getString("initialPath");
+          if (UtilValidate.isNotEmpty(initialPath) && !"/".equals(initialPath)) {
+            ((HttpServletResponse)response).sendRedirect(initialPath);
+            return;
+          }
+        }
+        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
+        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
+        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
+        config.getServletContext().setAttribute("delegator",delegator);
+        config.getServletContext().setAttribute("authorization",null);
+        config.getServletContext().setAttribute("security",null);
+        config.getServletContext().setAttribute("dispatcher",null);
+        getAuthz();
+        Security security=getSecurity();
+        LocalDispatcher dispatcher=getDispatcher(config.getServletContext());
+        httpRequest.getSession().setAttribute("dispatcher",dispatcher);
+        httpRequest.getSession().setAttribute("security",security);
+        request.setAttribute("tenantId",tenantId);
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Unable to get Tenant",module);
     }
   }
   chain.doFilter(request,response);

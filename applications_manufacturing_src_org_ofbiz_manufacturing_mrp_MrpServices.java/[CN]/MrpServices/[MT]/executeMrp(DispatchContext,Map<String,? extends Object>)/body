@@ -1,0 +1,219 @@
+{
+  Debug.logInfo("executeMrp called",module);
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
+  String mrpName=(String)context.get("mrpName");
+  Integer defaultYearsOffset=(Integer)context.get("defaultYearsOffset");
+  String facilityGroupId=(String)context.get("facilityGroupId");
+  String facilityId=(String)context.get("facilityId");
+  String manufacturingFacilityId=null;
+  if (UtilValidate.isEmpty(facilityId) && UtilValidate.isEmpty(facilityGroupId)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityNotAvailable",locale));
+  }
+  if (UtilValidate.isEmpty(facilityId)) {
+    try {
+      GenericValue facilityGroup=delegator.findByPrimaryKey("FacilityGroup",UtilMisc.toMap("facilityGroupId",facilityGroupId));
+      if (UtilValidate.isEmpty(facilityGroup)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityGroupIsNotValid",UtilMisc.toMap("facilityGroupId",facilityGroupId),locale));
+      }
+      List<GenericValue> facilities=facilityGroup.getRelated("FacilityGroupMember",UtilMisc.toList("sequenceNum"));
+      if (UtilValidate.isEmpty(facilities)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityGroupIsNotAssociatedToFacility",UtilMisc.toMap("facilityGroupId",facilityGroupId),locale));
+      }
+      Iterator<GenericValue> facilitiesIt=facilities.iterator();
+      while (facilitiesIt.hasNext()) {
+        GenericValue facilityMember=(GenericValue)facilitiesIt.next();
+        GenericValue facility=facilityMember.getRelatedOne("Facility");
+        if ("WAREHOUSE".equals(facility.getString("facilityTypeId")) && UtilValidate.isEmpty(facilityId)) {
+          facilityId=facility.getString("facilityId");
+        }
+        if ("PLANT".equals(facility.getString("facilityTypeId")) && UtilValidate.isEmpty(manufacturingFacilityId)) {
+          manufacturingFacilityId=facility.getString("facilityId");
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityGroupCannotBeLoad",UtilMisc.toMap("errorString",e.getMessage()),locale));
+    }
+  }
+ else {
+    manufacturingFacilityId=facilityId;
+  }
+  if (UtilValidate.isEmpty(facilityId) || UtilValidate.isEmpty(manufacturingFacilityId)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpFacilityOrManufacturingFacilityNotAvailable",locale));
+  }
+  int bomLevelWithNoEvent=0;
+  BigDecimal stockTmp=BigDecimal.ZERO;
+  String oldProductId=null;
+  String productId=null;
+  GenericValue product=null;
+  GenericValue productFacility=null;
+  BigDecimal eventQuantity=BigDecimal.ZERO;
+  Timestamp eventDate=null;
+  BigDecimal reorderQuantity=BigDecimal.ZERO;
+  BigDecimal minimumStock=BigDecimal.ZERO;
+  int daysToShip=0;
+  List<BOMNode> components=null;
+  boolean isBuilt=false;
+  GenericValue routing=null;
+  String mrpId=delegator.getNextSeqId("MrpEvent");
+  Map<String,Object> result=null;
+  Map<String,Object> parameters=null;
+  List<GenericValue> listInventoryEventForMRP=null;
+  ListIterator<GenericValue> iteratorListInventoryEventForMRP=null;
+  GenericValue inventoryEventForMRP=null;
+  parameters=UtilMisc.<String,Object>toMap("mrpId",mrpId,"reInitialize",Boolean.TRUE,"defaultYearsOffset",defaultYearsOffset,"userLogin",userLogin);
+  parameters.put("facilityId",facilityId);
+  parameters.put("manufacturingFacilityId",manufacturingFacilityId);
+  try {
+    result=dispatcher.runSync("initMrpEvents",parameters);
+  }
+ catch (  GenericServiceException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorRunningInitMrpEvents",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+  long bomLevel=0;
+  do {
+    EntityCondition filterByConditions=null;
+    if (bomLevel == 0) {
+      filterByConditions=EntityCondition.makeCondition(EntityCondition.makeCondition("billOfMaterialLevel",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("billOfMaterialLevel",EntityOperator.EQUALS,Long.valueOf(bomLevel)));
+    }
+ else {
+      filterByConditions=EntityCondition.makeCondition("billOfMaterialLevel",EntityOperator.EQUALS,Long.valueOf(bomLevel));
+    }
+    try {
+      listInventoryEventForMRP=delegator.findList("MrpEventView",filterByConditions,null,UtilMisc.toList("productId","eventDate"),null,false);
+    }
+ catch (    GenericEntityException e) {
+      Long bomLevelToString=new Long(bomLevel);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorForBomLevel",UtilMisc.toMap("bomLevel",bomLevelToString.toString(),"errorString",e.getMessage()),locale));
+    }
+    if (UtilValidate.isNotEmpty(listInventoryEventForMRP)) {
+      bomLevelWithNoEvent=0;
+      iteratorListInventoryEventForMRP=listInventoryEventForMRP.listIterator();
+      oldProductId="";
+      while (iteratorListInventoryEventForMRP.hasNext()) {
+        inventoryEventForMRP=(GenericValue)iteratorListInventoryEventForMRP.next();
+        productId=inventoryEventForMRP.getString("productId");
+        eventQuantity=inventoryEventForMRP.getBigDecimal("quantity");
+        if (!productId.equals(oldProductId)) {
+          BigDecimal positiveEventQuantity=eventQuantity.compareTo(BigDecimal.ZERO) > 0 ? eventQuantity : eventQuantity.negate();
+          try {
+            product=inventoryEventForMRP.getRelatedOneCache("Product");
+            productFacility=EntityUtil.getFirst(product.getRelatedByAndCache("ProductFacility",UtilMisc.toMap("facilityId",facilityId)));
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindProductForEvent",locale));
+          }
+          stockTmp=findProductMrpQoh(mrpId,product,facilityId,dispatcher,delegator);
+          try {
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(UtilMisc.<String,Object>toMap("mrpId",mrpId,"productId",product.getString("productId"),"mrpEventTypeId","INITIAL_QOH","eventDate",now),stockTmp,facilityId,null,false,delegator);
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCreateOrUpdateEvent",UtilMisc.toMap("parameters",parameters),locale));
+          }
+          daysToShip=0;
+          if (productFacility != null) {
+            reorderQuantity=(productFacility.getBigDecimal("reorderQuantity") != null ? productFacility.getBigDecimal("reorderQuantity") : BigDecimal.ONE.negate());
+            minimumStock=(productFacility.getBigDecimal("minimumStock") != null ? productFacility.getBigDecimal("minimumStock") : BigDecimal.ZERO);
+            if ("SALES_ORDER_SHIP".equals(inventoryEventForMRP.getString("mrpEventTypeId"))) {
+              daysToShip=(productFacility.getLong("daysToShip") != null ? productFacility.getLong("daysToShip").intValue() : 0);
+            }
+          }
+ else {
+            minimumStock=BigDecimal.ZERO;
+            reorderQuantity=BigDecimal.ONE.negate();
+          }
+          Map<String,Object> serviceResponse=null;
+          try {
+            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",positiveEventQuantity,"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
+          }
+ catch (          Exception e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorExplodingProduct",UtilMisc.toMap("productId",product.getString("productId")),locale));
+          }
+          components=UtilGenerics.checkList(serviceResponse.get("components"));
+          if (UtilValidate.isNotEmpty(components)) {
+            BOMNode node=((BOMNode)components.get(0)).getParentNode();
+            isBuilt=node.isManufactured();
+          }
+ else {
+            isBuilt=false;
+          }
+          oldProductId=productId;
+        }
+        stockTmp=stockTmp.add(eventQuantity);
+        if (stockTmp.compareTo(minimumStock) < 0) {
+          BigDecimal qtyToStock=minimumStock.subtract(stockTmp);
+          eventDate=inventoryEventForMRP.getTimestamp("eventDate");
+          eventDate.setTime(eventDate.getTime() - 1);
+          ProposedOrder proposedOrder=new ProposedOrder(product,facilityId,manufacturingFacilityId,isBuilt,eventDate,qtyToStock);
+          proposedOrder.setMrpName(mrpName);
+          proposedOrder.calculateQuantityToSupply(reorderQuantity,minimumStock,iteratorListInventoryEventForMRP);
+          Map<String,Object> serviceResponse=null;
+          try {
+            serviceResponse=dispatcher.runSync("getManufacturingComponents",UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"quantity",proposedOrder.getQuantity(),"excludeWIPs",Boolean.FALSE,"userLogin",userLogin));
+          }
+ catch (          Exception e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpErrorExplodingProduct",UtilMisc.toMap("productId",product.getString("productId")),locale));
+          }
+          components=UtilGenerics.checkList(serviceResponse.get("components"));
+          String routingId=(String)serviceResponse.get("workEffortId");
+          if (routingId != null) {
+            try {
+              routing=delegator.findByPrimaryKey("WorkEffort",UtilMisc.toMap("workEffortId",routingId));
+            }
+ catch (            GenericEntityException e) {
+              return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCannotFindProductForEvent",locale));
+            }
+          }
+ else {
+            routing=null;
+          }
+          if (UtilValidate.isNotEmpty(components)) {
+            BOMNode node=((BOMNode)components.get(0)).getParentNode();
+            isBuilt=node.isManufactured();
+          }
+ else {
+            isBuilt=false;
+          }
+          Map<String,Object> routingTaskStartDate=proposedOrder.calculateStartDate(daysToShip,routing,delegator,dispatcher,userLogin);
+          if (isBuilt) {
+            processBomComponent(mrpId,product,proposedOrder.getQuantity(),proposedOrder.getRequirementStartDate(),routingTaskStartDate,components);
+          }
+          String requirementId=null;
+          if (productFacility != null) {
+            requirementId=proposedOrder.create(ctx,userLogin);
+          }
+          if (UtilValidate.isEmpty(productFacility) && !isBuilt) {
+            logMrpError(mrpId,productId,now,"No ProductFacility record for [" + facilityId + "]; no requirement created.",delegator);
+          }
+          String eventName=null;
+          if (UtilValidate.isNotEmpty(requirementId)) {
+            eventName="*" + requirementId + " ("+ proposedOrder.getRequirementStartDate()+ ")*";
+          }
+          Map<String,Object> eventMap=UtilMisc.<String,Object>toMap("productId",product.getString("productId"),"mrpId",mrpId,"eventDate",eventDate,"mrpEventTypeId",(isBuilt ? "PROP_MANUF_O_RECP" : "PROP_PUR_O_RECP"));
+          try {
+            InventoryEventPlannedServices.createOrUpdateMrpEvent(eventMap,proposedOrder.getQuantity(),null,eventName,(proposedOrder.getRequirementStartDate().compareTo(now) < 0),delegator);
+          }
+ catch (          GenericEntityException e) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingMrpCreateOrUpdateEvent",UtilMisc.toMap("parameters",parameters),locale));
+          }
+          stockTmp=stockTmp.add(proposedOrder.getQuantity());
+        }
+      }
+    }
+ else {
+      bomLevelWithNoEvent+=1;
+    }
+    bomLevel+=1;
+  }
+ while (bomLevelWithNoEvent < 3);
+  result=FastMap.newInstance();
+  List<Object> msgResult=FastList.newInstance();
+  result.put("msgResult",msgResult);
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  Debug.logInfo("return from executeMrp",module);
+  return result;
+}

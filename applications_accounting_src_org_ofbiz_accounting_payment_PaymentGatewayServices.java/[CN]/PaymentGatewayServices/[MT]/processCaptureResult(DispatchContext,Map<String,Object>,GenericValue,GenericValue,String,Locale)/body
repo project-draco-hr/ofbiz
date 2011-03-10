@@ -1,0 +1,43 @@
+{
+  if (result == null) {
+    throw new GeneralException("Null capture result sent to processCaptureResult; fatal error");
+  }
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Boolean captureResult=(Boolean)result.get("captureResult");
+  BigDecimal amount=null;
+  if (result.get("captureAmount") != null) {
+    amount=(BigDecimal)result.get("captureAmount");
+  }
+ else   if (result.get("processAmount") != null) {
+    amount=(BigDecimal)result.get("processAmount");
+    result.put("captureAmount",amount);
+  }
+  if (amount == null) {
+    throw new GeneralException("Unable to process null capture amount");
+  }
+  amount=amount.setScale(decimals,rounding);
+  result.put("orderPaymentPreference",paymentPreference);
+  result.put("userLogin",userLogin);
+  result.put("serviceTypeEnum",authServiceType);
+  ModelService model=dctx.getModelService("processCaptureResult");
+  Map<String,Object> context=model.makeValid(result,ModelService.IN_PARAM);
+  Map<String,Object> capRes;
+  try {
+    capRes=dispatcher.runSync("processCaptureResult",context);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    throw e;
+  }
+  if (capRes != null && ServiceUtil.isError(capRes)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(capRes));
+  }
+  if (!captureResult.booleanValue()) {
+    try {
+      processReAuthFromCaptureFailure(dctx,result,amount,userLogin,paymentPreference,locale);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+    }
+  }
+}

@@ -1,5 +1,5 @@
 {
-  Map loadCartResp=null;
+  Map<String,Object> loadCartResp=null;
   try {
     loadCartResp=dispatcher.runSync("loadCartFromOrder",UtilMisc.<String,Object>toMap("orderId",orderId,"skipInventoryChecks",Boolean.TRUE,"skipProductChecks",Boolean.TRUE,"userLogin",userLogin));
   }
@@ -17,7 +17,7 @@
  else {
     cart.setOrderId(orderId);
   }
-  List shipGroupAssocs=null;
+  List<GenericValue> shipGroupAssocs=null;
   try {
     shipGroupAssocs=delegator.findByAnd("OrderItemShipGroupAssoc",UtilMisc.toMap("orderId",orderId));
   }
@@ -26,15 +26,15 @@
     throw new GeneralException(e.getMessage());
   }
   if (shipGroupAssocs != null) {
-    Iterator iri=shipGroupAssocs.iterator();
+    Iterator<GenericValue> iri=shipGroupAssocs.iterator();
     while (iri.hasNext()) {
-      GenericValue shipGroupAssoc=(GenericValue)iri.next();
+      GenericValue shipGroupAssoc=iri.next();
       String orderItemSeqId=shipGroupAssoc.getString("orderItemSeqId");
       String shipGroupSeqId=shipGroupAssoc.getString("shipGroupSeqId");
-      Map cancelCtx=UtilMisc.toMap("userLogin",userLogin,"orderId",orderId);
+      Map<String,Object> cancelCtx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"orderId",orderId);
       cancelCtx.put("orderItemSeqId",orderItemSeqId);
       cancelCtx.put("shipGroupSeqId",shipGroupSeqId);
-      Map cancelResp=null;
+      Map<String,Object> cancelResp=null;
       try {
         cancelResp=dispatcher.runSync("cancelOrderInventoryReservation",cancelCtx);
       }
@@ -47,7 +47,7 @@
       }
     }
   }
-  List promoItems=null;
+  List<GenericValue> promoItems=null;
   try {
     promoItems=delegator.findByAnd("OrderItem",UtilMisc.toMap("orderId",orderId,"isPromo","Y"));
   }
@@ -56,16 +56,16 @@
     throw new GeneralException(e.getMessage());
   }
   if (promoItems != null) {
-    Iterator pii=promoItems.iterator();
+    Iterator<GenericValue> pii=promoItems.iterator();
     while (pii.hasNext()) {
-      GenericValue promoItem=(GenericValue)pii.next();
+      GenericValue promoItem=pii.next();
       if ("ITEM_CANCELLED".equals(promoItem.get("statusId"))) {
         continue;
       }
-      Map cancelPromoCtx=UtilMisc.toMap("orderId",orderId);
+      Map<String,Object> cancelPromoCtx=UtilMisc.<String,Object>toMap("orderId",orderId);
       cancelPromoCtx.put("orderItemSeqId",promoItem.getString("orderItemSeqId"));
       cancelPromoCtx.put("userLogin",userLogin);
-      Map cancelResp=null;
+      Map<String,Object> cancelResp=null;
       try {
         cancelResp=dispatcher.runSync("cancelOrderItemNoActions",cancelPromoCtx);
       }
@@ -78,7 +78,7 @@
       }
     }
   }
-  Map releaseResp=null;
+  Map<String,Object> releaseResp=null;
   try {
     releaseResp=dispatcher.runSync("releaseOrderPayments",UtilMisc.<String,Object>toMap("orderId",orderId,"userLogin",userLogin));
   }
@@ -89,9 +89,9 @@
   if (ServiceUtil.isError(releaseResp)) {
     throw new GeneralException(ServiceUtil.getErrorMessage(releaseResp));
   }
-  List paymentPrefsToCancel=null;
+  List<GenericValue> paymentPrefsToCancel=null;
   try {
-    List exprs=UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId));
+    List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId));
     exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_RECEIVED"));
     exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
     exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_DECLINED"));
@@ -105,9 +105,9 @@
     throw new GeneralException(e.getMessage());
   }
   if (paymentPrefsToCancel != null) {
-    Iterator oppi=paymentPrefsToCancel.iterator();
+    Iterator<GenericValue> oppi=paymentPrefsToCancel.iterator();
     while (oppi.hasNext()) {
-      GenericValue opp=(GenericValue)oppi.next();
+      GenericValue opp=oppi.next();
       try {
         opp.set("statusId","PAYMENT_CANCELLED");
         opp.store();
@@ -119,12 +119,14 @@
     }
   }
   try {
-    List adjExprs=new LinkedList();
+    List<EntityCondition> adjExprs=new LinkedList<EntityCondition>();
     adjExprs.add(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId));
-    List exprs=new LinkedList();
+    List<EntityCondition> exprs=new LinkedList<EntityCondition>();
     exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"PROMOTION_ADJUSTMENT"));
     exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"SHIPPING_CHARGES"));
     exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"SALES_TAX"));
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"VAT_TAX"));
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"VAT_PRICE_CORRECT"));
     adjExprs.add(EntityCondition.makeCondition(exprs,EntityOperator.OR));
     EntityCondition cond=EntityCondition.makeCondition(adjExprs,EntityOperator.AND);
     delegator.removeByCondition("OrderAdjustment",cond);

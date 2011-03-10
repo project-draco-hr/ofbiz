@@ -17,12 +17,11 @@
     Map<String,Object> sendMailParams=FastMap.newInstance();
     sendMailParams.put("sendFrom",communicationEvent.getRelatedOne("FromContactMech").getString("infoString"));
     sendMailParams.put("subject",communicationEvent.getString("subject"));
-    sendMailParams.put("body",communicationEvent.getString("content"));
     sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
     sendMailParams.put("userLogin",userLogin);
     List<EntityCondition> conditionList=UtilMisc.toList(EntityCondition.makeCondition("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),EntityCondition.makeCondition("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr(),EntityUtil.getFilterByDateExpr("contactFromDate","contactThruDate"));
     EntityConditionList<EntityCondition> conditions=EntityCondition.makeCondition(conditionList,EntityOperator.AND);
-    Set<String> fieldsToSelect=UtilMisc.toSet("infoString");
+    Set<String> fieldsToSelect=UtilMisc.toSet("partyId","preferredContactMechId","fromDate","infoString");
     eli=delegator.find("ContactListPartyAndContactMech",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
     List<String> orderBy=UtilMisc.toList("-fromDate");
     for (GenericValue contactListPartyAndContactMech; (contactListPartyAndContactMech=eli.next()) != null; ) {
@@ -57,7 +56,38 @@
           continue;
         }
         Debug.logInfo("Sending email to contact list [" + contactListId + "] party ["+ partyId+ "] : "+ emailAddress,module);
-        Map<String,Object> tmpResult=dispatcher.runSync("sendMail",sendMailParams,360,true);
+        Map<String,Object> tmpResult=null;
+        List<GenericValue> contactListPartyStatuses=delegator.findByAnd("ContactListPartyStatus",UtilMisc.toMap("contactListId",contactListId,"partyId",contactListPartyAndContactMech.getString("partyId"),"fromDate",contactListPartyAndContactMech.getTimestamp("fromDate"),"statusId","CLPT_ACCEPTED"));
+        GenericValue contactListPartyStatus=EntityUtil.getFirst(contactListPartyStatuses);
+        if (UtilValidate.isNotEmpty(contactListPartyStatus)) {
+          Map<String,Object> bodyParameters=FastMap.newInstance();
+          bodyParameters.put("contactListId",contactListId);
+          bodyParameters.put("partyId",contactListPartyAndContactMech.getString("partyId"));
+          bodyParameters.put("preferredContactMechId",contactListPartyAndContactMech.getString("preferredContactMechId"));
+          bodyParameters.put("emailAddress",emailAddress);
+          bodyParameters.put("fromDate",contactListPartyAndContactMech.getTimestamp("fromDate"));
+          bodyParameters.put("optInVerifyCode",contactListPartyStatus.getString("optInVerifyCode"));
+          bodyParameters.put("content",communicationEvent.getString("content"));
+          NotificationServices.setBaseUrl(delegator,contactList.getString("verifyEmailWebSiteId"),bodyParameters);
+          GenericValue webSite=delegator.findOne("WebSite",UtilMisc.toMap("webSiteId",contactList.getString("verifyEmailWebSiteId")),false);
+          if (UtilValidate.isNotEmpty(webSite)) {
+            GenericValue productStore=webSite.getRelatedOne("ProductStore");
+            if (UtilValidate.isNotEmpty(productStore)) {
+              List<GenericValue> productStoreEmailSettings=productStore.getRelatedByAnd("ProductStoreEmailSetting",UtilMisc.toMap("emailType","CONT_EMAIL_TEMPLATE"));
+              GenericValue productStoreEmailSetting=EntityUtil.getFirst(productStoreEmailSettings);
+              if (UtilValidate.isNotEmpty(productStoreEmailSetting)) {
+                sendMailParams.put("bodyScreenUri",productStoreEmailSetting.getString("bodyScreenLocation"));
+                sendMailParams.put("bodyParameters",bodyParameters);
+                sendMailParams.remove("body");
+                tmpResult=dispatcher.runSync("sendMailFromScreen",sendMailParams,360,true);
+              }
+            }
+          }
+        }
+        if (UtilValidate.isEmpty(tmpResult)) {
+          sendMailParams.put("body",communicationEvent.getString("content"));
+          tmpResult=dispatcher.runSync("sendMail",sendMailParams,360,true);
+        }
         if (tmpResult == null || ServiceUtil.isError(tmpResult)) {
           if (ServiceUtil.getErrorMessage(tmpResult).startsWith("[ADDRERR]")) {
             contactListCommStatusRecord.set("statusId","COM_BOUNCED");

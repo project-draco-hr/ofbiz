@@ -1,0 +1,53 @@
+{
+  GenericValue orderPaymentPreference=(GenericValue)context.get("orderPaymentPreference");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue authTransaction=(GenericValue)context.get("authTrans");
+  if (authTransaction == null) {
+    authTransaction=PaymentGatewayServices.getAuthTransaction(orderPaymentPreference);
+  }
+  if (authTransaction == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPaymentTransactionAuthorizationNotFoundCannotRelease",locale));
+  }
+  Properties props=buildPccProperties(context);
+  RitaApi api=getApi(props,"CREDIT");
+  if (api == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaErrorGettingPaymentGatewayConfig",locale));
+  }
+  api.set(RitaApi.TRANS_AMOUNT,getAmountString(context,isRefund ? "refundAmount" : "releaseAmount"));
+  api.set(RitaApi.ORIG_SEQ_NUM,authTransaction.getString("referenceNum"));
+  api.set(RitaApi.COMMAND,"VOID");
+  if (!"1".equals(props.getProperty("autoBill"))) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaCannotSupportReleasingPreAuth",locale));
+  }
+  RitaApi out=null;
+  try {
+    out=api.send();
+  }
+ catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (out != null) {
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    String resultCode=out.get(RitaApi.RESULT);
+    if ("VOIDED".equals(resultCode)) {
+      result.put(isRefund ? "refundResult" : "releaseResult",Boolean.TRUE);
+    }
+ else {
+      result.put(isRefund ? "refundResult" : "releaseResult",Boolean.FALSE);
+    }
+    result.put(isRefund ? "refundAmount" : "releaseAmount",context.get(isRefund ? "refundAmount" : "releaseAmount"));
+    result.put(isRefund ? "refundRefNum" : "releaseRefNum",out.get(RitaApi.INTRN_SEQ_NUM) != null ? out.get(RitaApi.INTRN_SEQ_NUM) : "");
+    result.put(isRefund ? "refundCode" : "releaseCode",out.get(RitaApi.AUTH_CODE));
+    result.put(isRefund ? "refundFlag" : "releaseFlag",out.get(RitaApi.REFERENCE));
+    result.put(isRefund ? "refundMessage" : "releaseMessage",out.get(RitaApi.RESULT));
+    return result;
+  }
+ else {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaResultIsNull",locale));
+  }
+}

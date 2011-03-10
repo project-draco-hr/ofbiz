@@ -1,0 +1,47 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isEmpty(context.get("userId")) || UtilValidate.isEmpty(context.get("itemId"))) {
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"EbayStoreRequiredUserIdAndItemId",locale));
+  }
+  Map<String,Object> result=FastMap.newInstance();
+  try {
+    String itemId=(String)context.get("itemId");
+    String bestOfferId=(String)context.get("bestOfferId");
+    String productStoreId=(String)context.get("productStoreId");
+    ApiContext apiContext=EbayStoreHelper.getApiContext(productStoreId,locale,delegator);
+    DetailLevelCodeType[] detailLevel=new DetailLevelCodeType[]{DetailLevelCodeType.RETURN_ALL,DetailLevelCodeType.ITEM_RETURN_ATTRIBUTES,DetailLevelCodeType.ITEM_RETURN_DESCRIPTION};
+    GetItemCall getItemCall=new GetItemCall(apiContext);
+    getItemCall.setDetailLevel(detailLevel);
+    getItemCall.setItemID(itemId);
+    getItemCall.getItem();
+    ItemType item=getItemCall.getReturnedItem();
+    String itemName=item.getTitle();
+    GetBestOffersCall getBestOffersCall=new GetBestOffersCall(apiContext);
+    getBestOffersCall.setDetailLevel(detailLevel);
+    getBestOffersCall.setItemID(itemId);
+    getBestOffersCall.setBestOfferID(bestOfferId);
+    getBestOffersCall.getBestOffers();
+    BestOfferType[] bestOffers=getBestOffersCall.getReturnedBestOffers();
+    BestOfferType bestOffer=bestOffers[0];
+    BestOfferStatusCodeType bestOfferStatus=bestOffer.getStatus();
+    String offerStatus=bestOfferStatus.toString();
+    String buyerMessage=bestOffer.getBuyerMessage();
+    Double price=bestOffer.getPrice().getValue();
+    String currentPrice=price.toString();
+    Integer quantity=bestOffer.getQuantity();
+    String orderQuantity=quantity.toString();
+    UserType buyer=bestOffer.getBuyer();
+    String buyerEmail=buyer.getEmail();
+    result.put("email",buyerEmail);
+    result.put("message",buyerMessage);
+    result.put("price",currentPrice);
+    result.put("quantity",orderQuantity);
+    result.put("offerStatus",offerStatus);
+    result.put("itemName",itemName);
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"EbayStoreErrorFromListBestOfferIncludeMessage",locale) + e);
+  }
+  return result;
+}

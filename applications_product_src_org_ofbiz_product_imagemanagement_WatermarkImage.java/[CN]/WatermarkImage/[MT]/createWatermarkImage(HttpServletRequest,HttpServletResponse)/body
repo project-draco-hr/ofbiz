@@ -1,0 +1,172 @@
+{
+  Map<String,? extends Object> context=UtilGenerics.checkMap(request.getParameterMap());
+  String imageServerPath=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.path"),context);
+  String imageServerUrl=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.url"),context);
+  String nameOfThumb=FlexibleStringExpander.expandString(UtilProperties.getPropertyValue("catalog","image.management.nameofthumbnail"),context);
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  GenericValue userLogin=(GenericValue)request.getSession().getAttribute("userLogin");
+  String watermarkText=null;
+  URL imageUrl=null;
+  String productId=request.getParameter("productId");
+  String imageName=request.getParameter("imageName");
+  String text=request.getParameter("textWatermark");
+  String opacity=request.getParameter("opacity");
+  String x=request.getParameter("pointX");
+  String y=request.getParameter("pointY");
+  String width=request.getParameter("width");
+  String count=request.getParameter("count");
+  String fontColor=request.getParameter("colorWatermark");
+  String fontSize=request.getParameter("sizeWatermark");
+  File file=new File(imageServerPath + "/preview/" + "/previewImage"+ count+ ".jpg");
+  file.delete();
+  try {
+    if (UtilValidate.isNotEmpty(imageName)) {
+      imageUrl=new URL("file:" + imageServerPath + "/"+ productId+ "/"+ imageName);
+    }
+ else {
+      String errMsg="Please select Image.";
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    if (UtilValidate.isNotEmpty(text)) {
+      watermarkText=text;
+    }
+ else {
+      String errMsg="Please enter Text.";
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    WatermarkerSettings watermarkerSettings=WatermarkerSettings.DEFAULT;
+    if (UtilValidate.isNotEmpty(fontColor)) {
+      Color graphicsColor=setFontColor(fontColor);
+      watermarkerSettings.setGraphicsColor(graphicsColor);
+    }
+ else {
+      String errMsg="Please select Text Color.";
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    DecimalFormat decimalFormat=new DecimalFormat();
+    decimalFormat.applyPattern("0.00");
+    if (UtilValidate.isNotEmpty(fontSize)) {
+      BigDecimal widthBase=new BigDecimal(600.00);
+      BigDecimal picWidth=new BigDecimal(decimalFormat.format(Float.parseFloat(width)));
+      Font graphicsFont=setFontSize(fontSize,picWidth.divide(widthBase,2));
+      watermarkerSettings.setGraphicsFont(graphicsFont);
+    }
+ else {
+      String errMsg="Please select Text Size.";
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    WatermarkSettings position=new WatermarkSettings();
+    if (UtilValidate.isNotEmpty(x) && UtilValidate.isNotEmpty(y)) {
+      BigDecimal positionX=new BigDecimal(decimalFormat.format(Float.parseFloat(x)));
+      BigDecimal positionY=new BigDecimal(decimalFormat.format(Float.parseFloat(y)));
+      position.setX(positionX.floatValue());
+      position.setY(positionY.floatValue());
+      watermarkerSettings.setWatermarkSettings(position);
+    }
+ else {
+      String errMsg="Please select Text Position.";
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    AlphaComposite alphaComposite=null;
+    if (UtilValidate.isNotEmpty(opacity)) {
+      BigDecimal opa=new BigDecimal(opacity);
+      alphaComposite=AlphaComposite.getInstance(AlphaComposite.SRC_OVER,opa.floatValue());
+      watermarkerSettings.setAlphaComposite(alphaComposite);
+    }
+    if (UtilValidate.isNotEmpty(imageUrl)) {
+      Map<String,Object> contentCtx=FastMap.newInstance();
+      contentCtx.put("contentTypeId","DOCUMENT");
+      contentCtx.put("userLogin",userLogin);
+      Map<String,Object> contentResult=FastMap.newInstance();
+      try {
+        contentResult=dispatcher.runSync("createContent",contentCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+        return "error";
+      }
+      Map<String,Object> contentThumb=FastMap.newInstance();
+      contentThumb.put("contentTypeId","DOCUMENT");
+      contentThumb.put("userLogin",userLogin);
+      Map<String,Object> contentThumbResult=FastMap.newInstance();
+      try {
+        contentThumbResult=dispatcher.runSync("createContent",contentThumb);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return e.getMessage();
+      }
+      String contentIdThumb=(String)contentThumbResult.get("contentId");
+      String contentId=(String)contentResult.get("contentId");
+      String filenameToUse=(String)contentResult.get("contentId") + ".jpg";
+      String filenameTouseThumb=(String)contentResult.get("contentId") + nameOfThumb + ".jpg";
+      File outputImageFile=new File(imageServerPath + "/" + productId+ "/"+ filenameToUse);
+      OutputStream outputStream=new FileOutputStream(outputImageFile);
+      new DefaultWatermarker().watermark(imageUrl,watermarkText,outputStream,watermarkerSettings);
+      String imageUrlResource=imageServerUrl + "/" + productId+ "/"+ filenameToUse;
+      BufferedImage bufNewImg=ImageIO.read(new File(imageServerPath + "/" + productId+ "/"+ filenameToUse));
+      double imgHeight=bufNewImg.getHeight();
+      double imgWidth=bufNewImg.getWidth();
+      String mimeType=imageName.substring(imageName.lastIndexOf(".") + 1);
+      Map<String,Object> resultResize=ImageManagementServices.resizeImageThumbnail(bufNewImg,imgHeight,imgWidth);
+      ImageIO.write((RenderedImage)resultResize.get("bufferedImage"),mimeType,new File(imageServerPath + "/" + productId+ "/"+ filenameTouseThumb));
+      String imageUrlThumb=imageServerUrl + "/" + productId+ "/"+ filenameTouseThumb;
+      createContentAndDataResourceWaterMark(request,userLogin,filenameToUse,imageUrlResource,contentId,"image/jpeg");
+      createContentAndDataResourceWaterMark(request,userLogin,filenameTouseThumb,imageUrlThumb,contentIdThumb,"image/jpeg");
+      Map<String,Object> createContentAssocMap=FastMap.newInstance();
+      createContentAssocMap.put("contentAssocTypeId","IMAGE_THUMBNAIL");
+      createContentAssocMap.put("contentId",contentId);
+      createContentAssocMap.put("contentIdTo",contentIdThumb);
+      createContentAssocMap.put("userLogin",userLogin);
+      createContentAssocMap.put("mapKey","100");
+      try {
+        dispatcher.runSync("createContentAssoc",createContentAssocMap);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return e.getMessage();
+      }
+      Map<String,Object> productContentCtx=FastMap.newInstance();
+      productContentCtx.put("productId",productId);
+      productContentCtx.put("productContentTypeId","IMAGE");
+      productContentCtx.put("fromDate",UtilDateTime.nowTimestamp());
+      productContentCtx.put("userLogin",userLogin);
+      productContentCtx.put("contentId",contentId);
+      productContentCtx.put("statusId","IM_PENDING");
+      try {
+        dispatcher.runSync("createProductContent",productContentCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+        return "error";
+      }
+      Map<String,Object> contentApprovalCtx=FastMap.newInstance();
+      contentApprovalCtx.put("contentId",contentId);
+      contentApprovalCtx.put("userLogin",userLogin);
+      try {
+        dispatcher.runSync("createImageContentApproval",contentApprovalCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+        return "error";
+      }
+    }
+  }
+ catch (  WatermarkerException e) {
+    String errMsg="Cannot create watermark.";
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    Debug.logError(e,errMsg,module);
+    return "error";
+  }
+  String eventMsg="Watermark image successfully.";
+  request.setAttribute("_EVENT_MESSAGE_",eventMsg);
+  return "success";
+}

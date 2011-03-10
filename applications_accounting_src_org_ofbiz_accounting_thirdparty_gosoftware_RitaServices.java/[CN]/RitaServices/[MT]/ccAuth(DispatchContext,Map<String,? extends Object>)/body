@@ -1,0 +1,77 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  Properties props=buildPccProperties(context);
+  RitaApi api=getApi(props,"CREDIT");
+  if (api == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaErrorGettingPaymentGatewayConfig",locale));
+  }
+  try {
+    RitaServices.setCreditCardInfo(api,dctx.getDelegator(),context);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  api.set(RitaApi.TRANS_AMOUNT,getAmountString(context,"processAmount"));
+  api.set(RitaApi.INVOICE,context.get("orderId"));
+  if ("1".equals(props.getProperty("autoBill"))) {
+    api.set(RitaApi.COMMAND,"SALE");
+  }
+ else {
+    api.set(RitaApi.COMMAND,"PRE_AUTH");
+  }
+  RitaApi out=null;
+  try {
+    Debug.log("Sending request to RiTA",module);
+    out=api.send();
+  }
+ catch (  IOException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (out != null) {
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    String resultCode=out.get(RitaApi.RESULT);
+    boolean passed=false;
+    if ("CAPTURED".equals(resultCode)) {
+      result.put("authResult",Boolean.TRUE);
+      result.put("captureResult",Boolean.TRUE);
+      passed=true;
+    }
+ else     if ("APPROVED".equals(resultCode)) {
+      result.put("authCode",out.get(RitaApi.AUTH_CODE));
+      result.put("authResult",Boolean.TRUE);
+      passed=true;
+    }
+ else     if ("PROCESSED".equals(resultCode)) {
+      result.put("authResult",Boolean.TRUE);
+    }
+ else {
+      result.put("authResult",Boolean.FALSE);
+    }
+    result.put("authRefNum",out.get(RitaApi.INTRN_SEQ_NUM) != null ? out.get(RitaApi.INTRN_SEQ_NUM) : "");
+    result.put("processAmount",context.get("processAmount"));
+    result.put("authCode",out.get(RitaApi.AUTH_CODE));
+    result.put("authFlag",out.get(RitaApi.REFERENCE));
+    result.put("authMessage",out.get(RitaApi.RESULT));
+    result.put("cvCode",out.get(RitaApi.CVV2_CODE));
+    result.put("avsCode",out.get(RitaApi.AVS_CODE));
+    if (!passed) {
+      String respMsg=out.get(RitaApi.RESULT) + " / " + out.get(RitaApi.INTRN_SEQ_NUM);
+      result.put("customerRespMsgs",UtilMisc.toList(respMsg));
+    }
+    if (result.get("captureResult") != null) {
+      result.put("captureCode",out.get(RitaApi.AUTH_CODE));
+      result.put("captureFlag",out.get(RitaApi.REFERENCE));
+      result.put("captureRefNum",out.get(RitaApi.INTRN_SEQ_NUM));
+      result.put("captureMessage",out.get(RitaApi.RESULT));
+    }
+    return result;
+  }
+ else {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingRitaResultIsNull",locale));
+  }
+}

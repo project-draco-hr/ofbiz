@@ -1,0 +1,44 @@
+{
+  Map<String,Object> result=FastMap.newInstance();
+  SetStoreCategoriesResponseType resp=null;
+  try {
+    if (req != null && actionCode != null) {
+      req.setAction(actionCode);
+      resp=(SetStoreCategoriesResponseType)call.execute(req);
+      if (resp != null && "SUCCESS".equals(resp.getAck().toString())) {
+        StoreCustomCategoryArrayType returnedCustomCategory=resp.getCustomCategory();
+        if (actionCode.equals(StoreCategoryUpdateActionCodeType.ADD) && returnedCustomCategory != null) {
+          StoreCustomCategoryType[] returnCategoryTypeList=returnedCustomCategory.getCustomCategory();
+          for (          StoreCustomCategoryType returnCategoryType : returnCategoryTypeList) {
+            List<GenericValue> productCategoryList=delegator.findByAnd("ProductCategory",UtilMisc.toMap("categoryName",returnCategoryType.getName(),"productCategoryTypeId","EBAY_CATEGORY"));
+            for (            GenericValue productCategory : productCategoryList) {
+              if (EbayStoreHelper.veriflyCategoryInCatalog(delegator,catalogCategories,productCategory.getString("productCategoryId"))) {
+                if (EbayStoreHelper.createEbayCategoryIdByPartyId(delegator,productCategory.getString("productCategoryId"),partyId,String.valueOf(returnCategoryType.getCategoryID()))) {
+                  Debug.logInfo("Create new ProductCategoryRollup with partyId " + partyId + " categoryId "+ productCategory.getString("productCategoryId")+ " and ebayCategoryId "+ String.valueOf(returnCategoryType.getCategoryID()),module);
+                }
+                break;
+              }
+            }
+          }
+        }
+        result=ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"EbayExportToEbayStoreSuccess",locale));
+      }
+ else {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"EbayExportToEbayStoreFailed",UtilMisc.toMap("errorString",resp.getMessage()),locale));
+      }
+    }
+  }
+ catch (  ApiException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkSoapException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  GenericEntityException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+  return result;
+}

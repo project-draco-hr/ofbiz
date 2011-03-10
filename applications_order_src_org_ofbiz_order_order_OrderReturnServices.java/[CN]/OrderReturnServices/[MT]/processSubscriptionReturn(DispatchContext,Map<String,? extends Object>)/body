@@ -1,0 +1,51 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String returnId=(String)context.get("returnId");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  GenericValue returnHeader;
+  List<GenericValue> returnItems=null;
+  try {
+    returnHeader=delegator.findByPrimaryKey("ReturnHeader",UtilMisc.toMap("returnId",returnId));
+    if (returnHeader != null) {
+      returnItems=returnHeader.getRelatedByAnd("ReturnItem",UtilMisc.toMap("returnTypeId","RTN_REFUND"));
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (returnItems != null) {
+    Iterator<GenericValue> ri=returnItems.iterator();
+    while (ri.hasNext()) {
+      GenericValue returnItem=ri.next();
+      String orderItemSeqId=returnItem.getString("orderItemSeqId");
+      String orderId=returnItem.getString("orderId");
+      List<GenericValue> subscriptions;
+      try {
+        subscriptions=delegator.findByAnd("Subscription",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      if (subscriptions != null) {
+        Iterator<GenericValue> si=subscriptions.iterator();
+        while (si.hasNext()) {
+          GenericValue subscription=si.next();
+          Timestamp thruDate=subscription.getTimestamp("thruDate");
+          if (thruDate == null || thruDate.after(now)) {
+            subscription.set("thruDate",now);
+            try {
+              delegator.store(subscription);
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,module);
+              return ServiceUtil.returnError(e.getMessage());
+            }
+          }
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

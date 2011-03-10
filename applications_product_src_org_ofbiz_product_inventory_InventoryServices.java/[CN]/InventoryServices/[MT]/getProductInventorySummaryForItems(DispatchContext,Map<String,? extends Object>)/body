@@ -3,6 +3,7 @@
   LocalDispatcher dispatcher=dctx.getDispatcher();
   List<GenericValue> orderItems=UtilGenerics.checkList(context.get("orderItems"));
   String facilityId=(String)context.get("facilityId");
+  Locale locale=(Locale)context.get("");
   Map<String,BigDecimal> atpMap=FastMap.newInstance();
   Map<String,BigDecimal> qohMap=FastMap.newInstance();
   Map<String,BigDecimal> mktgPkgAtpMap=FastMap.newInstance();
@@ -18,7 +19,7 @@
     }
   }
  catch (  GenericEntityException e) {
-    return ServiceUtil.returnError("Unable to locate facilities." + e.getMessage());
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductErrorFacilityIdNotFound",UtilMisc.toMap("facilityId",facilityId),locale));
   }
   for (  GenericValue orderItem : orderItems) {
     String productId=orderItem.getString("productId");
@@ -29,7 +30,7 @@
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Couldn't get product.",module);
-      return ServiceUtil.returnError("Unable to retrive product with id [" + productId + "]");
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductProductNotFound",locale) + productId);
     }
     BigDecimal atp=BigDecimal.ZERO;
     BigDecimal qoh=BigDecimal.ZERO;
@@ -39,15 +40,14 @@
       Map<String,Object> invResult=null;
       Map<String,Object> mktgPkgInvResult=null;
       try {
-        if (CommonWorkers.hasParentType(delegator,"ProductType","productTypeId",product.getString("productTypeId"),"parentTypeId","MARKETING_PKG")) {
+        if (EntityTypeUtil.hasParentType(delegator,"ProductType","productTypeId",product.getString("productTypeId"),"parentTypeId","MARKETING_PKG")) {
           mktgPkgInvResult=dispatcher.runSync("getMktgPackagesAvailable",UtilMisc.toMap("productId",productId,"facilityId",facility.getString("facilityId")));
         }
         invResult=dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facility.getString("facilityId")));
       }
  catch (      GenericServiceException e) {
-        String msg="Could not find inventory for facility [" + facility.getString("facilityId") + "]";
-        Debug.logError(e,msg,module);
-        return ServiceUtil.returnError(msg);
+        Debug.logError(e,"Could not find inventory for facility " + facility.getString("facilityId"),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryNotAvailableForFacility",UtilMisc.toMap("facilityId",facility.getString("facilityId")),locale));
       }
       if (!ServiceUtil.isError(invResult)) {
         BigDecimal fatp=(BigDecimal)invResult.get("availableToPromiseTotal");
@@ -55,7 +55,7 @@
         if (fatp != null)         atp=atp.add(fatp);
         if (fqoh != null)         qoh=qoh.add(fqoh);
       }
-      if (CommonWorkers.hasParentType(delegator,"ProductType","productTypeId",product.getString("productTypeId"),"parentTypeId","MARKETING_PKG") && !ServiceUtil.isError(mktgPkgInvResult)) {
+      if (EntityTypeUtil.hasParentType(delegator,"ProductType","productTypeId",product.getString("productTypeId"),"parentTypeId","MARKETING_PKG") && !ServiceUtil.isError(mktgPkgInvResult)) {
         BigDecimal fatp=(BigDecimal)mktgPkgInvResult.get("availableToPromiseTotal");
         BigDecimal fqoh=(BigDecimal)mktgPkgInvResult.get("quantityOnHandTotal");
         if (fatp != null)         mktgPkgAtp=mktgPkgAtp.add(fatp);

@@ -1,0 +1,51 @@
+{
+  this.depth=depth;
+  String serviceName=null;
+  if (this.productAssoc != null && this.productAssoc.getString("estimateCalcMethod") != null) {
+    try {
+      GenericValue genericService=productAssoc.getRelatedOne("CustomMethod");
+      if (genericService != null && genericService.getString("customMethodName") != null) {
+        serviceName=genericService.getString("customMethodName");
+      }
+    }
+ catch (    Exception exc) {
+    }
+  }
+  if (serviceName != null) {
+    Map<String,Object> resultContext=null;
+    Map<String,Object> arguments=UtilMisc.<String,Object>toMap("neededQuantity",quantity.multiply(quantityMultiplier),"amount",tree != null ? tree.getRootAmount() : BigDecimal.ZERO);
+    BigDecimal width=null;
+    if (getProduct().get("productWidth") != null) {
+      width=getProduct().getBigDecimal("productWidth");
+    }
+    if (width == null) {
+      width=BigDecimal.ZERO;
+    }
+    arguments.put("width",width);
+    Map<String,Object> inputContext=UtilMisc.<String,Object>toMap("arguments",arguments,"userLogin",userLogin);
+    try {
+      resultContext=dispatcher.runSync(serviceName,inputContext);
+      BigDecimal calcQuantity=(BigDecimal)resultContext.get("quantity");
+      if (calcQuantity != null) {
+        this.quantity=calcQuantity;
+      }
+    }
+ catch (    GenericServiceException e) {
+    }
+  }
+ else {
+    this.quantity=quantity.multiply(quantityMultiplier).multiply(scrapFactor);
+  }
+  arr.add(this);
+  BOMNode oneChildNode=null;
+  depth++;
+  for (int i=0; i < children.size(); i++) {
+    oneChildNode=(BOMNode)childrenNodes.get(i);
+    if (excludeWIPs && "WIP".equals(oneChildNode.getProduct().getString("productTypeId"))) {
+      continue;
+    }
+    if (oneChildNode != null) {
+      oneChildNode.print(arr,this.quantity,depth,excludeWIPs);
+    }
+  }
+}

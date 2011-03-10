@@ -1,0 +1,110 @@
+{
+  List<String> errorMessages=new ArrayList<String>();
+  Map<String,Object> errorMaps=new HashMap<String,Object>();
+  Map<String,Object> result=new HashMap<String,Object>();
+  String errMsg=null;
+  if (params.get("addGiftCard") != null) {
+    String gcNum=(String)params.get("giftCardNumber");
+    String gcPin=(String)params.get("giftCardPin");
+    String gcAmt=(String)params.get("giftCardAmount");
+    BigDecimal gcAmount=BigDecimal.ONE.negate();
+    boolean gcFieldsOkay=true;
+    if (UtilValidate.isEmpty(gcNum)) {
+      errMsg=UtilProperties.getMessage(resource_error,"checkhelper.enter_gift_card_number",(cart != null ? cart.getLocale() : Locale.getDefault()));
+      errorMessages.add(errMsg);
+      gcFieldsOkay=false;
+    }
+    if (cart.isPinRequiredForGC(delegator)) {
+      if (UtilValidate.isEmpty(gcPin)) {
+        errMsg=UtilProperties.getMessage(resource_error,"checkhelper.enter_gift_card_pin_number",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        errorMessages.add(errMsg);
+        gcFieldsOkay=false;
+      }
+    }
+    if (cart.isValidateGCFinAccount(delegator)) {
+      try {
+        if (!cart.isPinRequiredForGC(delegator)) {
+          GenericValue finAccount=FinAccountHelper.getFinAccountFromCode(gcNum,delegator);
+          if (finAccount == null) {
+            errMsg=UtilProperties.getMessage(resource_error,"checkhelper.gift_card_does_not_exist",(cart != null ? cart.getLocale() : Locale.getDefault()));
+            errorMessages.add(errMsg);
+            gcFieldsOkay=false;
+          }
+ else           if ((finAccount.getBigDecimal("availableBalance") == null) || !((finAccount.getBigDecimal("availableBalance")).compareTo(FinAccountHelper.ZERO) > 0)) {
+            errMsg=UtilProperties.getMessage(resource_error,"checkhelper.gift_card_has_no_value",(cart != null ? cart.getLocale() : Locale.getDefault()));
+            errorMessages.add(errMsg);
+            gcFieldsOkay=false;
+          }
+        }
+      }
+ catch (      GenericEntityException ex) {
+        errorMessages.add(ex.getMessage());
+        gcFieldsOkay=false;
+      }
+    }
+    if (UtilValidate.isNotEmpty(selectedPaymentMethods)) {
+      if (UtilValidate.isEmpty(gcAmt)) {
+        errMsg=UtilProperties.getMessage(resource_error,"checkhelper.enter_amount_to_place_on_gift_card",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        errorMessages.add(errMsg);
+        gcFieldsOkay=false;
+      }
+    }
+    if (UtilValidate.isNotEmpty(gcAmt)) {
+      try {
+        gcAmount=new BigDecimal(gcAmt);
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError(e,module);
+        errMsg=UtilProperties.getMessage(resource_error,"checkhelper.invalid_amount_for_gift_card",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        errorMessages.add(errMsg);
+        gcFieldsOkay=false;
+      }
+    }
+    if (gcFieldsOkay) {
+      Map<String,Object> gcCtx=new HashMap<String,Object>();
+      gcCtx.put("partyId",params.get("partyId"));
+      gcCtx.put("cardNumber",gcNum);
+      if (cart.isPinRequiredForGC(delegator)) {
+        gcCtx.put("pinNumber",gcPin);
+      }
+      gcCtx.put("userLogin",cart.getUserLogin());
+      Map<String,Object> gcResult=null;
+      try {
+        gcResult=dispatcher.runSync("createGiftCard",gcCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        errorMessages.add(e.getMessage());
+      }
+      if (gcResult != null) {
+        ServiceUtil.addErrors(errorMessages,errorMaps,gcResult);
+        if (errorMessages.size() == 0 && errorMaps.size() == 0) {
+          BigDecimal giftCardAmount=null;
+          if (gcAmount.compareTo(BigDecimal.ZERO) > 0) {
+            giftCardAmount=gcAmount;
+          }
+          String gcPaymentMethodId=(String)gcResult.get("paymentMethodId");
+          result=ServiceUtil.returnSuccess();
+          result.put("paymentMethodId",gcPaymentMethodId);
+          result.put("amount",giftCardAmount);
+        }
+      }
+ else {
+        errMsg=UtilProperties.getMessage(resource_error,"checkhelper.problem_with_gift_card_information",(cart != null ? cart.getLocale() : Locale.getDefault()));
+        errorMessages.add(errMsg);
+      }
+    }
+  }
+ else {
+    result=ServiceUtil.returnSuccess();
+  }
+  if (errorMessages.size() > 0) {
+    result.put(ModelService.ERROR_MESSAGE_LIST,errorMessages);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+  }
+  if (errorMaps.size() > 0) {
+    result.put(ModelService.ERROR_MESSAGE_MAP,errorMaps);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+  }
+  return result;
+}
