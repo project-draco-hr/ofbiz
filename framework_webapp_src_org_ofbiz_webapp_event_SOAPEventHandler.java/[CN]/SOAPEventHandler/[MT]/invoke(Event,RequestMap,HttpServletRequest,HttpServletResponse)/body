@@ -83,52 +83,36 @@ catch (      WSDLException e) {
   Debug.logVerbose("[Processing]: SOAP Event",module);
   try {
     SOAPBody reqBody=reqEnv.getBody();
-    Iterator<Object> serviceIter=UtilGenerics.cast(reqBody.getChildElements());
-    while (serviceIter.hasNext()) {
-      Object serviceObj=serviceIter.next();
-      if (serviceObj instanceof OMElement) {
-        OMElement serviceElement=(OMElement)serviceObj;
-        String serviceName=serviceElement.getLocalName();
-        Map<String,Object> parameters=UtilGenerics.cast(SoapSerializer.deserialize(serviceElement.toString(),delegator));
-        try {
-          ModelService model=dispatcher.getDispatchContext().getModelService(serviceName);
-          if (model != null && model.export) {
-            Map<String,Object> results=dispatcher.runSync(serviceName,parameters);
-            Debug.logVerbose("[EventHandler] : Service invoked",module);
-            Debug.logVerbose("[EventHandler] : Setting up response message",module);
-            String xmlResults=SoapSerializer.serialize(results);
-            XMLStreamReader reader=XMLInputFactory.newInstance().createXMLStreamReader(new StringReader(xmlResults));
-            StAXOMBuilder resultsBuilder=new StAXOMBuilder(reader);
-            OMElement resultSer=resultsBuilder.getDocumentElement();
-            SOAPFactory factory=OMAbstractFactory.getSOAP11Factory();
-            SOAPEnvelope resEnv=factory.createSOAPEnvelope();
-            SOAPBody resBody=factory.createSOAPBody();
-            OMElement resService=factory.createOMElement(new QName(serviceName + "Response"));
-            resService.addChild(resultSer.getFirstElement());
-            resBody.addChild(resService);
-            resEnv.addChild(resBody);
-            OMAttribute defaultNS=factory.createOMAttribute("xmlns",null,ModelService.TNS);
-            resService.addAttribute(defaultNS);
-            if (Debug.verboseOn()) {
-              try {
-                Debug.log("Response Message:\n" + resEnv + "\n",module);
-              }
- catch (              Throwable t) {
-              }
-            }
-            resEnv.serialize(response.getOutputStream());
-            response.getOutputStream().flush();
-          }
-        }
- catch (        GenericServiceException e) {
-          throw new EventHandlerException(e.getMessage(),e);
-        }
+    validateSOAPBody(reqBody);
+    OMElement serviceElement=reqBody.getFirstElement();
+    String serviceName=serviceElement.getLocalName();
+    Map<String,Object> parameters=UtilGenerics.cast(SoapSerializer.deserialize(serviceElement.toString(),delegator));
+    try {
+      ModelService model=dispatcher.getDispatchContext().getModelService(serviceName);
+      if (model == null) {
+        sendError(response,"Problem processing the service");
+        Debug.logError("Could not find Service [" + serviceName + "].",module);
+        return null;
       }
+      if (!model.export) {
+        sendError(response,"Problem processing the service");
+        Debug.logError("Trying to call Service [" + serviceName + "] that is not exported.",module);
+        return null;
+      }
+      Map<String,Object> serviceResults=dispatcher.runSync(serviceName,parameters);
+      Debug.logVerbose("[EventHandler] : Service invoked",module);
+      createAndSendSOAPResponse(serviceResults,serviceName,response);
+    }
+ catch (    GenericServiceException e) {
+      sendError(response,"Problem processing the service");
+      Debug.logError(e,module);
+      return null;
     }
   }
  catch (  Exception e) {
     sendError(response,e.getMessage());
-    throw new EventHandlerException(e.getMessage(),e);
+    Debug.logError(e,module);
+    return null;
   }
   return null;
 }
