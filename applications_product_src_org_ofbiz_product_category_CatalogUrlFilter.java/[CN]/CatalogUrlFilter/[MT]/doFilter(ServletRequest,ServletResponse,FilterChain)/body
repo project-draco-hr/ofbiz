@@ -1,0 +1,280 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  HttpServletResponse httpResponse=(HttpServletResponse)response;
+  Delegator delegator=(Delegator)httpRequest.getSession().getServletContext().getAttribute("delegator");
+  String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
+  if ("Y".equals(useMultitenant)) {
+    String serverName=request.getServerName();
+    try {
+      delegator=getDelegator(config.getServletContext());
+      List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
+      if (UtilValidate.isNotEmpty(tenants)) {
+        GenericValue tenant=EntityUtil.getFirst(tenants);
+        String tenantId=tenant.getString("tenantId");
+        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
+        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
+        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
+        config.getServletContext().setAttribute("delegator",delegator);
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Unable to get Tenant",module);
+    }
+  }
+  request.setAttribute("servletContext",httpRequest.getSession().getServletContext());
+  request.setAttribute("delegator",delegator);
+  if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
+    httpRequest.getSession().setAttribute("webSiteId",httpRequest.getSession().getServletContext().getAttribute("webSiteId"));
+  }
+  String initDefaultViewIndex=config.getInitParameter("defaultViewIndex");
+  String initDefaultViewSize=config.getInitParameter("defaultViewSize");
+  String initDefaultLocalesString=config.getInitParameter("defaultLocaleString");
+  String initRedirectUrl=config.getInitParameter("redirectUrl");
+  defaultViewIndex=UtilValidate.isNotEmpty(initDefaultViewIndex) ? initDefaultViewIndex : "";
+  defaultViewSize=UtilValidate.isNotEmpty(initDefaultViewSize) ? initDefaultViewSize : "";
+  defaultLocaleString=UtilValidate.isNotEmpty(initDefaultLocalesString) ? initDefaultLocalesString : "";
+  redirectUrl=UtilValidate.isNotEmpty(initRedirectUrl) ? initRedirectUrl : "";
+  String pathInfo=httpRequest.getServletPath();
+  if (UtilValidate.isNotEmpty(pathInfo)) {
+    List<String> pathElements=StringUtil.split(pathInfo,"/");
+    String alternativeUrl=pathElements.get(0);
+    String localeString=null;
+    String webSiteId=WebSiteWorker.getWebSiteId(request);
+    GenericValue webSite;
+    try {
+      webSite=delegator.findOne("WebSite",UtilMisc.toMap("webSiteId",webSiteId),true);
+      if (UtilValidate.isNotEmpty(webSite)) {
+        GenericValue productStore=webSite.getRelatedOne("ProductStore");
+        if (UtilValidate.isNotEmpty(productStore)) {
+          localeString=productStore.getString("defaultLocaleString");
+        }
+      }
+ else {
+        localeString=defaultLocaleString;
+      }
+    }
+ catch (    GenericEntityException ex) {
+      Debug.logWarning(ex,module);
+    }
+    String viewIndex=defaultViewIndex;
+    String viewSize=defaultViewSize;
+    String viewSort=null;
+    String searchString=null;
+    int queryStringIndex=pathInfo.indexOf("?");
+    if (queryStringIndex >= 0) {
+      List<String> queryStringTokens=StringUtil.split(pathInfo.substring(queryStringIndex + 1),"&");
+      for (      String queryStringToken : queryStringTokens) {
+        int equalIndex=queryStringToken.indexOf("=");
+        String name=queryStringToken.substring(0,equalIndex - 1);
+        String value=queryStringToken.substring(equalIndex + 1,queryStringToken.length() - 1);
+        if ("viewIndex".equals(name)) {
+          viewIndex=value;
+        }
+ else         if ("viewSize".equals(name)) {
+          viewSize=value;
+        }
+ else         if ("viewSort".equals(name)) {
+          viewSort=value;
+        }
+ else         if ("searchString".equals(name)) {
+          searchString=value;
+        }
+      }
+    }
+    String productId=null;
+    String productCategoryId=null;
+    try {
+      List<EntityCondition> productContentConds=FastList.newInstance();
+      productContentConds.add(EntityCondition.makeCondition(EntityCondition.makeCondition("drObjectInfo",alternativeUrl),EntityOperator.OR,EntityCondition.makeCondition("drObjectInfo","/" + alternativeUrl)));
+      productContentConds.add(EntityCondition.makeCondition("localeString",localeString));
+      productContentConds.add(EntityCondition.makeCondition("productContentTypeId","ALTERNATIVE_URL"));
+      productContentConds.add(EntityUtil.getFilterByDateExpr());
+      List<GenericValue> productContentInfos=delegator.findList("ProductContentAndInfo",EntityCondition.makeCondition(productContentConds),null,UtilMisc.toList("-fromDate"),null,true);
+      if (UtilValidate.isNotEmpty(productContentInfos)) {
+        GenericValue productContentInfo=EntityUtil.getFirst(productContentInfos);
+        productId=productContentInfo.getString("productId");
+      }
+      List<EntityCondition> productCategoryContentConds=FastList.newInstance();
+      productCategoryContentConds.add(EntityCondition.makeCondition(EntityCondition.makeCondition("drObjectInfo",alternativeUrl),EntityOperator.OR,EntityCondition.makeCondition("drObjectInfo","/" + alternativeUrl)));
+      productContentConds.add(EntityCondition.makeCondition("localeString",localeString));
+      productCategoryContentConds.add(EntityCondition.makeCondition("prodCatContentTypeId","ALTERNATIVE_URL"));
+      productCategoryContentConds.add(EntityUtil.getFilterByDateExpr());
+      List<GenericValue> productCategoryContentInfos=delegator.findList("ProductCategoryContentAndInfo",EntityCondition.makeCondition(productCategoryContentConds),null,UtilMisc.toList("-fromDate"),null,true);
+      if (UtilValidate.isNotEmpty(productCategoryContentInfos)) {
+        GenericValue productCategoryContentInfo=EntityUtil.getFirst(productCategoryContentInfos);
+        productCategoryId=productCategoryContentInfo.getString("productCategoryId");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning("Cannot look for product and product category",module);
+    }
+    StringBuilder urlBuilder=new StringBuilder();
+    urlBuilder.append("/" + CONTROL_MOUNT_POINT);
+    if (UtilValidate.isNotEmpty(productId)) {
+      try {
+        List<EntityCondition> conds=FastList.newInstance();
+        conds.add(EntityCondition.makeCondition("productId",productId));
+        conds.add(EntityUtil.getFilterByDateExpr());
+        List<GenericValue> productCategoryMembers=delegator.findList("ProductCategoryMember",EntityCondition.makeCondition(conds),UtilMisc.toSet("productCategoryId"),UtilMisc.toList("-fromDate"),null,true);
+        if (UtilValidate.isNotEmpty(productCategoryMembers)) {
+          GenericValue productCategoryMember=EntityUtil.getFirst(productCategoryMembers);
+          productCategoryId=productCategoryMember.getString("productCategoryId");
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Cannot find product category for product: " + productId,module);
+      }
+      urlBuilder.append("/" + PRODUCT_REQUEST);
+    }
+ else {
+      urlBuilder.append("/" + CATEGORY_REQUEST);
+    }
+    String topCategoryId=CategoryWorker.getCatalogTopCategory(httpRequest,null);
+    List<GenericValue> trailCategories=CategoryWorker.getRelatedCategoriesRet(httpRequest,"trailCategories",topCategoryId,false,false,true);
+    List<String> trailCategoryIds=EntityUtil.getFieldListFromEntityList(trailCategories,"productCategoryId",true);
+    if (UtilValidate.isNotEmpty(productId)) {
+      try {
+        List<EntityCondition> rolllupConds=FastList.newInstance();
+        rolllupConds.add(EntityCondition.makeCondition("productId",productId));
+        rolllupConds.add(EntityUtil.getFilterByDateExpr());
+        List<GenericValue> productCategoryMembers=delegator.findList("ProductCategoryMember",EntityCondition.makeCondition(rolllupConds),null,UtilMisc.toList("-fromDate"),null,true);
+        for (        GenericValue productCategoryMember : productCategoryMembers) {
+          String trailCategoryId=productCategoryMember.getString("productCategoryId");
+          if (trailCategoryIds.contains(trailCategoryId)) {
+            productCategoryId=trailCategoryId;
+            break;
+          }
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Cannot generate trail from product category",module);
+      }
+    }
+    if (UtilValidate.isNotEmpty(productCategoryId)) {
+      List<String> trailElements=FastList.newInstance();
+      trailElements.add(productCategoryId);
+      String parentProductCategoryId=productCategoryId;
+      while (UtilValidate.isNotEmpty(parentProductCategoryId)) {
+        try {
+          List<EntityCondition> rolllupConds=FastList.newInstance();
+          rolllupConds.add(EntityCondition.makeCondition("productCategoryId",parentProductCategoryId));
+          rolllupConds.add(EntityUtil.getFilterByDateExpr());
+          List<GenericValue> productCategoryRollups=delegator.findList("ProductCategoryRollup",EntityCondition.makeCondition(rolllupConds),null,UtilMisc.toList("-fromDate"),null,true);
+          if (UtilValidate.isNotEmpty(productCategoryRollups)) {
+            for (            GenericValue productCategoryRollup : productCategoryRollups) {
+              String trailCategoryId=productCategoryRollup.getString("parentProductCategoryId");
+              parentProductCategoryId=trailCategoryId;
+              if (trailCategoryIds.contains(trailCategoryId)) {
+                trailElements.add(trailCategoryId);
+                break;
+              }
+            }
+          }
+ else {
+            parentProductCategoryId=null;
+          }
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Cannot generate trail from product category",module);
+        }
+      }
+      Collections.reverse(trailElements);
+      List<String> trail=CategoryWorker.getTrail(httpRequest);
+      if (trail == null) {
+        trail=FastList.newInstance();
+      }
+      String previousCategoryId=null;
+      if (trail.size() > 0) {
+        previousCategoryId=trail.get(trail.size() - 1);
+      }
+      trail=CategoryWorker.adjustTrail(trail,productCategoryId,previousCategoryId);
+      if (trailElements.size() == 1) {
+        CategoryWorker.setTrail(request,trailElements.get(0),null);
+      }
+ else       if (trailElements.size() == 2) {
+        CategoryWorker.setTrail(request,trailElements.get(1),trailElements.get(0));
+      }
+ else       if (trailElements.size() > 2) {
+        if (trail.contains(trailElements.get(0))) {
+          int firstElementIndex=trail.indexOf(trailElements.get(0));
+          while (trail.size() > firstElementIndex) {
+            trail.remove(firstElementIndex);
+          }
+          trail.addAll(trailElements);
+        }
+ else {
+          trail.clear();
+          trail.addAll(trailElements);
+        }
+        CategoryWorker.setTrail(request,trail);
+      }
+      if (UtilValidate.isNotEmpty(viewIndex)) {
+        urlBuilder.append("/~VIEW_INDEX=" + viewIndex);
+        request.setAttribute("VIEW_INDEX",viewIndex);
+      }
+      if (UtilValidate.isNotEmpty(viewSize)) {
+        urlBuilder.append("/~VIEW_SIZE=" + viewSize);
+        request.setAttribute("VIEW_SIZE",viewSize);
+      }
+      if (UtilValidate.isNotEmpty(viewSort)) {
+        urlBuilder.append("/~VIEW_SORT=" + viewSort);
+        request.setAttribute("VIEW_SORT",viewSort);
+      }
+      if (UtilValidate.isNotEmpty(searchString)) {
+        urlBuilder.append("/~SEARCH_STRING=" + searchString);
+        request.setAttribute("SEARCH_STRING",searchString);
+      }
+      request.setAttribute("productCategoryId",productCategoryId);
+      if (productId != null) {
+        request.setAttribute("product_id",productId);
+        request.setAttribute("productId",productId);
+      }
+    }
+    if (UtilValidate.isNotEmpty(productId) || UtilValidate.isNotEmpty(productCategoryId)) {
+      Debug.logInfo("[Filtered request]: " + pathInfo + " ("+ urlBuilder+ ")",module);
+      RequestDispatcher dispatch=request.getRequestDispatcher(urlBuilder.toString());
+      dispatch.forward(request,response);
+      return;
+    }
+    GenericValue pathAlias=null;
+    try {
+      pathAlias=delegator.findByPrimaryKeyCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"pathAlias",pathInfo));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (pathAlias != null) {
+      String alias=pathAlias.getString("aliasTo");
+      String contentId=pathAlias.getString("contentId");
+      if (contentId == null && UtilValidate.isNotEmpty(alias)) {
+        if (!alias.startsWith("/")) {
+          alias="/" + alias;
+        }
+        RequestDispatcher rd=request.getRequestDispatcher(alias);
+        try {
+          rd.forward(request,response);
+          return;
+        }
+ catch (        ServletException e) {
+          Debug.logWarning(e,module);
+        }
+catch (        IOException e) {
+          Debug.logWarning(e,module);
+        }
+      }
+    }
+ else {
+      try {
+        List<GenericValue> aliasTos=delegator.findByAndCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"aliasTo",httpRequest.getRequestURI()));
+        if (UtilValidate.isNotEmpty(aliasTos)) {
+          httpResponse.sendError(HttpServletResponse.SC_NOT_FOUND,"Not Found");
+          return;
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+    }
+  }
+  chain.doFilter(request,response);
+}
