@@ -2,6 +2,8 @@
   Locale locale=(Locale)context.get("locale");
   List<String> newProductsInGoogle=FastList.newInstance();
   List<String> productsRemovedFromGoogle=FastList.newInstance();
+  String localeString=null;
+  String productStoreId=(String)context.get("productStoreId");
   try {
     Delegator delegator=dctx.getDelegator();
     LocalDispatcher dispatcher=dctx.getDispatcher();
@@ -12,6 +14,58 @@
     String trackingCodeId=(String)context.get("trackingCodeId");
     String countryCode=(String)context.get("countryCode");
     String webSiteMountPoint=(String)context.get("webSiteMountPoint");
+    String utmSource=null;
+    String utmMedium=null;
+    String utmTerm=null;
+    String utmContent=null;
+    String utmCampaign=null;
+    if (UtilValidate.isNotEmpty(productStoreId)) {
+      GenericValue googleBaseConfig=null;
+      try {
+        googleBaseConfig=delegator.findOne("GoogleBaseConfig",false,UtilMisc.toMap("productStoreId",productStoreId));
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError("Unable to find value for GoogleBaseConfig",module);
+        e.printStackTrace();
+      }
+      if (UtilValidate.isNotEmpty(googleBaseConfig)) {
+        String source=googleBaseConfig.getString("utmSource");
+        String medium=googleBaseConfig.getString("utmMedium");
+        String term=googleBaseConfig.getString("utmTerm");
+        String content=googleBaseConfig.getString("utmContent");
+        String campaign=googleBaseConfig.getString("utmCampaign");
+        if (UtilValidate.isNotEmpty(source)) {
+          utmSource="?utm_source=" + source;
+        }
+ else {
+          utmSource="";
+        }
+        if (UtilValidate.isNotEmpty(medium)) {
+          utmMedium="&utm_medium=" + medium;
+        }
+ else {
+          utmMedium="";
+        }
+        if (UtilValidate.isNotEmpty(term)) {
+          utmTerm="&utm_term=" + term;
+        }
+ else {
+          utmTerm="";
+        }
+        if (UtilValidate.isNotEmpty(content)) {
+          utmContent="&utm_content=" + content;
+        }
+ else {
+          utmContent="";
+        }
+        if (UtilValidate.isNotEmpty(campaign)) {
+          utmCampaign="&utm_campaign=" + campaign;
+        }
+ else {
+          utmCampaign="";
+        }
+      }
+    }
     if (!webSiteUrl.startsWith("http://") && !webSiteUrl.startsWith("https://")) {
       webSiteUrl="http://" + webSiteUrl;
     }
@@ -27,12 +81,15 @@
     String productCurrency=null;
     if ("US".equals(countryCode)) {
       productCurrency="USD";
+      localeString="en_US";
     }
  else     if ("GB".equals(countryCode)) {
       productCurrency="GBP";
+      localeString="en_GB";
     }
  else     if ("DE".equals(countryCode)) {
       productCurrency="EUR";
+      localeString="de";
     }
  else {
       Debug.logError("Exception during building data items to Google, Country Code must be either US, UK or DE: " + countryCode,module);
@@ -64,15 +121,33 @@
         Debug.logInfo("Price not found for product [" + prod.getString("productId") + "]; product will not be exported.",module);
         continue;
       }
-      String link=webSiteUrl + "/" + webSiteMountPoint+ "/control/product/~product_id="+ prod.getString("productId")+ trackingCodeId;
-      String title=UtilFormatOut.encodeXmlValue(prod.getString("productName"));
-      if (UtilValidate.isEmpty(title)) {
-        title=UtilFormatOut.encodeXmlValue(prod.getString("internalName"));
+      String link=webSiteUrl + "/" + webSiteMountPoint+ "/control/product/~product_id="+ prod.getString("productId")+ trackingCodeId+ utmSource+ utmMedium+ utmTerm+ utmContent+ utmCampaign;
+      String productName=null;
+      String productDescription=null;
+      String productURL=null;
+      List<GenericValue> productAndInfos=delegator.findByAnd("ProductContentAndInfo",UtilMisc.toMap("productId",prod.getString("productId"),"localeString",localeString,"thruDate",null));
+      if (productAndInfos.size() > 0) {
+        for (        GenericValue productContentAndInfo : productAndInfos) {
+          String dataReSourceId=productContentAndInfo.getString("dataResourceId");
+          GenericValue electronicText=delegator.findByPrimaryKey("ElectronicText",UtilMisc.toMap("dataResourceId",dataReSourceId));
+          if ("PRODUCT_NAME".equals(productContentAndInfo.getString("productContentTypeId")))           productName=electronicText.getString("textData");
+          if ("LONG_DESCRIPTION".equals(productContentAndInfo.getString("productContentTypeId")))           productDescription=electronicText.getString("textData");
+          if ("PRODUCT_URL".equals(productContentAndInfo.getString("productContentTypeId")))           productURL=electronicText.getString("textData") + utmSource + utmMedium+ utmTerm+ utmContent+ utmCampaign;
+        }
       }
-      String description=UtilFormatOut.encodeXmlValue(prod.getString("description"));
-      if (UtilValidate.isEmpty(description)) {
-        description=UtilFormatOut.encodeXmlValue(prod.getString("internalName"));
+ else {
+        productName=prod.getString("internalName");
+        productDescription=prod.getString("longDescription");
+        if (UtilValidate.isEmpty(productDescription)) {
+          productDescription=prod.getString("description");
+        }
       }
+      String title=UtilFormatOut.encodeXmlValue(productName);
+      if (UtilValidate.isEmpty(title))       title=UtilFormatOut.encodeXmlValue(prod.getString("productName"));
+      if (UtilValidate.isEmpty(title))       title=UtilFormatOut.encodeXmlValue(prod.getString("internalName"));
+      String description=UtilFormatOut.encodeXmlValue(productDescription);
+      if (UtilValidate.isEmpty(description))       description=UtilFormatOut.encodeXmlValue(prod.getString("description"));
+      if (UtilValidate.isEmpty(description))       description=UtilFormatOut.encodeXmlValue(prod.getString("internalName"));
       String imageLink="";
       if (UtilValidate.isNotEmpty(prod.getString("largeImageUrl"))) {
         imageLink=webSiteUrl + prod.getString("largeImageUrl");
@@ -86,7 +161,7 @@
       String googleProductId=null;
       if (!"insert".equals(actionType)) {
         try {
-          googleProduct=delegator.findByPrimaryKey("GoodIdentification",UtilMisc.toMap("productId",prod.getString("productId"),"goodIdentificationTypeId","GOOGLE_ID"));
+          googleProduct=delegator.findByPrimaryKey("GoodIdentification",UtilMisc.toMap("productId",prod.getString("productId"),"goodIdentificationTypeId","GOOGLE_ID_" + localeString));
           if (UtilValidate.isNotEmpty(googleProduct)) {
             googleProductId=googleProduct.getString("idValue");
           }
@@ -100,10 +175,13 @@
       }
       Element entryElem=UtilXml.addChildElement(feedElem,"entry",feedDocument);
       Element batchElem=UtilXml.addChildElementNSElement(entryElem,"batch:operation",feedDocument,googleBaseBatchUrl);
-      Element batchOperationElem=UtilXml.firstChildElement(batchElem,"batch:operation");
+      Element batchOperationElem=(Element)batchElem.getFirstChild();
       batchOperationElem.setAttribute("type",itemActionType);
+      if ("delete".equals(actionType) || "update".equals(actionType)) {
+        UtilXml.addChildElementNSValue(entryElem,"id",googleProductId,feedDocument,"");
+      }
       Element appControlElem=UtilXml.addChildElementNSElement(entryElem,"app:control",feedDocument,googleBaseAppUrl);
-      Element appControlChildElem=UtilXml.firstChildElement(appControlElem,"app:control");
+      Element appControlChildElem=(Element)appControlElem.getLastChild();
       UtilXml.addChildElementNSValue(appControlChildElem,"gm:publishing_priority","high",feedDocument,googleBaseMetadataUrl);
       if (statusId != null && ("draft".equals(statusId) || "deactivate".equals(statusId))) {
         UtilXml.addChildElementNSValue(appControlElem,"app:draft","yes",feedDocument,googleBaseAppUrl);
@@ -114,24 +192,26 @@
       UtilXml.addChildElementValue(entryElem,"title",title,feedDocument);
       Element contentElem=UtilXml.addChildElementValue(entryElem,"content",description,feedDocument);
       contentElem.setAttribute("type","xhtml");
-      if (UtilValidate.isNotEmpty(googleProductId)) {
-        UtilXml.addChildElementNSValue(entryElem,"g:id",googleProductId,feedDocument,googleBaseNSUrl);
-      }
- else {
-        UtilXml.addChildElementNSValue(entryElem,"g:id",link,feedDocument,googleBaseNSUrl);
-      }
+      UtilXml.addChildElementNSValue(entryElem,"g:id",prod.getString("productId"),feedDocument,googleBaseNSUrl);
       Element linkElem=UtilXml.addChildElement(entryElem,"link",feedDocument);
-      linkElem.setAttribute("rel","alternate");
-      linkElem.setAttribute("type","text/html");
       linkElem.setAttribute("href",link);
+      linkElem.setAttribute("rel","self");
+      linkElem.setAttribute("type","application/atom+xml");
       UtilXml.addChildElementNSValue(entryElem,"g:item_type","products",feedDocument,googleBaseNSUrl);
       List<GenericValue> productCategoryMembers=delegator.findList("ProductCategoryMember",EntityCondition.makeCondition("productId",EntityOperator.EQUALS,prod.getString("productId")),null,UtilMisc.toList("productCategoryId"),null,false);
       Iterator<GenericValue> productCategoryMembersIter=productCategoryMembers.iterator();
       while (productCategoryMembersIter.hasNext()) {
         GenericValue productCategoryMember=productCategoryMembersIter.next();
         GenericValue productCategory=productCategoryMember.getRelatedOne("ProductCategory");
-        String productCategoryTypeId=productCategory.getString("productCategoryTypeId");
-        if (UtilValidate.isNotEmpty(productCategoryTypeId) && "GOOGLE_BASE_CATEGORY".equals(productCategoryTypeId)) {
+        String productCategoryId=productCategory.getString("productCategoryId");
+        String checkCategory=null;
+        if ("GB".equals(countryCode)) {
+          checkCategory="UK";
+        }
+ else {
+          checkCategory=countryCode;
+        }
+        if (UtilValidate.isNotEmpty(productCategoryId) && (checkCategory.equals(productCategoryId.substring(0,2)))) {
           String categoryDescription="";
           if (UtilValidate.isNotEmpty(productCategory.getString("categoryName"))) {
             categoryDescription=productCategory.getString("categoryName");
@@ -142,13 +222,12 @@
  else           if (UtilValidate.isNotEmpty(productCategory.getString("longDescription"))) {
             categoryDescription=productCategory.getString("longDescription");
           }
-          if (UtilValidate.isNotEmpty(productCategory)) {
+          if (UtilValidate.isNotEmpty(categoryDescription)) {
             UtilXml.addChildElementNSValue(entryElem,"g:product_type",StringUtil.wrapString(categoryDescription).toString(),feedDocument,googleBaseNSUrl);
           }
         }
       }
       UtilXml.addChildElementNSValue(entryElem,"g:price",price,feedDocument,googleBaseNSUrl);
-      UtilXml.addChildElementNSValue(entryElem,"g:currency",productCurrency,feedDocument,googleBaseNSUrl);
       UtilXml.addChildElementNSValue(entryElem,"g:target_country",countryCode,feedDocument,googleBaseNSUrl);
       if (UtilValidate.isNotEmpty(prod.getString("brandName"))) {
         UtilXml.addChildElementNSValue(entryElem,"g:brand",prod.getString("brandName"),feedDocument,googleBaseNSUrl);
@@ -162,7 +241,14 @@
  catch (      GenericEntityException gee) {
         Debug.logInfo("Unable to get the SKU for product [" + prod.getString("productId") + "]: "+ gee.getMessage(),module);
       }
-      UtilXml.addChildElementNSValue(entryElem,"g:condition","new",feedDocument,googleBaseNSUrl);
+      String condition=null;
+      if ("US".equals(countryCode) || "GB".equals(countryCode)) {
+        condition="new";
+      }
+ else       if ("DE".equals(countryCode)) {
+        condition="new";
+      }
+      UtilXml.addChildElementNSValue(entryElem,"g:condition",condition,feedDocument,googleBaseNSUrl);
       if (UtilValidate.isNotEmpty(imageLink)) {
         UtilXml.addChildElementNSValue(entryElem,"g:image_link",imageLink,feedDocument,googleBaseNSUrl);
       }
@@ -178,6 +264,9 @@
         newProductsInGoogle.add(null);
         productsRemovedFromGoogle.add(null);
       }
+      if ("Y".equals(context.get("allowRecommended"))) {
+        setRecommendedAttributes(prod,feedDocument,entryElem,delegator,countryCode,productCurrency);
+      }
       index++;
     }
     dataItemsXml.append(UtilXml.writeXmlDocument(feedDocument));
@@ -191,6 +280,6 @@ catch (  GenericEntityException e) {
   Map<String,Object> result=ServiceUtil.returnSuccess();
   result.put("newProductsInGoogle",newProductsInGoogle);
   result.put("productsRemovedFromGoogle",productsRemovedFromGoogle);
-  Debug.log("======returning with result: " + result);
+  result.put("localeString",localeString);
   return result;
 }

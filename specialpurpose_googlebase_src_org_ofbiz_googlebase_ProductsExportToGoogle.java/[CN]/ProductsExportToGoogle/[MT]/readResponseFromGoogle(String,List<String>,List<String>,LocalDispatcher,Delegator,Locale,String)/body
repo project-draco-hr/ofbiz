@@ -1,0 +1,63 @@
+{
+  List<String> message=FastList.newInstance();
+  try {
+    Document docResponse=UtilXml.readXmlDocument(msg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    List<? extends Element> atomEntryList=UtilXml.childElementList(elemResponse,"atom:entry");
+    Iterator<? extends Element> atomEntryElemIter=atomEntryList.iterator();
+    int index=0;
+    while (atomEntryElemIter.hasNext()) {
+      String id=null;
+      Element atomEntryElement=atomEntryElemIter.next();
+      Node atomId=atomEntryElement.getElementsByTagName("atom:id").item(0);
+      if (UtilValidate.isNotEmpty(atomId)) {
+        id=atomId.getTextContent();
+      }
+      String productId="";
+      if (UtilValidate.isNotEmpty(id) && newProductsInGoogle.get(index) != null) {
+        productId=newProductsInGoogle.get(index);
+        try {
+          GenericValue googleProductId=delegator.makeValue("GoodIdentification");
+          googleProductId.set("goodIdentificationTypeId","GOOGLE_ID_" + localeString);
+          googleProductId.set("productId",productId);
+          googleProductId.set("idValue",id);
+          delegator.createOrStore(googleProductId);
+        }
+ catch (        GenericEntityException gee) {
+          Debug.logError("Unable to create or update Google id for product [" + productId + "]: "+ gee.getMessage(),module);
+        }
+      }
+      if (UtilValidate.isNotEmpty(id) && productsRemovedFromGoogle.get(index) != null) {
+        productId=productsRemovedFromGoogle.get(index);
+        try {
+          delegator.removeByAnd("GoodIdentification",UtilMisc.toMap("goodIdentificationTypeId","GOOGLE_ID_" + localeString,"productId",productId));
+        }
+ catch (        GenericEntityException gee) {
+          Debug.logError("Unable to remove Google id for product [" + productId + "]: "+ gee.getMessage(),module);
+        }
+      }
+      if (UtilValidate.isEmpty(productId)) {
+        productId=atomEntryElement.getElementsByTagName("g:id").item(0).getTextContent();
+      }
+      String title="Google response:" + UtilXml.childElementValue(atomEntryElement,"atom:title","");
+      List<? extends Element> batchStatusList=UtilXml.childElementList(atomEntryElement,"batch:status");
+      Iterator<? extends Element> batchStatusEntryElemIter=batchStatusList.iterator();
+      while (batchStatusEntryElemIter.hasNext()) {
+        Element batchStatusEntryElement=batchStatusEntryElemIter.next();
+        if (UtilValidate.isNotEmpty(batchStatusEntryElement.getAttribute("reason"))) {
+          message.add(title + " " + productId+ ":"+ batchStatusEntryElement.getAttribute("reason"));
+        }
+      }
+      String errors=UtilXml.childElementValue(atomEntryElement,"batch:status","");
+      if (UtilValidate.isNotEmpty(errors)) {
+        message.add(title + " " + errors);
+      }
+      index++;
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception reading response from Google: " + e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"productsExportToGoogle.exceptionReadingResponseFromGoogle",locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

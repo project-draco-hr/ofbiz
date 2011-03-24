@@ -1,6 +1,9 @@
 {
+  if (this.loaded || this.unloading) {
+    return;
+  }
   Debug.logInfo("[Startup] Loading containers...",module);
-  loaded=true;
+  this.loadedContainers.clear();
   this.configFile=config.containerConfig;
   Collection<ContainerConfig.Container> containers=null;
   try {
@@ -13,8 +16,12 @@
     throw new StartupException(e);
   }
   for (  ContainerConfig.Container containerCfg : containers) {
+    if (this.unloading) {
+      return;
+    }
     Container tmpContainer=loadContainer(containerCfg,args);
-    loadedContainers.add(tmpContainer);
+    this.loadedContainers.add(tmpContainer);
+    containerMap.put(containerCfg.name,tmpContainer);
     if (containerCfg.name.equals("rmi-dispatcher") && configFile.equals("limited-containers.xml")) {
       try {
         ContainerConfig.Container.Property initialCtxProp=containerCfg.getProperty("use-initial-context");
@@ -24,7 +31,6 @@
             System.setSecurityManager(new java.rmi.RMISecurityManager());
           }
           tmpContainer.start();
-          rmiLoadedContainer=tmpContainer;
         }
       }
  catch (      ContainerException e) {
@@ -35,16 +41,24 @@ catch (      java.lang.AbstractMethodError e) {
       }
     }
   }
+  if (this.unloading) {
+    return;
+  }
   ClassLoader loader=Thread.currentThread().getContextClassLoader();
   Enumeration<URL> resources;
   try {
     resources=loader.getResources("hot-deploy-containers.xml");
-    while (resources.hasMoreElements()) {
+    while (resources.hasMoreElements() && !this.unloading) {
       URL xmlUrl=resources.nextElement();
       Debug.logInfo("Loading hot-deploy containers from " + xmlUrl,module);
       Collection<ContainerConfig.Container> hotDeployContainers=ContainerConfig.getContainers(xmlUrl);
       for (      ContainerConfig.Container containerCfg : hotDeployContainers) {
-        loadedContainers.add(loadContainer(containerCfg,args));
+        if (this.unloading) {
+          return;
+        }
+        Container tmpContainer=loadContainer(containerCfg,args);
+        this.loadedContainers.add(tmpContainer);
+        containerMap.put(containerCfg.name,tmpContainer);
       }
     }
   }
@@ -52,4 +66,5 @@ catch (      java.lang.AbstractMethodError e) {
     Debug.logError(e,"Could not load hot-deploy-containers.xml",module);
     throw new StartupException(e);
   }
+  loaded=true;
 }
