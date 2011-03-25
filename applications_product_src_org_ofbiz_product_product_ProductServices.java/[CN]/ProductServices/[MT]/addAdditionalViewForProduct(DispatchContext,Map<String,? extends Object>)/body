@@ -37,28 +37,60 @@
       filenameToUse+="." + extension.getString("fileExtensionId");
     }
     String targetDirectory=imageServerPath + "/" + filePathPrefix;
-    File targetDir=new File(targetDirectory);
-    if (!targetDir.exists()) {
-      boolean created=targetDir.mkdirs();
-      if (!created) {
-        String errMsg=UtilProperties.getMessage(resource,"ScaleImage.unable_to_create_target_directory",locale) + " - " + targetDirectory;
-        Debug.logFatal(errMsg,module);
-        return ServiceUtil.returnError(errMsg);
+    try {
+      File targetDir=new File(targetDirectory);
+      if (!targetDir.exists()) {
+        boolean created=targetDir.mkdirs();
+        if (!created) {
+          String errMsg=UtilProperties.getMessage(resource,"ScaleImage.unable_to_create_target_directory",locale) + " - " + targetDirectory;
+          Debug.logFatal(errMsg,module);
+          return ServiceUtil.returnError(errMsg);
+        }
+      }
+ else       if (!filenameToUse.contains(productId)) {
+        try {
+          File[] files=targetDir.listFiles();
+          for (          File file : files) {
+            if (file.isFile())             file.delete();
+          }
+        }
+ catch (        SecurityException e) {
+          Debug.logError(e,module);
+        }
+      }
+ else {
+        try {
+          File[] files=targetDir.listFiles();
+          for (          File file : files) {
+            if (file.isFile() && file.getName().startsWith(productId + "_View_" + viewNumber))             file.delete();
+          }
+        }
+ catch (        SecurityException e) {
+          Debug.logError(e,module);
+        }
       }
     }
-    File file=new File(imageServerPath + "/" + fileLocation+ "."+ extension.getString("fileExtensionId"));
+ catch (    NullPointerException e) {
+      Debug.logError(e,module);
+    }
     try {
-      RandomAccessFile out=new RandomAccessFile(file,"rw");
-      out.write(imageData.array());
-      out.close();
+      File file=new File(imageServerPath + "/" + fileLocation+ "."+ extension.getString("fileExtensionId"));
+      try {
+        RandomAccessFile out=new RandomAccessFile(file,"rw");
+        out.write(imageData.array());
+        out.close();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
+catch (      IOException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
     }
- catch (    FileNotFoundException e) {
+ catch (    NullPointerException e) {
       Debug.logError(e,module);
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
-    }
-catch (    IOException e) {
-      Debug.logError(e,module);
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductImageViewUnableWriteBinaryData",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
     }
     Map<String,Object> resultResize=FastMap.newInstance();
     try {
