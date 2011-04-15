@@ -1,0 +1,73 @@
+{
+  String filename=test.file.toString();
+  List<String> messages=FastList.newInstance();
+  if (Debug.infoOn()) {
+    Debug.logInfo("Running " + filename + " against "+ this.host+ ":"+ this.port+ " with "+ this.browser,module);
+  }
+  this.document=parseDocument(filename);
+  if (this.baseUrl == null) {
+    NodeList links=this.document.getElementsByTagName("link");
+    if (links.getLength() != 0) {
+      Element link=(Element)links.item(0);
+      setBaseUrl(link.getAttribute("href"));
+    }
+  }
+  if (Debug.infoOn()) {
+    Debug.logInfo("Base URL=" + this.baseUrl,module);
+  }
+  Node body=this.document.getElementsByTagName("body").item(0);
+  Element resultContainer=document.createElement("div");
+  resultContainer.setTextContent("Result: ");
+  Element resultElt=document.createElement("span");
+  resultElt.setAttribute("id","result");
+  resultElt.setIdAttribute("id",true);
+  resultContainer.appendChild(resultElt);
+  body.insertBefore(resultContainer,body.getFirstChild());
+  Element executionLogContainer=document.createElement("div");
+  executionLogContainer.setTextContent("Execution Log:");
+  Element executionLog=document.createElement("div");
+  executionLog.setAttribute("id","log");
+  executionLog.setIdAttribute("id",true);
+  executionLog.setAttribute("style","white-space: pre;");
+  executionLogContainer.appendChild(executionLog);
+  body.appendChild(executionLogContainer);
+  NodeList tableRows=document.getElementsByTagName("tr");
+  Element theadRow=(Element)tableRows.item(0);
+  test.name=theadRow.getTextContent();
+  this.commandProcessor=new HtmlCommandProcessor(this.host,this.port,this.browser,this.baseUrl);
+  String resultState;
+  String resultLog;
+  test.result=true;
+  try {
+    this.commandProcessor.start();
+    test.commands=new Command[tableRows.getLength() - 1];
+    for (int i=1; i < tableRows.getLength(); i++) {
+      Element stepRow=(Element)tableRows.item(i);
+      Command command=executeStep(stepRow);
+      messages.add(command.result + " --> " + command.cmd+ " "+ Arrays.asList(command.args));
+      test.commands[i - 1]=command;
+      if (command.error) {
+        test.result=false;
+      }
+      if (command.failure) {
+        test.result=false;
+        break;
+      }
+    }
+    resultState=test.result ? "PASSED" : "FAILED";
+    resultLog=(test.result ? "Test Complete" : "Error");
+    this.commandProcessor.stop();
+  }
+ catch (  Exception e) {
+    test.result=false;
+    resultState="ERROR";
+    resultLog="Failed to initialize session\n" + e;
+    e.printStackTrace();
+  }
+  document.getElementById("result").setTextContent(resultState);
+  Element log=document.getElementById("log");
+  log.setTextContent(log.getTextContent() + resultLog + "\n");
+  Map<String,Object> results=FastMap.newInstance();
+  results.put("log",messages);
+  return results;
+}
