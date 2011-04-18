@@ -1,0 +1,48 @@
+{
+  ServletFileUpload fu=new ServletFileUpload(new DiskFileItemFactory(10240,FileUtil.getFile("runtime/tmp")));
+  List<FileItem> list=null;
+  Map<String,String> passedParams=FastMap.newInstance();
+  try {
+    list=UtilGenerics.checkList(fu.parseRequest(request));
+  }
+ catch (  FileUploadException e) {
+    Debug.logError(e,module);
+    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    return "error";
+  }
+  byte[] file=null;
+  for (  FileItem fi : list) {
+    String fieldName=fi.getFieldName();
+    if (fi.isFormField()) {
+      String fieldStr=fi.getString();
+      passedParams.put(fieldName,fieldStr);
+    }
+ else     if (fieldName.startsWith("fileData")) {
+      passedParams.put("completeFileName",fi.getName());
+      file=fi.get();
+    }
+  }
+  JcrFileHelper jackrabbit=new JcrFileHelperJackrabbit((GenericValue)request.getSession().getAttribute("userLogin"),(Delegator)request.getAttribute("delegator"),null,passedParams.get("repositoryNode"));
+  if (file != null && file.length >= 1) {
+    try {
+      jackrabbit.uploadFileData(file,passedParams.get("completeFileName"));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      request.setAttribute("_ERROR_MESSAGE_",e.toString());
+      return "error";
+    }
+catch (    RepositoryException e) {
+      Debug.logError(e,module);
+      request.setAttribute("_ERROR_MESSAGE_",e.toString());
+      return "error";
+    }
+ finally {
+      jackrabbit.closeSession();
+    }
+  }
+ else {
+    jackrabbit.closeSession();
+  }
+  return "success";
+}
