@@ -1,0 +1,68 @@
+{
+  ArrayList<String> contentIds=new ArrayList<String>(maxResults == null ? 100 : maxResults.intValue());
+  if (eli == null) {
+    Debug.logWarning("The eli is null, returning zero results",module);
+    return contentIds;
+  }
+  try {
+    boolean hasResults=false;
+    Object initialResult=null;
+    initialResult=eli.next();
+    if (initialResult != null) {
+      hasResults=true;
+    }
+    if (resultOffset != null && resultOffset.intValue() > 1) {
+      if (Debug.infoOn())       Debug.logInfo("Before relative, current index=" + eli.currentIndex(),module);
+      hasResults=eli.relative(resultOffset.intValue() - 1);
+      initialResult=null;
+    }
+    GenericValue searchResult=null;
+    if (hasResults) {
+      if (initialResult != null) {
+        searchResult=(GenericValue)initialResult;
+      }
+ else {
+        searchResult=eli.currentGenericValue();
+      }
+    }
+    if (searchResult == null) {
+      int failTotal=0;
+      if (this.resultOffset != null) {
+        failTotal=this.resultOffset.intValue() - 1;
+      }
+      this.totalResults=Integer.valueOf(failTotal);
+      return contentIds;
+    }
+    int numRetreived=1;
+    int duplicatesFound=0;
+    Set<String> contentIdSet=FastSet.newInstance();
+    contentIds.add(searchResult.getString("contentId"));
+    contentIdSet.add(searchResult.getString("contentId"));
+    while (((searchResult=eli.next()) != null) && (maxResults == null || numRetreived < maxResults.intValue())) {
+      String contentId=searchResult.getString("contentId");
+      if (!contentIdSet.contains(contentId)) {
+        contentIds.add(contentId);
+        contentIdSet.add(contentId);
+        numRetreived++;
+      }
+ else {
+        duplicatesFound++;
+      }
+    }
+    if (searchResult != null) {
+      this.totalResults=eli.getResultsSizeAfterPartialList();
+    }
+    if (this.totalResults == null || this.totalResults.intValue() == 0) {
+      int total=numRetreived;
+      if (this.resultOffset != null) {
+        total+=(this.resultOffset.intValue() - 1);
+      }
+      this.totalResults=Integer.valueOf(total);
+    }
+    Debug.logInfo("Got search values, numRetreived=" + numRetreived + ", totalResults="+ totalResults+ ", maxResults="+ maxResults+ ", resultOffset="+ resultOffset+ ", duplicatesFound(in the current results)="+ duplicatesFound,module);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting results from the content search query",module);
+  }
+  return contentIds;
+}
