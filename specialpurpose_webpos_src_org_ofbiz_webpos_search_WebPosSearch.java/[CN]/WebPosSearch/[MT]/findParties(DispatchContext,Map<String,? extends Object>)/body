@@ -1,0 +1,86 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String searchByPartyLastName=(String)context.get("searchByPartyLastName");
+  String searchByPartyFirstName=(String)context.get("searchByPartyFirstName");
+  String searchByPartyIdValue=(String)context.get("searchByPartyIdValue");
+  String partyIdentificationTypeId=(String)context.get("partyIdentificationTypeId");
+  String billingLocation=(String)context.get("billingLocation");
+  String shippingLocation=(String)context.get("shippingLocation");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  List<EntityCondition> andExprs=FastList.newInstance();
+  List<EntityCondition> orExprs=FastList.newInstance();
+  EntityCondition mainCond=null;
+  List<String> orderBy=FastList.newInstance();
+  DynamicViewEntity dynamicView=new DynamicViewEntity();
+  dynamicView.addMemberEntity("PT","Party");
+  dynamicView.addAlias("PT","partyId");
+  dynamicView.addAlias("PT","statusId");
+  dynamicView.addAlias("PT","partyTypeId");
+  dynamicView.addMemberEntity("PI","PartyIdentification");
+  dynamicView.addAlias("PI","partyIdentificationTypeId");
+  dynamicView.addAlias("PI","idValue");
+  dynamicView.addViewLink("PT","PI",Boolean.TRUE,ModelKeyMap.makeKeyMapList("partyId"));
+  dynamicView.addMemberEntity("PER","Person");
+  dynamicView.addAlias("PER","lastName");
+  dynamicView.addAlias("PER","firstName");
+  dynamicView.addViewLink("PT","PER",Boolean.TRUE,ModelKeyMap.makeKeyMapList("partyId"));
+  dynamicView.addMemberEntity("PCP","PartyContactMechPurpose");
+  dynamicView.addAlias("PCP","contactMechId");
+  dynamicView.addAlias("PCP","contactMechPurposeTypeId");
+  dynamicView.addAlias("PCP","fromDate");
+  dynamicView.addAlias("PCP","thruDate");
+  dynamicView.addViewLink("PT","PCP",Boolean.TRUE,ModelKeyMap.makeKeyMapList("partyId"));
+  dynamicView.addMemberEntity("CM","ContactMech");
+  dynamicView.addAlias("CM","contactMechId");
+  dynamicView.addAlias("CM","contactMechTypeId");
+  dynamicView.addAlias("CM","infoString");
+  dynamicView.addViewLink("PCP","CM",Boolean.TRUE,ModelKeyMap.makeKeyMapList("contactMechId"));
+  dynamicView.addMemberEntity("PA","PostalAddress");
+  dynamicView.addAlias("PA","address1");
+  dynamicView.addAlias("PA","city");
+  dynamicView.addAlias("PA","postalCode");
+  dynamicView.addAlias("PA","countryGeoId");
+  dynamicView.addAlias("PA","stateProvinceGeoId");
+  dynamicView.addViewLink("CM","PA",Boolean.TRUE,ModelKeyMap.makeKeyMapList("contactMechId"));
+  if (UtilValidate.isNotEmpty(billingLocation) && "Y".equalsIgnoreCase(billingLocation)) {
+    orExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"BILLING_LOCATION"));
+  }
+  if (UtilValidate.isNotEmpty(shippingLocation) && "Y".equalsIgnoreCase(shippingLocation)) {
+    orExprs.add(EntityCondition.makeCondition("contactMechPurposeTypeId",EntityOperator.EQUALS,"SHIPPING_LOCATION"));
+  }
+  if (orExprs.size() > 0) {
+    andExprs.add(EntityCondition.makeCondition(orExprs,EntityOperator.OR));
+  }
+  andExprs.add(EntityCondition.makeCondition("partyTypeId",EntityOperator.EQUALS,"PERSON"));
+  andExprs.add(EntityCondition.makeCondition("contactMechTypeId",EntityOperator.EQUALS,"POSTAL_ADDRESS"));
+  mainCond=EntityCondition.makeCondition(andExprs,EntityOperator.AND);
+  orderBy.add("lastName");
+  orderBy.add("firstName");
+  if (UtilValidate.isNotEmpty(searchByPartyLastName)) {
+    searchByPartyLastName=searchByPartyLastName.toUpperCase().trim();
+    andExprs.add(EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("lastName"),EntityOperator.LIKE,EntityFunction.UPPER("%" + searchByPartyLastName + "%")));
+  }
+  if (UtilValidate.isNotEmpty(searchByPartyFirstName)) {
+    searchByPartyFirstName=searchByPartyFirstName.toUpperCase().trim();
+    andExprs.add(EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("firstName"),EntityOperator.LIKE,EntityFunction.UPPER("%" + searchByPartyFirstName + "%")));
+  }
+  if (UtilValidate.isNotEmpty(searchByPartyIdValue)) {
+    searchByPartyIdValue=searchByPartyIdValue.toUpperCase().trim();
+    andExprs.add(EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("idValue"),EntityOperator.EQUALS,searchByPartyIdValue));
+    if (UtilValidate.isNotEmpty(partyIdentificationTypeId)) {
+      andExprs.add(EntityCondition.makeCondition("partyIdentificationTypeId",EntityOperator.EQUALS,partyIdentificationTypeId));
+    }
+  }
+  mainCond=EntityCondition.makeCondition(andExprs,EntityOperator.AND);
+  List<GenericValue> parties=null;
+  try {
+    EntityListIterator pli=delegator.findListIteratorByCondition(dynamicView,mainCond,null,null,orderBy,null);
+    parties=EntityUtil.filterByDate(pli.getCompleteList(),true);
+    pli.close();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  result.put("partiesList",parties);
+  return result;
+}
