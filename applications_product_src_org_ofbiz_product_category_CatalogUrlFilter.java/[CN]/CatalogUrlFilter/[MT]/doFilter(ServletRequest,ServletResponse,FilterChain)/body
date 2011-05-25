@@ -26,12 +26,8 @@
   if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
     httpRequest.getSession().setAttribute("webSiteId",httpRequest.getSession().getServletContext().getAttribute("webSiteId"));
   }
-  String initDefaultViewIndex=config.getInitParameter("defaultViewIndex");
-  String initDefaultViewSize=config.getInitParameter("defaultViewSize");
   String initDefaultLocalesString=config.getInitParameter("defaultLocaleString");
   String initRedirectUrl=config.getInitParameter("redirectUrl");
-  defaultViewIndex=UtilValidate.isNotEmpty(initDefaultViewIndex) ? initDefaultViewIndex : "";
-  defaultViewSize=UtilValidate.isNotEmpty(initDefaultViewSize) ? initDefaultViewSize : "";
   defaultLocaleString=UtilValidate.isNotEmpty(initDefaultLocalesString) ? initDefaultLocalesString : "";
   redirectUrl=UtilValidate.isNotEmpty(initRedirectUrl) ? initRedirectUrl : "";
   String pathInfo=httpRequest.getServletPath();
@@ -56,8 +52,8 @@
  catch (    GenericEntityException ex) {
       Debug.logWarning(ex,module);
     }
-    String viewIndex=defaultViewIndex;
-    String viewSize=defaultViewSize;
+    String viewIndex=null;
+    String viewSize=null;
     String viewSort=null;
     String searchString=null;
     int queryStringIndex=pathInfo.indexOf("?");
@@ -81,28 +77,128 @@
         }
       }
     }
+    if (UtilValidate.isNotEmpty(httpRequest.getParameter("viewIndex"))) {
+      viewIndex=httpRequest.getParameter("viewIndex");
+    }
+    if (UtilValidate.isNotEmpty(httpRequest.getParameter("viewSize"))) {
+      viewSize=httpRequest.getParameter("viewSize");
+    }
+    if (UtilValidate.isNotEmpty(httpRequest.getParameter("viewSort"))) {
+      viewSort=httpRequest.getParameter("viewSort");
+    }
+    if (UtilValidate.isNotEmpty(httpRequest.getParameter("searchString"))) {
+      searchString=httpRequest.getParameter("searchString");
+    }
     String productId=null;
     String productCategoryId=null;
     try {
-      List<EntityCondition> productContentConds=FastList.newInstance();
-      productContentConds.add(EntityCondition.makeCondition(EntityCondition.makeCondition("drObjectInfo",alternativeUrl),EntityOperator.OR,EntityCondition.makeCondition("drObjectInfo","/" + alternativeUrl)));
-      productContentConds.add(EntityCondition.makeCondition("localeString",localeString));
-      productContentConds.add(EntityCondition.makeCondition("productContentTypeId","ALTERNATIVE_URL"));
-      productContentConds.add(EntityUtil.getFilterByDateExpr());
-      List<GenericValue> productContentInfos=delegator.findList("ProductContentAndInfo",EntityCondition.makeCondition(productContentConds),null,UtilMisc.toList("-fromDate"),null,true);
-      if (UtilValidate.isNotEmpty(productContentInfos)) {
-        GenericValue productContentInfo=EntityUtil.getFirst(productContentInfos);
-        productId=productContentInfo.getString("productId");
+      if (alternativeUrl.endsWith("-p")) {
+        List<EntityCondition> productContentConds=FastList.newInstance();
+        productContentConds.add(EntityCondition.makeCondition("productContentTypeId","ALTERNATIVE_URL"));
+        productContentConds.add(EntityUtil.getFilterByDateExpr());
+        List<GenericValue> productContentInfos=delegator.findList("ProductContentAndInfo",EntityCondition.makeCondition(productContentConds),null,UtilMisc.toList("-fromDate"),null,true);
+        if (UtilValidate.isNotEmpty(productContentInfos)) {
+          for (          GenericValue productContentInfo : productContentInfos) {
+            String contentId=(String)productContentInfo.get("contentId");
+            List<GenericValue> ContentAssocDataResourceViewTos=delegator.findByAndCache("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",contentId,"drLocaleString",localeString,"caContentAssocTypeId","ALTERNATE_LOCALE","drDataResourceTypeId","ELECTRONIC_TEXT"));
+            if (UtilValidate.isNotEmpty(ContentAssocDataResourceViewTos)) {
+              for (              GenericValue ContentAssocDataResourceViewTo : ContentAssocDataResourceViewTos) {
+                GenericValue ElectronicText=ContentAssocDataResourceViewTo.getRelatedOneCache("ElectronicText");
+                if (UtilValidate.isNotEmpty(ElectronicText)) {
+                  String textData=(String)ElectronicText.get("textData");
+                  textData=invalidCharacter(textData);
+                  if (alternativeUrl.matches(textData + ".+$")) {
+                    String productIdStr=null;
+                    productIdStr=alternativeUrl.replace(textData + "-","");
+                    productIdStr=productIdStr.replace("-p","");
+                    String checkProductId=(String)productContentInfo.get("productId");
+                    if (productIdStr.equalsIgnoreCase(checkProductId)) {
+                      productId=checkProductId;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+ else {
+              List<GenericValue> contentDataResourceViews=delegator.findByAndCache("ContentDataResourceView",UtilMisc.toMap("contentId",contentId,"statusId","CTNT_IN_PROGRESS","drDataResourceTypeId","ELECTRONIC_TEXT"));
+              for (              GenericValue contentDataResourceView : contentDataResourceViews) {
+                GenericValue ElectronicText=contentDataResourceView.getRelatedOneCache("ElectronicText");
+                if (UtilValidate.isNotEmpty(ElectronicText)) {
+                  String textData=(String)ElectronicText.get("textData");
+                  if (UtilValidate.isNotEmpty(textData)) {
+                    textData=invalidCharacter(textData);
+                    if (alternativeUrl.matches(textData + ".+$")) {
+                      String productIdStr=null;
+                      productIdStr=alternativeUrl.replace(textData + "-","");
+                      productIdStr=productIdStr.replace("-p","");
+                      String checkProductId=(String)productContentInfo.get("productId");
+                      if (productIdStr.equalsIgnoreCase(checkProductId)) {
+                        productId=checkProductId;
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
-      List<EntityCondition> productCategoryContentConds=FastList.newInstance();
-      productCategoryContentConds.add(EntityCondition.makeCondition(EntityCondition.makeCondition("drObjectInfo",alternativeUrl),EntityOperator.OR,EntityCondition.makeCondition("drObjectInfo","/" + alternativeUrl)));
-      productContentConds.add(EntityCondition.makeCondition("localeString",localeString));
-      productCategoryContentConds.add(EntityCondition.makeCondition("prodCatContentTypeId","ALTERNATIVE_URL"));
-      productCategoryContentConds.add(EntityUtil.getFilterByDateExpr());
-      List<GenericValue> productCategoryContentInfos=delegator.findList("ProductCategoryContentAndInfo",EntityCondition.makeCondition(productCategoryContentConds),null,UtilMisc.toList("-fromDate"),null,true);
-      if (UtilValidate.isNotEmpty(productCategoryContentInfos)) {
-        GenericValue productCategoryContentInfo=EntityUtil.getFirst(productCategoryContentInfos);
-        productCategoryId=productCategoryContentInfo.getString("productCategoryId");
+      if (alternativeUrl.endsWith("-c")) {
+        List<EntityCondition> productCategoryContentConds=FastList.newInstance();
+        productCategoryContentConds.add(EntityCondition.makeCondition("prodCatContentTypeId","ALTERNATIVE_URL"));
+        productCategoryContentConds.add(EntityUtil.getFilterByDateExpr());
+        List<GenericValue> productCategoryContentInfos=delegator.findList("ProductCategoryContentAndInfo",EntityCondition.makeCondition(productCategoryContentConds),null,UtilMisc.toList("-fromDate"),null,true);
+        if (UtilValidate.isNotEmpty(productCategoryContentInfos)) {
+          for (          GenericValue productCategoryContentInfo : productCategoryContentInfos) {
+            String contentId=(String)productCategoryContentInfo.get("contentId");
+            List<GenericValue> ContentAssocDataResourceViewTos=delegator.findByAndCache("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",contentId,"drLocaleString",localeString,"caContentAssocTypeId","ALTERNATE_LOCALE","drDataResourceTypeId","ELECTRONIC_TEXT"));
+            if (UtilValidate.isNotEmpty(ContentAssocDataResourceViewTos)) {
+              for (              GenericValue ContentAssocDataResourceViewTo : ContentAssocDataResourceViewTos) {
+                GenericValue ElectronicText=ContentAssocDataResourceViewTo.getRelatedOneCache("ElectronicText");
+                if (UtilValidate.isNotEmpty(ElectronicText)) {
+                  String textData=(String)ElectronicText.get("textData");
+                  if (UtilValidate.isNotEmpty(textData)) {
+                    textData=invalidCharacter(textData);
+                    if (alternativeUrl.matches(textData + ".+$")) {
+                      String productCategoryStr=null;
+                      productCategoryStr=alternativeUrl.replace(textData + "-","");
+                      productCategoryStr=productCategoryStr.replace("-c","");
+                      String checkProductCategoryId=(String)productCategoryContentInfo.get("productCategoryId");
+                      if (productCategoryStr.equalsIgnoreCase(checkProductCategoryId)) {
+                        productCategoryId=checkProductCategoryId;
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+ else {
+              List<GenericValue> contentDataResourceViews=delegator.findByAndCache("ContentDataResourceView",UtilMisc.toMap("contentId",contentId,"statusId","CTNT_IN_PROGRESS","drDataResourceTypeId","ELECTRONIC_TEXT"));
+              for (              GenericValue contentDataResourceView : contentDataResourceViews) {
+                GenericValue ElectronicText=contentDataResourceView.getRelatedOneCache("ElectronicText");
+                if (UtilValidate.isNotEmpty(ElectronicText)) {
+                  String textData=(String)ElectronicText.get("textData");
+                  if (UtilValidate.isNotEmpty(textData)) {
+                    textData=invalidCharacter(textData);
+                    if (alternativeUrl.matches(textData + ".+$")) {
+                      String productCategoryStr=null;
+                      productCategoryStr=alternativeUrl.replace(textData + "-","");
+                      productCategoryStr=productCategoryStr.replace("-c","");
+                      String checkProductCategoryId=(String)productCategoryContentInfo.get("productCategoryId");
+                      if (productCategoryStr.equalsIgnoreCase(checkProductCategoryId)) {
+                        productCategoryId=checkProductCategoryId;
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
  catch (    GenericEntityException e) {
