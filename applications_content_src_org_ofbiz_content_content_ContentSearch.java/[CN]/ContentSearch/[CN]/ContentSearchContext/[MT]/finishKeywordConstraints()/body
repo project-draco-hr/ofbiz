@@ -1,0 +1,63 @@
+{
+  if (orKeywordFixedSet.size() == 0 && andKeywordFixedSet.size() == 0 && keywordFixedOrSetAndList.size() == 0) {
+    return;
+  }
+  this.includedKeywordSearch=true;
+  if (orKeywordFixedSet.size() > 0) {
+    keywordFixedOrSetAndList.add(orKeywordFixedSet);
+  }
+  Iterator<Set<String>> keywordFixedOrSetAndTestIter=keywordFixedOrSetAndList.iterator();
+  while (keywordFixedOrSetAndTestIter.hasNext()) {
+    Set<String> keywordFixedOrSet=keywordFixedOrSetAndTestIter.next();
+    if (keywordFixedOrSet.size() == 0) {
+      keywordFixedOrSetAndTestIter.remove();
+    }
+ else     if (keywordFixedOrSet.size() == 1) {
+      andKeywordFixedSet.add(keywordFixedOrSet.iterator().next());
+      keywordFixedOrSetAndTestIter.remove();
+    }
+  }
+  boolean doingBothAndOr=(keywordFixedOrSetAndList.size() > 1) || (keywordFixedOrSetAndList.size() > 0 && andKeywordFixedSet.size() > 0);
+  Debug.logInfo("Finished initial setup of keywords, doingBothAndOr=" + doingBothAndOr + ", andKeywordFixedSet="+ andKeywordFixedSet+ "\n keywordFixedOrSetAndList="+ keywordFixedOrSetAndList,module);
+  ComplexAlias relevancyComplexAlias=new ComplexAlias("+");
+  if (andKeywordFixedSet.size() > 0) {
+    for (    String keyword : andKeywordFixedSet) {
+      String entityAlias="PK" + index;
+      String prefix="pk" + index;
+      index++;
+      dynamicViewEntity.addMemberEntity(entityAlias,"ContentKeyword");
+      dynamicViewEntity.addAlias(entityAlias,prefix + "Keyword","keyword",null,null,null,null);
+      dynamicViewEntity.addViewLink("CNT",entityAlias,Boolean.FALSE,ModelKeyMap.makeKeyMapList("contentId"));
+      entityConditionList.add(EntityCondition.makeCondition(prefix + "Keyword",EntityOperator.LIKE,keyword));
+      relevancyComplexAlias.addComplexAliasMember(new ComplexAliasField(entityAlias,"relevancyWeight",null,null));
+    }
+    if (!doingBothAndOr) {
+      dynamicViewEntity.addAlias(null,"totalRelevancy",null,null,null,null,null,relevancyComplexAlias);
+    }
+  }
+  if (keywordFixedOrSetAndList.size() > 0) {
+    for (    Set<String> keywordFixedOrSet : keywordFixedOrSetAndList) {
+      String entityAlias="PK" + index;
+      String prefix="pk" + index;
+      index++;
+      dynamicViewEntity.addMemberEntity(entityAlias,"ContentKeyword");
+      dynamicViewEntity.addAlias(entityAlias,prefix + "Keyword","keyword",null,null,null,null);
+      dynamicViewEntity.addViewLink("CNT",entityAlias,Boolean.FALSE,ModelKeyMap.makeKeyMapList("contentId"));
+      List<EntityExpr> keywordOrList=FastList.newInstance();
+      for (      String keyword : keywordFixedOrSet) {
+        keywordOrList.add(EntityCondition.makeCondition(prefix + "Keyword",EntityOperator.LIKE,keyword));
+      }
+      entityConditionList.add(EntityCondition.makeCondition(keywordOrList,EntityOperator.OR));
+      contentIdGroupBy=true;
+      if (doingBothAndOr) {
+        relevancyComplexAlias.addComplexAliasMember(new ComplexAliasField(entityAlias,"relevancyWeight",null,"sum"));
+      }
+ else {
+        dynamicViewEntity.addAlias(entityAlias,"totalRelevancy","relevancyWeight",null,null,null,"sum");
+      }
+    }
+  }
+  if (doingBothAndOr) {
+    dynamicViewEntity.addAlias(null,"totalRelevancy",null,null,null,null,null,relevancyComplexAlias);
+  }
+}
