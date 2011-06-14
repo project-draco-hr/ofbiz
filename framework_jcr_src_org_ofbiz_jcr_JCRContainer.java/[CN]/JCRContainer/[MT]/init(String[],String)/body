@@ -1,0 +1,37 @@
+{
+  ContainerConfig.Container cc=ContainerConfig.getContainer("jcr-container",configFile);
+  if (cc == null) {
+    throw new ContainerException("No jcr-container configuration found in container config!");
+  }
+  jndiName=ContainerConfig.getPropertyValue(cc,"jndiName","jcr/local");
+  removeRepositoryOnShutdown=ContainerConfig.getPropertyValue(cc,"removeRepositoryOnShutdown",false);
+  configFilePath=ContainerConfig.getPropertyValue(cc,"configFilePath",DEFAULT_JCR_CONFIG_PATH);
+  Element configRootElement=null;
+  try {
+    configRootElement=ResourceLoader.getXmlRootElement(configFilePath);
+  }
+ catch (  GenericConfigException e) {
+    throw new ContainerException("Could not load the jcr configuration in file " + configFilePath,e);
+  }
+  if (configRootElement == null) {
+    throw new ContainerException("No jcr configuration found in file " + configFilePath);
+  }
+  Element childElement=UtilXml.firstChildElement(configRootElement,"jcr-context");
+  jcrContextName=UtilXml.elementAttribute(childElement,"name","default");
+  for (  Element curElement : UtilXml.childElementList(configRootElement,"jcr")) {
+    if (jcrContextName.equals(curElement.getAttribute("name"))) {
+      factoryClassName=curElement.getAttribute("class");
+      break;
+    }
+  }
+  JCRFactory jcrFactory=JCRFactoryUtil.getJCRFactory();
+  if (jcrFactory == null) {
+    throw new ContainerException("Cannot load JCRFactory implementation class");
+  }
+  try {
+    jcrFactory.initialize(configRootElement);
+  }
+ catch (  RepositoryException e) {
+    throw new ContainerException("Cannot initialize JCRFactory context",e);
+  }
+}
