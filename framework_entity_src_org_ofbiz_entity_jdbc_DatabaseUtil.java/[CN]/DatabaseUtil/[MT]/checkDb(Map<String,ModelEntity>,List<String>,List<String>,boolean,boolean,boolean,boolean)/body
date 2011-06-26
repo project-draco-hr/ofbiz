@@ -39,6 +39,7 @@
     Debug.logError(message,module);
     return;
   }
+  List<Future<CreateTableCallable>> tableFutures=FastList.newInstance();
   for (  ModelEntity entity : modelEntityList) {
     curEnt++;
     if (entity instanceof ModelViewEntity) {
@@ -195,20 +196,12 @@
       Debug.logWarning(message,module);
       if (messages != null)       messages.add(message);
       if (addMissing) {
-        String errMsg=createTable(entity,modelEntities,false);
-        if (UtilValidate.isNotEmpty(errMsg)) {
-          message="Could not create table [" + tableName + "]: "+ errMsg;
-          Debug.logError(message,module);
-          if (messages != null)           messages.add(message);
-        }
- else {
-          entitiesAdded.add(entity);
-          message="Created table [" + tableName + "]";
-          Debug.logImportant(message,module);
-          if (messages != null)           messages.add(message);
-        }
+        tableFutures.add(submitWork(new CreateTableCallable(entity,modelEntities,tableName)));
       }
     }
+  }
+  for (  CreateTableCallable tableCallable : ExecutionPool.getAllFutures(tableFutures)) {
+    tableCallable.updateData(messages,entitiesAdded);
   }
   timer.timerString("After Individual Table/Column Check");
   for (  String tableName : tableNames) {
@@ -218,10 +211,20 @@
   }
   if (datasourceInfo.useFkIndices) {
     int totalFkIndices=0;
+    List<Future<AbstractCountingCallable>> fkIndicesFutures=FastList.newInstance();
     for (    ModelEntity curEntity : entitiesAdded) {
       if (curEntity.getRelationsOneSize() > 0) {
-        totalFkIndices+=this.createForeignKeyIndices(curEntity,datasourceInfo.constraintNameClipLength,messages);
+        fkIndicesFutures.add(submitWork(new AbstractCountingCallable(curEntity,modelEntities){
+          public AbstractCountingCallable call() throws Exception {
+            count=createForeignKeyIndices(entity,datasourceInfo.constraintNameClipLength,messages);
+            return this;
+          }
+        }
+));
       }
+    }
+    for (    AbstractCountingCallable fkIndicesCallable : ExecutionPool.getAllFutures(fkIndicesFutures)) {
+      totalFkIndices+=fkIndicesCallable.updateData(messages);
     }
     if (totalFkIndices > 0)     Debug.logImportant("==== TOTAL Foreign Key Indices Created: " + totalFkIndices,module);
   }
@@ -234,10 +237,20 @@
   }
   if (datasourceInfo.useIndices) {
     int totalDis=0;
+    List<Future<AbstractCountingCallable>> disFutures=FastList.newInstance();
     for (    ModelEntity curEntity : entitiesAdded) {
       if (curEntity.getIndexesSize() > 0) {
-        totalDis+=this.createDeclaredIndices(curEntity,messages);
+        disFutures.add(submitWork(new AbstractCountingCallable(curEntity,modelEntities){
+          public AbstractCountingCallable call() throws Exception {
+            count=createDeclaredIndices(entity,messages);
+            return this;
+          }
+        }
+));
       }
+    }
+    for (    AbstractCountingCallable disCallable : ExecutionPool.getAllFutures(disFutures)) {
+      totalDis+=disCallable.updateData(messages);
     }
     if (totalDis > 0)     Debug.logImportant("==== TOTAL Declared Indices Created: " + totalDis,module);
   }

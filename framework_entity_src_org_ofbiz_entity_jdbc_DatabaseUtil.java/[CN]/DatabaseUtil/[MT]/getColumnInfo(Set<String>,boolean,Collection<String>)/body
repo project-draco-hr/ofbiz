@@ -120,10 +120,13 @@
         }
         if (pkCount == 0) {
           Debug.logInfo("Searching in " + tableNames.size() + " tables for primary key fields ...",module);
+          List<Future<AbstractCountingCallable>> pkFetcherFutures=FastList.newInstance();
           for (          String curTable : tableNames) {
             curTable=curTable.substring(curTable.indexOf('.') + 1);
-            ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,curTable);
-            pkCount+=checkPrimaryKeyInfo(rsPks,lookupSchemaName,needsUpperCase,colInfo,messages);
+            pkFetcherFutures.add(submitWork(createPrimaryKeyFetcher(dbData,lookupSchemaName,needsUpperCase,colInfo,messages,curTable)));
+          }
+          for (          AbstractCountingCallable pkFetcherCallable : ExecutionPool.getAllFutures(pkFetcherFutures)) {
+            pkCount+=pkFetcherCallable.updateData(messages);
           }
         }
         Debug.logInfo("Reviewed " + pkCount + " primary key fields from database.",module);
