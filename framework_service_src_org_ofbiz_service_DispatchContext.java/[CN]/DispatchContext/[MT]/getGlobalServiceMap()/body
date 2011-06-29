@@ -13,15 +13,15 @@ synchronized (this) {
           Debug.logError(e,"Error getting Service Engine XML root element",module);
           return null;
         }
+        List<Future<Map<String,ModelService>>> futures=FastList.newInstance();
         for (        Element globalServicesElement : UtilXml.childElementList(rootElement,"global-services")) {
           ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServicesElement);
-          Map<String,ModelService> servicesMap=ModelServiceReader.getModelServiceMap(handler,this);
-          if (servicesMap != null) {
-            serviceMap.putAll(servicesMap);
-          }
+          futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(handler)));
         }
         for (        ComponentConfig.ServiceResourceInfo componentResourceInfo : ComponentConfig.getAllServiceResourceInfos("model")) {
-          Map<String,ModelService> servicesMap=ModelServiceReader.getModelServiceMap(componentResourceInfo.createResourceHandler(),this);
+          futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(componentResourceInfo.createResourceHandler())));
+        }
+        for (        Map<String,ModelService> servicesMap : ExecutionPool.getAllFutures(futures)) {
           if (servicesMap != null) {
             serviceMap.putAll(servicesMap);
           }
