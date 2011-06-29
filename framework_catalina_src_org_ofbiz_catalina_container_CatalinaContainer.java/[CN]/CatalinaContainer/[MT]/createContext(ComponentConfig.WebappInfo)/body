@@ -1,11 +1,12 @@
 {
-  Engine engine=engines.get(appInfo.server);
+  Debug.logInfo("createContext(" + appInfo + ")",module);
+  final Engine engine=engines.get(appInfo.server);
   if (engine == null) {
     Debug.logWarning("Server with name [" + appInfo.server + "] not found; not mounting ["+ appInfo.name+ "]",module);
     return null;
   }
   List<String> virtualHosts=appInfo.getVirtualHosts();
-  Host host;
+  final Host host;
   if (UtilValidate.isEmpty(virtualHosts)) {
     host=hosts.get(engine.getName() + "._DEFAULT");
   }
@@ -13,8 +14,10 @@
     Iterator<String> vhi=virtualHosts.iterator();
     String hostName=vhi.next();
     boolean newHost=false;
-    host=hosts.get(engine.getName() + "." + hostName);
-    if (host == null) {
+    if (hosts.containsKey(engine.getName() + "." + hostName)) {
+      host=hosts.get(engine.getName() + "." + hostName);
+    }
+ else {
       host=createHost(engine,hostName);
       newHost=true;
     }
@@ -25,5 +28,13 @@
       hosts.put(engine.getName() + "." + hostName,host);
     }
   }
-  return configureContext(engine,host,appInfo);
+  return new Callable<Context>(){
+    public Context call() throws ContainerException, LifecycleException {
+      StandardContext context=configureContext(engine,host,appInfo);
+      context.setParent(host);
+      context.start();
+      return context;
+    }
+  }
+;
 }
