@@ -1,0 +1,47 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  HttpServletResponse httpResponse=(HttpServletResponse)response;
+  String webSiteId=WebSiteWorker.getWebSiteId(request);
+  GenericValue pathAlias=null;
+  try {
+    pathAlias=delegator.findByPrimaryKeyCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"pathAlias",pathInfo));
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (pathAlias != null) {
+    String alias=pathAlias.getString("aliasTo");
+    String contentId=pathAlias.getString("contentId");
+    if (contentId == null && UtilValidate.isNotEmpty(alias)) {
+      if (!alias.startsWith("/")) {
+        alias="/" + alias;
+      }
+      RequestDispatcher rd=request.getRequestDispatcher(alias);
+      try {
+        rd.forward(request,response);
+        return;
+      }
+ catch (      ServletException e) {
+        Debug.logWarning(e,module);
+      }
+catch (      IOException e) {
+        Debug.logWarning(e,module);
+      }
+    }
+  }
+ else {
+    try {
+      List<GenericValue> aliasTos=delegator.findByAndCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"aliasTo",httpRequest.getRequestURI()));
+      if (UtilValidate.isNotEmpty(aliasTos)) {
+        httpResponse.sendError(HttpServletResponse.SC_NOT_FOUND,"Not Found");
+        return;
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+catch (    IOException e) {
+      Debug.logError(e,module);
+    }
+  }
+}
