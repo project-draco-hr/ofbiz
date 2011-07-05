@@ -1,0 +1,82 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String latestRevision=(String)context.get("latestRevision");
+  String repositoryRoot=(String)context.get("repositoryRoot");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  try {
+    if (UtilValidate.isNotEmpty(repositoryRoot) && UtilValidate.isNotEmpty(latestRevision)) {
+      Integer revision=Integer.parseInt(latestRevision.trim());
+      for (int i=1; i <= revision; i++) {
+        String logline=null;
+        List<String> logMessageList=FastList.newInstance();
+        String logCommand="svn log -r" + i + " "+ repositoryRoot;
+        Process logProcess=Runtime.getRuntime().exec(logCommand);
+        BufferedReader logIn=new BufferedReader(new InputStreamReader(logProcess.getInputStream()));
+        while ((logline=logIn.readLine()) != null) {
+          logMessageList.add(logline.toString().trim());
+        }
+        if (UtilValidate.isNotEmpty(logMessageList)) {
+          String userInfo=logMessageList.get(1).replace(" | ",",");
+          String taskInfo=logMessageList.get(3);
+          String[] versionInfoTemp=userInfo.split(",");
+          String user=versionInfoTemp[1];
+          String taskId=null;
+          char[] taskInfoList=taskInfo.toCharArray();
+          int count=0;
+          for (int j=0; j < taskInfoList.length; j++) {
+            if (Character.isDigit(taskInfoList[j])) {
+              count=count + 1;
+            }
+ else {
+              count=0;
+            }
+            if (count == 5) {
+              taskId=taskInfo.substring(j - 4,j + 1);
+            }
+          }
+          String revisionLink=repositoryRoot.substring(repositoryRoot.lastIndexOf("svn/") + 4,repositoryRoot.length()) + "&revision=" + i;
+          Debug.logInfo("Revision Link ============== >>>>>>>>>>> " + revisionLink,module);
+          if (UtilValidate.isNotEmpty(taskId)) {
+            String version="R" + i;
+            List<GenericValue> workeffContentList=delegator.findByAnd("WorkEffortAndContentDataResource",UtilMisc.toMap("contentName",version.trim(),"drObjectInfo",revisionLink.trim()));
+            List<EntityCondition> exprsAnd=FastList.newInstance();
+            exprsAnd.add(EntityCondition.makeCondition("workEffortId",EntityOperator.EQUALS,taskId));
+            List<EntityCondition> exprsOr=FastList.newInstance();
+            exprsOr.add(EntityCondition.makeCondition("workEffortTypeId",EntityOperator.EQUALS,"SCRUM_TASK_ERROR"));
+            exprsOr.add(EntityCondition.makeCondition("workEffortTypeId",EntityOperator.EQUALS,"SCRUM_TASK_TEST"));
+            exprsOr.add(EntityCondition.makeCondition("workEffortTypeId",EntityOperator.EQUALS,"SCRUM_TASK_IMPL"));
+            exprsOr.add(EntityCondition.makeCondition("workEffortTypeId",EntityOperator.EQUALS,"SCRUM_TASK_INST"));
+            exprsAnd.add(EntityCondition.makeCondition(exprsOr,EntityOperator.OR));
+            List<GenericValue> workEffortList=delegator.findList("WorkEffort",EntityCondition.makeCondition(exprsAnd,EntityOperator.AND),null,null,null,false);
+            if (UtilValidate.isEmpty(workeffContentList) && UtilValidate.isNotEmpty(workEffortList)) {
+              Map inputMap=FastMap.newInstance();
+              inputMap.put("taskId",taskId);
+              inputMap.put("user",user);
+              inputMap.put("revisionNumber",Integer.toString(i));
+              inputMap.put("revisionLink",revisionLink);
+              inputMap.put("revisionDescription",taskInfo);
+              inputMap.put("userLogin",userLogin);
+              Debug.logInfo("inputMap ============== >>>>>>>>>>> " + inputMap,module);
+              dispatcher.runSync("updateScrumRevision",inputMap);
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  IOException e) {
+    e.printStackTrace();
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericEntityException entityEx) {
+    entityEx.printStackTrace();
+    return ServiceUtil.returnError(entityEx.getMessage());
+  }
+catch (  GenericServiceException serviceEx) {
+    serviceEx.printStackTrace();
+    return ServiceUtil.returnError(serviceEx.getMessage());
+  }
+  return result;
+}
