@@ -5,10 +5,10 @@
   ServletContext servletContext=config.getServletContext();
   UrlServletHelper.setRequestAttributes(request,delegator,servletContext);
   String urlContentId=null;
-  String pathInfo=httpRequest.getServletPath();
+  StringBuffer pathInfoBuffer=UtilHttp.getFullRequestUrl(httpRequest);
+  String pathInfo=pathInfoBuffer.toString();
   if (UtilValidate.isNotEmpty(pathInfo)) {
-    List<String> paths=StringUtil.split(pathInfo,"/");
-    String alternativeUrl=paths.get(0);
+    String alternativeUrl=pathInfo.substring(pathInfo.lastIndexOf("/") + 1);
     if (alternativeUrl.endsWith("-content")) {
       try {
         List<EntityCondition> expr=FastList.newInstance();
@@ -16,7 +16,9 @@
         expr.add(EntityCondition.makeCondition("caThruDate",EntityOperator.EQUALS,null));
         Set<String> fieldsToSelect=UtilMisc.toSet("contentIdStart","dataResourceId","caFromDate","caThruDate","caCreatedDate");
         List<GenericValue> contentAssocDataResources=delegator.findList("ContentAssocDataResourceViewTo",EntityCondition.makeCondition(expr),fieldsToSelect,UtilMisc.toList("-caCreatedDate"),null,true);
-        for (        GenericValue contentAssocDateResource : contentAssocDataResources) {
+        Iterator<GenericValue> contentAssocDateResourceIter=contentAssocDataResources.iterator();
+        while (contentAssocDateResourceIter.hasNext()) {
+          GenericValue contentAssocDateResource=contentAssocDateResourceIter.next();
           GenericValue electronicText=delegator.findByPrimaryKey("ElectronicText",UtilMisc.toMap("dataResourceId",contentAssocDateResource.getString("dataResourceId")));
           if (UtilValidate.isEmpty(electronicText) || UtilValidate.isEmpty(electronicText.get("textData"))) {
             continue;
@@ -28,6 +30,7 @@
         }
       }
  catch (      Exception e) {
+        Debug.logWarning(e.getMessage(),module);
       }
     }
     if (UtilValidate.isNotEmpty(urlContentId)) {
