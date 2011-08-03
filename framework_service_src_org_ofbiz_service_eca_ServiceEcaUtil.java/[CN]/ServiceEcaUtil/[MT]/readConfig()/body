@@ -10,11 +10,15 @@
     Debug.logError(e,"Error getting Service Engine XML root element",module);
     return;
   }
+  List<Future<List<ServiceEcaRule>>> futures=FastList.newInstance();
   for (  Element serviceEcasElement : UtilXml.childElementList(rootElement,"service-ecas")) {
     ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,serviceEcasElement);
-    addEcaDefinitions(handler);
+    futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createEcaLoaderCallable(handler)));
   }
   for (  ComponentConfig.ServiceResourceInfo componentResourceInfo : ComponentConfig.getAllServiceResourceInfos("eca")) {
-    addEcaDefinitions(componentResourceInfo.createResourceHandler());
+    futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createEcaLoaderCallable(componentResourceInfo.createResourceHandler())));
+  }
+  for (  List<ServiceEcaRule> handlerRules : ExecutionPool.getAllFutures(futures)) {
+    mergeEcaDefinitions(handlerRules);
   }
 }

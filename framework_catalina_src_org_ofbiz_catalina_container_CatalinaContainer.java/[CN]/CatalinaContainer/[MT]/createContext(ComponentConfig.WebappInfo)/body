@@ -1,97 +1,40 @@
 {
-  Map<String,String> initParameters=appInfo.getInitParameters();
-  List<String> virtualHosts=appInfo.getVirtualHosts();
-  Engine engine=engines.get(appInfo.server);
+  Debug.logInfo("createContext(" + appInfo.name + ")",module);
+  final Engine engine=engines.get(appInfo.server);
   if (engine == null) {
     Debug.logWarning("Server with name [" + appInfo.server + "] not found; not mounting ["+ appInfo.name+ "]",module);
     return null;
   }
-  String location=appInfo.componentConfig.getRootLocation() + appInfo.location;
-  location=location.replace('\\','/');
-  if (location.endsWith("/")) {
-    location=location.substring(0,location.length() - 1);
-  }
-  String mount=appInfo.mountPoint;
-  if (mount.endsWith("/*")) {
-    mount=mount.substring(0,mount.length() - 2);
-  }
-  Property clusterProp=clusterConfig.get(engine.getName());
-  Manager sessionMgr=null;
-  if (clusterProp != null) {
-    String mgrClassName=ContainerConfig.getPropertyValue(clusterProp,"manager-class","org.apache.catalina.ha.session.DeltaManager");
-    try {
-      sessionMgr=(Manager)Class.forName(mgrClassName).newInstance();
-    }
- catch (    Exception exc) {
-      throw new ContainerException("Cluster configuration requires a valid manager-class property: " + exc.getMessage());
-    }
-  }
- else {
-    sessionMgr=new StandardManager();
-  }
-  StandardContext context=(StandardContext)embedded.createContext(mount,location);
-  context.setJ2EEApplication(J2EE_APP);
-  context.setJ2EEServer(J2EE_SERVER);
-  context.setLoader(embedded.createLoader(ClassLoaderContainer.getClassLoader()));
-  context.setCookies(appInfo.isSessionCookieAccepted());
-  context.addParameter("cookies",appInfo.isSessionCookieAccepted() ? "true" : "false");
-  context.setDisplayName(appInfo.name);
-  context.setDocBase(location);
-  context.setAllowLinking(true);
-  context.setReloadable(contextReloadable);
-  context.setDistributable(distribute);
-  context.setCrossContext(crossContext);
-  context.setPrivileged(appInfo.privileged);
-  context.setManager(sessionMgr);
-  context.getServletContext().setAttribute("_serverId",appInfo.server);
-  context.getServletContext().setAttribute("componentName",appInfo.componentConfig.getComponentName());
-  StandardWrapper defaultServlet=new StandardWrapper();
-  defaultServlet.setServletClass("org.apache.catalina.servlets.DefaultServlet");
-  defaultServlet.setServletName("default");
-  defaultServlet.setLoadOnStartup(1);
-  defaultServlet.addInitParameter("debug","0");
-  defaultServlet.addInitParameter("listing","true");
-  defaultServlet.addMapping("/");
-  context.addChild(defaultServlet);
-  context.addServletMapping("/","default");
-  StandardWrapper jspServlet=new StandardWrapper();
-  jspServlet.setServletClass("org.apache.jasper.servlet.JspServlet");
-  jspServlet.setServletName("jsp");
-  jspServlet.setLoadOnStartup(1);
-  jspServlet.addInitParameter("fork","false");
-  jspServlet.addInitParameter("xpoweredBy","true");
-  jspServlet.addMapping("*.jsp");
-  jspServlet.addMapping("*.jspx");
-  context.addChild(jspServlet);
-  context.addServletMapping("*.jsp","jsp");
-  configureMimeTypes(context);
-  for (  Map.Entry<String,String> entry : initParameters.entrySet()) {
-    context.addParameter(entry.getKey(),entry.getValue());
-  }
+  List<String> virtualHosts=appInfo.getVirtualHosts();
+  final Host host;
   if (UtilValidate.isEmpty(virtualHosts)) {
-    Host host=hosts.get(engine.getName() + "._DEFAULT");
-    context.setRealm(host.getRealm());
-    host.addChild(context);
-    context.getMapper().setDefaultHostName(host.getName());
+    host=hosts.get(engine.getName() + "._DEFAULT");
   }
  else {
     Iterator<String> vhi=virtualHosts.iterator();
     String hostName=vhi.next();
     boolean newHost=false;
-    Host host=hosts.get(engine.getName() + "." + hostName);
-    if (host == null) {
+    if (hosts.containsKey(engine.getName() + "." + hostName)) {
+      host=hosts.get(engine.getName() + "." + hostName);
+    }
+ else {
       host=createHost(engine,hostName);
       newHost=true;
     }
     while (vhi.hasNext()) {
       host.addAlias(vhi.next());
     }
-    context.setRealm(host.getRealm());
-    host.addChild(context);
-    context.getMapper().setDefaultHostName(host.getName());
     if (newHost) {
       hosts.put(engine.getName() + "." + hostName,host);
     }
   }
-  return context;
+  return new Callable<Context>(){
+    public Context call() throws ContainerException, LifecycleException {
+      StandardContext context=configureContext(engine,host,appInfo);
+      context.setParent(host);
+      context.start();
+      return context;
+    }
+  }
+;
 }

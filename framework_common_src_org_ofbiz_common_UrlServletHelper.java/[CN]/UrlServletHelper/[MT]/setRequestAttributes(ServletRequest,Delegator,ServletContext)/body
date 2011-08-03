@@ -1,0 +1,27 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
+  if ("Y".equals(useMultitenant)) {
+    String serverName=request.getServerName();
+    try {
+      delegator=getDelegator(servletContext);
+      List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
+      if (UtilValidate.isNotEmpty(tenants)) {
+        GenericValue tenant=EntityUtil.getFirst(tenants);
+        String tenantId=tenant.getString("tenantId");
+        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
+        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
+        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
+        servletContext.setAttribute("delegator",delegator);
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Unable to get Tenant",module);
+    }
+  }
+  request.setAttribute("servletContext",httpRequest.getSession().getServletContext());
+  request.setAttribute("delegator",delegator);
+  if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
+    httpRequest.getSession().setAttribute("webSiteId",httpRequest.getSession().getServletContext().getAttribute("webSiteId"));
+  }
+}

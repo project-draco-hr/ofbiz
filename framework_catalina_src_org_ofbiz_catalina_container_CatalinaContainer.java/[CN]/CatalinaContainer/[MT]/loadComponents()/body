@@ -4,19 +4,40 @@
   }
   List<ComponentConfig.WebappInfo> webResourceInfos=ComponentConfig.getAllWebappResourceInfos();
   List<String> loadedMounts=FastList.newInstance();
-  if (webResourceInfos != null) {
+  if (webResourceInfos == null) {
+    return;
+  }
+  ScheduledExecutorService executor=ExecutionPool.getExecutor(CATALINA_THREAD_GROUP,"catalina-startup",-1,true);
+  try {
+    List<Future<Context>> futures=FastList.newInstance();
     for (int i=webResourceInfos.size(); i > 0; i--) {
       ComponentConfig.WebappInfo appInfo=webResourceInfos.get(i - 1);
-      String mount=appInfo.getContextRoot();
+      String engineName=appInfo.server;
       List<String> virtualHosts=appInfo.getVirtualHosts();
-      if (!loadedMounts.contains(mount) || UtilValidate.isNotEmpty(virtualHosts)) {
-        createContext(appInfo);
-        loadedMounts.add(mount);
+      String mount=appInfo.getContextRoot();
+      List<String> keys=FastList.newInstance();
+      if (UtilValidate.isEmpty(virtualHosts)) {
+        keys.add(engineName + ":DEFAULT:" + mount);
+      }
+ else {
+        for (        String virtualHost : virtualHosts) {
+          keys.add(engineName + ":" + virtualHost+ ":"+ mount);
+        }
+      }
+      if (!keys.removeAll(loadedMounts)) {
+        if (appInfo.location != null) {
+          futures.add(executor.submit(createContext(appInfo)));
+        }
+        loadedMounts.addAll(keys);
       }
  else {
         appInfo.appBarDisplay=false;
         Debug.logInfo("Duplicate webapp mount; not loading : " + appInfo.getName() + " / "+ appInfo.getLocation(),module);
       }
     }
+    ExecutionPool.getAllFutures(futures);
+  }
+  finally {
+    executor.shutdown();
   }
 }

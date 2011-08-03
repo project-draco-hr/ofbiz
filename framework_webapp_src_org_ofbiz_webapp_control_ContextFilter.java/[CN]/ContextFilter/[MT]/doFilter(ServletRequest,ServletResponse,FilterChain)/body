@@ -1,31 +1,31 @@
 {
   HttpServletRequest httpRequest=(HttpServletRequest)request;
-  HttpServletResponseWrapper wrapper=new HttpServletResponseWrapper((HttpServletResponse)response);
+  HttpServletResponse httpResponse=(HttpServletResponse)response;
   String disableCachedClassloader=config.getInitParameter("disableCachedClassloader");
   if (disableCachedClassloader == null || !"Y".equalsIgnoreCase(disableCachedClassloader)) {
     Thread.currentThread().setContextClassLoader(localCachedClassLoader);
   }
-  request.setAttribute("servletContext",config.getServletContext());
+  httpRequest.setAttribute("servletContext",config.getServletContext());
   if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
     httpRequest.getSession().setAttribute("webSiteId",config.getServletContext().getAttribute("webSiteId"));
   }
-  request.setAttribute("_CONTEXT_ROOT_",config.getServletContext().getRealPath("/"));
+  httpRequest.setAttribute("_CONTEXT_ROOT_",config.getServletContext().getRealPath("/"));
   StringBuffer serverRootUrl=UtilHttp.getServerRootUrl(httpRequest);
-  request.setAttribute("_SERVER_ROOT_URL_",serverRootUrl.toString());
+  httpRequest.setAttribute("_SERVER_ROOT_URL_",serverRootUrl.toString());
   String reqAttrMapHex=(String)httpRequest.getSession().getAttribute("_REQ_ATTR_MAP_");
   if (UtilValidate.isNotEmpty(reqAttrMapHex)) {
     byte[] reqAttrMapBytes=StringUtil.fromHexString(reqAttrMapHex);
     Map<String,Object> reqAttrMap=checkMap(UtilObject.getObject(reqAttrMapBytes),String.class,Object.class);
     if (reqAttrMap != null) {
       for (      Map.Entry<String,Object> entry : reqAttrMap.entrySet()) {
-        request.setAttribute(entry.getKey(),entry.getValue());
+        httpRequest.setAttribute(entry.getKey(),entry.getValue());
       }
     }
     httpRequest.getSession().removeAttribute("_REQ_ATTR_MAP_");
   }
   String disableSecurity=config.getInitParameter("disableContextSecurity");
   if (disableSecurity != null && "Y".equalsIgnoreCase(disableSecurity)) {
-    chain.doFilter(request,response);
+    chain.doFilter(httpRequest,httpResponse);
     return;
   }
   String redirectAllTo=config.getInitParameter("forceRedirectAll");
@@ -36,25 +36,25 @@
       if (!redirectAllTo.toLowerCase().startsWith("http")) {
         redirectAllTo=httpRequest.getContextPath() + redirectAllTo;
       }
-      wrapper.sendRedirect(redirectAllTo);
+      httpResponse.sendRedirect(redirectAllTo);
       return;
     }
  else {
       httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
-      chain.doFilter(request,response);
+      chain.doFilter(httpRequest,httpResponse);
       return;
     }
   }
   String requestPath=null;
   String contextUri=null;
-  if (request.getAttribute(ContextFilter.FORWARDED_FROM_SERVLET) == null) {
+  if (httpRequest.getAttribute(ContextFilter.FORWARDED_FROM_SERVLET) == null) {
     String allowedPath=config.getInitParameter("allowedPaths");
     String redirectPath=config.getInitParameter("redirectPath");
     String errorCode=config.getInitParameter("errorCode");
     List<String> allowList=StringUtil.split(allowedPath,":");
     allowList.add("/");
     allowList.add("");
-    if (debug)     Debug.log("[Request]: " + httpRequest.getRequestURI(),module);
+    if (debug)     Debug.log("[Domain]: " + httpRequest.getServerName() + " [Request]: "+ httpRequest.getRequestURI(),module);
     requestPath=httpRequest.getServletPath();
     if (requestPath == null)     requestPath="";
     if (requestPath.lastIndexOf("/") > 0) {
@@ -102,14 +102,14 @@
           }
         }
         filterMessage=filterMessage + " (" + error+ ")";
-        wrapper.sendError(error,contextUri);
+        httpResponse.sendError(error,contextUri);
       }
  else {
         filterMessage=filterMessage + " (" + redirectPath+ ")";
         if (!redirectPath.toLowerCase().startsWith("http")) {
           redirectPath=httpRequest.getContextPath() + redirectPath;
         }
-        wrapper.sendRedirect(redirectPath);
+        httpResponse.sendRedirect(redirectPath);
       }
       Debug.logWarning(filterMessage,module);
       return;
@@ -117,7 +117,7 @@
   }
   String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
   if ("Y".equals(useMultitenant)) {
-    String serverName=request.getServerName();
+    String serverName=httpRequest.getServerName();
     try {
       Delegator delegator=getDelegator(config.getServletContext());
       List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
@@ -143,13 +143,13 @@
         LocalDispatcher dispatcher=getDispatcher(config.getServletContext());
         httpRequest.getSession().setAttribute("dispatcher",dispatcher);
         httpRequest.getSession().setAttribute("security",security);
-        request.setAttribute("tenantId",tenantId);
+        httpRequest.setAttribute("tenantId",tenantId);
       }
     }
  catch (    GenericEntityException e) {
       Debug.logWarning(e,"Unable to get Tenant",module);
     }
   }
-  chain.doFilter(request,response);
+  chain.doFilter(httpRequest,httpResponse);
   AbstractAuthorization.clearThreadLocal();
 }

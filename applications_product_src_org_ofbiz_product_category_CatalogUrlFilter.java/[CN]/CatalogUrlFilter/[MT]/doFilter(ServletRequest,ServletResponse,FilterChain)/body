@@ -2,30 +2,8 @@
   HttpServletRequest httpRequest=(HttpServletRequest)request;
   HttpServletResponse httpResponse=(HttpServletResponse)response;
   Delegator delegator=(Delegator)httpRequest.getSession().getServletContext().getAttribute("delegator");
-  String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
-  if ("Y".equals(useMultitenant)) {
-    String serverName=request.getServerName();
-    try {
-      delegator=getDelegator(config.getServletContext());
-      List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
-      if (UtilValidate.isNotEmpty(tenants)) {
-        GenericValue tenant=EntityUtil.getFirst(tenants);
-        String tenantId=tenant.getString("tenantId");
-        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
-        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
-        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
-        config.getServletContext().setAttribute("delegator",delegator);
-      }
-    }
- catch (    GenericEntityException e) {
-      Debug.logWarning(e,"Unable to get Tenant",module);
-    }
-  }
-  request.setAttribute("servletContext",httpRequest.getSession().getServletContext());
-  request.setAttribute("delegator",delegator);
-  if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
-    httpRequest.getSession().setAttribute("webSiteId",httpRequest.getSession().getServletContext().getAttribute("webSiteId"));
-  }
+  ServletContext servletContext=config.getServletContext();
+  UrlServletHelper.setRequestAttributes(request,delegator,servletContext);
   String initDefaultLocalesString=config.getInitParameter("defaultLocaleString");
   String initRedirectUrl=config.getInitParameter("redirectUrl");
   defaultLocaleString=UtilValidate.isNotEmpty(initDefaultLocalesString) ? initDefaultLocalesString : "";
@@ -34,63 +12,9 @@
   if (UtilValidate.isNotEmpty(pathInfo)) {
     List<String> pathElements=StringUtil.split(pathInfo,"/");
     String alternativeUrl=pathElements.get(0);
-    String localeString=null;
-    String webSiteId=WebSiteWorker.getWebSiteId(request);
-    GenericValue webSite;
-    try {
-      webSite=delegator.findOne("WebSite",UtilMisc.toMap("webSiteId",webSiteId),true);
-      if (UtilValidate.isNotEmpty(webSite)) {
-        GenericValue productStore=webSite.getRelatedOne("ProductStore");
-        if (UtilValidate.isNotEmpty(productStore)) {
-          localeString=productStore.getString("defaultLocaleString");
-        }
-      }
- else {
-        localeString=defaultLocaleString;
-      }
-    }
- catch (    GenericEntityException ex) {
-      Debug.logWarning(ex,module);
-    }
-    String viewIndex=null;
-    String viewSize=null;
-    String viewSort=null;
-    String searchString=null;
-    int queryStringIndex=pathInfo.indexOf("?");
-    if (queryStringIndex >= 0) {
-      List<String> queryStringTokens=StringUtil.split(pathInfo.substring(queryStringIndex + 1),"&");
-      for (      String queryStringToken : queryStringTokens) {
-        int equalIndex=queryStringToken.indexOf("=");
-        String name=queryStringToken.substring(0,equalIndex - 1);
-        String value=queryStringToken.substring(equalIndex + 1,queryStringToken.length() - 1);
-        if ("viewIndex".equals(name)) {
-          viewIndex=value;
-        }
- else         if ("viewSize".equals(name)) {
-          viewSize=value;
-        }
- else         if ("viewSort".equals(name)) {
-          viewSort=value;
-        }
- else         if ("searchString".equals(name)) {
-          searchString=value;
-        }
-      }
-    }
-    if (UtilValidate.isNotEmpty(httpRequest.getParameter("viewIndex"))) {
-      viewIndex=httpRequest.getParameter("viewIndex");
-    }
-    if (UtilValidate.isNotEmpty(httpRequest.getParameter("viewSize"))) {
-      viewSize=httpRequest.getParameter("viewSize");
-    }
-    if (UtilValidate.isNotEmpty(httpRequest.getParameter("viewSort"))) {
-      viewSort=httpRequest.getParameter("viewSort");
-    }
-    if (UtilValidate.isNotEmpty(httpRequest.getParameter("searchString"))) {
-      searchString=httpRequest.getParameter("searchString");
-    }
     String productId=null;
     String productCategoryId=null;
+    String urlContentId=null;
     try {
       if (alternativeUrl.endsWith("-p")) {
         List<EntityCondition> productContentConds=FastList.newInstance();
@@ -100,13 +24,13 @@
         if (UtilValidate.isNotEmpty(productContentInfos)) {
           for (          GenericValue productContentInfo : productContentInfos) {
             String contentId=(String)productContentInfo.get("contentId");
-            List<GenericValue> ContentAssocDataResourceViewTos=delegator.findByAndCache("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",contentId,"drLocaleString",localeString,"caContentAssocTypeId","ALTERNATE_LOCALE","drDataResourceTypeId","ELECTRONIC_TEXT"));
+            List<GenericValue> ContentAssocDataResourceViewTos=delegator.findByAndCache("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",contentId,"caContentAssocTypeId","ALTERNATE_LOCALE","drDataResourceTypeId","ELECTRONIC_TEXT"));
             if (UtilValidate.isNotEmpty(ContentAssocDataResourceViewTos)) {
               for (              GenericValue ContentAssocDataResourceViewTo : ContentAssocDataResourceViewTos) {
                 GenericValue ElectronicText=ContentAssocDataResourceViewTo.getRelatedOneCache("ElectronicText");
                 if (UtilValidate.isNotEmpty(ElectronicText)) {
                   String textData=(String)ElectronicText.get("textData");
-                  textData=invalidCharacter(textData);
+                  textData=UrlServletHelper.invalidCharacter(textData);
                   if (alternativeUrl.matches(textData + ".+$")) {
                     String productIdStr=null;
                     productIdStr=alternativeUrl.replace(textData + "-","");
@@ -120,14 +44,14 @@
                 }
               }
             }
- else {
-              List<GenericValue> contentDataResourceViews=delegator.findByAndCache("ContentDataResourceView",UtilMisc.toMap("contentId",contentId,"statusId","CTNT_IN_PROGRESS","drDataResourceTypeId","ELECTRONIC_TEXT"));
+            if (UtilValidate.isEmpty(productId)) {
+              List<GenericValue> contentDataResourceViews=delegator.findByAndCache("ContentDataResourceView",UtilMisc.toMap("contentId",contentId,"drDataResourceTypeId","ELECTRONIC_TEXT"));
               for (              GenericValue contentDataResourceView : contentDataResourceViews) {
                 GenericValue ElectronicText=contentDataResourceView.getRelatedOneCache("ElectronicText");
                 if (UtilValidate.isNotEmpty(ElectronicText)) {
                   String textData=(String)ElectronicText.get("textData");
                   if (UtilValidate.isNotEmpty(textData)) {
-                    textData=invalidCharacter(textData);
+                    textData=UrlServletHelper.invalidCharacter(textData);
                     if (alternativeUrl.matches(textData + ".+$")) {
                       String productIdStr=null;
                       productIdStr=alternativeUrl.replace(textData + "-","");
@@ -153,14 +77,14 @@
         if (UtilValidate.isNotEmpty(productCategoryContentInfos)) {
           for (          GenericValue productCategoryContentInfo : productCategoryContentInfos) {
             String contentId=(String)productCategoryContentInfo.get("contentId");
-            List<GenericValue> ContentAssocDataResourceViewTos=delegator.findByAndCache("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",contentId,"drLocaleString",localeString,"caContentAssocTypeId","ALTERNATE_LOCALE","drDataResourceTypeId","ELECTRONIC_TEXT"));
+            List<GenericValue> ContentAssocDataResourceViewTos=delegator.findByAndCache("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",contentId,"caContentAssocTypeId","ALTERNATE_LOCALE","drDataResourceTypeId","ELECTRONIC_TEXT"));
             if (UtilValidate.isNotEmpty(ContentAssocDataResourceViewTos)) {
               for (              GenericValue ContentAssocDataResourceViewTo : ContentAssocDataResourceViewTos) {
                 GenericValue ElectronicText=ContentAssocDataResourceViewTo.getRelatedOneCache("ElectronicText");
                 if (UtilValidate.isNotEmpty(ElectronicText)) {
                   String textData=(String)ElectronicText.get("textData");
                   if (UtilValidate.isNotEmpty(textData)) {
-                    textData=invalidCharacter(textData);
+                    textData=UrlServletHelper.invalidCharacter(textData);
                     if (alternativeUrl.matches(textData + ".+$")) {
                       String productCategoryStr=null;
                       productCategoryStr=alternativeUrl.replace(textData + "-","");
@@ -175,14 +99,14 @@
                 }
               }
             }
- else {
-              List<GenericValue> contentDataResourceViews=delegator.findByAndCache("ContentDataResourceView",UtilMisc.toMap("contentId",contentId,"statusId","CTNT_IN_PROGRESS","drDataResourceTypeId","ELECTRONIC_TEXT"));
+            if (UtilValidate.isEmpty(productCategoryId)) {
+              List<GenericValue> contentDataResourceViews=delegator.findByAndCache("ContentDataResourceView",UtilMisc.toMap("contentId",contentId,"drDataResourceTypeId","ELECTRONIC_TEXT"));
               for (              GenericValue contentDataResourceView : contentDataResourceViews) {
                 GenericValue ElectronicText=contentDataResourceView.getRelatedOneCache("ElectronicText");
                 if (UtilValidate.isNotEmpty(ElectronicText)) {
                   String textData=(String)ElectronicText.get("textData");
                   if (UtilValidate.isNotEmpty(textData)) {
-                    textData=invalidCharacter(textData);
+                    textData=UrlServletHelper.invalidCharacter(textData);
                     if (alternativeUrl.matches(textData + ".+$")) {
                       String productCategoryStr=null;
                       productCategoryStr=alternativeUrl.replace(textData + "-","");
@@ -304,73 +228,20 @@
         }
         CategoryWorker.setTrail(request,trail);
       }
-      if (UtilValidate.isNotEmpty(viewIndex)) {
-        urlBuilder.append("/~VIEW_INDEX=" + viewIndex);
-        request.setAttribute("VIEW_INDEX",viewIndex);
-      }
-      if (UtilValidate.isNotEmpty(viewSize)) {
-        urlBuilder.append("/~VIEW_SIZE=" + viewSize);
-        request.setAttribute("VIEW_SIZE",viewSize);
-      }
-      if (UtilValidate.isNotEmpty(viewSort)) {
-        urlBuilder.append("/~VIEW_SORT=" + viewSort);
-        request.setAttribute("VIEW_SORT",viewSort);
-      }
-      if (UtilValidate.isNotEmpty(searchString)) {
-        urlBuilder.append("/~SEARCH_STRING=" + searchString);
-        request.setAttribute("SEARCH_STRING",searchString);
-      }
       request.setAttribute("productCategoryId",productCategoryId);
       if (productId != null) {
         request.setAttribute("product_id",productId);
         request.setAttribute("productId",productId);
       }
     }
-    if (UtilValidate.isNotEmpty(productId) || UtilValidate.isNotEmpty(productCategoryId)) {
+    UrlServletHelper.setViewQueryParameters(request,urlBuilder);
+    if (UtilValidate.isNotEmpty(productId) || UtilValidate.isNotEmpty(productCategoryId) || UtilValidate.isNotEmpty(urlContentId)) {
       Debug.logInfo("[Filtered request]: " + pathInfo + " ("+ urlBuilder+ ")",module);
       RequestDispatcher dispatch=request.getRequestDispatcher(urlBuilder.toString());
       dispatch.forward(request,response);
       return;
     }
-    GenericValue pathAlias=null;
-    try {
-      pathAlias=delegator.findByPrimaryKeyCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"pathAlias",pathInfo));
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
-    }
-    if (pathAlias != null) {
-      String alias=pathAlias.getString("aliasTo");
-      String contentId=pathAlias.getString("contentId");
-      if (contentId == null && UtilValidate.isNotEmpty(alias)) {
-        if (!alias.startsWith("/")) {
-          alias="/" + alias;
-        }
-        RequestDispatcher rd=request.getRequestDispatcher(alias);
-        try {
-          rd.forward(request,response);
-          return;
-        }
- catch (        ServletException e) {
-          Debug.logWarning(e,module);
-        }
-catch (        IOException e) {
-          Debug.logWarning(e,module);
-        }
-      }
-    }
- else {
-      try {
-        List<GenericValue> aliasTos=delegator.findByAndCache("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"aliasTo",httpRequest.getRequestURI()));
-        if (UtilValidate.isNotEmpty(aliasTos)) {
-          httpResponse.sendError(HttpServletResponse.SC_NOT_FOUND,"Not Found");
-          return;
-        }
-      }
- catch (      GenericEntityException e) {
-        Debug.logError(e,module);
-      }
-    }
+    UrlServletHelper.checkPathAlias(request,httpResponse,delegator,pathInfo);
   }
   chain.doFilter(request,response);
 }

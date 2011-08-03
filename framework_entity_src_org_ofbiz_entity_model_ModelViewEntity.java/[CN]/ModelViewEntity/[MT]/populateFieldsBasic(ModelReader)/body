@@ -32,7 +32,7 @@
       this.groupBys.add(field);
     }
     if (UtilValidate.isNotEmpty(alias.function) && alias.groupBy) {
-      Debug.logWarning("The view-entity alias with name=" + alias.name + " has a function value and is specified as a group-by field; this may be an error, but is not necessarily.",module);
+      Debug.logWarning("[" + this.getEntityName() + "]: The view-entity alias with name="+ alias.name+ " has a function value and is specified as a group-by field; this may be an error, but is not necessarily.",module);
     }
     if (alias.isComplexAlias()) {
       StringBuilder colNameBuffer=new StringBuilder();
@@ -42,12 +42,13 @@
       field.colName=ModelUtil.javaNameToDbName(alias.name);
       field.type=fieldTypeBuffer.toString();
       field.isPk=false;
+      field.fieldSet=alias.getFieldSet();
     }
  else {
       ModelEntity aliasedEntity=getAliasedEntity(alias.entityAlias,modelReader);
       ModelField aliasedField=getAliasedField(aliasedEntity,alias.field,modelReader);
       if (aliasedField == null) {
-        Debug.logError("[ModelViewEntity.populateFields (" + this.getEntityName() + ")] ERROR: could not find ModelField for field name \""+ alias.field+ "\" on entity with name: "+ aliasedEntity.getEntityName(),module);
+        Debug.logError("[" + this.getEntityName() + "]: [populateFields] ERROR: could not find ModelField for field name \""+ alias.field+ "\" on entity with name: "+ aliasedEntity.getEntityName(),module);
         continue;
       }
       if (alias.isPk != null) {
@@ -59,9 +60,27 @@
       field.encrypt=aliasedField.encrypt;
       field.type=aliasedField.type;
       field.validators=aliasedField.validators;
-      field.colName=alias.entityAlias + "." + SqlJdbcUtil.filterColName(aliasedField.colName);
+      field.colValue=alias.entityAlias + "." + SqlJdbcUtil.filterColName(aliasedField.colName);
+      field.colName=SqlJdbcUtil.filterColName(field.colValue);
       if (UtilValidate.isEmpty(field.description)) {
         field.description=aliasedField.description;
+      }
+      if (UtilValidate.isEmpty(alias.getFieldSet())) {
+        String aliasedFieldSet=aliasedField.getFieldSet();
+        if (UtilValidate.isNotEmpty(aliasedFieldSet)) {
+          StringBuilder fieldSetBuffer=new StringBuilder(alias.entityAlias);
+          fieldSetBuffer.append("_");
+          fieldSetBuffer.append(Character.toUpperCase(aliasedFieldSet.charAt(0)));
+          fieldSetBuffer.append(aliasedFieldSet.substring(1));
+          field.fieldSet=fieldSetBuffer.toString().intern();
+          Debug.logInfo("[" + this.getEntityName() + "]: copied field set on ["+ field.name+ "]: "+ field.fieldSet,module);
+        }
+ else {
+          field.fieldSet="";
+        }
+      }
+ else {
+        field.fieldSet=alias.getFieldSet();
       }
     }
     this.fields.add(field);
@@ -77,7 +96,7 @@
     if (UtilValidate.isNotEmpty(alias.function)) {
       String prefix=functionPrefixMap.get(alias.function);
       if (prefix == null) {
-        Debug.logWarning("Specified alias function [" + alias.function + "] not valid; must be: min, max, sum, avg, count or count-distinct; using a column name with no function function",module);
+        Debug.logWarning("[" + this.getEntityName() + "]: Specified alias function ["+ alias.function+ "] not valid; must be: min, max, sum, avg, count or count-distinct; using a column name with no function function",module);
       }
  else {
         field.colValue=prefix + field.getColValue() + ")";

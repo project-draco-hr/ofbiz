@@ -14,9 +14,6 @@
   if (userLogin == null) {
     userLogin=(GenericValue)session.getAttribute("autoUserLogin");
   }
-  if (userLogin == null) {
-    return "success";
-  }
   String autoSaveListId=cart.getAutoSaveListId();
   if (autoSaveListId == null) {
     try {
@@ -26,6 +23,25 @@
       Debug.logError(e,module);
     }
     cart.setAutoSaveListId(autoSaveListId);
+  }
+ else   if (userLogin != null) {
+    String existingAutoSaveListId=null;
+    try {
+      existingAutoSaveListId=getAutoSaveListId(delegator,dispatcher,null,userLogin,cart.getProductStoreId());
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+    }
+    if (existingAutoSaveListId != null) {
+      if (!existingAutoSaveListId.equals(autoSaveListId)) {
+        cart.setAutoSaveListId(existingAutoSaveListId);
+        autoSaveListId=existingAutoSaveListId;
+        cart.setLastListRestore(null);
+      }
+ else {
+        return "success";
+      }
+    }
   }
   java.sql.Timestamp lastLoad=cart.getLastListRestore();
   boolean okayToLoad=autoSaveListId == null ? false : (lastLoad == null ? true : false);
@@ -52,7 +68,7 @@
   if (okayToLoad) {
     String prodCatalogId=CatalogWorker.getCurrentCatalogId(request);
     try {
-      addListToCart(delegator,dispatcher,cart,prodCatalogId,autoSaveListId,false,false,false);
+      addListToCart(delegator,dispatcher,cart,prodCatalogId,autoSaveListId,false,false,userLogin != null ? true : false);
       cart.setLastListRestore(UtilDateTime.nowTimestamp());
     }
  catch (    IllegalArgumentException e) {

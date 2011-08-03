@@ -1,0 +1,55 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String communicationEventId=(String)context.get("communicationEventId");
+  if (UtilValidate.isNotEmpty(communicationEventId)) {
+    try {
+      GenericValue communicationEvent=delegator.findByPrimaryKey("CommunicationEvent",UtilMisc.toMap("communicationEventId",communicationEventId));
+      if (UtilValidate.isNotEmpty(communicationEvent)) {
+        String subject=communicationEvent.getString("subject");
+        if (UtilValidate.isNotEmpty(subject)) {
+          int pdLocation=subject.indexOf("PD#");
+          if (pdLocation > 0) {
+            int nonDigitLocation=pdLocation + 3;
+            while (nonDigitLocation < subject.length() && Character.isDigit(subject.charAt(nonDigitLocation))) {
+              nonDigitLocation++;
+            }
+            String productId=subject.substring(pdLocation + 3,nonDigitLocation);
+            GenericValue product=delegator.findByPrimaryKey("Product",UtilMisc.toMap("productId",productId));
+            if (UtilValidate.isNotEmpty(product)) {
+              GenericValue communicationEventProductMap=delegator.findByPrimaryKey("CommunicationEventProduct",UtilMisc.toMap("productId",productId,"communicationEventId",communicationEventId));
+              if (UtilValidate.isEmpty(communicationEventProductMap)) {
+                GenericValue communicationEventProduct=delegator.makeValue("CommunicationEventProduct",UtilMisc.toMap("productId",productId,"communicationEventId",communicationEventId));
+                communicationEventProduct.create();
+              }
+              try {
+                List<GenericValue> productRoleList=delegator.findByAnd("ProductRole",UtilMisc.toMap("productId",productId,"partyId",communicationEvent.getString("partyIdFrom"),"roleTypeId","PRODUCT_OWNER"));
+                GenericValue productRoleMap=EntityUtil.getFirst(productRoleList);
+                GenericValue userLogin=(GenericValue)context.get("userLogin");
+                if (UtilValidate.isNotEmpty(productRoleMap)) {
+                  dispatcher.runSync("setCommunicationEventStatus",UtilMisc.<String,Object>toMap("communicationEventId",communicationEvent.getString("communicationEventId"),"statusId","COM_COMPLETE","userLogin",userLogin));
+                }
+              }
+ catch (              GenericServiceException e1) {
+                Debug.logError(e1,"Error calling updating commevent status",module);
+                return ServiceUtil.returnError("Error calling updating commevent status:" + e1.toString());
+              }
+            }
+ else {
+              Debug.logInfo("Product id " + productId + " found in subject but not in database",module);
+            }
+          }
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError("find by primary key error:" + e.toString());
+    }
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    return result;
+  }
+ else {
+    Map<String,Object> result=ServiceUtil.returnError("A communication event id is required");
+    return result;
+  }
+}
