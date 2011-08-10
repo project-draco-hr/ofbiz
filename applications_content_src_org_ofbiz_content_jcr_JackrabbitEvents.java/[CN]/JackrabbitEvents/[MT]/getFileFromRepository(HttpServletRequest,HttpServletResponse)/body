@@ -1,32 +1,26 @@
 {
-  JcrFileHelper jackrabbit=new JcrFileHelperJackrabbit(request);
-  InputStream file=null;
+  GenericValue userLogin=(GenericValue)request.getAttribute("userLogin");
+  String node=request.getParameter("path");
+  if (UtilValidate.isEmpty(node)) {
+    String msg="A node path is missing, please pass the path to the node which should be read from the repository.";
+    Debug.logError(msg,module);
+    request.setAttribute("_ERROR_MESSAGE_",msg);
+    return "error";
+  }
+  RepositoryAccess repositoryAccess=new RepositoryAccessJackrabbit(userLogin);
+  OfbizRepositoryMappingJackrabbitFile file=(OfbizRepositoryMappingJackrabbitFile)repositoryAccess.getContentObject(node);
+  InputStream fileStream=file.getResource().getData();
+  String fileName=file.getPath();
+  if (fileName.indexOf("/") != -1) {
+    fileName=fileName.substring(fileName.indexOf("/") + 1);
+  }
   try {
-    file=jackrabbit.getFileContent();
-    UtilHttp.streamContentToBrowser(response,IOUtils.toByteArray(file),jackrabbit.getFileMimeType(),jackrabbit.getNodeName());
+    UtilHttp.streamContentToBrowser(response,IOUtils.toByteArray(fileStream),file.getResource().getMimeType(),fileName);
   }
- catch (  RepositoryException e) {
+ catch (  IOException e) {
     Debug.logError(e,module);
-    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
     return "error";
-  }
-catch (  IOException e) {
-    Debug.logError(e,module);
-    request.setAttribute("_ERROR_MESSAGE_",e.toString());
-    return "error";
-  }
- finally {
-    jackrabbit.closeSession();
-    if (file != null) {
-      try {
-        file.close();
-      }
- catch (      IOException e) {
-        Debug.logError(e,module);
-        request.setAttribute("_ERROR_MESSAGE_",e.toString());
-        return "error";
-      }
-    }
   }
   return "success";
 }

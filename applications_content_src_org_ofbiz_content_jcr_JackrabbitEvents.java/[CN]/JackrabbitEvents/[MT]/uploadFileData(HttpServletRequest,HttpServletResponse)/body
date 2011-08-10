@@ -1,4 +1,5 @@
 {
+  GenericValue userLogin=(GenericValue)request.getAttribute("userLogin");
   ServletFileUpload fu=new ServletFileUpload(new DiskFileItemFactory(10240,FileUtil.getFile("runtime/tmp")));
   List<FileItem> list=null;
   Map<String,String> passedParams=FastMap.newInstance();
@@ -22,35 +23,18 @@
       file=fi.get();
     }
   }
-  JcrFileHelper jackrabbit=new JcrFileHelperJackrabbit((GenericValue)request.getSession().getAttribute("userLogin"),(Delegator)request.getAttribute("delegator"),null,passedParams.get("repositoryNode"));
-  InputStream i=new ByteArrayInputStream(file);
-  Tika tika=new Tika();
-  try {
-    String mt=tika.detect(i);
-  }
- catch (  IOException e1) {
-    e1.printStackTrace();
-  }
-  if (file != null && file.length >= 1) {
-    try {
-      jackrabbit.uploadFileData(file,passedParams.get("completeFileName"),passedParams.get("fileLocale"),passedParams.get("description"));
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
-      request.setAttribute("_ERROR_MESSAGE_",e.toString());
-      return "error";
-    }
-catch (    RepositoryException e) {
-      Debug.logError(e,module);
-      request.setAttribute("_ERROR_MESSAGE_",e.toString());
-      return "error";
-    }
- finally {
-      jackrabbit.closeSession();
-    }
-  }
- else {
-    jackrabbit.closeSession();
-  }
+  OfbizRepositoryMappingJackrabbitResource ormResource=new OfbizRepositoryMappingJackrabbitResource();
+  ormResource.setData(new ByteArrayInputStream(file));
+  ormResource.setMimeType(getMimeTypeFromInputStream(new ByteArrayInputStream(file)));
+  ormResource.setLastModified(new GregorianCalendar());
+  OfbizRepositoryMappingJackrabbitFile ormFile=new OfbizRepositoryMappingJackrabbitFile();
+  ormFile.setCreationDate(new GregorianCalendar());
+  ormFile.setResource(ormResource);
+  ormFile.setPath(passedParams.get("completeFileName"));
+  OfbizRepositoryMappingJackrabbitFolder ormFolder=new OfbizRepositoryMappingJackrabbitFolder();
+  ormFolder.addChild(ormFile);
+  ormFolder.setPath(passedParams.get("path"));
+  RepositoryAccess repositoryAcces=new RepositoryAccessJackrabbit(userLogin);
+  repositoryAcces.storeContentObject(ormFolder);
   return "success";
 }
