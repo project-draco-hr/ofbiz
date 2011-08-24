@@ -1,0 +1,66 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  String partyId=request.getParameter("partyId");
+  String onclickFunction=request.getParameter("onclickFunction");
+  String additionParam=request.getParameter("additionParam");
+  String hrefString=request.getParameter("hrefString");
+  String hrefString2=request.getParameter("hrefString2");
+  List categoryList=FastList.newInstance();
+  List<GenericValue> childOfComs;
+  try {
+    GenericValue partyGroup=delegator.findByPrimaryKey("PartyGroup",UtilMisc.toMap("partyId",partyId));
+    if (UtilValidate.isNotEmpty(partyGroup)) {
+      childOfComs=EntityUtil.filterByDate(delegator.findByAnd("PartyRelationship",UtilMisc.toMap("partyIdFrom",partyGroup.get("partyId"),"partyRelationshipTypeId","GROUP_ROLLUP")));
+      if (UtilValidate.isNotEmpty(childOfComs)) {
+        for (        GenericValue childOfCom : childOfComs) {
+          Object catId=null;
+          String catNameField=null;
+          String title=null;
+          Map josonMap=FastMap.newInstance();
+          Map dataMap=FastMap.newInstance();
+          Map dataAttrMap=FastMap.newInstance();
+          Map attrMap=FastMap.newInstance();
+          catId=childOfCom.get("partyIdTo");
+          GenericValue childContext=delegator.findByPrimaryKey("PartyGroup",UtilMisc.toMap("partyId",catId));
+          if (UtilValidate.isNotEmpty(childContext)) {
+            catNameField=(String)childContext.get("groupName");
+            title=catNameField;
+            josonMap.put("title",title);
+          }
+          List<GenericValue> childOfSubComs=EntityUtil.filterByDate(delegator.findByAnd("PartyRelationship",UtilMisc.toMap("partyIdFrom",catId,"partyRelationshipTypeId","GROUP_ROLLUP")));
+          if (UtilValidate.isNotEmpty(childOfSubComs)) {
+            josonMap.put("state","closed");
+          }
+          GenericValue emContext=delegator.findByPrimaryKey("Person",UtilMisc.toMap("partyId",catId));
+          if (UtilValidate.isNotEmpty(emContext)) {
+            String firstname=(String)emContext.get("firstName");
+            String lastname=(String)emContext.get("lastName");
+            if (UtilValidate.isEmpty(lastname)) {
+              lastname="";
+            }
+            if (UtilValidate.isEmpty(firstname)) {
+              firstname="";
+            }
+            title=firstname + " " + lastname;
+          }
+          dataAttrMap.put("onClick",onclickFunction + "('" + catId+ additionParam+ "')");
+          String hrefStr=hrefString + catId;
+          if (UtilValidate.isNotEmpty(hrefString2)) {
+            hrefStr=hrefStr + hrefString2;
+          }
+          dataAttrMap.put("href",hrefStr);
+          dataMap.put("attr",dataAttrMap);
+          attrMap.put("id",catId);
+          josonMap.put("attr",attrMap);
+          dataMap.put("title",title);
+          josonMap.put("data",dataMap);
+          categoryList.add(josonMap);
+        }
+        toJsonObjectList(categoryList,response);
+      }
+    }
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+  }
+}
