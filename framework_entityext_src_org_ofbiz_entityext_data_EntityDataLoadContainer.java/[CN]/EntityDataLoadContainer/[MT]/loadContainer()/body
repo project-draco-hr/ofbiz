@@ -1,0 +1,292 @@
+{
+  ContainerConfig.Container cfg=ContainerConfig.getContainer("dataload-container",configFile);
+  ContainerConfig.Container.Property delegatorNameProp=cfg.getProperty("delegator-name");
+  ContainerConfig.Container.Property entityGroupNameProp=cfg.getProperty("entity-group-name");
+  String delegatorName=null;
+  String entityGroupName=null;
+  if (delegatorNameProp == null || UtilValidate.isEmpty(delegatorNameProp.value)) {
+    throw new ContainerException("Invalid delegator-name defined in container configuration");
+  }
+ else {
+    delegatorName=delegatorNameProp.value;
+  }
+  if (entityGroupNameProp == null || UtilValidate.isEmpty(entityGroupNameProp.value)) {
+    throw new ContainerException("Invalid entity-group-name defined in container configuration");
+  }
+ else {
+    entityGroupName=entityGroupNameProp.value;
+  }
+  List<String> readerNames=null;
+  if (this.readers != null && !"none".equalsIgnoreCase(this.readers)) {
+    if (this.readers.indexOf(",") == -1) {
+      readerNames=FastList.newInstance();
+      readerNames.add(this.readers);
+    }
+ else {
+      readerNames=StringUtil.split(this.readers,",");
+    }
+  }
+  String delegatorNameToUse=overrideDelegator != null ? overrideDelegator : delegatorName;
+  String groupNameToUse=overrideGroup != null ? overrideGroup : entityGroupName;
+  Delegator delegator=DelegatorFactory.getDelegator(delegatorNameToUse);
+  if (delegator == null) {
+    throw new ContainerException("Invalid delegator name!");
+  }
+  GenericHelperInfo helperInfo=delegator.getGroupHelperInfo(groupNameToUse);
+  if (helperInfo == null) {
+    throw new ContainerException("Unable to locate the datasource helper for the group [" + groupNameToUse + "]");
+  }
+  DatabaseUtil dbUtil=new DatabaseUtil(helperInfo);
+  Map<String,ModelEntity> modelEntities;
+  try {
+    modelEntities=delegator.getModelEntityMapByGroup(groupNameToUse);
+  }
+ catch (  GenericEntityException e) {
+    throw new ContainerException(e.getMessage(),e);
+  }
+  TreeSet<String> modelEntityNames=new TreeSet<String>(modelEntities.keySet());
+  Collection<ComponentConfig> allComponents=ComponentConfig.getAllComponents();
+  for (  ComponentConfig config : allComponents) {
+    GenericValue componentEntry=delegator.makeValue("Component");
+    componentEntry.set("componentName",config.getComponentName());
+    componentEntry.set("rootLocation",config.getRootLocation());
+    try {
+      GenericValue componentCheck=delegator.findByPrimaryKey("Component",UtilMisc.toMap("componentName",config.getComponentName()));
+      if (UtilValidate.isEmpty(componentCheck)) {
+        componentEntry.create();
+      }
+ else {
+        componentEntry.store();
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e.getMessage(),module);
+    }
+  }
+  if (UtilValidate.isNotEmpty(delegator.getDelegatorTenantId()) && "Y".equals(UtilProperties.getPropertyValue("general.properties","multitenant"))) {
+    try {
+      List<EntityExpr> exprs=FastList.newInstance();
+      exprs.add(EntityCondition.makeCondition("rootLocation",EntityOperator.NOT_LIKE,"%hot-deploy%"));
+      EntityCondition cond=EntityCondition.makeCondition(exprs);
+      List<GenericValue> components=delegator.findList("Component",cond,null,null,null,false);
+      Debug.logInfo("===== Begin load specify components",module);
+      if (UtilValidate.isEmpty(this.component)) {
+        for (        GenericValue component : components) {
+          this.components.add(component.getString("componentName"));
+        }
+        Debug.logInfo("- Loaded components by default : " + components.size() + " components",module);
+        List<GenericValue> tenantComponents=delegator.findByAnd("TenantComponent",UtilMisc.toMap("tenantId",delegator.getDelegatorTenantId()),UtilMisc.toList("sequenceNum"));
+        for (        GenericValue tenantComponent : tenantComponents) {
+          this.components.add(tenantComponent.getString("componentName"));
+        }
+        Debug.logInfo("- Loaded components by tenantId : " + delegator.getDelegatorTenantId() + ", "+ tenantComponents.size()+ " components",module);
+      }
+ else {
+        List<GenericValue> tenantComponents=delegator.findByAnd("TenantComponent",UtilMisc.toMap("tenantId",delegator.getDelegatorTenantId(),"componentName",this.component),UtilMisc.toList("sequenceNum"));
+        for (        GenericValue tenantComponent : tenantComponents) {
+          this.components.add(tenantComponent.getString("componentName"));
+        }
+        Debug.logInfo("- Loaded tenantId : " + delegator.getDelegatorTenantId() + " and component : "+ this.component,module);
+      }
+      Debug.logInfo("===== Loaded : " + this.components.size() + " components",module);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e.getMessage(),module);
+    }
+  }
+  if (dropConstraints) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Dropping foreign key indcies...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deleteForeignKeyIndices(modelEntity,messages);
+      }
+    }
+    Debug.logImportant("Dropping declared indices...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deleteDeclaredIndices(modelEntity,messages);
+      }
+    }
+    Debug.logImportant("Dropping foreign keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deleteForeignKeys(modelEntity,modelEntities,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+  if (dropPks) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Dropping primary keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.deletePrimaryKey(modelEntity,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+  if (repairColumns) {
+    List<String> fieldsToRepair=FastList.newInstance();
+    List<String> messages=FastList.newInstance();
+    dbUtil.checkDb(modelEntities,fieldsToRepair,messages,false,false,false,false);
+    if (fieldsToRepair.size() > 0) {
+      messages=FastList.newInstance();
+      dbUtil.repairColumnSizeChanges(modelEntities,fieldsToRepair,messages);
+      if (messages.size() > 0) {
+        if (Debug.infoOn()) {
+          for (          String message : messages) {
+            Debug.logInfo(message,module);
+          }
+        }
+      }
+    }
+  }
+  List<URL> urlList=FastList.newInstance();
+  if (UtilValidate.isNotEmpty(this.components)) {
+    if (UtilValidate.isNotEmpty(readerNames)) {
+      urlList=EntityDataLoader.getUrlByComponentList(helperInfo.getHelperBaseName(),this.components,readerNames);
+    }
+ else     if (!"none".equalsIgnoreCase(this.readers)) {
+      urlList=EntityDataLoader.getUrlByComponentList(helperInfo.getHelperBaseName(),this.components);
+    }
+  }
+ else {
+    if (UtilValidate.isNotEmpty(readerNames)) {
+      urlList=EntityDataLoader.getUrlList(helperInfo.getHelperBaseName(),component,readerNames);
+    }
+ else     if (!"none".equalsIgnoreCase(this.readers)) {
+      urlList=EntityDataLoader.getUrlList(helperInfo.getHelperBaseName(),component);
+    }
+  }
+  if (urlList == null) {
+    urlList=FastList.newInstance();
+  }
+  for (  String fileName : this.files) {
+    URL fileUrl=UtilURL.fromResource(fileName);
+    if (fileUrl != null) {
+      urlList.add(fileUrl);
+    }
+  }
+  if (this.directory != null) {
+    File dir=new File(this.directory);
+    if (dir.exists() && dir.isDirectory() && dir.canRead()) {
+      File[] fileArray=dir.listFiles();
+      if (fileArray != null && fileArray.length > 0) {
+        for (        File file : fileArray) {
+          if (file.getName().toLowerCase().endsWith(".xml")) {
+            try {
+              urlList.add(file.toURI().toURL());
+            }
+ catch (            MalformedURLException e) {
+              Debug.logError(e,"Unable to load file (" + file.getName() + "); not a valid URL.",module);
+            }
+          }
+        }
+      }
+    }
+  }
+  NumberFormat changedFormat=NumberFormat.getIntegerInstance();
+  changedFormat.setMinimumIntegerDigits(5);
+  changedFormat.setGroupingUsed(false);
+  List<Object> errorMessages=FastList.newInstance();
+  List<String> infoMessages=FastList.newInstance();
+  int totalRowsChanged=0;
+  if (UtilValidate.isNotEmpty(urlList)) {
+    Debug.logImportant("=-=-=-=-=-=-= Doing a data load with the following files:",module);
+    for (    URL dataUrl : urlList) {
+      Debug.logImportant(dataUrl.toExternalForm(),module);
+    }
+    Debug.logImportant("=-=-=-=-=-=-= Starting the data load...",module);
+    for (    URL dataUrl : urlList) {
+      try {
+        int rowsChanged=EntityDataLoader.loadData(dataUrl,helperInfo.getHelperBaseName(),delegator,errorMessages,txTimeout,useDummyFks,maintainTxs,tryInserts);
+        totalRowsChanged+=rowsChanged;
+        infoMessages.add(changedFormat.format(rowsChanged) + " of " + changedFormat.format(totalRowsChanged)+ " from "+ dataUrl.toExternalForm());
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error loading data file: " + dataUrl.toExternalForm(),module);
+      }
+    }
+  }
+ else {
+    Debug.logImportant("=-=-=-=-=-=-= No data load files found.",module);
+  }
+  if (infoMessages.size() > 0) {
+    Debug.logImportant("=-=-=-=-=-=-= Here is a summary of the data load:",module);
+    for (    String message : infoMessages) {
+      Debug.logImportant(message,module);
+    }
+  }
+  if (errorMessages.size() > 0) {
+    Debug.logImportant("The following errors occured in the data load:",module);
+    for (    Object message : errorMessages) {
+      Debug.logImportant(message.toString(),module);
+    }
+  }
+  Debug.logImportant("=-=-=-=-=-=-= Finished the data load with " + totalRowsChanged + " rows changed.",module);
+  if (createPks) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Creating primary keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createPrimaryKey(modelEntity,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+  if (createConstraints) {
+    List<String> messages=FastList.newInstance();
+    Debug.logImportant("Creating foreign keys...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createForeignKeys(modelEntity,modelEntities,messages);
+      }
+    }
+    Debug.logImportant("Creating foreign key indcies...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createForeignKeyIndices(modelEntity,messages);
+      }
+    }
+    Debug.logImportant("Creating declared indices...",module);
+    for (    String entityName : modelEntityNames) {
+      ModelEntity modelEntity=modelEntities.get(entityName);
+      if (modelEntity != null) {
+        dbUtil.createDeclaredIndices(modelEntity,messages);
+      }
+    }
+    if (messages.size() > 0) {
+      if (Debug.infoOn()) {
+        for (        String message : messages) {
+          Debug.logInfo(message,module);
+        }
+      }
+    }
+  }
+}
