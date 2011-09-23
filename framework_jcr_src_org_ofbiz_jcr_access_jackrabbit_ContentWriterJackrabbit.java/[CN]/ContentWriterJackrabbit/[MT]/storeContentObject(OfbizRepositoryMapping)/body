@@ -26,24 +26,23 @@ catch (  RepositoryException e) {
   }
   for (int i=0; i < (nodeStructure.length - 1); i++) {
     String node=nodeStructure[i];
-    if (UtilValidate.isEmail(node)) {
+    if (UtilValidate.isEmpty(node)) {
       continue;
     }
     try {
       if (parentNode.hasNode(node)) {
         parentNode=parentNode.getNode(node);
+        versioningManager.checkOutContentObject(parentNode.getPath());
       }
  else {
-        OfbizRepositoryMapping newNode=orm.getClass().newInstance();
-        String parentNodePath=parentNode.getPath();
-        if (!parentNodePath.endsWith("/")) {
-          parentNodePath=parentNodePath + "/";
-        }
-        newNode.setPath(parentNodePath + node);
         versioningManager.checkOutContentObject(parentNode.getPath());
-        ocm.insert(newNode);
+        Node newNode=parentNode.addNode(node);
+        newNode.addMixin(PROPERTY_FIELDS.mixInVERSIONING.getType());
+        if (!ConstantsJackrabbit.ROOTPATH.equals(parentNode.getPath())) {
+          newNode.setPrimaryType(parentNode.getPrimaryNodeType().getName());
+        }
         versioningManager.addContentToCheckInList(newNode.getPath());
-        parentNode=parentNode.getNode(node);
+        parentNode=newNode;
       }
     }
  catch (    PathNotFoundException e) {
@@ -51,14 +50,6 @@ catch (  RepositoryException e) {
       return;
     }
 catch (    RepositoryException e) {
-      Debug.logError(e,"The new node could not be created: " + orm.getPath(),module);
-      return;
-    }
-catch (    InstantiationException e) {
-      Debug.logError(e,"The new node could not be created: " + orm.getPath(),module);
-      return;
-    }
-catch (    IllegalAccessException e) {
       Debug.logError(e,"The new node could not be created: " + orm.getPath(),module);
       return;
     }
