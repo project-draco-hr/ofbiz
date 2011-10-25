@@ -1,21 +1,59 @@
 {
+  Delegator delegator=dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
   Long quantity=(Long)context.get("quantity");
-  Locale locale=(Locale)context.get("locale");
+  int codeLength=(Integer)context.get("codeLength");
+  String promoCodeLayout=(String)context.get("promoCodeLayout");
+  boolean useSmartLayout=false;
+  boolean useNormalLayout=false;
+  if ("smart".equals(promoCodeLayout)) {
+    useSmartLayout=true;
+  }
+ else   if ("normal".equals(promoCodeLayout)) {
+    useNormalLayout=true;
+  }
+  String newPromoCodeId="";
   StringBuilder bankOfNumbers=new StringBuilder();
-  for (long i=0; i < quantity.longValue(); i++) {
+  bankOfNumbers.append("Following PromoCodes have been created: ");
+  for (long i=0; i < quantity; i++) {
     Map<String,Object> createProductPromoCodeMap=null;
+    boolean foundUniqueNewCode=false;
+    long count=0;
+    while (!foundUniqueNewCode) {
+      if (useSmartLayout) {
+        newPromoCodeId=RandomStringUtils.random(codeLength,smartChars);
+      }
+ else       if (useNormalLayout) {
+        newPromoCodeId=RandomStringUtils.randomAlphanumeric(codeLength);
+      }
+      GenericValue existingPromoCode=null;
+      try {
+        existingPromoCode=delegator.findByPrimaryKeyCache("ProductPromoCode","productPromoCodeId",newPromoCodeId);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logWarning("Could not find ProductPromoCode for just generated ID: " + newPromoCodeId,module);
+      }
+      if (existingPromoCode == null) {
+        foundUniqueNewCode=true;
+      }
+      count++;
+      if (count > 999999) {
+        return ServiceUtil.returnError("Unable to locate unique PromoCode! Length [" + codeLength + "]");
+      }
+    }
     try {
-      createProductPromoCodeMap=dispatcher.runSync("createProductPromoCode",dctx.makeValidContext("createProductPromoCode","IN",context));
+      Map<String,Object> newContext=dctx.makeValidContext("createProductPromoCode","IN",context);
+      newContext.put("productPromoCodeId",newPromoCodeId);
+      createProductPromoCodeMap=dispatcher.runSync("createProductPromoCode",newContext);
     }
  catch (    GenericServiceException err) {
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPromoCodeCannotBeCreated",locale),null,null,createProductPromoCodeMap);
+      return ServiceUtil.returnError("Could not create a bank of promo codes",null,null,createProductPromoCodeMap);
     }
     if (ServiceUtil.isError(createProductPromoCodeMap)) {
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductPromoCodeCannotBeCreated",locale),null,null,createProductPromoCodeMap);
+      return ServiceUtil.returnError("Could not create a bank of promo codes",null,null,createProductPromoCodeMap);
     }
     bankOfNumbers.append((String)createProductPromoCodeMap.get("productPromoCodeId"));
-    bankOfNumbers.append("<br/>");
+    bankOfNumbers.append(",");
   }
   return ServiceUtil.returnSuccess(bankOfNumbers.toString());
 }
