@@ -270,24 +270,27 @@
         if (adjAlreadyInvoicedAmount.abs().compareTo(adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,ROUNDING).abs()) > 0) {
           continue;
         }
+        BigDecimal originalOrderItemQuantity=OrderReadHelper.getOrderItemQuantity(originalOrderItem);
         BigDecimal amount=ZERO;
-        if (adj.get("amount") != null) {
-          amount=adj.getBigDecimal("amount").divide(originalOrderItem.getBigDecimal("quantity"),100,ROUNDING);
-          amount=amount.multiply(billingQuantity);
-          if (adj.getString("orderAdjustmentTypeId").equals("SALES_TAX")) {
-            amount=amount.setScale(TAX_DECIMALS,TAX_ROUNDING);
-          }
+        if (originalOrderItemQuantity.signum() != 0) {
+          if (adj.get("amount") != null) {
+            amount=adj.getBigDecimal("amount").divide(originalOrderItemQuantity,100,ROUNDING);
+            amount=amount.multiply(billingQuantity);
+            if (adj.getString("orderAdjustmentTypeId").equals("SALES_TAX")) {
+              amount=amount.setScale(TAX_DECIMALS,TAX_ROUNDING);
+            }
  else {
+              amount=amount.setScale(invoiceTypeDecimals,ROUNDING);
+            }
+          }
+ else           if (adj.get("sourcePercentage") != null) {
+            BigDecimal percent=adj.getBigDecimal("sourcePercentage");
+            percent=percent.divide(new BigDecimal(100),100,ROUNDING);
+            amount=billingAmount.multiply(percent);
+            amount=amount.divide(originalOrderItemQuantity,100,ROUNDING);
+            amount=amount.multiply(billingQuantity);
             amount=amount.setScale(invoiceTypeDecimals,ROUNDING);
           }
-        }
- else         if (adj.get("sourcePercentage") != null) {
-          BigDecimal percent=adj.getBigDecimal("sourcePercentage");
-          percent=percent.divide(new BigDecimal(100),100,ROUNDING);
-          amount=billingAmount.multiply(percent);
-          amount=amount.divide(originalOrderItem.getBigDecimal("quantity"),100,ROUNDING);
-          amount=amount.multiply(billingQuantity);
-          amount=amount.setScale(invoiceTypeDecimals,ROUNDING);
         }
         if (amount.signum() != 0) {
           Map<String,Object> createInvoiceItemAdjContext=FastMap.newInstance();
