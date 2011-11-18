@@ -1,6 +1,6 @@
 {
-  if (embedded == null) {
-    throw new ContainerException("Cannot create Connector without Embedded instance!");
+  if (tomcat == null) {
+    throw new ContainerException("Cannot create Connector without Tomcat instance!");
   }
   String protocol=ContainerConfig.getPropertyValue(connectorProp,"protocol","HTTP/1.1");
   String address=ContainerConfig.getPropertyValue(connectorProp,"address","0.0.0.0");
@@ -20,12 +20,45 @@
   }
   Connector connector=null;
   if (UtilValidate.isNotEmpty(connectorProp.properties)) {
-    connector=embedded.createConnector(address,port,protocol);
+    if (address != null) {
+      int index=address.indexOf('/');
+      if (index != -1) {
+        address=address.substring(index + 1);
+      }
+    }
+    Debug.logInfo("Creating connector for address='" + ((address == null) ? "ALL" : address) + "' port='"+ port+ "' protocol='"+ protocol+ "'",module);
+    try {
+      if (protocol.equals("ajp")) {
+        connector=new Connector("org.apache.coyote.ajp.AjpProtocol");
+      }
+ else       if (protocol.equals("memory")) {
+        connector=new Connector("org.apache.coyote.memory.MemoryProtocolHandler");
+      }
+ else       if (protocol.equals("http")) {
+        connector=new Connector();
+      }
+ else       if (protocol.equals("https")) {
+        connector=new Connector();
+        connector.setScheme("https");
+        connector.setSecure(true);
+        connector.setProperty("SSLEnabled","true");
+      }
+ else {
+        connector=new Connector(protocol);
+      }
+      if (address != null) {
+        IntrospectionUtils.setProperty(connector,"address","" + address);
+      }
+      IntrospectionUtils.setProperty(connector,"port","" + port);
+    }
+ catch (    Exception e) {
+      Debug.logError(e,"Couldn't create connector.",module);
+    }
     try {
       for (      ContainerConfig.Container.Property prop : connectorProp.properties.values()) {
         connector.setProperty(prop.name,prop.value);
       }
-      embedded.addConnector(connector);
+      tomcat.getService().addConnector(connector);
     }
  catch (    Exception e) {
       throw new ContainerException(e);

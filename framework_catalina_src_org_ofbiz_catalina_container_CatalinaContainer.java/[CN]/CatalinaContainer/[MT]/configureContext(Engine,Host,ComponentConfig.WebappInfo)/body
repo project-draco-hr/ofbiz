@@ -23,11 +23,22 @@
  else {
     sessionMgr=new StandardManager();
   }
-  StandardContext context=(StandardContext)embedded.createContext(mount,location);
+  StandardContext context=new StandardContext();
+  context.setParent(host);
+  context.setDocBase(location);
+  context.setPath(mount);
+  context.addLifecycleListener(new ContextConfig());
+  JarScanner jarScanner=context.getJarScanner();
+  if (jarScanner instanceof StandardJarScanner) {
+    StandardJarScanner standardJarScanner=(StandardJarScanner)jarScanner;
+    standardJarScanner.setScanClassPath(false);
+  }
+  Engine egn=(Engine)context.getParent().getParent();
+  egn.setService(tomcat.getService());
   Debug.logInfo("host[" + host + "].addChild("+ context+ ")",module);
   context.setJ2EEApplication(J2EE_APP);
   context.setJ2EEServer(J2EE_SERVER);
-  context.setLoader(embedded.createLoader(ClassLoaderContainer.getClassLoader()));
+  context.setLoader(new WebappLoader(ClassLoaderContainer.getClassLoader()));
   context.setCookies(appInfo.isSessionCookieAccepted());
   context.addParameter("cookies",appInfo.isSessionCookieAccepted() ? "true" : "false");
   context.setDisplayName(appInfo.name);
@@ -40,7 +51,18 @@
   context.setManager(sessionMgr);
   context.getServletContext().setAttribute("_serverId",appInfo.server);
   context.getServletContext().setAttribute("componentName",appInfo.componentConfig.getComponentName());
+  String enableRequestDump=initParameters.get("enableRequestDump");
+  if ("true".equals(enableRequestDump)) {
+    FilterDef requestDumperFilterDef=new FilterDef();
+    requestDumperFilterDef.setFilterClass(RequestDumperFilter.class.getName());
+    requestDumperFilterDef.setFilterName("RequestDumper");
+    FilterMap requestDumperFilterMap=new FilterMap();
+    requestDumperFilterMap.setFilterName("RequestDumper");
+    requestDumperFilterMap.addURLPattern("*");
+    context.addFilterMap(requestDumperFilterMap);
+  }
   StandardWrapper defaultServlet=new StandardWrapper();
+  defaultServlet.setParent(context);
   defaultServlet.setServletClass("org.apache.catalina.servlets.DefaultServlet");
   defaultServlet.setServletName("default");
   defaultServlet.setLoadOnStartup(1);
@@ -50,6 +72,7 @@
   context.addChild(defaultServlet);
   context.addServletMapping("/","default");
   StandardWrapper jspServlet=new StandardWrapper();
+  jspServlet.setParent(context);
   jspServlet.setServletClass("org.apache.jasper.servlet.JspServlet");
   jspServlet.setServletName("jsp");
   jspServlet.setLoadOnStartup(1);
