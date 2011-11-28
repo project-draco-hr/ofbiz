@@ -1,6 +1,6 @@
 {
-  if (embedded == null) {
-    throw new ContainerException("Cannot create Engine without Embedded instance!");
+  if (tomcat == null) {
+    throw new ContainerException("Cannot create Engine without Tomcat instance!");
   }
   ContainerConfig.Container.Property defaultHostProp=engineConfig.getProperty("default-host");
   if (defaultHostProp == null) {
@@ -8,20 +8,21 @@
   }
   String engineName=engineConfig.name;
   String hostName=defaultHostProp.value;
-  StandardEngine engine=(StandardEngine)embedded.createEngine();
+  StandardEngine engine=new StandardEngine();
   engine.setName(engineName);
   engine.setDefaultHost(hostName);
   String jvmRoute=ContainerConfig.getPropertyValue(engineConfig,"jvm-route",null);
   if (jvmRoute != null) {
     engine.setJvmRoute(jvmRoute);
   }
-  String dbConfigPath="catalina-users.xml";
+  String dbConfigPath=new File(System.getProperty("catalina.home"),"catalina-users.xml").getAbsolutePath();
   MemoryRealm realm=new MemoryRealm();
   realm.setPathname(dbConfigPath);
   engine.setRealm(realm);
   engines.put(engine.getName(),engine);
   Host host=createHost(engine,hostName);
   hosts.put(engineName + "._DEFAULT",host);
+  engine.addChild(host);
   List<ContainerConfig.Container.Property> clusterProps=engineConfig.getPropertiesWithValue("cluster");
   if (clusterProps != null && clusterProps.size() > 1) {
     throw new ContainerException("Only one cluster configuration allowed per engine");
@@ -30,11 +31,6 @@
     ContainerConfig.Container.Property clusterProp=clusterProps.get(0);
     createCluster(clusterProp,host);
     clusterConfig.put(engineName,clusterProp);
-  }
-  boolean enableRequestDump=ContainerConfig.getPropertyValue(engineConfig,"enable-request-dump",false);
-  if (enableRequestDump) {
-    RequestDumperValve rdv=new RequestDumperValve();
-    engine.addValve(rdv);
   }
   boolean enableSessionValve=ContainerConfig.getPropertyValue(engineConfig,"enable-cross-subdomain-sessions",false);
   if (enableSessionValve) {
@@ -80,6 +76,6 @@
   if (al != null) {
     engine.addValve(al);
   }
-  embedded.addEngine(engine);
+  tomcat.getService().setContainer(engine);
   return engine;
 }

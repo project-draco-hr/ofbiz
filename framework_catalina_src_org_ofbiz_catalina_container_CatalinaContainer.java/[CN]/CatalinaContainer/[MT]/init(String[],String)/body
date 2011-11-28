@@ -9,16 +9,21 @@
   this.crossContext=ContainerConfig.getPropertyValue(cc,"apps-cross-context",true);
   this.distribute=ContainerConfig.getPropertyValue(cc,"apps-distributable",true);
   this.catalinaRuntimeHome=ContainerConfig.getPropertyValue(cc,"catalina-runtime-home","runtime/catalina");
-  System.setProperty("catalina.home",System.getProperty("ofbiz.home") + "/" + this.catalinaRuntimeHome);
-  StandardServer server=(StandardServer)ServerFactory.getServer();
+  System.setProperty(Globals.CATALINA_HOME_PROP,System.getProperty("ofbiz.home") + "/" + this.catalinaRuntimeHome);
+  System.setProperty(Globals.CATALINA_BASE_PROP,System.getProperty(Globals.CATALINA_HOME_PROP));
+  System.setProperty("catalina.useNaming",String.valueOf(useNaming));
+  tomcat=new Tomcat();
+  tomcat.setBaseDir(System.getProperty("ofbiz.home"));
+  if (useNaming) {
+    tomcat.enableNaming();
+  }
+  StandardServer server=(StandardServer)tomcat.getServer();
   try {
     server.setGlobalNamingContext(new InitialContext());
   }
  catch (  NamingException e) {
     throw new ContainerException(e);
   }
-  embedded=new Embedded();
-  embedded.setUseNaming(useNaming);
   List<ContainerConfig.Container.Property> engineProps=cc.getPropertiesWithValue("engine");
   if (UtilValidate.isEmpty(engineProps)) {
     throw new ContainerException("Cannot load CatalinaContainer; no engines defined!");
@@ -32,11 +37,5 @@
   }
   for (  ContainerConfig.Container.Property connectorProp : connectorProps) {
     createConnector(connectorProp);
-  }
-  try {
-    embedded.initialize();
-  }
- catch (  LifecycleException e) {
-    throw new ContainerException(e);
   }
 }
