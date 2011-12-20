@@ -1,0 +1,154 @@
+{
+  if (dataResourceId == null) {
+    throw new GeneralException("Cannot lookup data resource with for a null dataResourceId");
+  }
+  if (templateContext == null) {
+    templateContext=FastMap.newInstance();
+  }
+  if (UtilValidate.isEmpty(targetMimeTypeId)) {
+    targetMimeTypeId="text/html";
+  }
+  if (locale == null) {
+    locale=Locale.getDefault();
+  }
+  if (cache) {
+    String disableCache=UtilProperties.getPropertyValue("content","disable.ftl.template.cache");
+    if (disableCache == null || !disableCache.equalsIgnoreCase("true")) {
+      try {
+        Template cachedTemplate=FreeMarkerWorker.getTemplate("DataResource:" + dataResourceId);
+        if (cachedTemplate != null) {
+          String subContentId=(String)templateContext.get("subContentId");
+          if (UtilValidate.isNotEmpty(subContentId)) {
+            templateContext.put("contentId",subContentId);
+            templateContext.put("subContentId",null);
+            templateContext.put("globalNodeTrail",null);
+          }
+          FreeMarkerWorker.renderTemplate(cachedTemplate,templateContext,out);
+        }
+      }
+ catch (      TemplateException e) {
+        Debug.logError("Error rendering FTL template. " + e.getMessage(),module);
+        throw new GeneralException("Error rendering FTL template",e);
+      }
+      return;
+    }
+  }
+  if (!targetMimeTypeId.startsWith("text/")) {
+    throw new GeneralException("The desired mime-type is not a text type, cannot render as text: " + targetMimeTypeId);
+  }
+  GenericValue dataResource=delegator.findOne("DataResource",UtilMisc.toMap("dataResourceId",dataResourceId),cache);
+  if (dataResource == null) {
+    throw new GeneralException("No data resource object found for dataResourceId: [" + dataResourceId + "]");
+  }
+  String dataTemplateTypeId=dataResource.getString("dataTemplateTypeId");
+  if (UtilValidate.isEmpty(dataTemplateTypeId) || "NONE".equals(dataTemplateTypeId)) {
+    DataResourceWorker.writeDataResourceText(dataResource,targetMimeTypeId,locale,templateContext,delegator,out,true);
+  }
+ else {
+    templateContext.put("mimeTypeId",targetMimeTypeId);
+    if ("FTL".equals(dataTemplateTypeId)) {
+      try {
+        String templateText=getDataResourceText(dataResource,targetMimeTypeId,locale,templateContext,delegator,cache);
+        if (UtilValidate.isNotEmpty(webAnalytics)) {
+          StringBuffer newTemplateText=new StringBuffer(templateText);
+          String webAnalyticsCode="<script language=\"JavaScript\" type=\"text/javascript\">";
+          for (          GenericValue webAnalytic : webAnalytics) {
+            StringWrapper wrapString=StringUtil.wrapString((String)webAnalytic.get("webAnalyticsCode"));
+            webAnalyticsCode+=wrapString.toString();
+          }
+          webAnalyticsCode+="</script>";
+          newTemplateText.insert(templateText.lastIndexOf("</head>"),webAnalyticsCode);
+          templateText=newTemplateText.toString();
+        }
+        FreeMarkerWorker.renderTemplate("DataResource:" + dataResourceId,templateText,templateContext,out);
+      }
+ catch (      TemplateException e) {
+        throw new GeneralException("Error rendering FTL template",e);
+      }
+    }
+ else     if ("XSLT".equals(dataTemplateTypeId)) {
+      File sourceFileLocation=null;
+      File targetFileLocation=new File(System.getProperty("ofbiz.home") + "/runtime/tempfiles/docbook.css");
+      if (templateContext.get("visualThemeId") != null) {
+        Map<String,Object> layoutSettings=UtilGenerics.checkMap(templateContext.get("layoutSettings"));
+        List<String> docbookStyleSheets=UtilGenerics.checkList(layoutSettings.get("VT_DOCBOOKSTYLESHEET"));
+        String docbookStyleLocation=docbookStyleSheets.get(0);
+        sourceFileLocation=new File(System.getProperty("ofbiz.home") + "/themes" + docbookStyleLocation);
+      }
+      if (sourceFileLocation != null && sourceFileLocation.exists()) {
+        UtilMisc.copyFile(sourceFileLocation,targetFileLocation);
+      }
+ else {
+        String defaultVisualThemeId=UtilProperties.getPropertyValue("general","VISUAL_THEME");
+        if (defaultVisualThemeId != null) {
+          GenericValue themeValue=delegator.findOne("VisualThemeResource",UtilMisc.toMap("visualThemeId",defaultVisualThemeId,"resourceTypeEnumId","VT_DOCBOOKSTYLESHEET","sequenceId","01"),true);
+          sourceFileLocation=new File(System.getProperty("ofbiz.home") + "/themes" + themeValue.get("resourceValue"));
+          UtilMisc.copyFile(sourceFileLocation,targetFileLocation);
+        }
+      }
+      String templateLocation=DataResourceWorker.getContentFile(dataResource.getString("dataResourceTypeId"),dataResource.getString("objectInfo"),(String)templateContext.get("contextRoot")).toString();
+      String outDoc=null;
+      try {
+        outDoc=XslTransform.renderTemplate(templateLocation,(String)templateContext.get("docFile"));
+      }
+ catch (      TransformerException c) {
+        Debug.logError("XSL TransformerException: " + c.getMessage(),module);
+      }
+      out.append(outDoc);
+    }
+ else     if ("SCREEN_COMBINED".equals(dataTemplateTypeId)) {
+      try {
+        MapStack<String> context=MapStack.create(templateContext);
+        context.put("locale",locale);
+        String textData=(String)context.get("textData");
+        if (UtilValidate.isNotEmpty(textData)) {
+          Map<String,Object> prc=FastMap.newInstance();
+          String mapKey=(String)context.get("mapKey");
+          if (mapKey != null) {
+            prc.put(mapKey,mapKey);
+          }
+          prc.put("body",textData);
+          context.put("preRenderedContent",prc);
+        }
+        ScreenRenderer screens=(ScreenRenderer)context.get("screens");
+        if (screens == null) {
+          ScreenStringRenderer screenStringRenderer=new MacroScreenRenderer(UtilProperties.getPropertyValue("widget","screen.name"),UtilProperties.getPropertyValue("widget","screen.screenrenderer"));
+          screens=new ScreenRenderer(out,context,screenStringRenderer);
+          screens.getContext().put("screens",screens);
+        }
+        ModelScreen modelScreen=null;
+        ScreenStringRenderer renderer=screens.getScreenStringRenderer();
+        String combinedName=dataResource.getString("objectInfo");
+        if ("URL_RESOURCE".equals(dataResource.getString("dataResourceTypeId")) && UtilValidate.isNotEmpty(combinedName) && combinedName.startsWith("component://")) {
+          modelScreen=ScreenFactory.getScreenFromLocation(combinedName);
+        }
+ else {
+          Document screenXml=UtilXml.readXmlDocument(getDataResourceText(dataResource,targetMimeTypeId,locale,templateContext,delegator,cache),true,true);
+          Map<String,ModelScreen> modelScreenMap=ScreenFactory.readScreenDocument(screenXml,"DataResourceId: " + dataResource.getString("dataResourceId"));
+          if (UtilValidate.isNotEmpty(modelScreenMap)) {
+            Map.Entry<String,ModelScreen> entry=modelScreenMap.entrySet().iterator().next();
+            modelScreen=entry.getValue();
+          }
+        }
+        if (UtilValidate.isNotEmpty(modelScreen)) {
+          modelScreen.renderScreenString(out,context,renderer);
+        }
+ else {
+          throw new GeneralException("The dataResource file [" + dataResourceId + "] could not be found");
+        }
+      }
+ catch (      SAXException e) {
+        throw new GeneralException("Error rendering Screen template",e);
+      }
+catch (      ParserConfigurationException e) {
+        throw new GeneralException("Error rendering Screen template",e);
+      }
+catch (      TemplateException e) {
+        throw new GeneralException("Error creating Screen renderer",e);
+      }
+    }
+ else {
+      throw new GeneralException("The dataTemplateTypeId [" + dataTemplateTypeId + "] is not yet supported");
+    }
+  }
+}
