@@ -1,15 +1,30 @@
 {
   Directory directory=FSDirectory.open(new File(getIndexPath(path)));
+  long savedWriteLockTimeout=IndexWriterConfig.getDefaultWriteLockTimeout();
+  Analyzer analyzer=new StandardAnalyzer(Version.LUCENE_35);
+  IndexWriterConfig conf=new IndexWriterConfig(Version.LUCENE_35,analyzer);
   IndexWriter writer=null;
   try {
-    writer=new IndexWriter(directory,new StandardAnalyzer(Version.LUCENE_30),false,IndexWriter.MaxFieldLength.UNLIMITED);
+    try {
+      IndexWriterConfig.setDefaultWriteLockTimeout(2000);
+      writer=new IndexWriter(directory,conf);
+    }
+  finally {
+      IndexWriterConfig.setDefaultWriteLockTimeout(savedWriteLockTimeout);
+    }
     if (Debug.infoOn())     Debug.logInfo("Used old directory:" + directory.toString(),module);
   }
  catch (  FileNotFoundException e) {
-    writer=new IndexWriter(directory,new StandardAnalyzer(Version.LUCENE_30),true,IndexWriter.MaxFieldLength.UNLIMITED);
+    try {
+      IndexWriterConfig.setDefaultWriteLockTimeout(2000);
+      writer=new IndexWriter(directory,conf);
+    }
+  finally {
+      IndexWriterConfig.setDefaultWriteLockTimeout(savedWriteLockTimeout);
+    }
     if (Debug.infoOn())     Debug.logInfo("Created new directory:" + directory.toString(),module);
   }
   indexContent(dispatcher,delegator,context,content,writer);
-  writer.optimize();
+  writer.forceMerge(1);
   writer.close();
 }

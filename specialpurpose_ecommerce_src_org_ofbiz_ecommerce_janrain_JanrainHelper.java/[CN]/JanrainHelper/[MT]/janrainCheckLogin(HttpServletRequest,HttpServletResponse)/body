@@ -1,0 +1,51 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  String token=request.getParameter("token");
+  String errMsg="";
+  if (UtilValidate.isNotEmpty(token)) {
+    JanrainHelper janrainHelper=new JanrainHelper(apiKey,baseUrl);
+    Element authInfo=janrainHelper.authInfo(token);
+    Element profileElement=UtilXml.firstChildElement(authInfo,"profile");
+    Element nameElement=UtilXml.firstChildElement(profileElement,"name");
+    String displayName=UtilXml.elementValue(UtilXml.firstChildElement(profileElement,"displayName"));
+    String email=UtilXml.elementValue(UtilXml.firstChildElement(profileElement,"email"));
+    String identifier=UtilXml.elementValue(UtilXml.firstChildElement(profileElement,"identifier"));
+    String preferredUsername=UtilXml.elementValue(UtilXml.firstChildElement(profileElement,"preferredUsername"));
+    String providerName=UtilXml.elementValue(UtilXml.firstChildElement(profileElement,"providerName"));
+    String url=UtilXml.elementValue(UtilXml.firstChildElement(profileElement,"url"));
+    String givenName=UtilXml.elementValue(UtilXml.firstChildElement(nameElement,"givenName"));
+    String familyName=UtilXml.elementValue(UtilXml.firstChildElement(nameElement,"familyName"));
+    String formatted=UtilXml.elementValue(UtilXml.firstChildElement(nameElement,"formatted"));
+    if (UtilValidate.isEmpty("preferredUsername")) {
+      errMsg=UtilProperties.getMessage("SecurityextUiLabels","loginevents.username_not_found_reenter",UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    Map<String,String> result=FastMap.newInstance();
+    result.put("displayName",displayName);
+    result.put("email",email);
+    result.put("identifier",identifier);
+    result.put("preferredUsername",preferredUsername);
+    result.put("providerName",providerName);
+    result.put("url",url);
+    result.put("givenName",givenName);
+    result.put("familyName",familyName);
+    result.put("formatted",formatted);
+    request.setAttribute("userInfoMap",result);
+    try {
+      GenericValue userLogin=delegator.findByPrimaryKeyCache("UserLogin",UtilMisc.toMap("userLoginId",preferredUsername));
+      if (UtilValidate.isNotEmpty(userLogin)) {
+        LoginWorker.doBasicLogin(userLogin,request);
+        LoginWorker.autoLoginSet(request,response);
+        return "success";
+      }
+ else {
+        return "userLoginMissing";
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error finding the userLogin for distributed cache clear",module);
+    }
+  }
+  return "success";
+}
