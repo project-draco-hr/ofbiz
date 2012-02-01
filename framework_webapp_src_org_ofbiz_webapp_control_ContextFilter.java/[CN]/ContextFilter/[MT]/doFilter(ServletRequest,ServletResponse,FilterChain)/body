@@ -120,41 +120,32 @@
   if ("Y".equals(useMultitenant)) {
     String serverName=httpRequest.getServerName();
     try {
-      String delegatorName=config.getServletContext().getInitParameter("entityDelegatorName");
-      if (delegatorName == null || delegatorName.length() <= 0) {
-        delegatorName="default";
-      }
-      if (Debug.verboseOn())       Debug.logVerbose("Setup Entity Engine Delegator with name " + delegatorName,module);
-      Delegator delegator=DelegatorFactory.getDelegator(delegatorName);
-      config.getServletContext().setAttribute("delegator",delegator);
-      if (delegator == null) {
-        Debug.logError("[ContextFilter.init] ERROR: delegator factory returned null for delegatorName \"" + delegatorName + "\"",module);
-      }
-      List<GenericValue> tenantDomainNames=delegator.findList("TenantDomainName",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
-      if (UtilValidate.isNotEmpty(tenantDomainNames)) {
-        GenericValue tenantDomainName=EntityUtil.getFirst(tenantDomainNames);
-        String tenantId=tenantDomainName.getString("tenantId");
+      Delegator delegator=getDelegator(config.getServletContext());
+      List<GenericValue> tenants=delegator.findList("Tenant",EntityCondition.makeCondition("domainName",serverName),null,UtilMisc.toList("-createdStamp"),null,false);
+      if (UtilValidate.isNotEmpty(tenants)) {
+        GenericValue tenant=EntityUtil.getFirst(tenants);
+        String tenantId=tenant.getString("tenantId");
         if (UtilValidate.isNotEmpty(requestPath) && requestPath.equals(contextUri)) {
-          String initialPath=tenantDomainName.getString("initialPath");
+          String initialPath=tenant.getString("initialPath");
           if (UtilValidate.isNotEmpty(initialPath) && !"/".equals(initialPath)) {
             ((HttpServletResponse)response).sendRedirect(initialPath);
             return;
           }
         }
-        delegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
-        httpRequest.getSession().setAttribute("delegatorName",delegatorName);
-        delegator=DelegatorFactory.getDelegator(delegatorName);
+        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
+        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
+        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
+        config.getServletContext().setAttribute("delegator",delegator);
+        config.getServletContext().setAttribute("authorization",null);
+        config.getServletContext().setAttribute("security",null);
+        config.getServletContext().setAttribute("dispatcher",null);
+        getAuthz();
+        Security security=getSecurity();
+        LocalDispatcher dispatcher=getDispatcher(config.getServletContext());
+        httpRequest.getSession().setAttribute("dispatcher",dispatcher);
+        httpRequest.getSession().setAttribute("security",security);
         httpRequest.setAttribute("tenantId",tenantId);
       }
-      config.getServletContext().setAttribute("delegator",delegator);
-      config.getServletContext().setAttribute("authorization",null);
-      config.getServletContext().setAttribute("security",null);
-      config.getServletContext().setAttribute("dispatcher",null);
-      getAuthz();
-      Security security=getSecurity();
-      LocalDispatcher dispatcher=getDispatcher(config.getServletContext());
-      httpRequest.getSession().setAttribute("dispatcher",dispatcher);
-      httpRequest.getSession().setAttribute("security",security);
     }
  catch (    GenericEntityException e) {
       Debug.logWarning(e,"Unable to get Tenant",module);
