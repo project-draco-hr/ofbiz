@@ -1,0 +1,59 @@
+{
+  Map<String,Object> entityContext=new HashMap<String,Object>();
+  Delegator delegator=ctxHelper.getDelegator();
+  Map<String,Object> context=ctxHelper.getBindings();
+  if (autoFieldMap) {
+    GenericValue tempVal=delegator.makeValue(modelEntity.getEntityName());
+    Object parametersObj=context.get("parameters");
+    if (parametersObj != null && parametersObj instanceof Map<?,?>) {
+      tempVal.setAllFields(UtilGenerics.checkMap(parametersObj),true,null,Boolean.TRUE);
+    }
+    tempVal.setAllFields(context,true,null,Boolean.TRUE);
+    entityContext.putAll(tempVal);
+  }
+  if (fieldMap != null) {
+    entityContext.putAll(fieldMap);
+  }
+  entityContext.put("locale",context.get("locale"));
+  entityContext.put("timeZone",context.get("timeZone"));
+  modelEntity.convertFieldMapInPlace(entityContext,delegator);
+  entityContext.remove("locale");
+  entityContext.remove("timeZone");
+  Set<String> fieldsToSelect=null;
+  if (selectFieldList != null) {
+    fieldsToSelect=new HashSet<String>(selectFieldList);
+  }
+  if (fieldsToSelect != null && useCache) {
+    String errMsg="Error running script " + ctxHelper.getScriptName() + ": Problem invoking the findOne method: Cannot specify selectFieldList argument when useCache is set to true ";
+    Debug.logWarning(errMsg,module);
+    throw new ScriptException(errMsg);
+  }
+  GenericValue valueOut=null;
+  GenericPK entityPK=delegator.makePK(modelEntity.getEntityName(),entityContext);
+  if (entityPK.containsPrimaryKey(true)) {
+    try {
+      if (useCache) {
+        valueOut=delegator.findOne(entityPK.getEntityName(),entityPK,true);
+      }
+ else {
+        if (fieldsToSelect != null) {
+          valueOut=delegator.findByPrimaryKeyPartial(entityPK,fieldsToSelect);
+        }
+ else {
+          valueOut=delegator.findOne(entityPK.getEntityName(),entityPK,false);
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      String errMsg="Error running script " + ctxHelper.getScriptName() + ": Problem invoking the findOne method: "+ e.getMessage();
+      Debug.logWarning(e,errMsg,module);
+      throw new ScriptException(errMsg);
+    }
+  }
+ else {
+    if (Debug.warningOn()) {
+      Debug.logWarning("Error running script " + ctxHelper.getScriptName() + ": Returning null because found incomplete primary key in find: "+ entityPK,module);
+    }
+  }
+  return valueOut;
+}
