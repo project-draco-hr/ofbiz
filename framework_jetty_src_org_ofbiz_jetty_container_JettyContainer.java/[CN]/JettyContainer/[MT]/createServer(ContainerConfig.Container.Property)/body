@@ -1,99 +1,80 @@
 {
   Server server=new Server();
-  for (  ContainerConfig.Container.Property props : serverConfig.properties.values()) {
-    if ("send-server-version".equals(props.name)) {
-      if ("false".equalsIgnoreCase(props.value)) {
-        server.setSendServerVersion(false);
+  server.setHandler(new HandlerCollection());
+  if (UtilValidate.isNotEmpty(serverConfig.getProperty("send-server-version"))) {
+    String sendServerVersionPropertyValue=serverConfig.getProperty("send-server-version").value;
+    try {
+      server.setSendServerVersion(Boolean.parseBoolean(sendServerVersionPropertyValue));
+    }
+ catch (    NumberFormatException e) {
+      Debug.logError(e,"invalid value for send-server-version: " + sendServerVersionPropertyValue,module);
+    }
+  }
+  server.setThreadPool(createThreadPool(serverConfig));
+  for (  ContainerConfig.Container.Property connectorConfig : serverConfig.getPropertiesWithValue("connector")) {
+    Connector connector=null;
+    String connectorType=connectorConfig.getProperty("type").value;
+    if ("http".equals(connectorType)) {
+      connector=new SocketConnector();
+    }
+ else     if ("https".equals(connectorType)) {
+      connector=new SslSocketConnector();
+    }
+ else     if ("nio-http".equals(connectorType)) {
+      connector=new SelectChannelConnector();
+    }
+ else     if ("nio-https".equals(connectorType)) {
+      connector=new SslSelectChannelConnector();
+    }
+ else     if ("ajp13".equals(connectorType)) {
+      connector=new Ajp13SocketConnector();
+    }
+    if (connector != null) {
+      setConnectorOptions(connector,connectorConfig);
+      server.addConnector(connector);
+    }
+  }
+  for (  ContainerConfig.Container.Property props : serverConfig.getPropertiesWithValue("request-log")) {
+    NCSARequestLog requestLog=new NCSARequestLog();
+    if (UtilValidate.isNotEmpty(props.getProperty("filename"))) {
+      requestLog.setFilename(props.getProperty("filename").value);
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("append"))) {
+      requestLog.setAppend("true".equalsIgnoreCase(props.getProperty("append").value));
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("extended"))) {
+      requestLog.setExtended("true".equalsIgnoreCase(props.getProperty("extended").value));
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("log-dispatch"))) {
+      requestLog.setLogDispatch("true".equalsIgnoreCase(props.getProperty("log-dispatch").value));
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("log-latency"))) {
+      requestLog.setLogLatency("true".equalsIgnoreCase(props.getProperty("log-latency").value));
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("log-server"))) {
+      requestLog.setLogServer("true".equalsIgnoreCase(props.getProperty("log-server").value));
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("prefer-proxied-for-address"))) {
+      requestLog.setPreferProxiedForAddress("true".equalsIgnoreCase(props.getProperty("prefer-proxied-for-address").value));
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("timezone"))) {
+      requestLog.setLogTimeZone(props.getProperty("timezone").value);
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("date-format"))) {
+      requestLog.setLogDateFormat(props.getProperty("date-format").value);
+    }
+    if (UtilValidate.isNotEmpty(props.getProperty("retain-days"))) {
+      String retainDaysPropertyValue=props.getProperty("retain-days").value;
+      try {
+        requestLog.setRetainDays(Integer.parseInt(retainDaysPropertyValue));
+      }
+ catch (      NumberFormatException e) {
+        Debug.logError(e,"invalid value for retain-days: " + retainDaysPropertyValue,module);
       }
     }
- else     if ("connector".equals(props.value)) {
-      if ("http".equals(props.getProperty("type").value)) {
-        AbstractConnector connector=new SocketConnector();
-        setConnectorOptions(connector,props);
-        server.addConnector(connector);
-      }
- else       if ("https".equals(props.getProperty("type").value)) {
-        SslSocketConnector connector=new SslSocketConnector();
-        setConnectorOptions(connector,props);
-        if (props.getProperty("keystore") != null) {
-          connector.setKeystore(props.getProperty("keystore").value);
-        }
-        if (props.getProperty("password") != null) {
-          connector.setPassword(props.getProperty("password").value);
-        }
-        if (props.getProperty("key-password") != null) {
-          connector.setKeyPassword(props.getProperty("key-password").value);
-        }
-        if (props.getProperty("client-auth") != null) {
-          if ("need".equals(props.getProperty("client-auth").value)) {
-            connector.setNeedClientAuth(true);
-          }
- else           if ("want".equals(props.getProperty("client-auth").value)) {
-            connector.setWantClientAuth(true);
-          }
-        }
-        server.addConnector(connector);
-      }
- else       if ("nio-http".equals(props.getProperty("type").value)) {
-        AbstractConnector connector=new SelectChannelConnector();
-        setConnectorOptions(connector,props);
-        server.addConnector(connector);
-      }
- else       if ("nio-https".equals(props.getProperty("type").value)) {
-        SslSelectChannelConnector connector=new SslSelectChannelConnector();
-        setConnectorOptions(connector,props);
-        if (props.getProperty("keystore") != null) {
-          connector.setKeystore(props.getProperty("keystore").value);
-        }
-        if (props.getProperty("password") != null) {
-          connector.setPassword(props.getProperty("password").value);
-        }
-        if (props.getProperty("key-password") != null) {
-          connector.setKeyPassword(props.getProperty("key-password").value);
-        }
-        if (props.getProperty("need-client-auth") != null) {
-          boolean needClientAuth="true".equalsIgnoreCase(props.getProperty("need-client-auth").value);
-          connector.setNeedClientAuth(needClientAuth);
-        }
-        server.addConnector(connector);
-      }
- else       if ("ajp13".equals(props.getProperty("type").value)) {
-        AbstractConnector connector=new Ajp13SocketConnector();
-        setConnectorOptions(connector,props);
-        server.addConnector(connector);
-      }
-    }
- else     if ("request-log".equals(props.value)) {
-      RequestLogHandler requestLogHandler=new RequestLogHandler();
-      NCSARequestLog requestLog=new NCSARequestLog();
-      if (props.getProperty("filename") != null) {
-        requestLog.setFilename(props.getProperty("filename").value);
-      }
-      if (props.getProperty("append") != null) {
-        requestLog.setAppend("true".equalsIgnoreCase(props.getProperty("append").value));
-      }
-      if (props.getProperty("extended") != null) {
-        requestLog.setExtended("true".equalsIgnoreCase(props.getProperty("extended").value));
-      }
-      if (props.getProperty("timezone") != null) {
-        requestLog.setLogTimeZone(props.getProperty("timezone").value);
-      }
-      if (props.getProperty("date-format") != null) {
-        requestLog.setLogDateFormat(props.getProperty("date-format").value);
-      }
-      if (props.getProperty("retain-days") != null) {
-        int days=90;
-        try {
-          days=Integer.parseInt(props.getProperty("retain-days").value);
-        }
- catch (        NumberFormatException e) {
-          days=90;
-        }
-        requestLog.setRetainDays(days);
-      }
-      requestLogHandler.setRequestLog(requestLog);
-      server.addHandler(requestLogHandler);
-    }
+    RequestLogHandler requestLogHandler=new RequestLogHandler();
+    requestLogHandler.setRequestLog(requestLog);
+    ((HandlerCollection)server.getHandler()).addHandler(requestLogHandler);
   }
   return server;
 }
