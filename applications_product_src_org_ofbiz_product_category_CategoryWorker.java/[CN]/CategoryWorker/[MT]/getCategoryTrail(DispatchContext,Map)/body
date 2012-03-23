@@ -1,0 +1,40 @@
+{
+  String productCategoryId=(String)context.get("productCategoryId");
+  Map<String,Object> results=ServiceUtil.returnSuccess();
+  GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
+  List<String> trailElements=FastList.newInstance();
+  trailElements.add(productCategoryId);
+  String parentProductCategoryId=productCategoryId;
+  while (UtilValidate.isNotEmpty(parentProductCategoryId)) {
+    try {
+      List<EntityCondition> rolllupConds=FastList.newInstance();
+      rolllupConds.add(EntityCondition.makeCondition("productCategoryId",parentProductCategoryId));
+      rolllupConds.add(EntityUtil.getFilterByDateExpr());
+      List<GenericValue> productCategoryRollups=delegator.findList("ProductCategoryRollup",EntityCondition.makeCondition(rolllupConds),null,UtilMisc.toList("sequenceNum"),null,true);
+      if (UtilValidate.isNotEmpty(productCategoryRollups)) {
+        for (        GenericValue productCategoryRollup : productCategoryRollups) {
+          String trailCategoryId=productCategoryRollup.getString("parentProductCategoryId");
+          parentProductCategoryId=trailCategoryId;
+          if (trailElements.contains(trailCategoryId)) {
+            break;
+          }
+ else {
+            trailElements.add(trailCategoryId);
+          }
+        }
+      }
+ else {
+        parentProductCategoryId=null;
+      }
+    }
+ catch (    GenericEntityException e) {
+      Map<String,String> messageMap=UtilMisc.toMap("errMessage",". Cannot generate trail from product category. ");
+      String errMsg=UtilProperties.getMessage("CommonUiLabels","CommonDatabaseProblem",messageMap,(Locale)context.get("locale"));
+      Debug.logError(e,errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+  }
+  Collections.reverse(trailElements);
+  results.put("trail",trailElements);
+  return results;
+}
