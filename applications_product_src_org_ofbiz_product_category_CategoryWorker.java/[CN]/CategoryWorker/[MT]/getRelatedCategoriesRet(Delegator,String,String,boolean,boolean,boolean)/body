@@ -1,0 +1,42 @@
+{
+  List<GenericValue> categories=FastList.newInstance();
+  if (Debug.verboseOn())   Debug.logVerbose("[CategoryWorker.getRelatedCategories] ParentID: " + parentId,module);
+  List<GenericValue> rollups=null;
+  try {
+    rollups=delegator.findByAndCache("ProductCategoryRollup",UtilMisc.toMap("parentProductCategoryId",parentId),UtilMisc.toList("sequenceNum"));
+    if (limitView) {
+      rollups=EntityUtil.filterByDate(rollups,true);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+  }
+  if (rollups != null) {
+    for (    GenericValue parent : rollups) {
+      GenericValue cv=null;
+      try {
+        cv=parent.getRelatedOneCache("CurrentProductCategory");
+      }
+ catch (      GenericEntityException e) {
+        Debug.logWarning(e.getMessage(),module);
+      }
+      if (cv != null) {
+        if (excludeEmpty) {
+          if (!isCategoryEmpty(cv)) {
+            categories.add(cv);
+            if (recursive) {
+              categories.addAll(getRelatedCategoriesRet(delegator,attributeName,cv.getString("productCategoryId"),limitView,excludeEmpty,recursive));
+            }
+          }
+        }
+ else {
+          categories.add(cv);
+          if (recursive) {
+            categories.addAll(getRelatedCategoriesRet(delegator,attributeName,cv.getString("productCategoryId"),limitView,excludeEmpty,recursive));
+          }
+        }
+      }
+    }
+  }
+  return categories;
+}
