@@ -4,12 +4,17 @@
   }
   Map<String,Object> params=FastMap.newInstance();
   params.putAll(context);
-  context.put("parameters",params);
+  context.put(ScriptUtil.PARAMETERS_KEY,params);
   DispatchContext dctx=dispatcher.getLocalContext(localName);
   context.put("dctx",dctx);
   context.put("dispatcher",dctx.getDispatcher());
   context.put("delegator",dispatcher.getDelegator());
   try {
+    ScriptContext scriptContext=ScriptUtil.createScriptContext(context,protectedKeys);
+    ScriptHelper scriptHelper=(ScriptHelper)scriptContext.getAttribute(ScriptUtil.SCRIPT_HELPER_KEY);
+    if (scriptHelper != null) {
+      context.put(ScriptUtil.SCRIPT_HELPER_KEY,scriptHelper);
+    }
     Script script=InvokerHelper.createScript(GroovyUtil.getScriptClassFromLocation(this.getLocation(modelService),groovyClassLoader),GroovyUtil.getBinding(context));
     Object resultObj=null;
     if (UtilValidate.isEmpty(modelService.invoke)) {
@@ -18,21 +23,20 @@
  else {
       resultObj=script.invokeMethod(modelService.invoke,EMPTY_ARGS);
     }
+    if (resultObj == null) {
+      resultObj=scriptContext.getAttribute(ScriptUtil.RESULT_KEY);
+    }
     if (resultObj != null && resultObj instanceof Map<?,?>) {
       return cast(resultObj);
     }
- else     if (context.get("result") != null && context.get("result") instanceof Map<?,?>) {
-      return cast(context.get("result"));
-    }
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.putAll(modelService.makeValid(scriptContext.getBindings(ScriptContext.ENGINE_SCOPE),"OUT"));
+    return result;
   }
- catch (  GenericEntityException gee) {
-    return ServiceUtil.returnError(gee.getMessage());
+ catch (  GeneralException ge) {
+    throw new GenericServiceException(ge);
   }
-catch (  ExecutionServiceException ese) {
-    return ServiceUtil.returnError(ese.getMessage());
+catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
   }
-catch (  GeneralException e) {
-    throw new GenericServiceException(e);
-  }
-  return ServiceUtil.returnSuccess();
 }
