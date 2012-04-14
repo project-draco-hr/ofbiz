@@ -9,9 +9,19 @@
   if (mount.endsWith("/*")) {
     mount=mount.substring(0,mount.length() - 2);
   }
+  final String webXmlFilePath=new StringBuilder().append(location).append(File.separatorChar).append("WEB-INF").append(File.separatorChar).append("web.xml").toString();
+  boolean appIsDistributable=false;
+  try {
+    appIsDistributable=FileUtil.containsString(webXmlFilePath,"<distributable/>");
+  }
+ catch (  IOException e) {
+    Debug.logWarning(String.format("Failed to read web.xml [%s].",webXmlFilePath),module);
+    appIsDistributable=false;
+  }
+  final boolean contextIsDistributable=distribute && appIsDistributable;
   Property clusterProp=clusterConfig.get(engine.getName());
   Manager sessionMgr=null;
-  if (clusterProp != null) {
+  if (clusterProp != null && contextIsDistributable) {
     String mgrClassName=ContainerConfig.getPropertyValue(clusterProp,"manager-class","org.apache.catalina.ha.session.DeltaManager");
     try {
       sessionMgr=(Manager)Class.forName(mgrClassName).newInstance();
@@ -45,7 +55,7 @@
   context.setDocBase(location);
   context.setAllowLinking(true);
   context.setReloadable(contextReloadable);
-  context.setDistributable(distribute);
+  context.setDistributable(contextIsDistributable);
   context.setCrossContext(crossContext);
   context.setPrivileged(appInfo.privileged);
   context.setManager(sessionMgr);
