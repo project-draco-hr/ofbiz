@@ -1,53 +1,58 @@
 {
-  if (UtilValidate.isNotEmpty(this.methodName)) {
-    String methodName=methodContext.expandString(this.methodName);
-    String xmlResource=methodContext.expandString(this.xmlResource);
-    SimpleMethod simpleMethodToCall=null;
-    try {
-      simpleMethodToCall=getSimpleMethodToCall(methodContext.getLoader());
-    }
- catch (    MiniLangException e) {
-      String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process [error getting methods from resource: "+ e.getMessage()+ "]";
-      Debug.logError(e,errMsg,module);
-      methodContext.setErrorReturn(errMsg,simpleMethod);
-      return false;
-    }
-    if (simpleMethodToCall == null) {
-      String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process, could not find SimpleMethod "+ methodName+ " in XML document in resource: "+ xmlResource;
-      methodContext.setErrorReturn(errMsg,simpleMethod);
-      return false;
-    }
-    String returnVal=simpleMethodToCall.exec(methodContext);
-    if (Debug.verboseOn())     Debug.logVerbose("Called inline simple-method named [" + methodName + "] in resource ["+ xmlResource+ "], returnVal is ["+ returnVal+ "]",module);
-    if (returnVal != null && returnVal.equals(simpleMethodToCall.getDefaultErrorCode())) {
-      if (methodContext.getMethodType() == MethodContext.EVENT) {
-        methodContext.putEnv(simpleMethod.getEventResponseCodeName(),simpleMethod.getDefaultErrorCode());
-      }
- else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
-        methodContext.putEnv(simpleMethod.getServiceResponseMessageName(),simpleMethod.getDefaultErrorCode());
-      }
-      return false;
-    }
-    if (methodContext.getMethodType() == MethodContext.EVENT) {
-      String responseCode=(String)methodContext.getEnv(simpleMethod.getEventResponseCodeName());
-      if (responseCode != null && responseCode.equals(simpleMethod.getDefaultErrorCode())) {
-        Debug.logWarning("Got error [" + responseCode + "] calling inline simple-method named ["+ methodName+ "] in resource ["+ xmlResource+ "], message is "+ methodContext.getEnv(simpleMethod.getEventErrorMessageName()),module);
-        return false;
-      }
-    }
- else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
-      String resonseMessage=(String)methodContext.getEnv(simpleMethod.getServiceResponseMessageName());
-      if (resonseMessage != null && resonseMessage.equals(simpleMethod.getDefaultErrorCode())) {
-        Debug.logWarning("Got error [" + resonseMessage + "] calling inline simple-method named ["+ methodName+ "] in resource ["+ xmlResource+ "], message is "+ methodContext.getEnv(simpleMethod.getServiceErrorMessageName())+ ", and the error message list is: "+ methodContext.getEnv(simpleMethod.getServiceErrorMessageListName()),module);
-        return false;
-      }
-    }
+  if (UtilValidate.isEmpty(this.methodName)) {
+    throw new MiniLangRuntimeException("method-name attribute is empty",this);
+  }
+  SimpleMethod simpleMethodToCall=null;
+  if (UtilValidate.isEmpty(this.xmlResource)) {
+    simpleMethodToCall=this.simpleMethod.getSimpleMethodInSameFile(methodName);
   }
  else {
-    String errMsg="ERROR in call-simple-method: methodName was missing; not running simpleMethod";
-    Debug.logError(errMsg,module);
-    methodContext.setErrorReturn(errMsg,simpleMethod);
+    Map<String,SimpleMethod> simpleMethods=SimpleMethod.getSimpleMethods(this.xmlResource,methodContext.getLoader());
+    simpleMethodToCall=simpleMethods.get(this.methodName);
+  }
+  if (simpleMethodToCall == null) {
+    throw new MiniLangRuntimeException("Could not find <simple-method name=\"" + this.methodName + "\"> in XML document "+ this.xmlResource,this);
+  }
+  MethodContext localContext=methodContext;
+  if ("function".equals(this.memoryModel)) {
+    Map<String,Object> localEnv=FastMap.newInstance();
+    localEnv.putAll(methodContext.getEnvMap());
+    localEnv.remove(this.simpleMethod.getEventResponseCodeName());
+    localEnv.remove(this.simpleMethod.getServiceResponseMessageName());
+    localContext=new MethodContext(localEnv,methodContext.getLoader(),methodContext.getMethodType());
+  }
+  String returnVal=simpleMethodToCall.exec(localContext);
+  if (Debug.verboseOn())   Debug.logVerbose("Called simple-method named [" + this.methodName + "] in resource ["+ this.xmlResource+ "], returnVal is ["+ returnVal+ "]",module);
+  if (simpleMethodToCall.getDefaultErrorCode().equals(returnVal)) {
+    if (methodContext.getMethodType() == MethodContext.EVENT) {
+      methodContext.putEnv(simpleMethod.getEventResponseCodeName(),simpleMethod.getDefaultErrorCode());
+    }
+ else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
+      methodContext.putEnv(simpleMethod.getServiceResponseMessageName(),simpleMethod.getDefaultErrorCode());
+    }
     return false;
+  }
+  if (methodContext.getMethodType() == MethodContext.EVENT) {
+    String responseCode=(String)localContext.getEnv(this.simpleMethod.getEventResponseCodeName());
+    if (this.simpleMethod.getDefaultErrorCode().equals(responseCode)) {
+      Debug.logWarning("Got error [" + responseCode + "] calling inline simple-method named ["+ this.methodName+ "] in resource ["+ this.xmlResource+ "], message is "+ methodContext.getEnv(this.simpleMethod.getEventErrorMessageName()),module);
+      return false;
+    }
+  }
+ else   if (methodContext.getMethodType() == MethodContext.SERVICE) {
+    String responseMessage=(String)localContext.getEnv(this.simpleMethod.getServiceResponseMessageName());
+    if (this.simpleMethod.getDefaultErrorCode().equals(responseMessage)) {
+      Debug.logWarning("Got error [" + responseMessage + "] calling inline simple-method named ["+ this.methodName+ "] in resource ["+ this.xmlResource+ "], message is "+ methodContext.getEnv(this.simpleMethod.getServiceErrorMessageName())+ ", and the error message list is: "+ methodContext.getEnv(this.simpleMethod.getServiceErrorMessageListName()),module);
+      return false;
+    }
+  }
+  if ("function".equals(this.memoryModel) && this.resultToFieldList != null) {
+    Map<String,Object> results=localContext.getResults();
+    if (results != null) {
+      for (      ResultToField resultToField : this.resultToFieldList) {
+        resultToField.exec(methodContext.getEnvMap(),results);
+      }
+    }
   }
   return true;
 }
