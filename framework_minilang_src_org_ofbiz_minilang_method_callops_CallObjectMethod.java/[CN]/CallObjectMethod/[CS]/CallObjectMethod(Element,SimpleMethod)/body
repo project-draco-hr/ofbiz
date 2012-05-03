@@ -1,27 +1,30 @@
 {
   super(element,simpleMethod);
-  objFieldAcsr=new ContextAccessor<Object>(element.getAttribute("obj-field"),element.getAttribute("obj-field-name"));
-  objMapAcsr=new ContextAccessor<Map<String,? extends Object>>(element.getAttribute("obj-map-name"));
-  methodName=element.getAttribute("method-name");
-  retFieldAcsr=new ContextAccessor<Object>(element.getAttribute("ret-field"),element.getAttribute("ret-field-name"));
-  retMapAcsr=new ContextAccessor<Map<String,Object>>(element.getAttribute("ret-map-name"));
+  if (MiniLangValidate.validationOn()) {
+    MiniLangValidate.handleError("<call-object-method> element is deprecated (use <script>)",simpleMethod,element);
+    MiniLangValidate.attributeNames(simpleMethod,element,"obj-field","method-name","ret-field");
+    MiniLangValidate.constantAttributes(simpleMethod,element,"method-name");
+    MiniLangValidate.requiredAttributes(simpleMethod,element,"obj-field","method-name");
+    MiniLangValidate.childElements(simpleMethod,element,"string","field");
+  }
+  this.methodName=element.getAttribute("method-name");
+  this.objFieldFma=FlexibleMapAccessor.getInstance(element.getAttribute("obj-field"));
+  this.retFieldFma=FlexibleMapAccessor.getInstance(element.getAttribute("ret-field"));
   List<? extends Element> parameterElements=UtilXml.childElementList(element);
   if (parameterElements.size() > 0) {
-    parameters=FastList.newInstance();
+    ArrayList<MethodObject<?>> parameterList=new ArrayList<MethodObject<?>>(parameterElements.size());
     for (    Element parameterElement : parameterElements) {
-      MethodObject<?> methodObject=null;
       if ("string".equals(parameterElement.getNodeName())) {
-        methodObject=new StringObject(parameterElement,simpleMethod);
+        parameterList.add(new StringObject(parameterElement,simpleMethod));
       }
  else       if ("field".equals(parameterElement.getNodeName())) {
-        methodObject=new FieldObject<Object>(parameterElement,simpleMethod);
-      }
- else {
-        Debug.logWarning("Found an unsupported tag under the call-object-method tag: " + parameterElement.getNodeName() + "; ignoring",module);
-      }
-      if (methodObject != null) {
-        parameters.add(methodObject);
+        parameterList.add(new FieldObject<Object>(parameterElement,simpleMethod));
       }
     }
+    parameterList.trimToSize();
+    this.parameters=Collections.unmodifiableList(parameterList);
+  }
+ else {
+    this.parameters=null;
   }
 }
