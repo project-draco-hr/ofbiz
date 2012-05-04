@@ -1,0 +1,30 @@
+{
+  String hashedKeyName=HashCrypt.getDigestHash(originalKeyName);
+  SecretKey key=null;
+  try {
+    key=DesCrypt.generateKey();
+  }
+ catch (  NoSuchAlgorithmException e) {
+    throw new EntityCryptoException(e);
+  }
+  final GenericValue newValue=delegator.makeValue("EntityKeyStore");
+  newValue.set("keyText",StringUtil.toHexString(key.getEncoded()));
+  newValue.set("keyName",hashedKeyName);
+  try {
+    TransactionUtil.doNewTransaction(new Callable<Void>(){
+      public Void call() throws Exception {
+        delegator.create(newValue);
+        return null;
+      }
+    }
+,"storing encrypted key",0,true);
+  }
+ catch (  GenericEntityException e) {
+    throw new EntityCryptoException(e);
+  }
+  String keyMapName=originalKeyName + false;
+synchronized (keyMap) {
+    keyMap.put(keyMapName,key);
+  }
+  return key;
+}

@@ -1,0 +1,30 @@
+{
+  String keyMapName=originalKeyName + useOldFunnyKeyHash;
+synchronized (keyMap) {
+    if (keyMap.containsKey(keyMapName)) {
+      return keyMap.get(keyMapName);
+    }
+  }
+  String hashedKeyName=useOldFunnyKeyHash ? HashCrypt.digestHashOldFunnyHex(null,originalKeyName) : HashCrypt.digestHash("SHA",null,originalKeyName);
+  GenericValue keyValue=null;
+  try {
+    keyValue=delegator.findOne("EntityKeyStore",false,"keyName",hashedKeyName);
+  }
+ catch (  GenericEntityException e) {
+    throw new EntityCryptoException(e);
+  }
+  if (keyValue == null || keyValue.get("keyText") == null) {
+    return null;
+  }
+  try {
+    byte[] keyBytes=StringUtil.fromHexString(keyValue.getString("keyText"));
+    SecretKey key=DesCrypt.getDesKey(keyBytes);
+synchronized (keyMap) {
+      keyMap.put(keyMapName,key);
+    }
+    return key;
+  }
+ catch (  GeneralException e) {
+    throw new EntityCryptoException(e);
+  }
+}
