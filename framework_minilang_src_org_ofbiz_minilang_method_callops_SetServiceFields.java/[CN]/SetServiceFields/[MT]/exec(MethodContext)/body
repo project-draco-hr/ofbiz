@@ -1,31 +1,32 @@
 {
-  List<Object> messages=errorListAcsr.get(methodContext);
-  if (messages == null) {
-    messages=FastList.newInstance();
-    errorListAcsr.put(methodContext,messages);
-  }
-  String serviceName=methodContext.expandString(this.serviceName);
-  Map<String,? extends Object> fromMap=mapAcsr.get(methodContext);
-  if (fromMap == null) {
-    Debug.logWarning("The from map in set-service-field was not found with name: " + mapAcsr,module);
-    return true;
-  }
-  Map<String,Object> toMap=toMapAcsr.get(methodContext);
-  if (toMap == null) {
-    toMap=FastMap.newInstance();
-    toMapAcsr.put(methodContext,toMap);
-  }
-  LocalDispatcher dispatcher=methodContext.getDispatcher();
+  String serviceName=serviceNameFse.expandString(methodContext.getEnvMap());
   ModelService modelService=null;
   try {
-    modelService=dispatcher.getDispatchContext().getModelService(serviceName);
+    modelService=methodContext.getDispatcher().getDispatchContext().getModelService(serviceName);
   }
  catch (  GenericServiceException e) {
-    String errMsg="In set-service-fields could not get service definition for service name [" + serviceName + "]: "+ e.toString();
-    Debug.logError(e,errMsg,module);
-    methodContext.setErrorReturn(errMsg,simpleMethod);
-    return false;
+    throw new MiniLangRuntimeException("Could not get service definition for service name \"" + serviceName + "\": "+ e.getMessage(),this);
   }
-  toMap.putAll(modelService.makeValid(fromMap,"IN",true,messages,methodContext.getTimeZone(),methodContext.getLocale()));
+  Map<String,Object> toMap=toMapFma.get(methodContext.getEnvMap());
+  if (toMap == null) {
+    toMap=FastMap.newInstance();
+    toMapFma.put(methodContext.getEnvMap(),toMap);
+  }
+  Map<String,? extends Object> fromMap=mapFma.get(methodContext.getEnvMap());
+  if (fromMap == null) {
+    if (Debug.verboseOn()) {
+      Debug.logVerbose("The from map in set-service-field was not found with name: " + mapFma,module);
+    }
+    return true;
+  }
+  List<Object> errorMessages=FastList.newInstance();
+  Map<String,Object> validAttributes=modelService.makeValid(fromMap,"IN",true,errorMessages,methodContext.getTimeZone(),methodContext.getLocale());
+  if (errorMessages.size() > 0) {
+    for (    Object obj : errorMessages) {
+      simpleMethod.addErrorMessage(methodContext,(String)obj);
+    }
+    throw new MiniLangRuntimeException("Errors encountered while setting service attributes for service name \"" + serviceName + "\"",this);
+  }
+  toMap.putAll(validAttributes);
   return true;
 }
