@@ -9,15 +9,28 @@
   if (mount.endsWith("/*")) {
     mount=mount.substring(0,mount.length() - 2);
   }
-  final String webXmlFilePath=new StringBuilder().append(location).append(File.separatorChar).append("WEB-INF").append(File.separatorChar).append("web.xml").toString();
-  boolean appIsDistributable=false;
+  final String webXmlFilePath=new StringBuilder().append("file:///").append(location).append("/WEB-INF/web.xml").toString();
+  URL webXmlUrl;
   try {
-    appIsDistributable=FileUtil.containsString(webXmlFilePath,"<distributable/>");
+    webXmlUrl=FlexibleLocation.resolveLocation(webXmlFilePath);
   }
- catch (  IOException e) {
-    Debug.logWarning(String.format("Failed to read web.xml [%s].",webXmlFilePath),module);
-    appIsDistributable=false;
+ catch (  MalformedURLException e) {
+    throw new ContainerException(e);
   }
+  Document webXmlDoc=null;
+  try {
+    webXmlDoc=UtilXml.readXmlDocument(webXmlUrl);
+  }
+ catch (  SAXException se) {
+    throw new ContainerException(se);
+  }
+catch (  ParserConfigurationException pce) {
+    throw new ContainerException(pce);
+  }
+catch (  IOException ioe) {
+    throw new ContainerException(ioe);
+  }
+  boolean appIsDistributable=webXmlDoc.getElementsByTagName("distributable").getLength() > 0 ? true : false;
   final boolean contextIsDistributable=distribute && appIsDistributable;
   Property clusterProp=clusterConfig.get(engine.getName());
   Manager sessionMgr=null;
