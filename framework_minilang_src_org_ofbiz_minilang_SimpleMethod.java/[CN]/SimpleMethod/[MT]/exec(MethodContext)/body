@@ -22,15 +22,7 @@
     if (userLogin == null) {
       Map<String,Object> messageMap=UtilMisc.<String,Object>toMap("shortDescription",shortDescription);
       String errMsg=UtilProperties.getMessage(SimpleMethod.err_resource,"simpleMethod.must_logged_process",messageMap,locale) + ".";
-      if (methodContext.getMethodType() == MethodContext.EVENT) {
-        methodContext.getRequest().setAttribute("_ERROR_MESSAGE_",errMsg);
-        return defaultErrorCode;
-      }
- else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
-        methodContext.putResult(ModelService.ERROR_MESSAGE,errMsg);
-        methodContext.putResult(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
-        return null;
-      }
+      return returnError(methodContext,errMsg);
     }
   }
   boolean beganTransaction=false;
@@ -40,17 +32,8 @@
     }
  catch (    GenericTransactionException e) {
       String errMsg=UtilProperties.getMessage(SimpleMethod.err_resource,"simpleMethod.error_begin_transaction",locale) + ": " + e.getMessage();
-      Debug.logWarning(errMsg,module);
-      Debug.logWarning(e,module);
-      if (methodContext.getMethodType() == MethodContext.EVENT) {
-        methodContext.getRequest().setAttribute("_ERROR_MESSAGE_",errMsg);
-        return defaultErrorCode;
-      }
- else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
-        methodContext.putResult(ModelService.ERROR_MESSAGE,errMsg);
-        methodContext.putResult(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
-        return null;
-      }
+      Debug.logWarning(e,errMsg,module);
+      return returnError(methodContext,errMsg);
     }
   }
   String errorMsg="";
@@ -60,7 +43,7 @@
   }
  catch (  Throwable t) {
     String errMsg=UtilProperties.getMessage(SimpleMethod.err_resource,"simpleMethod.error_running",locale) + ": " + t.getMessage();
-    Debug.logError(errMsg,module);
+    Debug.logWarning(t,errMsg,module);
     finished=false;
     errorMsg+=errMsg;
   }
@@ -107,7 +90,7 @@
     }
     returnValue=response;
   }
- else   if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
     boolean forceError=false;
     String tempErrorMsg=(String)methodContext.getEnv(serviceErrorMessageName);
     if (errorMsg.length() > 0 || UtilValidate.isNotEmpty(tempErrorMsg)) {
@@ -151,10 +134,6 @@
     }
     methodContext.putResult(ModelService.RESPONSE_MESSAGE,response);
     returnValue=null;
-  }
- else {
-    response=defaultSuccessCode;
-    returnValue=defaultSuccessCode;
   }
   boolean doCommit=true;
   if (!finished && defaultErrorCode.equals(response)) {
