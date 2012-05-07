@@ -1,32 +1,24 @@
 {
-  String methodName=methodContext.expandString(this.methodName);
-  String className=methodContext.expandString(this.className);
-  String fieldString=getFieldString(methodContext);
-  Class<?>[] paramTypes=new Class<?>[]{String.class};
-  Object[] params=new Object[]{fieldString};
-  Class<?> valClass;
+  Object fieldVal=fieldFma.get(methodContext.getEnvMap());
+  if (fieldVal == null) {
+    fieldVal="";
+  }
+ else   if (!(fieldVal instanceof String)) {
+    try {
+      fieldVal=ObjectType.simpleTypeConvert(fieldVal,"String",null,methodContext.getTimeZone(),methodContext.getLocale(),true);
+    }
+ catch (    GeneralException e) {
+      throw new MiniLangRuntimeException(e,this);
+    }
+  }
+  Object[] params=new Object[]{fieldVal};
   try {
-    valClass=methodContext.getLoader().loadClass(className);
-  }
- catch (  ClassNotFoundException cnfe) {
-    Debug.logError("Could not find validation class: " + className,module);
-    return false;
-  }
-  Method valMethod;
-  try {
-    valMethod=valClass.getMethod(methodName,paramTypes);
-  }
- catch (  NoSuchMethodException cnfe) {
-    Debug.logError("Could not find validation method: " + methodName + " of class "+ className,module);
-    return false;
-  }
-  Boolean resultBool=Boolean.FALSE;
-  try {
-    resultBool=(Boolean)valMethod.invoke(null,params);
+    Class<?> valClass=methodContext.getLoader().loadClass(className);
+    Method valMethod=valClass.getMethod(methodName,paramTypes);
+    Boolean resultBool=(Boolean)valMethod.invoke(null,params);
+    return resultBool.booleanValue();
   }
  catch (  Exception e) {
-    Debug.logError(e,"Error in IfValidationMethod " + methodName + " of class "+ className+ ", not processing sub-ops ",module);
+    throw new MiniLangRuntimeException(e,this);
   }
-  if (resultBool != null)   return resultBool.booleanValue();
-  return false;
 }
