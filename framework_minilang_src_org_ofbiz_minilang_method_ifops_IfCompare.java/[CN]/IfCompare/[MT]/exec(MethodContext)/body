@@ -1,7 +1,8 @@
 {
+  if (this.compare == null) {
+    throw new MiniLangRuntimeException("Invalid operator " + this.operator,this);
+  }
   String value=methodContext.expandString(this.value);
-  String operator=methodContext.expandString(this.operator);
-  String type=methodContext.expandString(this.type);
   String format=methodContext.expandString(this.format);
   Object fieldVal=null;
   if (!mapAcsr.isEmpty()) {
@@ -16,29 +17,26 @@
  else {
     fieldVal=fieldAcsr.get(methodContext);
   }
-  if (fieldVal == null) {
-    fieldVal="";
+  Class<?> targetClass=this.targetClass;
+  if (targetClass == null) {
+    targetClass=MiniLangUtil.getObjectClassForConversion(fieldVal);
   }
-  List<Object> messages=FastList.newInstance();
-  Boolean resultBool=BaseCompare.doRealCompare(fieldVal,value,operator,type,format,messages,null,methodContext.getLoader(),true);
-  if (messages.size() > 0) {
-    messages.add(0,"Error with comparison in if-compare between field [" + mapAcsr.toString() + "."+ fieldAcsr.toString()+ "] with value ["+ fieldVal+ "] and value ["+ value+ "] with operator ["+ operator+ "] and type ["+ type+ "]: ");
+  boolean result=false;
+  try {
+    result=this.compare.doCompare(fieldVal,value,targetClass,methodContext.getLocale(),methodContext.getTimeZone(),format);
+  }
+ catch (  Exception e) {
     if (methodContext.getMethodType() == MethodContext.EVENT) {
-      StringBuilder fullString=new StringBuilder();
-      for (      Object message : messages) {
-        fullString.append(message);
-      }
-      Debug.logWarning(fullString.toString(),module);
-      methodContext.putEnv(simpleMethod.getEventErrorMessageName(),fullString.toString());
+      methodContext.putEnv(simpleMethod.getEventErrorMessageName(),e.getMessage());
       methodContext.putEnv(simpleMethod.getEventResponseCodeName(),simpleMethod.getDefaultErrorCode());
     }
- else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
-      methodContext.putEnv(simpleMethod.getServiceErrorMessageListName(),messages);
+ else {
+      methodContext.putEnv(simpleMethod.getServiceErrorMessageListName(),e.getMessage());
       methodContext.putEnv(simpleMethod.getServiceResponseMessageName(),simpleMethod.getDefaultErrorCode());
     }
     return false;
   }
-  if (resultBool != null && resultBool.booleanValue()) {
+  if (result) {
     return SimpleMethod.runSubOps(subOps,methodContext);
   }
  else {
