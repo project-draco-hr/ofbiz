@@ -1,9 +1,13 @@
 {
-  boolean includeUserLogin=!"false".equals(methodContext.expandString(includeUserLoginStr));
-  boolean breakOnError=!"false".equals(methodContext.expandString(breakOnErrorStr));
   String serviceName=methodContext.expandString(this.serviceName);
-  String errorCode=methodContext.expandString(this.errorCode);
-  String successCode=methodContext.expandString(this.successCode);
+  String errorCode=this.errorCode;
+  if (errorCode.isEmpty()) {
+    errorCode=simpleMethod.getDefaultErrorCode();
+  }
+  String successCode=this.successCode;
+  if (successCode.isEmpty()) {
+    successCode=simpleMethod.getDefaultSuccessCode();
+  }
   Map<String,Object> inMap=null;
   if (inMapAcsr.isEmpty()) {
     inMap=FastMap.newInstance();
@@ -37,21 +41,12 @@
     inMap.put("locale",locale);
   }
   try {
-    if (UtilValidate.isEmpty(this.requireNewTransactionStr) && this.transactionTimeout < 0) {
-      result=methodContext.getDispatcher().runSync(serviceName,inMap);
+    ModelService modelService=methodContext.getDispatcher().getDispatchContext().getModelService(serviceName);
+    int timeout=modelService.transactionTimeout;
+    if (this.transactionTimeout >= 0) {
+      timeout=this.transactionTimeout;
     }
- else {
-      ModelService modelService=methodContext.getDispatcher().getDispatchContext().getModelService(serviceName);
-      boolean requireNewTransaction=modelService.requireNewTransaction;
-      int timeout=modelService.transactionTimeout;
-      if (UtilValidate.isNotEmpty(this.requireNewTransactionStr)) {
-        requireNewTransaction="true".equalsIgnoreCase(this.requireNewTransactionStr) ? true : false;
-      }
-      if (this.transactionTimeout >= 0) {
-        timeout=this.transactionTimeout;
-      }
-      result=methodContext.getDispatcher().runSync(serviceName,inMap,timeout,requireNewTransaction);
-    }
+    result=methodContext.getDispatcher().runSync(serviceName,inMap,timeout,requireNewTransaction);
   }
  catch (  GenericServiceException e) {
     String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process [problem invoking the ["+ serviceName+ "] service with the map named ["+ inMapAcsr+ "] containing ["+ inMap+ "]: "+ e.getMessage()+ "]";
@@ -71,13 +66,13 @@
       return true;
     }
   }
-  if (resultsToMap.size() > 0) {
-    for (    String mapName : resultsToMap) {
+  if (resultsToMapList != null) {
+    for (    String mapName : resultsToMapList) {
       methodContext.putEnv(mapName,UtilMisc.makeMapWritable(result));
     }
   }
-  if (resultToField.size() > 0) {
-    for (    ResultToFieldDef rtfDef : resultToField) {
+  if (resultToFieldList != null) {
+    for (    ResultToFieldDef rtfDef : resultToFieldList) {
       if (!rtfDef.mapAcsr.isEmpty()) {
         Map<String,Object> tempMap=rtfDef.mapAcsr.get(methodContext);
         if (tempMap == null) {
@@ -92,15 +87,15 @@
     }
   }
   if (methodContext.getMethodType() == MethodContext.EVENT) {
-    if (resultToRequest.size() > 0) {
-      for (      Map.Entry<FlexibleServletAccessor<Object>,ContextAccessor<Object>> entry : resultToRequest.entrySet()) {
+    if (resultToRequestMap != null) {
+      for (      Map.Entry<FlexibleServletAccessor<Object>,ContextAccessor<Object>> entry : resultToRequestMap.entrySet()) {
         FlexibleServletAccessor<Object> requestAcsr=entry.getKey();
         ContextAccessor<Object> resultAcsr=entry.getValue();
         requestAcsr.put(methodContext.getRequest(),resultAcsr.get(result,methodContext),methodContext.getEnvMap());
       }
     }
-    if (resultToSession.size() > 0) {
-      for (      Map.Entry<FlexibleServletAccessor<Object>,ContextAccessor<Object>> entry : resultToSession.entrySet()) {
+    if (resultToSessionMap != null) {
+      for (      Map.Entry<FlexibleServletAccessor<Object>,ContextAccessor<Object>> entry : resultToSessionMap.entrySet()) {
         FlexibleServletAccessor<Object> sessionAcsr=entry.getKey();
         ContextAccessor<Object> resultAcsr=entry.getValue();
         sessionAcsr.put(methodContext.getRequest().getSession(),resultAcsr.get(result,methodContext),methodContext.getEnvMap());
@@ -108,8 +103,8 @@
     }
   }
   if (methodContext.getMethodType() == MethodContext.SERVICE) {
-    if (resultToResult.size() > 0) {
-      for (      Map.Entry<ContextAccessor<Object>,ContextAccessor<Object>> entry : resultToResult.entrySet()) {
+    if (resultToResultMap != null) {
+      for (      Map.Entry<ContextAccessor<Object>,ContextAccessor<Object>> entry : resultToResultMap.entrySet()) {
         ContextAccessor<Object> targetResultAcsr=entry.getKey();
         ContextAccessor<Object> resultAcsr=entry.getValue();
         targetResultAcsr.put(methodContext.getResults(),resultAcsr.get(result,methodContext),methodContext);
