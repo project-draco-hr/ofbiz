@@ -8,16 +8,9 @@
   if (successCode.isEmpty()) {
     successCode=simpleMethod.getDefaultSuccessCode();
   }
-  Map<String,Object> inMap=null;
-  if (inMapAcsr.isEmpty()) {
+  Map<String,Object> inMap=inMapFma.get(methodContext.getEnvMap());
+  if (inMap == null) {
     inMap=FastMap.newInstance();
-  }
- else {
-    inMap=inMapAcsr.get(methodContext);
-    if (inMap == null) {
-      inMap=FastMap.newInstance();
-      inMapAcsr.put(methodContext,inMap);
-    }
   }
   if (methodContext.getMethodType() == MethodContext.EVENT) {
     methodContext.removeEnv(simpleMethod.getEventErrorMessageName());
@@ -29,7 +22,6 @@
     methodContext.removeEnv(simpleMethod.getServiceSuccessMessageName());
     methodContext.removeEnv(simpleMethod.getServiceResponseMessageName());
   }
-  Map<String,Object> result=null;
   if (includeUserLogin) {
     GenericValue userLogin=methodContext.getUserLogin();
     if (userLogin != null && inMap.get("userLogin") == null) {
@@ -40,6 +32,7 @@
   if (locale != null) {
     inMap.put("locale",locale);
   }
+  Map<String,Object> result=null;
   try {
     ModelService modelService=methodContext.getDispatcher().getDispatchContext().getModelService(serviceName);
     int timeout=modelService.transactionTimeout;
@@ -49,7 +42,7 @@
     result=methodContext.getDispatcher().runSync(serviceName,inMap,timeout,requireNewTransaction);
   }
  catch (  GenericServiceException e) {
-    String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process [problem invoking the ["+ serviceName+ "] service with the map named ["+ inMapAcsr+ "] containing ["+ inMap+ "]: "+ e.getMessage()+ "]";
+    String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process [problem invoking the ["+ serviceName+ "] service with the map named ["+ inMapFma+ "] containing ["+ inMap+ "]: "+ e.getMessage()+ "]";
     Debug.logError(e,errMsg,module);
     if (breakOnError) {
       if (methodContext.getMethodType() == MethodContext.EVENT) {
@@ -72,42 +65,24 @@
     }
   }
   if (resultToFieldList != null) {
-    for (    ResultToFieldDef rtfDef : resultToFieldList) {
-      if (!rtfDef.mapAcsr.isEmpty()) {
-        Map<String,Object> tempMap=rtfDef.mapAcsr.get(methodContext);
-        if (tempMap == null) {
-          tempMap=FastMap.newInstance();
-          rtfDef.mapAcsr.put(methodContext,tempMap);
-        }
-        rtfDef.fieldAcsr.put(tempMap,result.get(rtfDef.resultName),methodContext);
-      }
- else {
-        rtfDef.fieldAcsr.put(methodContext,result.get(rtfDef.resultName));
-      }
+    for (    ResultToField rtfDef : resultToFieldList) {
+      rtfDef.exec(methodContext,result);
+    }
+  }
+  if (resultToResultList != null) {
+    for (    ResultToResult rtrDef : resultToResultList) {
+      rtrDef.exec(methodContext,result);
     }
   }
   if (methodContext.getMethodType() == MethodContext.EVENT) {
-    if (resultToRequestMap != null) {
-      for (      Map.Entry<FlexibleServletAccessor<Object>,ContextAccessor<Object>> entry : resultToRequestMap.entrySet()) {
-        FlexibleServletAccessor<Object> requestAcsr=entry.getKey();
-        ContextAccessor<Object> resultAcsr=entry.getValue();
-        requestAcsr.put(methodContext.getRequest(),resultAcsr.get(result,methodContext),methodContext.getEnvMap());
+    if (resultToRequestList != null) {
+      for (      ResultToRequest rtrDef : resultToRequestList) {
+        rtrDef.exec(methodContext,result);
       }
     }
-    if (resultToSessionMap != null) {
-      for (      Map.Entry<FlexibleServletAccessor<Object>,ContextAccessor<Object>> entry : resultToSessionMap.entrySet()) {
-        FlexibleServletAccessor<Object> sessionAcsr=entry.getKey();
-        ContextAccessor<Object> resultAcsr=entry.getValue();
-        sessionAcsr.put(methodContext.getRequest().getSession(),resultAcsr.get(result,methodContext),methodContext.getEnvMap());
-      }
-    }
-  }
-  if (methodContext.getMethodType() == MethodContext.SERVICE) {
-    if (resultToResultMap != null) {
-      for (      Map.Entry<ContextAccessor<Object>,ContextAccessor<Object>> entry : resultToResultMap.entrySet()) {
-        ContextAccessor<Object> targetResultAcsr=entry.getKey();
-        ContextAccessor<Object> resultAcsr=entry.getValue();
-        targetResultAcsr.put(methodContext.getResults(),resultAcsr.get(result,methodContext),methodContext);
+    if (resultToSessionList != null) {
+      for (      ResultToSession rtsDef : resultToSessionList) {
+        rtsDef.exec(methodContext,result);
       }
     }
   }
