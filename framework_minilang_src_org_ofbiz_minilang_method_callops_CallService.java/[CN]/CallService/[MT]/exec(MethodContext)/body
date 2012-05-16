@@ -1,4 +1,7 @@
 {
+  if (methodContext.isTraceOn()) {
+    outputTraceMessage(methodContext,"Begin call-service.");
+  }
   String serviceName=methodContext.expandString(this.serviceName);
   String errorCode=this.errorCode;
   if (errorCode.isEmpty()) {
@@ -17,7 +20,7 @@
     methodContext.removeEnv(simpleMethod.getEventEventMessageName());
     methodContext.removeEnv(simpleMethod.getEventResponseCodeName());
   }
- else   if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
     methodContext.removeEnv(simpleMethod.getServiceErrorMessageName());
     methodContext.removeEnv(simpleMethod.getServiceSuccessMessageName());
     methodContext.removeEnv(simpleMethod.getServiceResponseMessageName());
@@ -39,9 +42,15 @@
     if (this.transactionTimeout >= 0) {
       timeout=this.transactionTimeout;
     }
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Invoking service \"" + serviceName + "\", require-new-transaction = "+ requireNewTransaction+ ", transaction-timeout = "+ timeout+ ", IN attributes:",inMap.toString());
+    }
     result=methodContext.getDispatcher().runSync(serviceName,inMap,timeout,requireNewTransaction);
   }
  catch (  GenericServiceException e) {
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Service engine threw an exception: " + e.getMessage());
+    }
     String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process [problem invoking the ["+ serviceName+ "] service with the map named ["+ inMapFma+ "] containing ["+ inMap+ "]: "+ e.getMessage()+ "]";
     Debug.logError(e,errMsg,module);
     if (breakOnError) {
@@ -49,38 +58,59 @@
         methodContext.putEnv(simpleMethod.getEventErrorMessageName(),errMsg);
         methodContext.putEnv(simpleMethod.getEventResponseCodeName(),errorCode);
       }
- else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
         methodContext.putEnv(simpleMethod.getServiceErrorMessageName(),errMsg);
         methodContext.putEnv(simpleMethod.getServiceResponseMessageName(),errorCode);
+      }
+      if (methodContext.isTraceOn()) {
+        outputTraceMessage(methodContext,"break-on-error set to \"true\", halting script execution. End call-service.");
       }
       return false;
     }
  else {
+      if (methodContext.isTraceOn()) {
+        outputTraceMessage(methodContext,"End call-service.");
+      }
       return true;
     }
   }
   if (resultsToMapList != null) {
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Processing " + resultsToMapList.size() + " <results-to-map> elements.");
+    }
     for (    String mapName : resultsToMapList) {
       methodContext.putEnv(mapName,UtilMisc.makeMapWritable(result));
     }
   }
   if (resultToFieldList != null) {
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Processing " + resultToFieldList.size() + " <result-to-field> elements.");
+    }
     for (    ResultToField rtfDef : resultToFieldList) {
       rtfDef.exec(methodContext,result);
     }
   }
   if (resultToResultList != null) {
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Processing " + resultToResultList.size() + " <result-to-result> elements.");
+    }
     for (    ResultToResult rtrDef : resultToResultList) {
       rtrDef.exec(methodContext,result);
     }
   }
   if (methodContext.getMethodType() == MethodContext.EVENT) {
     if (resultToRequestList != null) {
+      if (methodContext.isTraceOn()) {
+        outputTraceMessage(methodContext,"Processing " + resultToRequestList.size() + " <result-to-request> elements.");
+      }
       for (      ResultToRequest rtrDef : resultToRequestList) {
         rtrDef.exec(methodContext,result);
       }
     }
     if (resultToSessionList != null) {
+      if (methodContext.isTraceOn()) {
+        outputTraceMessage(methodContext,"Processing " + resultToSessionList.size() + " <result-to-session> elements.");
+      }
       for (      ResultToSession rtsDef : resultToSessionList) {
         rtsDef.exec(methodContext,result);
       }
@@ -115,7 +145,7 @@
         methodContext.putEnv(simpleMethod.getEventErrorMessageListName(),errorMessageList);
       }
     }
- else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
       ServiceUtil.addErrors(UtilMisc.<String,String>getListFromMap(methodContext.getEnvMap(),this.simpleMethod.getServiceErrorMessageListName()),UtilMisc.<String,String,Object>getMapFromMap(methodContext.getEnvMap(),this.simpleMethod.getServiceErrorMessageMapName()),result);
       Debug.logError(new Exception(errorMessage),module);
     }
@@ -125,7 +155,7 @@
     if (methodContext.getMethodType() == MethodContext.EVENT) {
       methodContext.putEnv(simpleMethod.getEventEventMessageName(),successMessage);
     }
- else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
       methodContext.putEnv(simpleMethod.getServiceSuccessMessageName(),successMessage);
     }
   }
@@ -134,30 +164,42 @@
     if (methodContext.getMethodType() == MethodContext.EVENT) {
       methodContext.putEnv(simpleMethod.getEventEventMessageName(),defaultMessageStr);
     }
- else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
       methodContext.putEnv(simpleMethod.getServiceSuccessMessageName(),defaultMessageStr);
     }
   }
   String responseCode=result.containsKey(ModelService.RESPONSE_MESSAGE) ? (String)result.get(ModelService.RESPONSE_MESSAGE) : successCode;
   if (errorCode.equals(responseCode)) {
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Service returned an error.");
+    }
     if (breakOnError) {
       if (methodContext.getMethodType() == MethodContext.EVENT) {
         methodContext.putEnv(simpleMethod.getEventResponseCodeName(),responseCode);
       }
- else       if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
         methodContext.putEnv(simpleMethod.getServiceResponseMessageName(),responseCode);
+      }
+      if (methodContext.isTraceOn()) {
+        outputTraceMessage(methodContext,"break-on-error set to \"true\", halting script execution. End call-service.");
       }
       return false;
     }
  else {
+      if (methodContext.isTraceOn()) {
+        outputTraceMessage(methodContext,"End call-service.");
+      }
       return true;
     }
   }
  else {
+    if (methodContext.isTraceOn()) {
+      outputTraceMessage(methodContext,"Service ran successfully. End call-service.");
+    }
     if (methodContext.getMethodType() == MethodContext.EVENT) {
       methodContext.putEnv(simpleMethod.getEventResponseCodeName(),responseCode);
     }
- else     if (methodContext.getMethodType() == MethodContext.SERVICE) {
+ else {
       methodContext.putEnv(simpleMethod.getServiceResponseMessageName(),responseCode);
     }
     return true;
