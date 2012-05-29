@@ -1,35 +1,32 @@
 {
   Map<String,ModelService> serviceMap=modelServiceMapByDispatcher.get(GLOBAL_KEY);
   if (serviceMap == null) {
-synchronized (this) {
-      serviceMap=modelServiceMapByDispatcher.get(GLOBAL_KEY);
-      if (serviceMap == null) {
-        serviceMap=FastMap.newInstance();
-        Element rootElement;
-        try {
-          rootElement=ServiceConfigUtil.getXmlRootElement();
-        }
- catch (        GenericConfigException e) {
-          Debug.logError(e,"Error getting Service Engine XML root element",module);
-          return null;
-        }
-        List<Future<Map<String,ModelService>>> futures=FastList.newInstance();
-        for (        Element globalServicesElement : UtilXml.childElementList(rootElement,"global-services")) {
-          ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServicesElement);
-          futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(handler)));
-        }
-        for (        ComponentConfig.ServiceResourceInfo componentResourceInfo : ComponentConfig.getAllServiceResourceInfos("model")) {
-          futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(componentResourceInfo.createResourceHandler())));
-        }
-        for (        Map<String,ModelService> servicesMap : ExecutionPool.getAllFutures(futures)) {
-          if (servicesMap != null) {
-            serviceMap.putAll(servicesMap);
-          }
-        }
-        if (serviceMap != null) {
-          modelServiceMapByDispatcher.put(GLOBAL_KEY,serviceMap);
-          ServiceEcaUtil.reloadConfig();
-        }
+    serviceMap=FastMap.newInstance();
+    Element rootElement;
+    try {
+      rootElement=ServiceConfigUtil.getXmlRootElement();
+    }
+ catch (    GenericConfigException e) {
+      Debug.logError(e,"Error getting Service Engine XML root element",module);
+      return null;
+    }
+    List<Future<Map<String,ModelService>>> futures=FastList.newInstance();
+    for (    Element globalServicesElement : UtilXml.childElementList(rootElement,"global-services")) {
+      ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServicesElement);
+      futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(handler)));
+    }
+    for (    ComponentConfig.ServiceResourceInfo componentResourceInfo : ComponentConfig.getAllServiceResourceInfos("model")) {
+      futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(componentResourceInfo.createResourceHandler())));
+    }
+    for (    Map<String,ModelService> servicesMap : ExecutionPool.getAllFutures(futures)) {
+      if (servicesMap != null) {
+        serviceMap.putAll(servicesMap);
+      }
+    }
+    if (serviceMap != null) {
+      Map<String,ModelService> cachedServiceMap=modelServiceMapByDispatcher.putIfAbsentAndGet(GLOBAL_KEY,serviceMap);
+      if (cachedServiceMap == serviceMap) {
+        ServiceEcaUtil.reloadConfig();
       }
     }
   }
