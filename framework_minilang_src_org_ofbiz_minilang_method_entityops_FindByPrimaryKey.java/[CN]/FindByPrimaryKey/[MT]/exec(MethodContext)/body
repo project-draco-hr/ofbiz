@@ -1,33 +1,35 @@
 {
-  String entityName=methodContext.expandString(this.entityName);
-  String delegatorName=methodContext.expandString(this.delegatorName);
-  String useCacheStr=methodContext.expandString(this.useCacheStr);
-  boolean useCache="true".equals(useCacheStr);
+  String entityName=entityNameFse.expandString(methodContext.getEnvMap());
+  boolean useCache="true".equals(useCacheFse.expandString(methodContext.getEnvMap()));
   Delegator delegator=methodContext.getDelegator();
-  if (UtilValidate.isNotEmpty(delegatorName)) {
+  String delegatorName=delegatorNameFse.expandString(methodContext.getEnvMap());
+  if (!delegatorName.isEmpty()) {
     delegator=DelegatorFactory.getDelegator(delegatorName);
   }
-  Map<String,? extends Object> inMap=mapAcsr.get(methodContext);
-  if (UtilValidate.isEmpty(entityName) && inMap instanceof GenericEntity) {
+  Map<String,? extends Object> inMap=mapFma.get(methodContext.getEnvMap());
+  if (inMap == null) {
+    throw new MiniLangRuntimeException("Primary key map \"" + mapFma + "\" not found",this);
+  }
+  if (entityName.isEmpty() && inMap instanceof GenericEntity) {
     GenericEntity inEntity=(GenericEntity)inMap;
     entityName=inEntity.getEntityName();
   }
-  Collection<String> fieldsToSelectList=null;
-  if (!fieldsToSelectListAcsr.isEmpty()) {
-    fieldsToSelectList=fieldsToSelectListAcsr.get(methodContext);
+  if (entityName.isEmpty()) {
+    throw new MiniLangRuntimeException("Entity name not found",this);
   }
+  Collection<String> fieldsToSelectList=fieldsToSelectListFma.get(methodContext.getEnvMap());
   try {
     if (fieldsToSelectList != null) {
-      valueAcsr.put(methodContext,delegator.findByPrimaryKeyPartial(delegator.makePK(entityName,inMap),UtilMisc.makeSetWritable(fieldsToSelectList)));
+      valueFma.put(methodContext.getEnvMap(),delegator.findByPrimaryKeyPartial(delegator.makePK(entityName,inMap),UtilMisc.makeSetWritable(fieldsToSelectList)));
     }
  else {
-      valueAcsr.put(methodContext,delegator.findOne(entityName,inMap,useCache));
+      valueFma.put(methodContext.getEnvMap(),delegator.findOne(entityName,inMap,useCache));
     }
   }
  catch (  GenericEntityException e) {
-    Debug.logError(e,module);
-    String errMsg="ERROR: Could not complete the " + simpleMethod.getShortDescription() + " process [problem finding the "+ entityName+ " entity: "+ e.getMessage()+ "]";
-    methodContext.setErrorReturn(errMsg,simpleMethod);
+    String errMsg="Exception thrown while performing entity find: " + e.getMessage();
+    Debug.logWarning(e,errMsg,module);
+    simpleMethod.addErrorMessage(methodContext,errMsg);
     return false;
   }
   return true;
