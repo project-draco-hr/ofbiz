@@ -1,25 +1,37 @@
 {
   super(element,simpleMethod);
+  if (MiniLangValidate.validationOn()) {
+    MiniLangValidate.handleError("<create-object> element is deprecated (use <script>)",simpleMethod,element);
+    MiniLangValidate.attributeNames(simpleMethod,element,"class-name","field");
+    MiniLangValidate.expressionAttributes(simpleMethod,element,"field");
+    MiniLangValidate.requiredAttributes(simpleMethod,element,"class-name","field");
+    MiniLangValidate.childElements(simpleMethod,element,"string","field");
+  }
   className=element.getAttribute("class-name");
-  fieldAcsr=new ContextAccessor<Object>(element.getAttribute("field"),element.getAttribute("field-name"));
-  mapAcsr=new ContextAccessor<Map<String,Object>>(element.getAttribute("map-name"));
+  Class<?> targetClass=null;
+  try {
+    targetClass=ObjectType.loadClass(this.className);
+  }
+ catch (  ClassNotFoundException e) {
+    MiniLangValidate.handleError("Class not found with name " + this.className,simpleMethod,element);
+  }
+  this.targetClass=targetClass;
+  fieldFma=FlexibleMapAccessor.getInstance(element.getAttribute("field"));
   List<? extends Element> parameterElements=UtilXml.childElementList(element);
   if (parameterElements.size() > 0) {
-    parameters=FastList.newInstance();
+    ArrayList<MethodObject<?>> parameterList=new ArrayList<MethodObject<?>>(parameterElements.size());
     for (    Element parameterElement : parameterElements) {
-      MethodObject<?> methodObject=null;
       if ("string".equals(parameterElement.getNodeName())) {
-        methodObject=new StringObject(parameterElement,simpleMethod);
+        parameterList.add(new StringObject(parameterElement,simpleMethod));
       }
  else       if ("field".equals(parameterElement.getNodeName())) {
-        methodObject=new FieldObject<Object>(parameterElement,simpleMethod);
-      }
- else {
-        Debug.logWarning("Found an unsupported tag under the call-object-method tag: " + parameterElement.getNodeName() + "; ignoring",module);
-      }
-      if (methodObject != null) {
-        parameters.add(methodObject);
+        parameterList.add(new FieldObject<Object>(parameterElement,simpleMethod));
       }
     }
+    parameterList.trimToSize();
+    this.parameters=Collections.unmodifiableList(parameterList);
+  }
+ else {
+    this.parameters=null;
   }
 }
