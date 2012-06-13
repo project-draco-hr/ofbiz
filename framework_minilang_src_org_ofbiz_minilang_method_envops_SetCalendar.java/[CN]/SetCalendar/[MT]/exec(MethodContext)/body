@@ -1,38 +1,50 @@
 {
   Object newValue=null;
-  if (!this.fromField.isEmpty()) {
-    newValue=this.fromField.get(methodContext);
-    if (Debug.verboseOn())     Debug.logVerbose("In screen getting value for field from [" + this.fromField.toString() + "]: "+ newValue,module);
+  if (this.scriptlet != null) {
+    try {
+      newValue=this.scriptlet.executeScript(methodContext.getEnvMap());
+    }
+ catch (    Exception exc) {
+      Debug.logWarning(exc,"Error evaluating scriptlet [" + this.scriptlet + "]: "+ exc,module);
+    }
   }
- else   if (!this.valueExdr.isEmpty()) {
-    newValue=methodContext.expandString(this.valueExdr);
+ else   if (!this.fromFma.isEmpty()) {
+    newValue=this.fromFma.get(methodContext.getEnvMap());
   }
-  if (ObjectType.isEmpty(newValue) && !this.defaultExdr.isEmpty()) {
-    newValue=methodContext.expandString(this.defaultExdr);
+ else   if (!this.valueFse.isEmpty()) {
+    newValue=this.valueFse.expand(methodContext.getEnvMap());
+  }
+  if (ObjectType.isEmpty(newValue) && !this.defaultFse.isEmpty()) {
+    newValue=this.defaultFse.expand(methodContext.getEnvMap());
   }
   if (!setIfNull && newValue == null) {
-    if (Debug.verboseOn())     Debug.logVerbose("Field value not found (null) with name [" + fromField + "] and value ["+ valueExdr+ "], and there was not default value, not setting field",module);
     return true;
   }
   if (!setIfEmpty && ObjectType.isEmpty(newValue)) {
-    if (Debug.verboseOn())     Debug.logVerbose("Field value not found (empty) with name [" + fromField + "] and value ["+ valueExdr+ "], and there was not default value, not setting field",module);
     return true;
   }
   Locale locale=null;
   TimeZone timeZone=null;
   Timestamp fromStamp=null;
+  int years=0;
+  int months=0;
+  int days=0;
+  int hours=0;
+  int minutes=0;
+  int seconds=0;
+  int millis=0;
   try {
-    if (!this.localeExdr.isEmpty()) {
-      locale=(Locale)ObjectType.simpleTypeConvert(methodContext.expandString(this.localeExdr),"Locale",null,null);
-    }
-    if (!this.timeZoneExdr.isEmpty()) {
-      timeZone=(TimeZone)ObjectType.simpleTypeConvert(methodContext.expandString(this.timeZoneExdr),"TimeZone",null,null);
+    if (!this.localeFse.isEmpty()) {
+      locale=(Locale)ObjectType.simpleTypeConvert(this.localeFse.expand(methodContext.getEnvMap()),"Locale",null,null);
     }
     if (locale == null) {
       locale=methodContext.getLocale();
     }
     if (locale == null) {
       locale=Locale.getDefault();
+    }
+    if (!this.timeZoneFse.isEmpty()) {
+      timeZone=(TimeZone)ObjectType.simpleTypeConvert(this.timeZoneFse.expand(methodContext.getEnvMap()),"TimeZone",null,null);
     }
     if (timeZone == null) {
       timeZone=methodContext.getTimeZone();
@@ -41,18 +53,31 @@
       timeZone=TimeZone.getDefault();
     }
     fromStamp=(Timestamp)MiniLangUtil.convertType(newValue,java.sql.Timestamp.class,locale,timeZone,UtilDateTime.DATE_TIME_FORMAT);
+    if (!this.yearsFse.isEmpty()) {
+      years=Integer.parseInt(this.yearsFse.expandString(methodContext.getEnvMap()));
+    }
+    if (!this.monthsFse.isEmpty()) {
+      months=Integer.parseInt(this.monthsFse.expandString(methodContext.getEnvMap()));
+    }
+    if (!this.daysFse.isEmpty()) {
+      days=Integer.parseInt(this.daysFse.expandString(methodContext.getEnvMap()));
+    }
+    if (!this.hoursFse.isEmpty()) {
+      hours=Integer.parseInt(this.hoursFse.expandString(methodContext.getEnvMap()));
+    }
+    if (!this.minutesFse.isEmpty()) {
+      minutes=Integer.parseInt(this.minutesFse.expandString(methodContext.getEnvMap()));
+    }
+    if (!this.secondsFse.isEmpty()) {
+      seconds=Integer.parseInt(this.secondsFse.expandString(methodContext.getEnvMap()));
+    }
+    if (!this.millisFse.isEmpty()) {
+      millis=Integer.parseInt(this.millisFse.expandString(methodContext.getEnvMap()));
+    }
   }
  catch (  Exception e) {
-    if (Debug.verboseOn())     Debug.logVerbose("Error converting attributes to objects: " + e.getMessage(),module);
-    return true;
+    throw new MiniLangRuntimeException("Exception thrown while parsing attributes: " + e.getMessage(),this);
   }
-  int years=this.yearsExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.yearsExdr));
-  int months=this.monthsExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.monthsExdr));
-  int days=this.daysExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.daysExdr));
-  int hours=this.hoursExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.hoursExdr));
-  int minutes=this.minutesExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.minutesExdr));
-  int seconds=this.secondsExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.secondsExdr));
-  int millis=this.millisExdr.isEmpty() ? 0 : Integer.parseInt(methodContext.expandString(this.millisExdr));
   Calendar cal=UtilDateTime.toCalendar(fromStamp,timeZone,locale);
   cal.add(Calendar.MILLISECOND,millis);
   cal.add(Calendar.SECOND,seconds);
@@ -63,7 +88,7 @@
   cal.add(Calendar.YEAR,years);
   Timestamp toStamp=new Timestamp(cal.getTimeInMillis());
   if (!periodAlignStart.isEmpty()) {
-    String period=methodContext.expandString(periodAlignStart);
+    String period=periodAlignStart.expandString(methodContext.getEnvMap());
     if ("day".equals(period)) {
       toStamp=UtilDateTime.getDayStart(toStamp,0,timeZone,locale);
     }
@@ -76,9 +101,12 @@
  else     if ("year".equals(period)) {
       toStamp=UtilDateTime.getYearStart(toStamp,0,timeZone,locale);
     }
+ else {
+      throw new MiniLangRuntimeException("Invalid period-align-start attribute value: " + period,this);
+    }
   }
  else   if (!periodAlignEnd.isEmpty()) {
-    String period=methodContext.expandString(periodAlignEnd);
+    String period=periodAlignEnd.expandString(methodContext.getEnvMap());
     if ("day".equals(period)) {
       toStamp=UtilDateTime.getDayEnd(toStamp,timeZone,locale);
     }
@@ -91,8 +119,10 @@
  else     if ("year".equals(period)) {
       toStamp=UtilDateTime.getYearEnd(toStamp,timeZone,locale);
     }
+ else {
+      throw new MiniLangRuntimeException("Invalid period-align-end attribute value: " + period,this);
+    }
   }
-  if (Debug.verboseOn())   Debug.logVerbose("In screen setting calendar [" + this.field.toString(),module);
-  this.field.put(methodContext,toStamp);
+  this.fieldFma.put(methodContext.getEnvMap(),toStamp);
   return true;
 }
