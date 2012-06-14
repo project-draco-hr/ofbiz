@@ -1,6 +1,6 @@
 {
-  String resource=methodContext.expandString(this.resource);
-  String property=methodContext.expandString(this.property);
+  String resource=resourceFse.expandString(methodContext.getEnvMap());
+  String property=propertyFse.expandString(methodContext.getEnvMap());
   String value=null;
   if (noLocale) {
     value=EntityUtilProperties.getPropertyValue(resource,property,methodContext.getDelegator());
@@ -8,27 +8,19 @@
  else {
     value=EntityUtilProperties.getMessage(resource,property,methodContext.getLocale(),methodContext.getDelegator());
   }
-  if (UtilValidate.isEmpty(value)) {
-    value=defaultVal;
+  value=FlexibleStringExpander.expandString(value,methodContext.getEnvMap());
+  if (value.isEmpty()) {
+    value=defaultFse.expandString(methodContext.getEnvMap());
   }
-  value=methodContext.expandString(value);
-  if (!argListAcsr.isEmpty()) {
-    List<? extends Object> argList=argListAcsr.get(methodContext);
-    if (UtilValidate.isNotEmpty(argList)) {
+  List<? extends Object> argList=argListFma.get(methodContext.getEnvMap());
+  if (argList != null) {
+    try {
       value=MessageFormat.format(value,argList.toArray());
     }
-  }
-  if (!mapAcsr.isEmpty()) {
-    Map<String,Object> toMap=mapAcsr.get(methodContext);
-    if (toMap == null) {
-      if (Debug.infoOn())       Debug.logInfo("Map not found with name " + mapAcsr + ", creating new map",module);
-      toMap=FastMap.newInstance();
-      mapAcsr.put(methodContext,toMap);
+ catch (    IllegalArgumentException e) {
+      throw new MiniLangRuntimeException("Exception thrown while formatting the property value: " + e.getMessage(),this);
     }
-    fieldAcsr.put(toMap,value,methodContext);
   }
- else {
-    fieldAcsr.put(methodContext,value);
-  }
+  fieldFma.put(methodContext.getEnvMap(),value);
   return true;
 }
