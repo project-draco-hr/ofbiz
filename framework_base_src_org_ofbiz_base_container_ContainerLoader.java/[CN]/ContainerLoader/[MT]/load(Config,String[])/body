@@ -4,13 +4,26 @@
   }
   this.loadedContainers.clear();
   this.configFile=config.containerConfig;
-  Debug.logInfo("[Startup] Loading containers from " + configFile,module);
+  List<String> loaderProfiles=null;
+  for (  Map loaderMap : config.loaders) {
+    if (module.equals((String)loaderMap.get("class"))) {
+      loaderProfiles=StringUtil.split((String)loaderMap.get("profiles"),",");
+    }
+  }
+  List<String> loaders=null;
+  try {
+    loaders=ContainerConfig.getLoaders(configFile);
+  }
+ catch (  ContainerException e) {
+    throw new StartupException(e);
+  }
+  if (loaderProfiles != null) {
+    loaders.addAll(loaderProfiles);
+  }
+  Debug.logInfo("[Startup] Loading containers from " + configFile + " for loaders "+ loaders,module);
   Collection<ContainerConfig.Container> containers=null;
   try {
     containers=ContainerConfig.getContainers(configFile);
-    if (UtilValidate.isEmpty(containers)) {
-      throw new StartupException("No containers loaded; problem with configuration");
-    }
   }
  catch (  ContainerException e) {
     throw new StartupException(e);
@@ -19,38 +32,46 @@
     if (this.unloading) {
       return;
     }
-    Debug.logInfo("Loading container: " + containerCfg.name,module);
-    Container tmpContainer=loadContainer(containerCfg,args);
-    this.loadedContainers.add(tmpContainer);
-    containerMap.put(containerCfg.name,tmpContainer);
-    if (containerCfg.name.equals("rmi-dispatcher") && configFile.equals("limited-containers.xml")) {
-      try {
-        ContainerConfig.Container.Property initialCtxProp=containerCfg.getProperty("use-initial-context");
-        String useCtx=initialCtxProp == null || initialCtxProp.value == null ? "false" : initialCtxProp.value;
-        if (!useCtx.equalsIgnoreCase("true")) {
-          if (System.getSecurityManager() == null) {
-            System.setSecurityManager(new java.rmi.RMISecurityManager());
-          }
-          tmpContainer.start();
+    boolean matchingLoaderFound=false;
+    if (UtilValidate.isEmpty(containerCfg.loaders) && UtilValidate.isEmpty(loaders)) {
+      matchingLoaderFound=true;
+    }
+ else {
+      for (      String loader : loaders) {
+        if (UtilValidate.isEmpty(containerCfg.loaders) || containerCfg.loaders.contains(loader)) {
+          matchingLoaderFound=true;
+          break;
         }
       }
- catch (      ContainerException e) {
-        throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
-      }
-catch (      java.lang.AbstractMethodError e) {
-        throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+    }
+    if (matchingLoaderFound) {
+      Debug.logInfo("Loading container: " + containerCfg.name,module);
+      Container tmpContainer=loadContainer(containerCfg,args);
+      this.loadedContainers.add(tmpContainer);
+      containerMap.put(containerCfg.name,tmpContainer);
+      Debug.logInfo("Loaded container: " + containerCfg.name,module);
+      if (containerCfg.name.equals("rmi-dispatcher") && configFile.equals("limited-containers.xml")) {
+        try {
+          ContainerConfig.Container.Property initialCtxProp=containerCfg.getProperty("use-initial-context");
+          String useCtx=initialCtxProp == null || initialCtxProp.value == null ? "false" : initialCtxProp.value;
+          if (!useCtx.equalsIgnoreCase("true")) {
+            if (System.getSecurityManager() == null) {
+              System.setSecurityManager(new java.rmi.RMISecurityManager());
+            }
+            tmpContainer.start();
+          }
+        }
+ catch (        ContainerException e) {
+          throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+        }
+catch (        java.lang.AbstractMethodError e) {
+          throw new StartupException("Cannot start() " + tmpContainer.getClass().getName(),e);
+        }
       }
     }
   }
   if (this.unloading) {
     return;
-  }
-  List<String> loaders=null;
-  try {
-    loaders=ContainerConfig.getLoaders(configFile);
-  }
- catch (  ContainerException e) {
-    throw new StartupException(e);
   }
   List<ContainerConfig.Container> containersDefinedInComponents=ComponentConfig.getAllContainers();
   for (  ContainerConfig.Container containerCfg : containersDefinedInComponents) {
@@ -71,6 +92,7 @@ catch (      java.lang.AbstractMethodError e) {
       Container tmpContainer=loadContainer(containerCfg,args);
       this.loadedContainers.add(tmpContainer);
       containerMap.put(containerCfg.name,tmpContainer);
+      Debug.logInfo("Loaded component's container: " + containerCfg.name,module);
     }
   }
   ClassLoader loader=Thread.currentThread().getContextClassLoader();
