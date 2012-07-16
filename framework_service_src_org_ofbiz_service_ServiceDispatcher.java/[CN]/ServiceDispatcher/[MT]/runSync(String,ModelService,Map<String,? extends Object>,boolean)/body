@@ -1,30 +1,33 @@
 {
-  ServiceSemaphore lock=null;
-  if ("wait".equals(modelService.semaphore) || "fail".equals(modelService.semaphore)) {
-    lock=new ServiceSemaphore(delegator,modelService);
-    lock.acquire();
-  }
   long serviceStartTime=System.currentTimeMillis();
-  if (Debug.verboseOn() || modelService.debug) {
-    Debug.logVerbose("[ServiceDispatcher.runSync] : invoking service " + modelService.name + " ["+ modelService.location+ "/"+ modelService.invoke+ "] ("+ modelService.engineName+ ")",module);
-  }
-  Map<String,Object> context=FastMap.newInstance();
-  if (params != null) {
-    context.putAll(params);
-  }
   Map<String,Object> result=FastMap.newInstance();
+  ServiceSemaphore lock=null;
+  Map<String,List<ServiceEcaRule>> eventMap=null;
+  Map<String,Object> ecaContext=null;
+  RunningService rs=null;
+  DispatchContext ctx=localContext.get(localName);
+  GenericEngine engine=null;
+  Transaction parentTransaction=null;
   boolean isFailure=false;
   boolean isError=false;
-  RunningService rs=this.logService(localName,modelService,GenericEngine.SYNC_MODE);
-  Map<String,List<ServiceEcaRule>> eventMap=ServiceEcaUtil.getServiceEventMap(modelService.name);
-  Locale locale=this.checkLocale(context);
-  DispatchContext ctx=localContext.get(localName);
-  GenericEngine engine=this.getGenericEngine(modelService.engineName);
-  modelService.updateDefaultValues(context,ModelService.IN_PARAM);
-  Map<String,Object> ecaContext=null;
-  Transaction parentTransaction=null;
   boolean beganTrans=false;
   try {
+    if ("wait".equals(modelService.semaphore) || "fail".equals(modelService.semaphore)) {
+      lock=new ServiceSemaphore(delegator,modelService);
+      lock.acquire();
+    }
+    if (Debug.verboseOn() || modelService.debug) {
+      Debug.logVerbose("[ServiceDispatcher.runSync] : invoking service " + modelService.name + " ["+ modelService.location+ "/"+ modelService.invoke+ "] ("+ modelService.engineName+ ")",module);
+    }
+    Map<String,Object> context=FastMap.newInstance();
+    if (params != null) {
+      context.putAll(params);
+    }
+    Locale locale=this.checkLocale(context);
+    rs=this.logService(localName,modelService,GenericEngine.SYNC_MODE);
+    eventMap=ServiceEcaUtil.getServiceEventMap(modelService.name);
+    engine=this.getGenericEngine(modelService.engineName);
+    modelService.updateDefaultValues(context,ModelService.IN_PARAM);
     if (modelService.useTransaction) {
       if (TransactionUtil.isTransactionInPlace()) {
         if (modelService.requireNewTransaction) {
@@ -206,7 +209,12 @@
   }
  finally {
     if (lock != null) {
-      lock.release();
+      try {
+        lock.release();
+      }
+ catch (      GenericServiceException e) {
+        Debug.logWarning(e,"Exception thrown while unlocking semaphore: ",module);
+      }
     }
     if (parentTransaction != null) {
       try {
