@@ -1,49 +1,22 @@
 {
-  while (run) {
-    Job job=jp.next();
-    if (job == null) {
-      try {
-        java.lang.Thread.sleep(wait);
-      }
- catch (      InterruptedException ie) {
-        Debug.logError(ie,"JobInvoker.run() : InterruptedException",module);
-        stop();
-      }
-    }
- else {
-      Debug.logInfo("Invoker [" + thread.getName() + "] received job ["+ job.getJobName()+ "] from poller ["+ jp.toString()+ "]",module);
-      this.currentJob=job;
-      this.statusCode=1;
-      this.jobStart=System.currentTimeMillis();
-      if (Debug.verboseOn())       Debug.logVerbose("Invoker: " + thread.getName() + " executing job -- "+ job.getJobName(),module);
-      try {
-        job.exec();
-      }
- catch (      InvalidJobException e) {
-        Debug.logWarning(e.getMessage(),module);
-      }
-      if (Debug.verboseOn())       Debug.logVerbose("Invoker: " + thread.getName() + " finished executing job -- "+ job.getJobName(),module);
-      this.currentJob=null;
-      this.statusCode=0;
-      this.jobStart=0;
-      try {
-        if (TransactionUtil.isTransactionInPlace()) {
-          Debug.logWarning("*** NOTICE: JobInvoker finished w/ a transaction in place! Rolling back.",module);
-          TransactionUtil.rollback();
-        }
-        if (TransactionUtil.suspendedTransactionsHeld()) {
-          int suspended=TransactionUtil.cleanSuspendedTransactions();
-          Debug.logWarning("Resumed/Rolled Back [" + suspended + "] transactions.",module);
-        }
-      }
- catch (      GenericTransactionException e) {
-        Debug.logWarning(e,module);
-      }
-      count++;
-      if (Debug.verboseOn())       Debug.logVerbose("Invoker: " + thread.getName() + " ("+ count+ ") total.",module);
-    }
-    long diff=(new Date().getTime() - this.getTime());
-    if (getTTL() > 0 && diff > getTTL())     jp.removeThread(this);
+  this.jobStart=System.currentTimeMillis();
+  try {
+    this.currentJob.exec();
   }
-  if (Debug.verboseOn())   Debug.logVerbose("Invoker: " + thread.getName() + " dead -- "+ UtilDateTime.nowTimestamp(),module);
+ catch (  InvalidJobException e) {
+    Debug.logWarning(e.getMessage(),module);
+  }
+  try {
+    if (TransactionUtil.isTransactionInPlace()) {
+      Debug.logWarning("*** NOTICE: JobInvoker finished w/ a transaction in place! Rolling back.",module);
+      TransactionUtil.rollback();
+    }
+    if (TransactionUtil.suspendedTransactionsHeld()) {
+      int suspended=TransactionUtil.cleanSuspendedTransactions();
+      Debug.logWarning("Resumed/Rolled Back [" + suspended + "] transactions.",module);
+    }
+  }
+ catch (  GenericTransactionException e) {
+    Debug.logWarning(e,module);
+  }
 }
