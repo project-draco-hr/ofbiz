@@ -1,39 +1,44 @@
 {
   super.init();
-  GenericValue job=this.getJob();
+  try {
+    jobValue.refresh();
+  }
+ catch (  GenericEntityException e) {
+    throw new InvalidJobException("Unable to refresh JobSandbox value",e);
+  }
+  if (jobValue.getTimestamp("cancelDateTime") != null) {
+    throw new InvalidJobException("Job [" + getJobId() + "] was cancelled");
+  }
+  String instanceId=UtilProperties.getPropertyValue("general.properties","unique.instanceId","ofbiz0");
+  if (!instanceId.equals(jobValue.getString("runByInstanceId"))) {
+    throw new InvalidJobException("Job has been accepted by a different instance!");
+  }
   long maxRecurrenceCount=-1;
   long currentRecurrenceCount=0;
   TemporalExpression expr=null;
-  RecurrenceInfo recurrence=JobManager.getRecurrenceInfo(job);
+  RecurrenceInfo recurrence=JobManager.getRecurrenceInfo(jobValue);
   if (recurrence != null) {
-    if (!this.warningLogged) {
-      Debug.logWarning("Persisted Job [" + getJobId() + "] references a RecurrenceInfo, recommend using TemporalExpression instead",module);
-      this.warningLogged=true;
-    }
+    Debug.logWarning("Persisted Job [" + getJobId() + "] references a RecurrenceInfo, recommend using TemporalExpression instead",module);
     currentRecurrenceCount=recurrence.getCurrentCount();
     expr=RecurrenceInfo.toTemporalExpression(recurrence);
   }
-  if (expr == null && UtilValidate.isNotEmpty(job.getString("tempExprId"))) {
+  if (expr == null && UtilValidate.isNotEmpty(jobValue.getString("tempExprId"))) {
     try {
-      expr=TemporalExpressionWorker.getTemporalExpression(this.delegator,job.getString("tempExprId"));
+      expr=TemporalExpressionWorker.getTemporalExpression(this.delegator,jobValue.getString("tempExprId"));
     }
  catch (    GenericEntityException e) {
       throw new RuntimeException(e.getMessage());
     }
   }
-  String instanceId=UtilProperties.getPropertyValue("general.properties","unique.instanceId","ofbiz0");
-  if (!instanceId.equals(job.getString("runByInstanceId"))) {
-    throw new InvalidJobException("Job has been accepted by a different instance!");
+  if (jobValue.get("maxRecurrenceCount") != null) {
+    maxRecurrenceCount=jobValue.getLong("maxRecurrenceCount").longValue();
   }
-  if (job.get("maxRecurrenceCount") != null) {
-    maxRecurrenceCount=job.getLong("maxRecurrenceCount").longValue();
-  }
-  if (job.get("currentRecurrenceCount") != null) {
-    currentRecurrenceCount=job.getLong("currentRecurrenceCount").longValue();
+  if (jobValue.get("currentRecurrenceCount") != null) {
+    currentRecurrenceCount=jobValue.getLong("currentRecurrenceCount").longValue();
   }
   if (maxRecurrenceCount != -1) {
     currentRecurrenceCount++;
-    job.set("currentRecurrenceCount",currentRecurrenceCount);
+    jobValue.set("currentRecurrenceCount",currentRecurrenceCount);
   }
   try {
     if (expr != null && (maxRecurrenceCount == -1 || currentRecurrenceCount <= maxRecurrenceCount)) {
@@ -42,12 +47,12 @@
       }
       Calendar next=expr.next(Calendar.getInstance());
       if (next != null) {
-        createRecurrence(job,next.getTimeInMillis(),false);
+        createRecurrence(next.getTimeInMillis(),false);
       }
     }
   }
  catch (  GenericEntityException e) {
-    throw new RuntimeException(e.getMessage());
+    throw new InvalidJobException(e);
   }
   if (Debug.infoOn())   Debug.logInfo("Job  [" + getJobName() + "] Id ["+ getJobId()+ "] -- Next runtime: "+ new Date(nextRecurrence),module);
 }
