@@ -1,6 +1,6 @@
 {
   List<GenericValue> crashed=null;
-  List<EntityExpr> statusExprList=UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_QUEUED"),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_RUNNING"));
+  List<EntityExpr> statusExprList=UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_PENDING"),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_QUEUED"),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_RUNNING"));
   EntityCondition statusCondition=EntityCondition.makeCondition(statusExprList,EntityOperator.OR);
   List<EntityExpr> poolsExpr=UtilMisc.toList(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,null));
   List<String> pools=ServiceConfigUtil.getRunPools();
@@ -15,13 +15,13 @@
     crashed=delegator.findList("JobSandbox",mainCondition,null,UtilMisc.toList("startDateTime"),null,false);
   }
  catch (  GenericEntityException e) {
-    Debug.logError(e,"Unable to load crashed jobs",module);
+    Debug.logWarning(e,"Unable to load crashed jobs",module);
   }
   if (UtilValidate.isNotEmpty(crashed)) {
-    try {
-      int rescheduled=0;
-      for (      GenericValue job : crashed) {
-        Timestamp now=UtilDateTime.nowTimestamp();
+    int rescheduled=0;
+    Timestamp now=UtilDateTime.nowTimestamp();
+    for (    GenericValue job : crashed) {
+      try {
         Debug.logInfo("Scheduling Job : " + job,module);
         String pJobId=job.getString("parentJobId");
         if (pJobId == null) {
@@ -40,11 +40,11 @@
         delegator.store(job);
         rescheduled++;
       }
-      if (Debug.infoOn())       Debug.logInfo("-- " + rescheduled + " jobs re-scheduled",module);
+ catch (      GenericEntityException e) {
+        Debug.logWarning(e,module);
+      }
     }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
-    }
+    if (Debug.infoOn())     Debug.logInfo("-- " + rescheduled + " jobs re-scheduled",module);
   }
  else {
     if (Debug.infoOn())     Debug.logInfo("No crashed jobs to re-schedule",module);
