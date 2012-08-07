@@ -1,10 +1,18 @@
 {
   List<GenericValue> crashed=null;
-  List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("runByInstanceId",instanceId));
-  exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_RUNNING"));
-  EntityConditionList<EntityExpr> ecl=EntityCondition.makeCondition(exprs);
+  List<EntityExpr> statusExprList=UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_QUEUED"),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"SERVICE_RUNNING"));
+  EntityCondition statusCondition=EntityCondition.makeCondition(statusExprList,EntityOperator.OR);
+  List<EntityExpr> poolsExpr=UtilMisc.toList(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,null));
+  List<String> pools=ServiceConfigUtil.getRunPools();
+  if (pools != null) {
+    for (    String poolName : pools) {
+      poolsExpr.add(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,poolName));
+    }
+  }
+  EntityCondition poolCondition=EntityCondition.makeCondition(poolsExpr,EntityOperator.OR);
+  EntityCondition mainCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("runByInstanceId",instanceId),statusCondition,poolCondition));
   try {
-    crashed=delegator.findList("JobSandbox",ecl,null,UtilMisc.toList("startDateTime"),null,false);
+    crashed=delegator.findList("JobSandbox",mainCondition,null,UtilMisc.toList("startDateTime"),null,false);
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Unable to load crashed jobs",module);
