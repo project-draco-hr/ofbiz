@@ -1,11 +1,11 @@
 {
   assertIsRunning();
+  List<Job> poll=new ArrayList<Job>(limit);
   DispatchContext dctx=getDispatcher().getDispatchContext();
   if (dctx == null) {
     Debug.logWarning("Unable to locate DispatchContext object; not running job!",module);
-    return null;
+    return poll;
   }
-  List<Job> poll=FastList.newInstance();
   List<EntityExpr> expressions=UtilMisc.toList(EntityCondition.makeCondition("runTime",EntityOperator.LESS_THAN_EQUAL_TO,UtilDateTime.nowTimestamp()),EntityCondition.makeCondition("startDateTime",EntityOperator.EQUALS,null),EntityCondition.makeCondition("cancelDateTime",EntityOperator.EQUALS,null),EntityCondition.makeCondition("runByInstanceId",EntityOperator.EQUALS,null));
   List<String> pools=ServiceConfigUtil.getRunPools();
   List<EntityExpr> poolsExpr=UtilMisc.toList(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,null));
@@ -23,7 +23,7 @@
     beganTransaction=TransactionUtil.begin();
     if (!beganTransaction) {
       Debug.logWarning("Unable to poll JobSandbox for jobs; transaction was not started by this process",module);
-      return null;
+      return poll;
     }
     jobsIterator=delegator.find("JobSandbox",mainCondition,null,null,UtilMisc.toList("runTime"),null);
     GenericValue jobValue=jobsIterator.next();
@@ -38,13 +38,14 @@
     }
   }
  catch (  Throwable t) {
-    String errMsg="Error in polling JobSandbox: [" + t.toString() + "]. Rolling back transaction.";
+    poll.clear();
+    String errMsg="Exception thrown while polling JobSandbox: ";
     Debug.logWarning(t,errMsg,module);
     try {
-      TransactionUtil.rollback(beganTransaction,errMsg,t);
+      TransactionUtil.rollback(beganTransaction,errMsg + t.getMessage(),t);
     }
- catch (    GenericEntityException e2) {
-      Debug.logWarning(e2,"[Delegator] Could not rollback transaction: " + e2.toString(),module);
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"Exception thrown while rolling back transaction: ",module);
     }
   }
  finally {
@@ -60,8 +61,7 @@
       TransactionUtil.commit(beganTransaction);
     }
  catch (    GenericTransactionException e) {
-      String errMsg="Transaction error trying to commit when polling and updating the JobSandbox: " + e.toString();
-      Debug.logWarning(e,errMsg,module);
+      Debug.logWarning(e,"Transaction error trying to commit when polling and updating the JobSandbox: ",module);
     }
   }
   return poll;
