@@ -64,5 +64,40 @@
       Debug.logWarning(e,"Transaction error trying to commit when polling and updating the JobSandbox: ",module);
     }
   }
+  if (poll.isEmpty()) {
+    int daysToKeep=ServiceConfigUtil.getPurgeJobDays();
+    Calendar cal=Calendar.getInstance();
+    cal.add(Calendar.DAY_OF_YEAR,-daysToKeep);
+    Timestamp purgeTime=new Timestamp(cal.getTimeInMillis());
+    List<EntityExpr> finExp=UtilMisc.toList(EntityCondition.makeCondition("finishDateTime",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("finishDateTime",EntityOperator.LESS_THAN,purgeTime));
+    List<EntityExpr> canExp=UtilMisc.toList(EntityCondition.makeCondition("cancelDateTime",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("cancelDateTime",EntityOperator.LESS_THAN,purgeTime));
+    EntityCondition doneCond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(canExp),EntityCondition.makeCondition(finExp)),EntityOperator.OR);
+    mainCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("runByInstanceId",instanceId),doneCond));
+    try {
+      jobsIterator=delegator.find("JobSandbox",mainCondition,null,null,UtilMisc.toList("jobId"),null);
+      GenericValue jobValue=jobsIterator.next();
+      while (jobValue != null) {
+        poll.add(new PurgeJob(jobValue));
+        if (poll.size() == limit) {
+          break;
+        }
+        jobValue=jobsIterator.next();
+      }
+    }
+ catch (    Throwable t) {
+      poll.clear();
+      Debug.logWarning(t,"Exception thrown while polling JobSandbox: ",module);
+    }
+ finally {
+      if (jobsIterator != null) {
+        try {
+          jobsIterator.close();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logWarning(e,module);
+        }
+      }
+    }
+  }
   return poll;
 }
