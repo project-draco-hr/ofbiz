@@ -1,0 +1,40 @@
+{
+  Debug.logInfo("JobPoller thread started.",module);
+  try {
+    Thread.sleep(30000);
+    while (!executor.isShutdown()) {
+      int remainingCapacity=executor.getQueue().remainingCapacity();
+      if (remainingCapacity > 0) {
+        Collection<JobManager> jmCollection=jobManagers.values();
+        List<Iterator<Job>> pollResults=new ArrayList<Iterator<Job>>();
+        for (        JobManager jm : jmCollection) {
+          pollResults.add(jm.poll(remainingCapacity).iterator());
+        }
+        List<Job> queueCandidates=new ArrayList<Job>();
+        boolean addingJobs=true;
+        while (addingJobs) {
+          addingJobs=false;
+          for (          Iterator<Job> jobIterator : pollResults) {
+            if (jobIterator.hasNext()) {
+              queueCandidates.add(jobIterator.next());
+              addingJobs=true;
+            }
+          }
+        }
+        for (        Job job : queueCandidates) {
+          try {
+            queueNow(job);
+          }
+ catch (          InvalidJobException e) {
+            Debug.logError(e,module);
+          }
+        }
+      }
+      Thread.sleep(pollWaitTime());
+    }
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+  }
+  Debug.logInfo("JobPoller thread stopped.",module);
+}
