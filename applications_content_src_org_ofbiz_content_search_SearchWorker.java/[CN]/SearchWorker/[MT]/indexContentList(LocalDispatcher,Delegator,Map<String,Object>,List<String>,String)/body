@@ -1,20 +1,15 @@
 {
   Directory directory=FSDirectory.open(new File(getIndexPath(path)));
   if (Debug.infoOn())   Debug.logInfo("in indexContentList, indexAllPath: " + directory.toString(),module);
-  IndexReader reader=null;
-  try {
-    reader=IndexReader.open(directory,false);
-  }
- catch (  Exception e) {
-  }
+  IndexWriter writer=getDefaultIndexWriter(directory);
   List<GenericValue> contentList=FastList.newInstance();
   for (  String id : idList) {
     if (Debug.infoOn())     Debug.logInfo("in indexContentList, id:" + id,module);
     try {
       GenericValue content=delegator.findOne("Content",UtilMisc.toMap("contentId",id),true);
       if (content != null) {
-        if (reader != null) {
-          deleteContentDocuments(content,reader);
+        if (writer != null) {
+          deleteContentDocuments(content,writer);
         }
         contentList.add(content);
       }
@@ -24,23 +19,14 @@
       return;
     }
   }
-  if (reader != null) {
-    reader.close();
-  }
-  IndexWriter writer=null;
-  long savedWriteLockTimeout=IndexWriterConfig.getDefaultWriteLockTimeout();
-  Analyzer analyzer=new StandardAnalyzer(LUCENE_VERSION);
-  IndexWriterConfig conf=new IndexWriterConfig(LUCENE_VERSION,analyzer);
-  try {
-    IndexWriterConfig.setDefaultWriteLockTimeout(2000);
-    writer=new IndexWriter(directory,conf);
-  }
-  finally {
-    IndexWriterConfig.setDefaultWriteLockTimeout(savedWriteLockTimeout);
-  }
   for (  GenericValue gv : contentList) {
     indexContent(dispatcher,delegator,context,gv,writer);
   }
-  writer.forceMerge(1);
+  try {
+    writer.forceMerge(1);
+  }
+ catch (  NullPointerException e) {
+    Debug.logError(e,module);
+  }
   writer.close();
 }
