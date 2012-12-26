@@ -53,6 +53,10 @@ catch (      IOException e) {
     this.currentNodeForTemplate=this.currentNodeForTemplate.getParentNode();
     return;
   }
+  if (actionTags.contains(fullNameString)) {
+    setAction(Action.CREATE_UPDATE);
+    return;
+  }
   if (currentValue != null) {
     if (currentFieldName != null) {
       if (UtilValidate.isNotEmpty(currentFieldValue)) {
@@ -90,22 +94,68 @@ catch (      IOException e) {
         }
       }
       try {
-        if (this.useTryInsertMethod && !this.checkDataOnly) {
-          try {
-            currentValue.create();
+        boolean exist=true;
+        boolean skip=false;
+        if (Action.CREATE == currentAction || Action.DELETE == currentAction || Debug.verboseOn()) {
+          GenericHelper helper=delegator.getEntityHelper(currentValue.getEntityName());
+          if (currentValue.containsPrimaryKey()) {
+            try {
+              helper.findByPrimaryKey(currentValue.getPrimaryKey());
+            }
+ catch (            GenericEntityNotFoundException e) {
+              exist=false;
+            }
           }
- catch (          GenericEntityException e1) {
-            currentValue.store();
+          if (Action.CREATE == currentAction && exist) {
+            skip=true;
+          }
+ else           if (Action.DELETE == currentAction && !exist) {
+            skip=true;
           }
         }
+        if (!skip) {
+          if (this.useTryInsertMethod && !this.checkDataOnly) {
+            if (Action.CREATE == currentAction) {
+              currentValue.create();
+            }
+ else             if (Action.DELETE == currentAction) {
+              try {
+                currentValue.remove();
+              }
+ catch (              GenericEntityException e1) {
+                String errMsg="Error deleting value";
+                Debug.logError(e1,errMsg,module);
+                throw new SAXException(errMsg,e1);
+              }
+            }
  else {
-          valuesToWrite.add(currentValue);
-          if (valuesToWrite.size() >= valuesPerWrite) {
-            writeValues(valuesToWrite);
-            valuesToWrite.clear();
+              try {
+                currentValue.create();
+              }
+ catch (              GenericEntityException e1) {
+                currentValue.store();
+              }
+            }
+          }
+ else {
+            if (Action.DELETE == currentAction) {
+              valuesToDelete.add(currentValue);
+              if (valuesToDelete.size() >= valuesPerWrite) {
+                delegator.removeAll(valuesToDelete,doCacheClear);
+                valuesToDelete.clear();
+              }
+            }
+ else {
+              valuesToWrite.add(currentValue);
+              if (valuesToWrite.size() >= valuesPerWrite) {
+                writeValues(valuesToWrite);
+                valuesToWrite.clear();
+              }
+            }
           }
         }
         numberRead++;
+        if (Debug.verboseOn())         countValue(skip,exist);
         if ((numberRead % valuesPerMessage) == 0) {
           Debug.logImportant("Another " + valuesPerMessage + " values imported: now up to "+ numberRead,module);
         }

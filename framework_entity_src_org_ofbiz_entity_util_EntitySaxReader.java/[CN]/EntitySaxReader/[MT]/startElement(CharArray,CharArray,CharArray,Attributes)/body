@@ -47,6 +47,13 @@
     }
     return;
   }
+  if (actionTags.contains(fullNameString)) {
+    if ("create".equals(fullNameString))     setAction(Action.CREATE);
+    if ("create-update".equals(fullNameString))     setAction(Action.CREATE_UPDATE);
+    if ("create-replace".equals(fullNameString))     setAction(Action.CREATE_REPLACE);
+    if ("delete".equals(fullNameString))     setAction(Action.DELETE);
+    return;
+  }
   if (currentValue != null) {
     currentFieldName=fullName;
   }
@@ -69,6 +76,12 @@
     }
     if (currentValue != null) {
       int length=attributes.getLength();
+      List<String> absentFields=null;
+      if (Action.CREATE_REPLACE == currentAction) {
+        ModelEntity currentEntity=currentValue.getModelEntity();
+        absentFields=currentEntity.getNoPkFieldNames();
+        absentFields.removeAll(currentEntity.getAutomaticFieldNames());
+      }
       for (int i=0; i < length; i++) {
         CharSequence name=attributes.getLocalName(i);
         CharSequence value=attributes.getValue(i);
@@ -79,6 +92,7 @@
           if (UtilValidate.isNotEmpty(value)) {
             if (currentValue.getModelEntity().isField(name.toString())) {
               currentValue.setString(name.toString(),value.toString());
+              if (Action.CREATE_REPLACE == currentAction && absentFields != null)               absentFields.remove(name);
             }
  else {
               Debug.logWarning("Ignoring invalid field name [" + name + "] found for the entity: "+ currentValue.getEntityName()+ " with value="+ value,module);
@@ -87,6 +101,11 @@
         }
  catch (        Exception e) {
           Debug.logWarning(e,"Could not set field " + entityName + "."+ name+ " to the value "+ value,module);
+        }
+      }
+      if (Action.CREATE_REPLACE == currentAction && absentFields != null) {
+        for (        String fieldName : absentFields) {
+          currentValue.set(fieldName,null);
         }
       }
     }
