@@ -3,6 +3,8 @@
   HttpSession session=request.getSession();
   ConfigXMLReader.ControllerConfig controllerConfig=this.getControllerConfig();
   Map<String,ConfigXMLReader.RequestMap> requestMapMap=controllerConfig.getRequestMapMap();
+  String controllerStatusCodeString=controllerConfig.getStatusCode();
+  if (UtilValidate.isNotEmpty(controllerStatusCodeString != null))   statusCodeString=controllerStatusCodeString;
   String cname=UtilHttp.getApplicationName(request);
   String defaultRequestUri=RequestHandler.getRequestUri(request.getPathInfo());
   if (request.getAttribute("targetRequestUri") == null) {
@@ -35,7 +37,7 @@
     }
   }
   if (requestMap == null) {
-    if (THROW_REQUEST_HANDLER_EXCEPTION_ON_MISSING_LOCAL_REQUEST)     throw new RequestHandlerException(requestMissingErrorMessage);
+    if (throwRequestHandlerExceptionOnMissingLocalRequest)     throw new RequestHandlerException(requestMissingErrorMessage);
  else     throw new RequestHandlerExceptionAllowExternalRequests();
   }
   String eventReturn=null;
@@ -110,7 +112,7 @@
         }
         String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString());
         if (newUrl.toUpperCase().startsWith("HTTPS")) {
-          callRedirect(newUrl,response,request);
+          callRedirect(newUrl,response,request,statusCodeString);
           return;
         }
       }
@@ -123,7 +125,7 @@
       }
       String newUrl=RequestHandler.makeUrl(request,response,urlBuf.toString(),true,false,false);
       if (newUrl.toUpperCase().startsWith("HTTP")) {
-        callRedirect(newUrl,response,request);
+        callRedirect(newUrl,response,request,statusCodeString);
         return;
       }
     }
@@ -320,7 +322,7 @@
       if (UtilValidate.isNotEmpty(queryString)) {
         redirectTarget+="?" + queryString;
       }
-      callRedirect(makeLink(request,response,redirectTarget),response,request);
+      callRedirect(makeLink(request,response,redirectTarget),response,request,statusCodeString);
       return;
     }
   }
@@ -366,22 +368,24 @@
         Debug.logError(e,module);
       }
     }
+    String responseStatusCode=nextRequestResponse.statusCode;
+    if (UtilValidate.isNotEmpty(responseStatusCode))     statusCodeString=responseStatusCode;
     if ("url".equals(nextRequestResponse.type)) {
       if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a URL redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
-      callRedirect(nextRequestResponse.value,response,request);
+      callRedirect(nextRequestResponse.value,response,request,statusCodeString);
     }
  else     if ("cross-redirect".equals(nextRequestResponse.type)) {
       if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a Cross-Application redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
       String url=nextRequestResponse.value.startsWith("/") ? nextRequestResponse.value : "/" + nextRequestResponse.value;
-      callRedirect(url + this.makeQueryString(request,nextRequestResponse),response,request);
+      callRedirect(url + this.makeQueryString(request,nextRequestResponse),response,request,statusCodeString);
     }
  else     if ("request-redirect".equals(nextRequestResponse.type)) {
       if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a Request redirect." + " sessionId=" + UtilHttp.getSessionId(request),module);
-      callRedirect(makeLinkWithQueryString(request,response,"/" + nextRequestResponse.value,nextRequestResponse),response,request);
+      callRedirect(makeLinkWithQueryString(request,response,"/" + nextRequestResponse.value,nextRequestResponse),response,request,statusCodeString);
     }
  else     if ("request-redirect-noparam".equals(nextRequestResponse.type)) {
       if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a Request redirect with no parameters." + " sessionId=" + UtilHttp.getSessionId(request),module);
-      callRedirect(makeLink(request,response,nextRequestResponse.value),response,request);
+      callRedirect(makeLink(request,response,nextRequestResponse.value),response,request,statusCodeString);
     }
  else     if ("view".equals(nextRequestResponse.type)) {
       if (Debug.verboseOn())       Debug.logVerbose("[RequestHandler.doRequest]: Response is a view." + " sessionId=" + UtilHttp.getSessionId(request),module);
