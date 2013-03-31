@@ -1,22 +1,28 @@
 {
   Map<String,Object> entityContext=FastMap.newInstance();
   if (autoFieldMap) {
-    GenericValue tempVal=delegator.makeValue(modelEntity.getEntityName());
     Object parametersObj=context.get("parameters");
-    if (parametersObj != null && parametersObj instanceof Map<?,?>) {
-      Map<String,Object> parameters=UtilMisc.<String,Object>toMap(UtilGenerics.checkMap(parametersObj));
-      parameters.put("locale",context.get("locale"));
-      parameters.put("timeZone",context.get("timeZone"));
-      modelEntity.convertFieldMapInPlace(parameters,delegator);
-      parameters.remove("timeZone");
-      parameters.remove("locale");
-      tempVal.setAllFields(parameters,true,null,Boolean.TRUE);
+    Boolean parametersObjExists=parametersObj != null && parametersObj instanceof Map<?,?>;
+    Iterator<ModelField> iter=modelEntity.getPksIterator();
+    while (iter.hasNext()) {
+      ModelField curField=iter.next();
+      String fieldName=curField.getName();
+      Object fieldValue=null;
+      if (parametersObjExists) {
+        fieldValue=((Map<?,?>)parametersObj).get(fieldName);
+      }
+      if (context.containsKey(fieldName)) {
+        fieldValue=context.get(fieldName);
+      }
+      entityContext.put(fieldName,fieldValue);
     }
-    modelEntity.convertFieldMapInPlace(context,delegator);
-    tempVal.setAllFields(context,true,null,Boolean.TRUE);
-    entityContext.putAll(tempVal);
   }
   EntityFinderUtil.expandFieldMapToContext(fieldMap,context,entityContext);
+  entityContext.put("locale",context.get("locale"));
+  entityContext.put("timeZone",context.get("timeZone"));
+  modelEntity.convertFieldMapInPlace(entityContext,delegator);
+  entityContext.remove("locale");
+  entityContext.remove("timeZone");
   Set<String> fieldsToSelect=EntityFinderUtil.makeFieldsToSelect(selectFieldExpanderList,context);
   if (fieldsToSelect != null && useCache) {
     throw new IllegalArgumentException("Error in entity-one definition, cannot specify select-field elements when use-cache is set to true");
