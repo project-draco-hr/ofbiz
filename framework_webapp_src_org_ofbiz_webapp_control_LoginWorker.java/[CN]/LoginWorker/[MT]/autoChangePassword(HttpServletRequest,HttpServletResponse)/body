@@ -1,0 +1,38 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  String userName=request.getParameter("USERNAME");
+  Timestamp now=UtilDateTime.nowTimestamp();
+  Integer reqToChangePwdInDays=Integer.valueOf(UtilProperties.getPropertyValue("security.properties","user.change.password.days","0"));
+  Integer passwordNoticePeriod=Integer.valueOf(UtilProperties.getPropertyValue("security.properties","user.change.password.notification.days","0"));
+  if (reqToChangePwdInDays > 0) {
+    List<GenericValue> passwordHistories=null;
+    try {
+      passwordHistories=delegator.findByAnd("UserLoginPasswordHistory",UtilMisc.toMap("userLoginId",userName));
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot get user's password history record: " + e.getMessage(),module);
+    }
+    if (UtilValidate.isNotEmpty(passwordHistories)) {
+      GenericValue passwordHistory=EntityUtil.getFirst(EntityUtil.filterByDate(passwordHistories));
+      Timestamp passwordCreationDate=passwordHistory.getTimestamp("fromDate");
+      Integer passwordValidDays=reqToChangePwdInDays - passwordNoticePeriod;
+      Timestamp startNotificationFromDate=UtilDateTime.addDaysToTimestamp(passwordCreationDate,passwordValidDays);
+      Timestamp passwordExpirationDate=UtilDateTime.addDaysToTimestamp(passwordCreationDate,reqToChangePwdInDays);
+      if (now.after(startNotificationFromDate)) {
+        if (now.after(passwordExpirationDate)) {
+          Map<String,String> messageMap=UtilMisc.toMap("passwordExpirationDate",passwordExpirationDate.toString());
+          String errMsg=UtilProperties.getMessage(resourceWebapp,"loginevents.password_expired_message",messageMap,UtilHttp.getLocale(request));
+          request.setAttribute("_EVENT_MESSAGE_",errMsg);
+          return "requirePasswordChange";
+        }
+ else {
+          Map<String,String> messageMap=UtilMisc.toMap("passwordExpirationDate",passwordExpirationDate.toString());
+          String errMsg=UtilProperties.getMessage(resourceWebapp,"loginevents.password_expiration_alert",messageMap,UtilHttp.getLocale(request));
+          request.setAttribute("_EVENT_MESSAGE_",errMsg);
+          return "success";
+        }
+      }
+    }
+  }
+  return "success";
+}
