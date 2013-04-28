@@ -2,64 +2,59 @@
   this(reader,entityElement,def);
   if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before general/basic info");
   this.populateBasicInfo(entityElement);
+  if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before prim-keys");
+  List<String> pkFieldNames=new ArrayList<String>();
+  for (  Element pkElement : UtilXml.childElementList(entityElement,"prim-key")) {
+    pkFieldNames.add(pkElement.getAttribute("field").intern());
+  }
   if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before fields");
   for (  Element fieldElement : UtilXml.childElementList(entityElement,"field")) {
     ModelField field=reader.createModelField(fieldElement);
     if (field != null) {
-      field.setModelEntity(this);
-      this.fields.add(field);
+      internalAddField(field,pkFieldNames);
     }
   }
-  if ((this.doLock || !this.noAutoStamp) && !this.isField(STAMP_FIELD)) {
+  if ((this.doLock || !this.noAutoStamp) && !fieldsMap.containsKey(STAMP_FIELD)) {
     ModelField newField=reader.createModelField(STAMP_FIELD,"date-time",null,false);
     newField.setIsAutoCreatedInternal(true);
-    newField.setModelEntity(this);
-    this.fields.add(newField);
+    internalAddField(newField,pkFieldNames);
   }
-  if (!this.noAutoStamp && !this.isField(STAMP_TX_FIELD)) {
+  if (!this.noAutoStamp && !fieldsMap.containsKey(STAMP_TX_FIELD)) {
     ModelField newField=reader.createModelField(STAMP_TX_FIELD,"date-time",null,false);
     newField.setIsAutoCreatedInternal(true);
-    newField.setModelEntity(this);
-    this.fields.add(newField);
+    internalAddField(newField,pkFieldNames);
     String indexName=ModelUtil.shortenDbName(this.tableName + "_TXSTMP",18);
     ModelIndex txIndex=new ModelIndex(this,indexName,false);
     txIndex.addIndexField(ModelEntity.STAMP_TX_FIELD);
     txIndex.setModelEntity(this);
     indexes.add(txIndex);
   }
-  if ((this.doLock || !this.noAutoStamp) && !this.isField(CREATE_STAMP_FIELD)) {
+  if ((this.doLock || !this.noAutoStamp) && !fieldsMap.containsKey(CREATE_STAMP_FIELD)) {
     ModelField newField=reader.createModelField(CREATE_STAMP_FIELD,"date-time",null,false);
     newField.setIsAutoCreatedInternal(true);
-    newField.setModelEntity(this);
-    this.fields.add(newField);
+    internalAddField(newField,pkFieldNames);
   }
-  if (!this.noAutoStamp && !this.isField(CREATE_STAMP_TX_FIELD)) {
+  if (!this.noAutoStamp && !fieldsMap.containsKey(CREATE_STAMP_TX_FIELD)) {
     ModelField newField=reader.createModelField(CREATE_STAMP_TX_FIELD,"date-time",null,false);
     newField.setIsAutoCreatedInternal(true);
-    newField.setModelEntity(this);
-    this.fields.add(newField);
+    internalAddField(newField,pkFieldNames);
     String indexName=ModelUtil.shortenDbName(this.tableName + "_TXCRTS",18);
     ModelIndex txIndex=new ModelIndex(this,indexName,false);
     txIndex.addIndexField(ModelEntity.CREATE_STAMP_TX_FIELD);
     txIndex.setModelEntity(this);
     indexes.add(txIndex);
   }
-  if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before prim-keys");
-  for (  Element pkElement : UtilXml.childElementList(entityElement,"prim-key")) {
-    ModelField field=reader.findModelField(this,pkElement.getAttribute("field").intern());
-    if (field != null) {
-      this.pks.add(field);
-      field.isPk=true;
-      field.isNotNull=true;
+  for (  String pkFieldName : pkFieldNames) {
+    ModelField pkField=fieldsMap.get(pkFieldName);
+    if (pkField == null) {
+      Debug.logWarning("Error in entity definition - primary key is invalid for entity " + this.getEntityName(),module);
     }
  else {
-      Debug.logError("[ModelReader.createModelEntity] ERROR: Could not find field \"" + pkElement.getAttribute("field") + "\" specified in a prim-key",module);
+      pks.add(pkField);
     }
   }
-  this.nopks=new LinkedList<ModelField>();
-  for (  ModelField field : this.fields) {
-    if (!field.isPk)     this.nopks.add(field);
-  }
+  pks.trimToSize();
+  nopks.trimToSize();
   if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before relations");
   this.populateRelated(reader,entityElement);
   this.populateIndexes(entityElement);
