@@ -1,21 +1,20 @@
 {
   boolean ajaxEnabled=false;
   ModelForm modelForm=modelFormField.getModelForm();
-  List<ModelForm.UpdateArea> updateAreas=modelForm.getOnPaginateUpdateAreas();
-  String targetService=modelForm.getPaginateTarget(context);
+  List<ModelForm.UpdateArea> updateAreas=modelForm.getOnSortColumnUpdateAreas();
+  if (updateAreas == null) {
+    updateAreas=modelForm.getOnPaginateUpdateAreas();
+  }
   if (this.javaScriptEnabled) {
     if (UtilValidate.isNotEmpty(updateAreas)) {
       ajaxEnabled=true;
     }
   }
-  if (targetService == null) {
-    targetService="${targetService}";
-  }
-  if (UtilValidate.isEmpty(targetService) && updateAreas == null) {
-    Debug.logWarning("Cannot sort because TargetService is empty for the form: " + modelForm.getName(),module);
+  String paginateTarget=modelForm.getPaginateTarget(context);
+  if (paginateTarget.isEmpty() && updateAreas == null) {
+    Debug.logWarning("Cannot sort because the paginate target URL is empty for the form: " + modelForm.getName(),module);
     return;
   }
-  String str=(String)context.get("_QBESTRING_");
   String oldSortField=modelForm.getSortField(context);
   String sortFieldStyle=modelFormField.getSortFieldStyle();
   String columnField=modelFormField.getEntryName();
@@ -33,37 +32,32 @@
       sortFieldStyle=modelFormField.getSortFieldStyleAsc();
     }
   }
-  HashSet<String> paramName=new HashSet<String>();
-  paramName.add("sortField");
-  String queryString=UtilHttp.stripNamedParamsFromQueryString(str,paramName);
-  String urlPath=UtilHttp.removeQueryStringFromTarget(targetService);
-  String prepLinkText=UtilHttp.getQueryStringFromTarget(targetService);
-  if (UtilValidate.isNotEmpty(queryString)) {
-    queryString=UtilHttp.encodeAmpersands(queryString);
+  String queryString=UtilHttp.getQueryStringFromTarget(paginateTarget).replace("?","");
+  Map<String,Object> paramMap=UtilHttp.getQueryStringOnlyParameterMap(queryString);
+  String qbeString=(String)context.get("_QBESTRING_");
+  if (qbeString != null) {
+    qbeString=qbeString.replaceAll("&amp;","&");
+    paramMap.putAll(UtilHttp.getQueryStringOnlyParameterMap(qbeString));
   }
-  if (prepLinkText == null) {
-    prepLinkText="";
-  }
-  if (prepLinkText.indexOf("?") < 0) {
-    prepLinkText+="?";
-  }
- else   if (!prepLinkText.endsWith("?")) {
-    prepLinkText+="&amp;";
-  }
-  if (!UtilValidate.isEmpty(queryString) && !queryString.equals("null")) {
-    prepLinkText+=queryString + "&amp;";
-  }
-  prepLinkText+="sortField" + "=" + newSortField;
+  paramMap.put(modelForm.getSortFieldParameterName(),newSortField);
+  UtilHttp.canonicalizeParameterMap(paramMap);
+  String linkUrl=null;
   if (ajaxEnabled) {
-    prepLinkText=prepLinkText.replace("?","");
-    prepLinkText=prepLinkText.replace("&amp;","&");
-  }
-  String linkUrl="";
-  if (ajaxEnabled) {
-    linkUrl=createAjaxParamsFromUpdateAreas(updateAreas,prepLinkText,context);
+    linkUrl=createAjaxParamsFromUpdateAreas(updateAreas,paramMap,null,context);
   }
  else {
-    linkUrl=rh.makeLink(this.request,this.response,urlPath + prepLinkText);
+    StringBuilder sb=new StringBuilder("?");
+    Iterator<Map.Entry<String,Object>> iter=paramMap.entrySet().iterator();
+    while (iter.hasNext()) {
+      Map.Entry<String,Object> entry=iter.next();
+      sb.append(entry.getKey()).append("=").append(entry.getValue());
+      if (iter.hasNext()) {
+        sb.append("&amp;");
+      }
+    }
+    String newQueryString=sb.toString();
+    String urlPath=UtilHttp.removeQueryStringFromTarget(paginateTarget);
+    linkUrl=rh.makeLink(this.request,this.response,urlPath.concat(newQueryString));
   }
   StringWriter sr=new StringWriter();
   sr.append("<@renderSortField ");
