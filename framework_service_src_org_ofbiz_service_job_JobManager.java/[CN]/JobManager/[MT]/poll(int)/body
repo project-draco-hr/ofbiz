@@ -7,9 +7,16 @@
     return poll;
   }
   List<EntityExpr> expressions=UtilMisc.toList(EntityCondition.makeCondition("runTime",EntityOperator.LESS_THAN_EQUAL_TO,UtilDateTime.nowTimestamp()),EntityCondition.makeCondition("startDateTime",EntityOperator.EQUALS,null),EntityCondition.makeCondition("cancelDateTime",EntityOperator.EQUALS,null),EntityCondition.makeCondition("runByInstanceId",EntityOperator.EQUALS,null));
-  List<String> pools=ServiceConfigUtil.getRunPools();
+  List<String> pools=null;
+  try {
+    pools=ServiceConfigUtil.getRunPools();
+  }
+ catch (  GenericConfigException e) {
+    Debug.logWarning(e,"Unable to get run pools - not running job: ",module);
+    return poll;
+  }
   List<EntityExpr> poolsExpr=UtilMisc.toList(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,null));
-  if (pools != null) {
+  if (!pools.isEmpty()) {
     for (    String poolName : pools) {
       poolsExpr.add(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,poolName));
     }
@@ -67,9 +74,15 @@
     }
   }
   if (poll.isEmpty()) {
-    int daysToKeep=ServiceConfigUtil.getPurgeJobDays();
     Calendar cal=Calendar.getInstance();
-    cal.add(Calendar.DAY_OF_YEAR,-daysToKeep);
+    try {
+      int daysToKeep=ServiceConfigUtil.getPurgeJobDays();
+      cal.add(Calendar.DAY_OF_YEAR,-daysToKeep);
+    }
+ catch (    GenericConfigException e) {
+      Debug.logWarning(e,"Unable to get purge job days: ",module);
+      return poll;
+    }
     Timestamp purgeTime=new Timestamp(cal.getTimeInMillis());
     List<EntityExpr> finExp=UtilMisc.toList(EntityCondition.makeCondition("finishDateTime",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("finishDateTime",EntityOperator.LESS_THAN,purgeTime));
     List<EntityExpr> canExp=UtilMisc.toList(EntityCondition.makeCondition("cancelDateTime",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("cancelDateTime",EntityOperator.LESS_THAN,purgeTime));
