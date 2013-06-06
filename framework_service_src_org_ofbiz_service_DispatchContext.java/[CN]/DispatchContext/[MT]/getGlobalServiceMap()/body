@@ -2,17 +2,17 @@
   Map<String,ModelService> serviceMap=modelServiceMapByModel.get(this.model);
   if (serviceMap == null) {
     serviceMap=FastMap.newInstance();
-    Element rootElement;
+    List<Future<Map<String,ModelService>>> futures=FastList.newInstance();
+    List<GlobalServices> globalServicesList=null;
     try {
-      rootElement=ServiceConfigUtil.getXmlRootElement();
+      globalServicesList=ServiceConfigUtil.getServiceEngine().getGlobalServices();
     }
  catch (    GenericConfigException e) {
-      Debug.logError(e,"Error getting Service Engine XML root element",module);
-      return null;
+      Debug.logError(e,module);
+      throw new RuntimeException(e.getMessage());
     }
-    List<Future<Map<String,ModelService>>> futures=FastList.newInstance();
-    for (    Element globalServicesElement : UtilXml.childElementList(rootElement,"global-services")) {
-      ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServicesElement);
+    for (    GlobalServices globalServices : globalServicesList) {
+      ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServices.getLoader(),globalServices.getLocation());
       futures.add(ExecutionPool.GLOBAL_EXECUTOR.submit(createServiceReaderCallable(handler)));
     }
     for (    ComponentConfig.ServiceResourceInfo componentResourceInfo : ComponentConfig.getAllServiceResourceInfos("model")) {

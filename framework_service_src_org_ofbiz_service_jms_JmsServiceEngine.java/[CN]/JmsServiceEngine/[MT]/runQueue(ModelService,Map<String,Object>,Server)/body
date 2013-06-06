@@ -1,16 +1,16 @@
 {
-  String serverName=server.getAttribute("jndi-server-name");
-  String jndiName=server.getAttribute("jndi-name");
-  String topicName=server.getAttribute("topic-queue");
-  String userName=server.getAttribute("username");
-  String password=server.getAttribute("password");
-  String clientId=server.getAttribute("client-id");
+  String serverName=server.getJndiServerName();
+  String jndiName=server.getJndiName();
+  String queueName=server.getTopicQueue();
+  String userName=server.getUsername();
+  String password=server.getPassword();
+  String clientId=server.getClientId();
   InitialContext jndi=null;
-  TopicConnectionFactory factory=null;
-  TopicConnection con=null;
+  QueueConnectionFactory factory=null;
+  QueueConnection con=null;
   try {
     jndi=JNDIContextFactory.getInitialContext(serverName);
-    factory=(TopicConnectionFactory)jndi.lookup(jndiName);
+    factory=(QueueConnectionFactory)jndi.lookup(jndiName);
   }
  catch (  GeneralException ge) {
     throw new GenericServiceException("Problems getting JNDI InitialContext.",ge.getNested());
@@ -19,26 +19,26 @@ catch (  NamingException ne) {
     JNDIContextFactory.clearInitialContext(serverName);
     try {
       jndi=JNDIContextFactory.getInitialContext(serverName);
-      factory=(TopicConnectionFactory)jndi.lookup(jndiName);
+      factory=(QueueConnectionFactory)jndi.lookup(jndiName);
     }
  catch (    GeneralException ge2) {
       throw new GenericServiceException("Problems getting JNDI InitialContext.",ge2.getNested());
     }
 catch (    NamingException ne2) {
-      throw new GenericServiceException("JNDI lookup problems.",ne);
+      throw new GenericServiceException("JNDI lookup problem.",ne2);
     }
   }
   try {
-    con=factory.createTopicConnection(userName,password);
+    con=factory.createQueueConnection(userName,password);
     if (clientId != null && clientId.length() > 1)     con.setClientID(clientId);
     con.start();
-    TopicSession session=con.createTopicSession(false,Session.AUTO_ACKNOWLEDGE);
-    Topic topic=(Topic)jndi.lookup(topicName);
-    TopicPublisher publisher=session.createPublisher(topic);
+    QueueSession session=con.createQueueSession(false,Session.AUTO_ACKNOWLEDGE);
+    Queue queue=(Queue)jndi.lookup(queueName);
+    QueueSender sender=session.createSender(queue);
     Message message=makeMessage(session,modelService,context);
-    publisher.publish(message);
-    if (Debug.verboseOn())     Debug.logVerbose("Sent JMS Message to " + topicName,module);
-    publisher.close();
+    sender.send(message);
+    if (Debug.verboseOn())     Debug.logVerbose("Sent JMS Message to " + queueName,module);
+    sender.close();
     session.close();
     con.close();
   }

@@ -1,44 +1,33 @@
 {
   if (jm == null)   return 0;
-  Element root;
+  int servicesScheduled=0;
+  List<StartupService> startupServices=null;
   try {
-    root=ServiceConfigUtil.getXmlRootElement();
+    startupServices=ServiceConfigUtil.getServiceEngine().getStartupServices();
   }
  catch (  GenericConfigException e) {
-    Debug.logError(e,module);
+    Debug.logWarning(e,"Exception thrown while getting service config: ",module);
     return 0;
   }
-  int servicesScheduled=0;
-  List<? extends Element> startupServices=UtilXml.childElementList(root,"startup-service");
-  if (UtilValidate.isNotEmpty(startupServices)) {
-    for (    Element ss : startupServices) {
-      String serviceName=ss.getAttribute("name");
-      String runtimeDataId=ss.getAttribute("runtime-data-id");
-      String delayStr=ss.getAttribute("runtime-delay");
-      String sendToPool=ss.getAttribute("run-in-pool");
-      if (UtilValidate.isEmpty(sendToPool)) {
-        try {
-          sendToPool=ServiceConfigUtil.getSendPool();
-        }
- catch (        GenericConfigException e) {
-          Debug.logError(e,"Unable to get send pool in service [" + serviceName + "]: ",module);
-        }
-      }
-      long runtimeDelay;
+  for (  StartupService startupService : startupServices) {
+    String serviceName=startupService.getName();
+    String runtimeDataId=startupService.getRuntimeDataId();
+    int runtimeDelay=startupService.getRuntimeDelay();
+    String sendToPool=startupService.getRunInPool();
+    if (UtilValidate.isEmpty(sendToPool)) {
       try {
-        runtimeDelay=Long.parseLong(delayStr);
+        sendToPool=ServiceConfigUtil.getSendPool();
       }
- catch (      Exception e) {
-        Debug.logError(e,"Unable to parse runtime-delay value; using 0",module);
-        runtimeDelay=0;
+ catch (      GenericConfigException e) {
+        Debug.logError(e,"Unable to get send pool in service [" + serviceName + "]: ",module);
       }
-      long runtime=System.currentTimeMillis() + 1000 + runtimeDelay;
-      try {
-        jm.schedule(sendToPool,serviceName,runtimeDataId,runtime);
-      }
- catch (      JobManagerException e) {
-        Debug.logError(e,"Unable to schedule service [" + serviceName + "]",module);
-      }
+    }
+    long runtime=System.currentTimeMillis() + 1000 + runtimeDelay;
+    try {
+      jm.schedule(sendToPool,serviceName,runtimeDataId,runtime);
+    }
+ catch (    JobManagerException e) {
+      Debug.logError(e,"Unable to schedule service [" + serviceName + "]",module);
     }
   }
   return servicesScheduled;
