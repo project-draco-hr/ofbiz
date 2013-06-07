@@ -1,41 +1,19 @@
 {
-  if (transactionFactory == null) {
-synchronized (TransactionFactory.class) {
-      if (transactionFactory == null) {
-        try {
-          String className=EntityConfigUtil.getTxFactoryClass();
-          if (className == null) {
-            throw new IllegalStateException("Could not find transaction factory class name definition");
-          }
-          Class<?> tfClass=null;
-          if (UtilValidate.isNotEmpty(className)) {
-            try {
-              ClassLoader loader=Thread.currentThread().getContextClassLoader();
-              tfClass=loader.loadClass(className);
-            }
- catch (            ClassNotFoundException e) {
-              Debug.logWarning(e,module);
-              throw new IllegalStateException("Error loading TransactionFactory class \"" + className + "\": "+ e.getMessage());
-            }
-          }
-          try {
-            transactionFactory=(TransactionFactoryInterface)tfClass.newInstance();
-          }
- catch (          IllegalAccessException e) {
-            Debug.logWarning(e,module);
-            throw new IllegalStateException("Error loading TransactionFactory class \"" + className + "\": "+ e.getMessage());
-          }
-catch (          InstantiationException e) {
-            Debug.logWarning(e,module);
-            throw new IllegalStateException("Error loading TransactionFactory class \"" + className + "\": "+ e.getMessage());
-          }
-        }
- catch (        SecurityException e) {
-          Debug.logError(e,module);
-          throw new IllegalStateException("Error loading TransactionFactory class: " + e.getMessage());
-        }
+  TransactionFactoryInterface instance=txFactoryRef.get();
+  if (instance == null) {
+    try {
+      instance=createTransactionFactoryInterface();
+      if (txFactoryRef.compareAndSet(null,instance)) {
+        Debug.logInfo("Factory method created new TransactionFactoryInterface instance " + instance,module);
+      }
+ else {
+        instance=txFactoryRef.get();
       }
     }
+ catch (    Exception e) {
+      Debug.logError(e,"Exception thrown while creating TransactionFactoryInterface instance: ",module);
+      throw new IllegalStateException("Error loading TransactionFactory class: " + e);
+    }
   }
-  return transactionFactory;
+  return instance;
 }

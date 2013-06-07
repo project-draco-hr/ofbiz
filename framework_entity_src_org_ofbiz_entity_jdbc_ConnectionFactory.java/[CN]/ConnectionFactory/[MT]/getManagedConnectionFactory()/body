@@ -1,41 +1,19 @@
 {
-  if (_factory == null) {
-synchronized (ConnectionFactory.class) {
-      if (_factory == null) {
-        try {
-          String className=EntityConfigUtil.getConnectionFactoryClass();
-          if (className == null) {
-            throw new IllegalStateException("Could not find connection factory class name definition");
-          }
-          Class<?> cfClass=null;
-          if (UtilValidate.isNotEmpty(className)) {
-            try {
-              ClassLoader loader=Thread.currentThread().getContextClassLoader();
-              cfClass=loader.loadClass(className);
-            }
- catch (            ClassNotFoundException e) {
-              Debug.logWarning(e,module);
-              throw new IllegalStateException("Error loading ConnectionFactoryInterface class \"" + className + "\": "+ e.getMessage());
-            }
-          }
-          try {
-            _factory=(ConnectionFactoryInterface)cfClass.newInstance();
-          }
- catch (          IllegalAccessException e) {
-            Debug.logWarning(e,module);
-            throw new IllegalStateException("Error loading ConnectionFactoryInterface class \"" + className + "\": "+ e.getMessage());
-          }
-catch (          InstantiationException e) {
-            Debug.logWarning(e,module);
-            throw new IllegalStateException("Error loading ConnectionFactoryInterface class \"" + className + "\": "+ e.getMessage());
-          }
-        }
- catch (        SecurityException e) {
-          Debug.logError(e,module);
-          throw new IllegalStateException("Error loading ConnectionFactoryInterface class: " + e.getMessage());
-        }
+  ConnectionFactoryInterface instance=connFactoryRef.get();
+  if (instance == null) {
+    try {
+      instance=createConnectionFactoryInterface();
+      if (connFactoryRef.compareAndSet(null,instance)) {
+        Debug.logInfo("Factory method created new ConnectionFactoryInterface instance " + instance,module);
+      }
+ else {
+        instance=connFactoryRef.get();
       }
     }
+ catch (    Exception e) {
+      Debug.logError(e,"Exception thrown while creating ConnectionFactoryInterface instance: ",module);
+      throw new IllegalStateException("Error loading ConnectionFactoryInterface class: " + e);
+    }
   }
-  return _factory;
+  return instance;
 }
