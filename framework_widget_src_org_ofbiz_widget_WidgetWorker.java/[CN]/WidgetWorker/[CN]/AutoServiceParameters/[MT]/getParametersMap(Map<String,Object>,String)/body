@@ -1,0 +1,40 @@
+{
+  Map<String,String> autServiceParams=FastMap.newInstance();
+  LocalDispatcher dispatcher=(LocalDispatcher)context.get("dispatcher");
+  if (dispatcher == null) {
+    Debug.logError("We can not append auto service Parameters since we could not find dispatcher in the current context",module);
+    return autServiceParams;
+  }
+  if (UtilValidate.isEmpty(serviceName))   serviceName=defaultServiceName;
+  FlexibleStringExpander toExpand=FlexibleStringExpander.getInstance(serviceName);
+  ModelService service=null;
+  try {
+    service=dispatcher.getDispatchContext().getModelService(toExpand.toString());
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError("Resolve service throw an error : " + e,module);
+  }
+  if (service == null) {
+    Debug.logError("We can not append auto service Parameters since we could not find service with name [" + serviceName + "]",module);
+    return autServiceParams;
+  }
+  Iterator<ModelParam> paramsIter=service.getInModelParamList().iterator();
+  if (paramsIter != null) {
+    while (paramsIter.hasNext()) {
+      ModelParam param=paramsIter.next();
+      if (param.getInternal())       continue;
+      String paramName=param.getName();
+      FlexibleMapAccessor<Object> fma=FlexibleMapAccessor.getInstance(paramName);
+      if (!excludeList.contains(paramName)) {
+        Object flexibleValue=fma.get(context);
+        if (UtilValidate.isEmpty(flexibleValue) && context.containsKey("parameters")) {
+          flexibleValue=fma.get((Map<String,? extends Object>)context.get("parameters"));
+        }
+        if (UtilValidate.isNotEmpty(flexibleValue) || sendIfEmpty) {
+          autServiceParams.put(paramName,String.valueOf(flexibleValue));
+        }
+      }
+    }
+  }
+  return autServiceParams;
+}

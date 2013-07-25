@@ -1,0 +1,34 @@
+{
+  Map<String,String> autEntityParams=FastMap.newInstance();
+  Delegator delegator=(Delegator)context.get("delegator");
+  if (delegator == null) {
+    Debug.logError("We can not append auto entity Parameters since we could not find delegator in the current context",module);
+    return autEntityParams;
+  }
+  if (UtilValidate.isEmpty(entityName))   entityName=defaultEntityName;
+  FlexibleStringExpander toExpand=FlexibleStringExpander.getInstance(entityName);
+  ModelEntity entity=delegator.getModelEntity(toExpand.expandString(context));
+  if (entity == null) {
+    Debug.logError("We can not append auto entity Parameters since we could not find entity with name [" + entityName + "]",module);
+    return autEntityParams;
+  }
+  Iterator<ModelField> fieldsIter=entity.getFieldsIterator();
+  if (fieldsIter != null) {
+    while (fieldsIter.hasNext()) {
+      ModelField field=fieldsIter.next();
+      String fieldName=field.getName();
+      FlexibleMapAccessor<Object> fma=FlexibleMapAccessor.getInstance(fieldName);
+      boolean shouldExclude=excludeList.contains(fieldName);
+      if ((!shouldExclude) && (!field.getIsAutoCreatedInternal()) && ((field.getIsPk() && includePk) || (!field.getIsPk() && includeNonPk))) {
+        Object flexibleValue=fma.get(context);
+        if (UtilValidate.isEmpty(flexibleValue) && context.containsKey("parameters")) {
+          flexibleValue=fma.get((Map<String,Object>)context.get("parameters"));
+        }
+        if (UtilValidate.isNotEmpty(flexibleValue) || sendIfEmpty) {
+          autEntityParams.put(fieldName,String.valueOf(flexibleValue));
+        }
+      }
+    }
+  }
+  return autEntityParams;
+}
