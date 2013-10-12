@@ -1,0 +1,23 @@
+{
+  Timestamp nextReIndex=null;
+  Set<String> indexedCategoryIds=new TreeSet<String>();
+  List<GenericValue> productCategoryMembers=product.getRelated("ProductCategoryMember",null,null,false);
+  productCategoryMembers=this.filterByThruDate(productCategoryMembers);
+  for (  GenericValue productCategoryMember : productCategoryMembers) {
+    String productCategoryId=productCategoryMember.getString("productCategoryId");
+    doc.add(new StringField("productCategoryId",productCategoryId,Store.NO));
+    doc.add(new StringField("directProductCategoryId",productCategoryId,Store.NO));
+    indexedCategoryIds.add(productCategoryId);
+    Timestamp fromDate=productCategoryMember.getTimestamp("fromDate");
+    Timestamp thruDate=productCategoryMember.getTimestamp("thruDate");
+    if (fromDate != null && fromDate.after(UtilDateTime.nowTimestamp())) {
+      nextReIndex=this.checkSetNextReIndex(fromDate,nextReIndex);
+      continue;
+    }
+ else     if (thruDate != null) {
+      nextReIndex=this.checkSetNextReIndex(thruDate,nextReIndex);
+    }
+    nextReIndex=this.checkSetNextReIndex(this.getParentCategories(doc,productCategoryMember.getRelatedOne("ProductCategory",false),indexedCategoryIds),nextReIndex);
+  }
+  return nextReIndex;
+}
