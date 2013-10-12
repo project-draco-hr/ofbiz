@@ -1,30 +1,20 @@
 {
-  Security security=null;
-  String securityClassName=DEFAULT_SECURITY_CLASS_NAME;
-  try {
-    SecurityInfo securityInfo=getSecurityInfo();
-    securityClassName=securityInfo.className;
-  }
- catch (  SecurityConfigurationException e) {
-    Debug.logError(e,"Exception thrown while getting security configuration, using default security class " + DEFAULT_SECURITY_CLASS_NAME,module);
-  }
-  try {
-    ClassLoader loader=Thread.currentThread().getContextClassLoader();
-    Class<?> c=loader.loadClass(securityClassName);
-    security=(Security)c.newInstance();
+  Assert.notNull("delegator",delegator);
+  Security security=authorizationCache.get(delegator.getDelegatorName());
+  if (security == null) {
+    Iterator<Security> iterator=ServiceLoader.load(Security.class).iterator();
+    if (iterator.hasNext()) {
+      security=iterator.next();
+    }
+ else {
+      security=new OFBizSecurity();
+    }
     security.setDelegator(delegator);
-  }
- catch (  ClassNotFoundException cnf) {
-    throw new SecurityConfigurationException("Cannot load security implementation class",cnf);
-  }
-catch (  InstantiationException ie) {
-    throw new SecurityConfigurationException("Cannot get instance of the security implementation",ie);
-  }
-catch (  IllegalAccessException iae) {
-    throw new SecurityConfigurationException(iae.getMessage(),iae);
-  }
-  if (Debug.verboseOn()) {
-    Debug.logVerbose("Security implementation created for delegator " + delegator.getDelegatorName(),module);
+    security=authorizationCache.putIfAbsentAndGet(delegator.getDelegatorName(),security);
+    Debug.logInfo("Security implementation " + security.getClass().getName() + " created for delegator "+ delegator.getDelegatorName(),module);
+    if (Debug.verboseOn()) {
+      Debug.logVerbose("Security implementation " + security.getClass().getName() + " created for delegator "+ delegator.getDelegatorName(),module);
+    }
   }
   return security;
 }
