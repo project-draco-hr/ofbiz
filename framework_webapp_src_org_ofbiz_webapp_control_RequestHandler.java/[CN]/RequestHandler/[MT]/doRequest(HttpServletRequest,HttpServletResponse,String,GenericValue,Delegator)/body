@@ -2,8 +2,16 @@
   long startTime=System.currentTimeMillis();
   HttpSession session=request.getSession();
   ConfigXMLReader.ControllerConfig controllerConfig=this.getControllerConfig();
-  Map<String,ConfigXMLReader.RequestMap> requestMapMap=controllerConfig.getRequestMapMap();
-  String controllerStatusCodeString=controllerConfig.getStatusCode();
+  Map<String,ConfigXMLReader.RequestMap> requestMapMap=null;
+  String controllerStatusCodeString=null;
+  try {
+    requestMapMap=controllerConfig.getRequestMapMap();
+    controllerStatusCodeString=controllerConfig.getStatusCode();
+  }
+ catch (  WebAppConfigurationException e) {
+    Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+    throw new RequestHandlerException(e);
+  }
   if (UtilValidate.isNotEmpty(controllerStatusCodeString != null))   statusCodeString=controllerStatusCodeString;
   String cname=UtilHttp.getApplicationName(request);
   String defaultRequestUri=RequestHandler.getRequestUri(request.getPathInfo());
@@ -22,18 +30,32 @@
     requestMap=requestMapMap.get(defaultRequestUri);
   }
   if (requestMap == null) {
-    String defaultRequest=controllerConfig.getDefaultRequest();
+    String defaultRequest;
+    try {
+      defaultRequest=controllerConfig.getDefaultRequest();
+    }
+ catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      throw new RequestHandlerException(e);
+    }
     if (defaultRequest != null) {
       requestMap=requestMapMap.get(defaultRequest);
     }
   }
   if (overrideViewUri != null) {
-    ConfigXMLReader.ViewMap viewMap=getControllerConfig().getViewMapMap().get(overrideViewUri);
-    if (viewMap == null) {
-      String defaultRequest=controllerConfig.getDefaultRequest();
-      if (defaultRequest != null) {
-        requestMap=requestMapMap.get(defaultRequest);
+    ConfigXMLReader.ViewMap viewMap;
+    try {
+      viewMap=getControllerConfig().getViewMapMap().get(overrideViewUri);
+      if (viewMap == null) {
+        String defaultRequest=controllerConfig.getDefaultRequest();
+        if (defaultRequest != null) {
+          requestMap=requestMapMap.get(defaultRequest);
+        }
       }
+    }
+ catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      throw new RequestHandlerException(e);
     }
   }
   if (requestMap == null) {
@@ -68,7 +90,14 @@
       throw new RequestHandlerException(requestMissingErrorMessage);
     }
     if (!requestMap.securityDirectRequest) {
-      String defaultRequest=controllerConfig.getDefaultRequest();
+      String defaultRequest;
+      try {
+        defaultRequest=controllerConfig.getDefaultRequest();
+      }
+ catch (      WebAppConfigurationException e) {
+        Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+        throw new RequestHandlerException(e);
+      }
       if (defaultRequest == null || !requestMapMap.get(defaultRequest).securityDirectRequest) {
         throw new RequestHandlerException(requestMissingErrorMessage);
       }
@@ -160,14 +189,58 @@
     if (this.trackVisit(request) && session.getAttribute("_FIRST_VISIT_EVENTS_") == null) {
       if (Debug.infoOn())       Debug.logInfo("This is the first request in this visit." + " sessionId=" + UtilHttp.getSessionId(request),module);
       session.setAttribute("_FIRST_VISIT_EVENTS_","complete");
-      for (      ConfigXMLReader.Event event : controllerConfig.getFirstVisitEventList().values()) {
+      try {
+        for (        ConfigXMLReader.Event event : controllerConfig.getFirstVisitEventList().values()) {
+          try {
+            String returnString=this.runEvent(request,response,event,null,"firstvisit");
+            if (returnString == null || "none".equalsIgnoreCase(returnString)) {
+              interruptRequest=true;
+            }
+ else             if (!returnString.equalsIgnoreCase("success")) {
+              throw new EventHandlerException("First-Visit event did not return 'success'.");
+            }
+          }
+ catch (          EventHandlerException e) {
+            Debug.logError(e,module);
+          }
+        }
+      }
+ catch (      WebAppConfigurationException e) {
+        Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+        throw new RequestHandlerException(e);
+      }
+    }
+    try {
+      for (      ConfigXMLReader.Event event : controllerConfig.getPreprocessorEventList().values()) {
         try {
-          String returnString=this.runEvent(request,response,event,null,"firstvisit");
+          String returnString=this.runEvent(request,response,event,null,"preprocessor");
           if (returnString == null || "none".equalsIgnoreCase(returnString)) {
             interruptRequest=true;
           }
  else           if (!returnString.equalsIgnoreCase("success")) {
-            throw new EventHandlerException("First-Visit event did not return 'success'.");
+            if (!returnString.contains(":_protect_:")) {
+              throw new EventHandlerException("Pre-Processor event [" + event.invoke + "] did not return 'success'.");
+            }
+ else {
+              returnString=returnString.replace(":_protect_:","");
+              if (returnString.length() > 0) {
+                request.setAttribute("_ERROR_MESSAGE_",returnString);
+              }
+              eventReturn=null;
+              if (!requestMap.requestResponseMap.containsKey("protect")) {
+                String protectView=controllerConfig.getProtectView();
+                if (protectView != null) {
+                  overrideViewUri=protectView;
+                }
+ else {
+                  overrideViewUri=UtilProperties.getPropertyValue("security.properties","default.error.response.view");
+                  overrideViewUri=overrideViewUri.replace("view:","");
+                  if ("none:".equals(overrideViewUri)) {
+                    interruptRequest=true;
+                  }
+                }
+              }
+            }
           }
         }
  catch (        EventHandlerException e) {
@@ -175,41 +248,9 @@
         }
       }
     }
-    for (    ConfigXMLReader.Event event : controllerConfig.getPreprocessorEventList().values()) {
-      try {
-        String returnString=this.runEvent(request,response,event,null,"preprocessor");
-        if (returnString == null || "none".equalsIgnoreCase(returnString)) {
-          interruptRequest=true;
-        }
- else         if (!returnString.equalsIgnoreCase("success")) {
-          if (!returnString.contains(":_protect_:")) {
-            throw new EventHandlerException("Pre-Processor event [" + event.invoke + "] did not return 'success'.");
-          }
- else {
-            returnString=returnString.replace(":_protect_:","");
-            if (returnString.length() > 0) {
-              request.setAttribute("_ERROR_MESSAGE_",returnString);
-            }
-            eventReturn=null;
-            if (!requestMap.requestResponseMap.containsKey("protect")) {
-              String protectView=controllerConfig.getProtectView();
-              if (protectView != null) {
-                overrideViewUri=protectView;
-              }
- else {
-                overrideViewUri=UtilProperties.getPropertyValue("security.properties","default.error.response.view");
-                overrideViewUri=overrideViewUri.replace("view:","");
-                if ("none:".equals(overrideViewUri)) {
-                  interruptRequest=true;
-                }
-              }
-            }
-          }
-        }
-      }
- catch (      EventHandlerException e) {
-        Debug.logError(e,module);
-      }
+ catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      throw new RequestHandlerException(e);
     }
   }
   if (interruptRequest) {
@@ -370,16 +411,22 @@
     doRequest(request,response,nextRequestResponse.value,userLogin,delegator);
   }
  else {
-    for (    ConfigXMLReader.Event event : controllerConfig.getPostprocessorEventList().values()) {
-      try {
-        String returnString=this.runEvent(request,response,event,requestMap,"postprocessor");
-        if (returnString != null && !returnString.equalsIgnoreCase("success")) {
-          throw new EventHandlerException("Post-Processor event did not return 'success'.");
+    try {
+      for (      ConfigXMLReader.Event event : controllerConfig.getPostprocessorEventList().values()) {
+        try {
+          String returnString=this.runEvent(request,response,event,requestMap,"postprocessor");
+          if (returnString != null && !returnString.equalsIgnoreCase("success")) {
+            throw new EventHandlerException("Post-Processor event did not return 'success'.");
+          }
+        }
+ catch (        EventHandlerException e) {
+          Debug.logError(e,module);
         }
       }
- catch (      EventHandlerException e) {
-        Debug.logError(e,module);
-      }
+    }
+ catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      throw new RequestHandlerException(e);
     }
     String responseStatusCode=nextRequestResponse.statusCode;
     if (UtilValidate.isNotEmpty(responseStatusCode))     statusCodeString=responseStatusCode;
