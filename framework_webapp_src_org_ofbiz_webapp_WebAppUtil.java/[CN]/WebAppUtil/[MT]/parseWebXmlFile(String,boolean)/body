@@ -1,0 +1,35 @@
+{
+  Assert.notEmpty("webXmlFileLocation",webXmlFileLocation);
+  WebXml result=webXmlCache.get(webXmlFileLocation);
+  if (result == null) {
+    File file=new File(webXmlFileLocation);
+    if (!file.exists()) {
+      throw new IllegalArgumentException(webXmlFileLocation + " does not exist.");
+    }
+    boolean namespaceAware=true;
+    InputStream is=new FileInputStream(file);
+    result=new WebXml();
+    LocalResolver lr=new LocalResolver(new DefaultHandler());
+    ErrorHandler handler=new LocalErrorHandler(webXmlFileLocation,lr);
+    Digester digester=DigesterFactory.newDigester(validate,namespaceAware,new WebRuleSet());
+    digester.getParser();
+    digester.push(result);
+    digester.setErrorHandler(handler);
+    try {
+      digester.parse(new InputSource(is));
+    }
+  finally {
+      digester.reset();
+      if (is != null) {
+        try {
+          is.close();
+        }
+ catch (        Throwable t) {
+          Debug.logError(t,"Exception thrown while parsing " + webXmlFileLocation + ": ",module);
+        }
+      }
+    }
+    result=webXmlCache.putIfAbsentAndGet(webXmlFileLocation,result);
+  }
+  return result;
+}
