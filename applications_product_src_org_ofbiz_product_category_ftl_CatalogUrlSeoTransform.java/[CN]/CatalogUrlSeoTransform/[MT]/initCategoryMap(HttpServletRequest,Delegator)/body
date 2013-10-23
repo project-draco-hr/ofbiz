@@ -1,0 +1,53 @@
+{
+  if (UrlRegexpConfigUtil.checkCategoryUrl()) {
+    m_categoryNameIdMap=FastMap.newInstance();
+    m_categoryIdNameMap=FastMap.newInstance();
+    Perl5Matcher matcher=new Perl5Matcher();
+    try {
+      Collection<GenericValue> allCategories=delegator.findList("ProductCategory",null,UtilMisc.toSet("productCategoryId","categoryName"),null,null,false);
+      for (      GenericValue category : allCategories) {
+        String categoryName=category.getString("categoryName");
+        String categoryNameId=null;
+        String categoryIdName=null;
+        String categoryId=category.getString("productCategoryId");
+        if (UtilValidate.isNotEmpty(categoryName)) {
+          categoryName=UrlUtil.replaceSpecialCharsUrl(categoryName.trim().toLowerCase());
+          if (matcher.matches(categoryName,m_asciiPattern)) {
+            categoryIdName=categoryName.toLowerCase().replaceAll(" ",URL_HYPHEN);
+            categoryNameId=categoryIdName + URL_HYPHEN + categoryId.trim().toLowerCase().replaceAll(" ",URL_HYPHEN);
+          }
+ else {
+            categoryIdName=categoryId.trim().toLowerCase().replaceAll(" ",URL_HYPHEN);
+            categoryNameId=categoryIdName;
+          }
+        }
+ else {
+          GenericValue productCategory=delegator.findOne("ProductCategory",UtilMisc.toMap("productCategoryId",categoryId),true);
+          CategoryContentWrapper wrapper=new CategoryContentWrapper(productCategory,request);
+          StringWrapper alternativeUrl=wrapper.get("ALTERNATIVE_URL");
+          if (UtilValidate.isNotEmpty(alternativeUrl) && UtilValidate.isNotEmpty(alternativeUrl.toString())) {
+            categoryIdName=UrlUtil.replaceSpecialCharsUrl(alternativeUrl.toString());
+            categoryNameId=categoryIdName + URL_HYPHEN + categoryId.trim().toLowerCase().replaceAll(" ",URL_HYPHEN);
+          }
+ else {
+            categoryNameId=categoryId.trim().toLowerCase().replaceAll(" ",URL_HYPHEN);
+            categoryIdName=categoryNameId;
+          }
+        }
+        if (m_categoryNameIdMap.containsKey(categoryNameId)) {
+          categoryNameId=categoryId.trim().toLowerCase().replaceAll(" ",URL_HYPHEN);
+          categoryIdName=categoryNameId;
+        }
+        if (!matcher.matches(categoryNameId,m_asciiPattern) || m_categoryNameIdMap.containsKey(categoryNameId)) {
+          continue;
+        }
+        m_categoryNameIdMap.put(categoryNameId,categoryId);
+        m_categoryIdNameMap.put(categoryId,categoryIdName);
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  m_categoryMapInitialed=true;
+}

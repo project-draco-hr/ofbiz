@@ -1,0 +1,49 @@
+{
+  String pathInfo=request.getRequestURI();
+  String contextPath=request.getContextPath();
+  if (!isCategoryMapInitialed()) {
+    initCategoryMap(request);
+  }
+  if (!UrlRegexpConfigUtil.isCategoryUrlEnabled(contextPath)) {
+    return false;
+  }
+  List<String> pathElements=StringUtil.split(pathInfo,"/");
+  if (UtilValidate.isEmpty(pathElements)) {
+    return false;
+  }
+  String lastPathElement=pathElements.get(pathElements.size() - 1);
+  String categoryId=null;
+  if (UtilValidate.isNotEmpty(lastPathElement)) {
+    if (UtilValidate.isNotEmpty(UrlRegexpConfigUtil.getCategoryUrlSuffix())) {
+      if (lastPathElement.endsWith(UrlRegexpConfigUtil.getCategoryUrlSuffix())) {
+        lastPathElement=lastPathElement.substring(0,lastPathElement.length() - UrlRegexpConfigUtil.getCategoryUrlSuffix().length());
+      }
+ else {
+        return false;
+      }
+    }
+    for (    String categoryName : m_categoryNameIdMap.keySet()) {
+      if (lastPathElement.startsWith(categoryName)) {
+        categoryId=m_categoryNameIdMap.get(categoryName);
+        break;
+      }
+    }
+    if (UtilValidate.isEmpty(categoryId)) {
+      categoryId=lastPathElement.trim();
+    }
+  }
+  if (UtilValidate.isNotEmpty(categoryId)) {
+    request.setAttribute("productCategoryId",categoryId);
+    StringBuilder urlBuilder=new StringBuilder();
+    if (UtilValidate.isNotEmpty(controlServlet)) {
+      urlBuilder.append("/" + controlServlet);
+    }
+    urlBuilder.append("/" + CatalogUrlServlet.CATEGORY_REQUEST);
+    UrlServletHelper.setViewQueryParameters(request,urlBuilder);
+    Debug.logInfo("[Filtered request]: " + pathInfo + " ("+ urlBuilder+ ")",module);
+    RequestDispatcher rd=request.getRequestDispatcher(urlBuilder.toString());
+    rd.forward(request,response);
+    return true;
+  }
+  return false;
+}
