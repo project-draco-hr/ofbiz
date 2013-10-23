@@ -1,54 +1,39 @@
 {
-  WebSiteProperties webSiteProps=(WebSiteProperties)request.getAttribute("_WEBSITE_PROPS_");
-  if (webSiteProps == null) {
+  OfbizUrlBuilder builder=(OfbizUrlBuilder)request.getAttribute("_OFBIZ_URL_BUILDER_");
+  if (builder == null) {
     try {
-      webSiteProps=WebSiteProperties.from(request);
-      request.setAttribute("_WEBSITE_PROPS_",webSiteProps);
+      builder=OfbizUrlBuilder.from(request);
+      request.setAttribute("_OFBIZ_URL_BUILDER_",builder);
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Exception thrown while getting web site properties: ",module);
       return null;
     }
+catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      return null;
+    }
   }
-  String requestUri=RequestHandler.getRequestUri(url);
-  ConfigXMLReader.RequestMap requestMap=null;
-  if (requestUri != null) {
+  boolean didFullSecure=false;
+  boolean didFullStandard=false;
+  StringBuilder newURL=new StringBuilder(250);
+  if (fullPath) {
     try {
-      requestMap=getControllerConfig().getRequestMapMap().get(requestUri);
+      boolean usesHttps=builder.buildHostPart(newURL,url,secure);
+      if (usesHttps) {
+        didFullSecure=true;
+      }
+ else {
+        didFullStandard=true;
+      }
     }
  catch (    WebAppConfigurationException e) {
       Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
       return null;
     }
-  }
-  StringBuilder newURL=new StringBuilder();
-  boolean didFullSecure=false;
-  boolean didFullStandard=false;
-  if (requestMap != null && (webSiteProps.getEnableHttps() || fullPath || secure)) {
-    if (Debug.verboseOn())     Debug.logVerbose("In makeLink requestUri=" + requestUri,module);
-    if (secure || (webSiteProps.getEnableHttps() && requestMap.securityHttps && !request.isSecure())) {
-      String server=webSiteProps.getHttpsHost();
-      if (server.isEmpty()) {
-        server=request.getServerName();
-      }
-      newURL.append("https://");
-      newURL.append(server);
-      if (!webSiteProps.getHttpsPort().isEmpty()) {
-        newURL.append(":").append(webSiteProps.getHttpsPort());
-      }
-      didFullSecure=true;
-    }
- else     if (fullPath || (webSiteProps.getEnableHttps() && !requestMap.securityHttps && request.isSecure())) {
-      String server=webSiteProps.getHttpHost();
-      if (server.isEmpty()) {
-        server=request.getServerName();
-      }
-      newURL.append("http://");
-      newURL.append(server);
-      if (!webSiteProps.getHttpPort().isEmpty()) {
-        newURL.append(":").append(webSiteProps.getHttpPort());
-      }
-      didFullStandard=true;
+catch (    IOException e) {
+      Debug.logError(e,"Exception thrown while appending to StringBuilder: ",module);
+      return null;
     }
   }
   String controlPath=(String)request.getAttribute("_CONTROL_PATH_");
