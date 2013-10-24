@@ -1,70 +1,17 @@
 {
   if (!context.containsKey("baseUrl")) {
-    StringBuilder httpBase=null;
-    StringBuilder httpsBase=null;
-    String localServer=null;
-    String httpsPort=null;
-    String httpsServer=null;
-    String httpPort=null;
-    String httpServer=null;
-    Boolean enableHttps=null;
     try {
-      InetAddress localHost=InetAddress.getLocalHost();
-      localServer=localHost.getHostAddress();
+      WebappInfo webAppInfo=WebAppUtil.getWebappInfoFromWebsiteId(webSiteId);
+      OfbizUrlBuilder builder=OfbizUrlBuilder.from(webAppInfo,delegator);
+      StringBuilder newURL=new StringBuilder();
+      builder.buildHostPart(newURL,"",false);
+      context.put("baseUrl",newURL.toString());
+      newURL=new StringBuilder();
+      builder.buildHostPart(newURL,"",true);
+      context.put("baseSecureUrl",newURL.toString());
     }
- catch (    UnknownHostException hostException) {
-      Debug.logWarning(hostException,"Could not determine localhost, using '127.0.0.1'",module);
-      localServer="127.0.0.1";
-    }
-    GenericValue webSite=null;
-    if (webSiteId != null) {
-      try {
-        webSite=delegator.findOne("WebSite",UtilMisc.toMap("webSiteId",webSiteId),true);
-        if (webSite != null) {
-          httpsPort=webSite.getString("httpsPort");
-          httpsServer=webSite.getString("httpsHost");
-          httpPort=webSite.getString("httpPort");
-          httpServer=webSite.getString("httpHost");
-          enableHttps=webSite.getBoolean("enableHttps");
-        }
-      }
- catch (      GenericEntityException e) {
-        Debug.logWarning(e,"Problems with WebSite entity; using global defaults",module);
-      }
-    }
-    if (UtilValidate.isEmpty(httpsPort)) {
-      httpsPort=UtilProperties.getPropertyValue("url.properties","port.https","443");
-    }
-    if (UtilValidate.isEmpty(httpsServer)) {
-      httpsServer=UtilProperties.getPropertyValue("url.properties","force.https.host",localServer);
-    }
-    if (UtilValidate.isEmpty(httpPort)) {
-      httpPort=UtilProperties.getPropertyValue("url.properties","port.http","80");
-    }
-    if (UtilValidate.isEmpty(httpServer)) {
-      httpServer=UtilProperties.getPropertyValue("url.properties","force.http.host",localServer);
-    }
-    if (UtilValidate.isEmpty(enableHttps)) {
-      enableHttps=(UtilProperties.propertyValueEqualsIgnoreCase("url.properties","port.https.enabled","Y")) ? Boolean.TRUE : Boolean.FALSE;
-    }
-    httpBase=new StringBuilder("http://");
-    httpBase.append(httpServer);
-    if (!"80".equals(httpPort)) {
-      httpBase.append(":");
-      httpBase.append(httpPort);
-    }
-    context.put("baseUrl",httpBase.toString());
-    if (enableHttps.booleanValue()) {
-      httpsBase=new StringBuilder("https://");
-      httpsBase.append(httpsServer);
-      if (!"443".equals(httpsPort)) {
-        httpsBase.append(":");
-        httpsBase.append(httpsPort);
-      }
-      context.put("baseSecureUrl",httpsBase.toString());
-    }
- else {
-      context.put("baseSecureUrl",httpBase.toString());
+ catch (    Exception e) {
+      Debug.logWarning(e,"Exception thrown while adding baseUrl to context: ",module);
     }
   }
 }
