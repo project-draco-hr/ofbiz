@@ -15,30 +15,57 @@
       }
     }
     runProductPromos(productPromoList,cart,delegator,dispatcher,nowTimestamp,true);
-    List<Map<Object,Object>> productPromoDiscountMapList=FastList.newInstance();
-    List<Map<Object,Object>> productPromoDiscountMapListOrderTotal=FastList.newInstance();
+    Iterator<ProductPromoUseInfo> promoUses=cart.getProductPromoUseInfoIter();
+    List<ProductPromoUseInfo> sortedPromoUses=new ArrayList<ProductPromoUseInfo>();
+    while (promoUses.hasNext()) {
+      ProductPromoUseInfo promoUse=promoUses.next();
+      sortedPromoUses.add(promoUse);
+    }
+    Collections.sort(sortedPromoUses);
+    List<GenericValue> sortedExplodedProductPromoList=new ArrayList<GenericValue>(sortedPromoUses.size());
+    Map<String,Long> usesPerPromo=new HashMap<String,Long>();
+    int indexOfFirstOrderTotalPromo=-1;
+    for (    ProductPromoUseInfo promoUse : sortedPromoUses) {
+      GenericValue productPromo=delegator.findOne("ProductPromo",UtilMisc.toMap("productPromoId",promoUse.getProductPromoId()),true);
+      GenericValue newProductPromo=(GenericValue)productPromo.clone();
+      if (!usesPerPromo.containsKey(promoUse.getProductPromoId())) {
+        usesPerPromo.put(promoUse.getProductPromoId(),0l);
+      }
+      long uses=usesPerPromo.get(promoUse.getProductPromoId());
+      uses=uses + 1;
+      long useLimitPerOrder=(newProductPromo.get("useLimitPerOrder") != null ? newProductPromo.getLong("useLimitPerOrder") : -1);
+      if (useLimitPerOrder == -1 || uses < useLimitPerOrder) {
+        newProductPromo.set("useLimitPerOrder",uses);
+      }
+      usesPerPromo.put(promoUse.getProductPromoId(),uses);
+      sortedExplodedProductPromoList.add(newProductPromo);
+      if (indexOfFirstOrderTotalPromo == -1 && BigDecimal.ZERO.equals(promoUse.getUsageWeight())) {
+        indexOfFirstOrderTotalPromo=sortedExplodedProductPromoList.size() - 1;
+      }
+    }
+    if (indexOfFirstOrderTotalPromo == -1) {
+      indexOfFirstOrderTotalPromo=sortedExplodedProductPromoList.size() - 1;
+    }
     for (    GenericValue productPromo : productPromoList) {
       Map<Object,Object> productPromoDiscountMap=UtilGenerics.checkMap(UtilMisc.toMap("productPromo",productPromo,"totalDiscountAmount",cart.getProductPromoUseTotalDiscount(productPromo.getString("productPromoId"))));
       if (hasOrderTotalCondition(productPromo,delegator)) {
-        productPromoDiscountMapListOrderTotal.add(productPromoDiscountMap);
+        if (!usesPerPromo.containsKey(productPromo.getString("productPromoId"))) {
+          sortedExplodedProductPromoList.add(productPromo);
+        }
       }
  else {
-        productPromoDiscountMapList.add(productPromoDiscountMap);
+        if (!usesPerPromo.containsKey(productPromo.getString("productPromoId"))) {
+          if (indexOfFirstOrderTotalPromo != -1) {
+            sortedExplodedProductPromoList.add(indexOfFirstOrderTotalPromo,productPromo);
+          }
+ else {
+            sortedExplodedProductPromoList.add(0,productPromo);
+          }
+        }
       }
     }
-    productPromoDiscountMapList=UtilMisc.sortMaps(productPromoDiscountMapList,UtilMisc.toList("+totalDiscountAmount"));
-    productPromoDiscountMapListOrderTotal=UtilMisc.sortMaps(productPromoDiscountMapListOrderTotal,UtilMisc.toList("+totalDiscountAmount"));
-    productPromoDiscountMapList.addAll(productPromoDiscountMapListOrderTotal);
-    List<GenericValue> sortedProductPromoList=new ArrayList<GenericValue>(productPromoDiscountMapList.size());
-    Iterator<Map<Object,Object>> productPromoDiscountMapIter=productPromoDiscountMapList.iterator();
-    while (productPromoDiscountMapIter.hasNext()) {
-      Map<Object,Object> productPromoDiscountMap=UtilGenerics.checkMap(productPromoDiscountMapIter.next());
-      GenericValue productPromo=(GenericValue)productPromoDiscountMap.get("productPromo");
-      sortedProductPromoList.add(productPromo);
-      if (Debug.verboseOn())       Debug.logVerbose("Sorted Promo [" + productPromo.getString("productPromoId") + "] with total discount: "+ productPromoDiscountMap.get("totalDiscountAmount"),module);
-    }
     cart.clearAllPromotionInformation();
-    runProductPromos(sortedProductPromoList,cart,delegator,dispatcher,nowTimestamp,false);
+    runProductPromos(sortedExplodedProductPromoList,cart,delegator,dispatcher,nowTimestamp,false);
   }
  catch (  NumberFormatException e) {
     Debug.logError(e,"Number not formatted correctly in promotion rules, not completed...",module);
