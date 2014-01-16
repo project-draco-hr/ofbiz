@@ -1,10 +1,9 @@
 {
   assertIsRunning();
-  List<Job> poll=new ArrayList<Job>(limit);
   DispatchContext dctx=getDispatcher().getDispatchContext();
   if (dctx == null) {
     Debug.logWarning("Unable to locate DispatchContext object; not running job!",module);
-    return poll;
+    return Collections.emptyList();
   }
   List<EntityExpr> expressions=UtilMisc.toList(EntityCondition.makeCondition("runTime",EntityOperator.LESS_THAN_EQUAL_TO,UtilDateTime.nowTimestamp()),EntityCondition.makeCondition("startDateTime",EntityOperator.EQUALS,null),EntityCondition.makeCondition("cancelDateTime",EntityOperator.EQUALS,null),EntityCondition.makeCondition("runByInstanceId",EntityOperator.EQUALS,null));
   List<String> pools=null;
@@ -13,7 +12,7 @@
   }
  catch (  GenericConfigException e) {
     Debug.logWarning(e,"Unable to get run pools - not running job: ",module);
-    return poll;
+    return Collections.emptyList();
   }
   List<EntityExpr> poolsExpr=UtilMisc.toList(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,null));
   if (!pools.isEmpty()) {
@@ -21,6 +20,7 @@
       poolsExpr.add(EntityCondition.makeCondition("poolId",EntityOperator.EQUALS,poolName));
     }
   }
+  List<Job> poll=new ArrayList<Job>(limit);
   EntityCondition baseCondition=EntityCondition.makeCondition(expressions);
   EntityCondition poolCondition=EntityCondition.makeCondition(poolsExpr,EntityOperator.OR);
   EntityCondition mainCondition=EntityCondition.makeCondition(UtilMisc.toList(baseCondition,poolCondition));
@@ -29,7 +29,7 @@
   try {
     beganTransaction=TransactionUtil.begin();
     if (!beganTransaction) {
-      Debug.logWarning("Unable to poll JobSandbox for jobs; transaction was not started by this process",module);
+      Debug.logWarning("Unable to poll JobSandbox for jobs; unable to begin transaction.",module);
       return poll;
     }
     jobsIterator=delegator.find("JobSandbox",mainCondition,null,null,UtilMisc.toList("runTime"),null);
@@ -45,17 +45,18 @@
       }
       jobValue=jobsIterator.next();
     }
+    TransactionUtil.commit(beganTransaction);
   }
  catch (  Throwable t) {
-    poll.clear();
     String errMsg="Exception thrown while polling JobSandbox: ";
-    Debug.logWarning(t,errMsg,module);
     try {
-      TransactionUtil.rollback(beganTransaction,errMsg + t.getMessage(),t);
+      TransactionUtil.rollback(beganTransaction,errMsg,t);
     }
  catch (    GenericEntityException e) {
       Debug.logWarning(e,"Exception thrown while rolling back transaction: ",module);
     }
+    Debug.logWarning(t,errMsg,module);
+    return Collections.emptyList();
   }
  finally {
     if (jobsIterator != null) {
@@ -66,12 +67,6 @@
         Debug.logWarning(e,module);
       }
     }
-    try {
-      TransactionUtil.commit(beganTransaction);
-    }
- catch (    GenericTransactionException e) {
-      Debug.logWarning(e,"Transaction error trying to commit when polling and updating the JobSandbox: ",module);
-    }
   }
   if (poll.isEmpty()) {
     Calendar cal=Calendar.getInstance();
@@ -81,7 +76,7 @@
     }
  catch (    GenericConfigException e) {
       Debug.logWarning(e,"Unable to get purge job days: ",module);
-      return poll;
+      return Collections.emptyList();
     }
     Timestamp purgeTime=new Timestamp(cal.getTimeInMillis());
     List<EntityExpr> finExp=UtilMisc.toList(EntityCondition.makeCondition("finishDateTime",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("finishDateTime",EntityOperator.LESS_THAN,purgeTime));
@@ -93,8 +88,8 @@
     try {
       beganTransaction=TransactionUtil.begin();
       if (!beganTransaction) {
-        Debug.logWarning("Unable to poll JobSandbox for jobs; transaction was not started by this process",module);
-        return poll;
+        Debug.logWarning("Unable to poll JobSandbox for jobs; unable to begin transaction.",module);
+        return Collections.emptyList();
       }
       jobsIterator=delegator.find("JobSandbox",mainCondition,null,null,UtilMisc.toList("jobId"),null);
       GenericValue jobValue=jobsIterator.next();
@@ -105,17 +100,18 @@
         }
         jobValue=jobsIterator.next();
       }
+      TransactionUtil.commit(beganTransaction);
     }
  catch (    Throwable t) {
-      poll.clear();
       String errMsg="Exception thrown while polling JobSandbox: ";
-      Debug.logWarning(t,errMsg,module);
       try {
-        TransactionUtil.rollback(beganTransaction,errMsg + t.getMessage(),t);
+        TransactionUtil.rollback(beganTransaction,errMsg,t);
       }
  catch (      GenericEntityException e) {
         Debug.logWarning(e,"Exception thrown while rolling back transaction: ",module);
       }
+      Debug.logWarning(t,errMsg,module);
+      return Collections.emptyList();
     }
  finally {
       if (jobsIterator != null) {
@@ -125,12 +121,6 @@
  catch (        GenericEntityException e) {
           Debug.logWarning(e,module);
         }
-      }
-      try {
-        TransactionUtil.commit(beganTransaction);
-      }
- catch (      GenericTransactionException e) {
-        Debug.logWarning(e,"Transaction error trying to commit when polling the JobSandbox: ",module);
       }
     }
   }
