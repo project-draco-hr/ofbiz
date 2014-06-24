@@ -3,10 +3,20 @@
   if (mft == null) {
     throw new GenericModelException("definition fieldType " + curField.getType() + " not found, cannot getValue for field "+ entity.getEntityName()+ "."+ curField.getName()+ ".");
   }
+  ModelEntity model=entity.getModelEntity();
+  String encryptionKeyName=entity.getEntityName();
+  if (curField.getEncryptMethod().isEncrypted() && model instanceof ModelViewEntity) {
+    ModelViewEntity modelView=(ModelViewEntity)model;
+    encryptionKeyName=modelView.getAliasedEntity(modelView.getAlias(curField.getName()).getEntityAlias(),entity.getDelegator().getModelReader()).getEntityName();
+  }
   JdbcValueHandler<?> handler=mft.getJdbcValueHandler();
   if (handler != null) {
     try {
-      entity.dangerousSetNoCheckButFast(curField,handler.getValue(rs,ind));
+      Object jdbcValue=handler.getValue(rs,ind);
+      if (jdbcValue instanceof String && curField.getEncryptMethod().isEncrypted()) {
+        jdbcValue=entity.getDelegator().decryptFieldValue(encryptionKeyName,(String)jdbcValue);
+      }
+      entity.dangerousSetNoCheckButFast(curField,jdbcValue);
       return;
     }
  catch (    Exception e) {
@@ -51,6 +61,9 @@ case 1:
         }
  else {
           String value=rs.getString(ind);
+          if (value instanceof String && curField.getEncryptMethod().isEncrypted()) {
+            value=(String)entity.getDelegator().decryptFieldValue(encryptionKeyName,value);
+          }
           entity.dangerousSetNoCheckButFast(curField,value);
         }
       break;
