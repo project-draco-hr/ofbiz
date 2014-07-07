@@ -69,10 +69,6 @@
     String redirectPath=config.getInitParameter("redirectPath");
     String errorCode=config.getInitParameter("errorCode");
     List<String> allowList=StringUtil.split(allowedPath,":");
-    allowList.add("/");
-    if (UtilValidate.isNotEmpty(httpRequest.getServletPath())) {
-      allowList.add("");
-    }
     if (debug)     Debug.logInfo("[Domain]: " + httpRequest.getServerName() + " [Request]: "+ httpRequest.getRequestURI(),module);
     requestPath=httpRequest.getServletPath();
     if (requestPath == null)     requestPath="";
@@ -105,17 +101,20 @@
     if (pathItemList != null) {
       viewName=pathItemList.get(0);
     }
+    String requestUri=UtilHttp.getRequestUriFromTarget(httpRequest.getRequestURI());
     if (Debug.verboseOn()) {
       for (      String allow : allowList) {
         Debug.logVerbose("[Allow]: " + allow,module);
       }
+      Debug.logVerbose("[View Name]: " + viewName,module);
+      Debug.logVerbose("[Request Uri]: " + requestUri,module);
       Debug.logVerbose("[Request path]: " + requestPath,module);
       Debug.logVerbose("[Request info]: " + requestInfo,module);
       Debug.logVerbose("[Servlet path]: " + httpRequest.getServletPath(),module);
-      Debug.logVerbose("[Not In AllowList]: " + (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())),module);
+      Debug.logVerbose("[Not In AllowList]: " + (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())&& !allowList.contains(requestUri)&& !allowList.contains("/" + viewName)),module);
       Debug.logVerbose("[Not In controller]: " + (UtilValidate.isEmpty(requestPath) && UtilValidate.isEmpty(httpRequest.getServletPath()) && !uris.contains(viewName)),module);
     }
-    if (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())&& (UtilValidate.isEmpty(requestPath) && UtilValidate.isEmpty(httpRequest.getServletPath()) && !uris.contains(viewName))) {
+    if (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())&& !allowList.contains(requestUri)&& !allowList.contains("/" + viewName)&& (UtilValidate.isEmpty(requestPath) && UtilValidate.isEmpty(httpRequest.getServletPath()) && !uris.contains(viewName))) {
       String filterMessage="[Filtered request]: " + contextUri;
       if (redirectPath == null) {
         if (UtilValidate.isEmpty(viewName)) {
@@ -153,6 +152,9 @@
       }
       Debug.logWarning(filterMessage,module);
       return;
+    }
+ else     if ((allowList.contains(requestPath) || allowList.contains(requestInfo) || allowList.contains(httpRequest.getServletPath())|| allowList.contains(requestUri)|| allowList.contains("/" + viewName)) && !WebServlets.contains(httpRequest.getServletPath())) {
+      request.setAttribute(SeoControlServlet.REQUEST_IN_ALLOW_LIST,Boolean.TRUE);
     }
   }
   String useMultitenant=UtilProperties.getPropertyValue("general.properties","multitenant");
