@@ -33,13 +33,7 @@ synchronized (DBCPConnectionFactory.class) {
   cfProps.put("password",jdbcPassword);
   ConnectionFactory cf=new DriverConnectionFactory(jdbcDriver,jdbcUri,cfProps);
   XAConnectionFactory xacf=new LocalXAConnectionFactory(txMgr,cf);
-  GenericObjectPool pool=new GenericObjectPool();
-  pool.setTimeBetweenEvictionRunsMillis(timeBetweenEvictionRunsMillis);
-  pool.setMaxActive(maxSize);
-  pool.setMaxIdle(maxIdle);
-  pool.setMinIdle(minSize);
-  pool.setMaxWait(120000);
-  PoolableConnectionFactory factory=new PoolableManagedConnectionFactory(xacf,pool,null,null,true,true);
+  PoolableConnectionFactory factory=new PoolableManagedConnectionFactory(xacf,null);
   factory.setValidationQuery("select 1 from entity_key_store where key_name = ''");
   factory.setDefaultReadOnly(false);
   String transIso=jdbcElement.getIsolationLevel();
@@ -60,7 +54,13 @@ synchronized (DBCPConnectionFactory.class) {
       factory.setDefaultTransactionIsolation(Connection.TRANSACTION_NONE);
     }
   }
-  pool.setFactory(factory);
+  GenericObjectPoolConfig poolConfig=new GenericObjectPoolConfig();
+  poolConfig.setMaxWaitMillis(120000);
+  poolConfig.setMaxTotal(maxSize);
+  poolConfig.setMaxIdle(maxIdle);
+  poolConfig.setMinIdle(minSize);
+  poolConfig.setTimeBetweenEvictionRunsMillis(timeBetweenEvictionRunsMillis);
+  GenericObjectPool pool=new GenericObjectPool(factory,poolConfig);
   mds=new DebugManagedDataSource(pool,xacf.getTransactionRegistry());
   mds.setAccessToUnderlyingConnectionAllowed(true);
   dsCache.putIfAbsent(cacheKey,mds);
