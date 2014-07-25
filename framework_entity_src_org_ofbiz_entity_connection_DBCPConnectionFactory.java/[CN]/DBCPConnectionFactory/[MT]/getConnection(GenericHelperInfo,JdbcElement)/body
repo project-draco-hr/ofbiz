@@ -15,7 +15,6 @@
   String jdbcPassword=helperInfo.getOverridePassword(EntityConfigUtil.getJdbcPassword(jdbcElement));
   int maxSize=jdbcElement.getPoolMaxsize();
   int minSize=jdbcElement.getPoolMinsize();
-  int timeBetweenEvictionRunsMillis=jdbcElement.getTimeBetweenEvictionRunsMillis();
   int maxIdle=jdbcElement.getIdleMaxsize();
   maxIdle=maxIdle > minSize ? maxIdle : minSize;
   Driver jdbcDriver;
@@ -34,7 +33,7 @@ synchronized (DBCPConnectionFactory.class) {
   ConnectionFactory cf=new DriverConnectionFactory(jdbcDriver,jdbcUri,cfProps);
   XAConnectionFactory xacf=new LocalXAConnectionFactory(txMgr,cf);
   PoolableConnectionFactory factory=new PoolableManagedConnectionFactory(xacf,null);
-  factory.setValidationQuery("select 1 from entity_key_store where key_name = ''");
+  factory.setValidationQuery(jdbcElement.getPoolJdbcTestStmt());
   factory.setDefaultReadOnly(false);
   String transIso=jdbcElement.getIsolationLevel();
   if (!transIso.isEmpty()) {
@@ -55,13 +54,22 @@ synchronized (DBCPConnectionFactory.class) {
     }
   }
   GenericObjectPoolConfig poolConfig=new GenericObjectPoolConfig();
-  poolConfig.setMaxWaitMillis(120000);
   poolConfig.setMaxTotal(maxSize);
   poolConfig.setMaxIdle(maxIdle);
   poolConfig.setMinIdle(minSize);
-  poolConfig.setTimeBetweenEvictionRunsMillis(timeBetweenEvictionRunsMillis);
+  poolConfig.setTimeBetweenEvictionRunsMillis(jdbcElement.getTimeBetweenEvictionRunsMillis());
+  poolConfig.setMinEvictableIdleTimeMillis(-1);
+  poolConfig.setSoftMinEvictableIdleTimeMillis(jdbcElement.getSoftMinEvictableIdleTimeMillis());
+  poolConfig.setNumTestsPerEvictionRun(maxSize);
+  poolConfig.setBlockWhenExhausted(true);
+  poolConfig.setMaxWaitMillis(jdbcElement.getPoolSleeptime());
+  poolConfig.setTestOnCreate(jdbcElement.getTestOnCreate());
+  poolConfig.setTestOnBorrow(jdbcElement.getTestOnBorrow());
+  poolConfig.setTestOnReturn(jdbcElement.getTestOnReturn());
+  poolConfig.setTestWhileIdle(jdbcElement.getTestWhileIdle());
   GenericObjectPool pool=new GenericObjectPool(factory,poolConfig);
-  mds=new DebugManagedDataSource(pool,xacf.getTransactionRegistry());
+  factory.setPool(pool);
+  mds=new ManagedDataSource(pool,xacf.getTransactionRegistry());
   mds.setAccessToUnderlyingConnectionAllowed(true);
   dsCache.putIfAbsent(cacheKey,mds);
   mds=dsCache.get(cacheKey);
