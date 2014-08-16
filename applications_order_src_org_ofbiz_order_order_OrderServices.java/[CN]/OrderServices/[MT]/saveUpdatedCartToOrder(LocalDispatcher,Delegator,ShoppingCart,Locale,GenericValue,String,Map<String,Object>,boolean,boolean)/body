@@ -26,6 +26,7 @@
     }
   }
   List<Map<String,Object>> modifiedItems=FastList.newInstance();
+  List<Map<String,Object>> newItems=FastList.newInstance();
   List<GenericValue> toStore=new LinkedList<GenericValue>();
   List<GenericValue> toAddList=new ArrayList<GenericValue>();
   toAddList.addAll(cart.makeAllAdjustments());
@@ -155,6 +156,11 @@
     }
  else     if ("OrderItem".equals(valueObj.getEntityName()) && !deleteItems) {
       if ("Y".equals(valueObj.getString("isPromo"))) {
+        Map<String,Object> promoItem=FastMap.newInstance();
+        promoItem.put("orderId",valueObj.getString("orderId"));
+        promoItem.put("orderItemSeqId",valueObj.getString("orderItemSeqId"));
+        promoItem.put("quantity",valueObj.getBigDecimal("quantity"));
+        newItems.add(promoItem);
         continue;
       }
       GenericValue oldOrderItem=null;
@@ -219,6 +225,7 @@
         appendedItem.put("quantity",valueObj.getBigDecimal("quantity"));
         appendedItem.put("changeTypeEnumId","ODR_ITM_APPEND");
         modifiedItems.add(appendedItem);
+        newItems.add(appendedItem);
       }
     }
   }
@@ -260,6 +267,18 @@
       if (ServiceUtil.isError(resp)) {
         throw new GeneralException((String)resp.get(ModelService.ERROR_MESSAGE));
       }
+    }
+  }
+  if (UtilValidate.isNotEmpty(newItems)) {
+    for (    Map<String,Object> newItem : newItems) {
+      String itemStatusId=delegator.getNextSeqId("OrderStatus");
+      GenericValue itemStatus=delegator.makeValue("OrderStatus",UtilMisc.toMap("orderStatusId",itemStatusId));
+      itemStatus.put("statusId","ITEM_CREATED");
+      itemStatus.put("orderId",newItem.get("orderId"));
+      itemStatus.put("orderItemSeqId",newItem.get("orderItemSeqId"));
+      itemStatus.put("statusDatetime",UtilDateTime.nowTimestamp());
+      itemStatus.set("statusUserLogin",userLogin.get("userLogin"));
+      delegator.create(itemStatus);
     }
   }
   List<GenericValue> orderItemShipGroupAssoc=new LinkedList<GenericValue>();
