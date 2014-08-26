@@ -2,17 +2,17 @@
   String cacheKey=helperInfo.getHelperFullName();
   ManagedDataSource mds=dsCache.get(cacheKey);
   if (mds != null) {
-    return TransactionFactory.getCursorConnection(helperInfo,mds.getConnection());
+    return TransactionUtil.getCursorConnection(helperInfo,mds.getConnection());
   }
   if (!(abstractJdbc instanceof InlineJdbc)) {
     throw new GenericEntityConfException("DBCP requires an <inline-jdbc> child element in the <datasource> element");
   }
   InlineJdbc jdbcElement=(InlineJdbc)abstractJdbc;
-  TransactionManager txMgr=TransactionFactory.getTransactionManager();
+  TransactionManager txMgr=TransactionFactoryLoader.getInstance().getTransactionManager();
   String driverName=jdbcElement.getJdbcDriver();
   String jdbcUri=helperInfo.getOverrideJdbcUri(jdbcElement.getJdbcUri());
   String jdbcUsername=helperInfo.getOverrideUsername(jdbcElement.getJdbcUsername());
-  String jdbcPassword=helperInfo.getOverridePassword(EntityConfigUtil.getJdbcPassword(jdbcElement));
+  String jdbcPassword=helperInfo.getOverridePassword(EntityConfig.getJdbcPassword(jdbcElement));
   int maxSize=jdbcElement.getPoolMaxsize();
   int minSize=jdbcElement.getPoolMinsize();
   int maxIdle=jdbcElement.getIdleMaxsize();
@@ -30,7 +30,7 @@ synchronized (DBCPConnectionFactory.class) {
   Properties cfProps=new Properties();
   cfProps.put("user",jdbcUsername);
   cfProps.put("password",jdbcPassword);
-  ConnectionFactory cf=new DriverConnectionFactory(jdbcDriver,jdbcUri,cfProps);
+  org.apache.commons.dbcp2.ConnectionFactory cf=new DriverConnectionFactory(jdbcDriver,jdbcUri,cfProps);
   XAConnectionFactory xacf=new LocalXAConnectionFactory(txMgr,cf);
   PoolableConnectionFactory factory=new PoolableManagedConnectionFactory(xacf,null);
   factory.setValidationQuery(jdbcElement.getPoolJdbcTestStmt());
@@ -73,5 +73,5 @@ synchronized (DBCPConnectionFactory.class) {
   mds.setAccessToUnderlyingConnectionAllowed(true);
   dsCache.putIfAbsent(cacheKey,mds);
   mds=dsCache.get(cacheKey);
-  return TransactionFactory.getCursorConnection(helperInfo,mds.getConnection());
+  return TransactionUtil.getCursorConnection(helperInfo,mds.getConnection());
 }
