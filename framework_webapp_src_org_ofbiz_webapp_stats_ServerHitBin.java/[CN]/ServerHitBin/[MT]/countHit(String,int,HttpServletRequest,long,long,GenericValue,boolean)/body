@@ -78,16 +78,42 @@ bin=binList.get(0);
 }
 if (bin == null) {
 bin=new ServerHitBin(id,type,true,delegator);
-if (binList.size() > 0) {
 binList.add(0,bin);
 }
+}
+}
+long toTime=startTime + runningTime;
+while (bin.limitLength && toTime > bin.endTime) {
+if (bin.getNumberHits() > 0) {
+if (UtilProperties.propertyValueEqualsIgnoreCase("serverstats","stats.persist." + ServerHitBin.typeIds[type] + ".bin","true")) {
+GenericValue serverHitBin=delegator.makeValue("ServerHitBin");
+serverHitBin.set("contentId",bin.id);
+serverHitBin.set("hitTypeId",ServerHitBin.typeIds[bin.type]);
+serverHitBin.set("binStartDateTime",new java.sql.Timestamp(bin.startTime));
+serverHitBin.set("binEndDateTime",new java.sql.Timestamp(bin.endTime));
+serverHitBin.set("numberHits",Long.valueOf(bin.getNumberHits()));
+serverHitBin.set("totalTimeMillis",Long.valueOf(bin.getTotalRunningTime()));
+serverHitBin.set("minTimeMillis",Long.valueOf(bin.getMinTime()));
+serverHitBin.set("maxTimeMillis",Long.valueOf(bin.getMaxTime()));
+if (VisitHandler.address != null) {
+serverHitBin.set("serverIpAddress",VisitHandler.address.getHostAddress());
+serverHitBin.set("serverHostName",VisitHandler.address.getHostName());
+}
+try {
+delegator.createSetNextSeqId(serverHitBin);
+}
+ catch (GenericEntityException e) {
+Debug.logError(e,"Could not save ServerHitBin:",module);
+}
+}
+}
  else {
-binList.add(bin);
+binList.remove(0);
 }
+bin=new ServerHitBin(bin,bin.endTime + 1);
+binList.add(0,bin);
 }
-}
-}
-bin.addHit(startTime,runningTime);
+bin.addHit(runningTime);
 if (isOriginal) {
 try {
 bin.saveHit(request,startTime,runningTime,userLogin);
@@ -97,9 +123,9 @@ Debug.logWarning("Error saving ServerHit: " + e.toString(),module);
 }
 }
 if (!id.startsWith("GLOBAL")) {
-countHitSinceStart(id,type,startTime,runningTime,delegator);
+countHitSinceStart(id,type,runningTime,delegator);
 if (isOriginal) {
-countHitSinceStart(makeIdTenantAware("GLOBAL",delegator),type,startTime,runningTime,delegator);
+countHitSinceStart(makeIdTenantAware("GLOBAL",delegator),type,runningTime,delegator);
 }
 }
 if (id.indexOf('.') > 0) {
