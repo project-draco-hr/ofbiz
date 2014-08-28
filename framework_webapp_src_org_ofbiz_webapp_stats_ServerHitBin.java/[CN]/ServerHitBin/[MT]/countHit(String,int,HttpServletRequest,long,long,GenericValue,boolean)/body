@@ -9,7 +9,7 @@
   }
   String id=makeIdTenantAware(baseId,delegator);
   ServerHitBin bin=null;
-  List<ServerHitBin> binList=null;
+  Deque<ServerHitBin> binList=null;
 switch (type) {
 case REQUEST:
     binList=requestHistory.get(id);
@@ -28,60 +28,34 @@ binList=serviceHistory.get(id);
 break;
 }
 if (binList == null) {
-synchronized (ServerHitBin.class) {
+binList=new ConcurrentLinkedDeque<ServerHitBin>();
+Deque<ServerHitBin> listFromMap=null;
 switch (type) {
 case REQUEST:
-binList=requestHistory.get(id);
+listFromMap=requestHistory.putIfAbsent(id,binList);
 break;
 case EVENT:
-binList=eventHistory.get(id);
+listFromMap=eventHistory.putIfAbsent(id,binList);
 break;
 case VIEW:
-binList=viewHistory.get(id);
+listFromMap=viewHistory.putIfAbsent(id,binList);
 break;
 case ENTITY:
-binList=entityHistory.get(id);
+listFromMap=entityHistory.putIfAbsent(id,binList);
 break;
 case SERVICE:
-binList=serviceHistory.get(id);
+listFromMap=serviceHistory.putIfAbsent(id,binList);
 break;
 }
-if (binList == null) {
-binList=FastList.newInstance();
-switch (type) {
-case REQUEST:
-requestHistory.put(id,binList);
-break;
-case EVENT:
-eventHistory.put(id,binList);
-break;
-case VIEW:
-viewHistory.put(id,binList);
-break;
-case ENTITY:
-entityHistory.put(id,binList);
-break;
-case SERVICE:
-serviceHistory.put(id,binList);
-break;
+binList=listFromMap != null ? listFromMap : binList;
 }
-}
-}
-}
-if (binList.size() > 0) {
-bin=binList.get(0);
-}
+do {
+bin=binList.peek();
 if (bin == null) {
-synchronized (ServerHitBin.class) {
-if (binList.size() > 0) {
-bin=binList.get(0);
-}
-if (bin == null) {
-bin=new ServerHitBin(id,type,true,delegator);
-binList.add(0,bin);
+binList.addFirst(new ServerHitBin(id,type,true,delegator));
 }
 }
-}
+ while (bin == null);
 long toTime=startTime + runningTime;
 while (bin.limitLength && toTime > bin.endTime) {
 if (bin.getNumberHits() > 0) {
@@ -108,10 +82,10 @@ Debug.logError(e,"Could not save ServerHitBin:",module);
 }
 }
  else {
-binList.remove(0);
+binList.pollFirst();
 }
 bin=new ServerHitBin(bin,bin.endTime + 1);
-binList.add(0,bin);
+binList.addFirst(bin);
 }
 bin.addHit(runningTime);
 if (isOriginal) {
