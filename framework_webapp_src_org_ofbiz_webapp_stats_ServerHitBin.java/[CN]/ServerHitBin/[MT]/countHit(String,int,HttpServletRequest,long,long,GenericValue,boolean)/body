@@ -9,7 +9,7 @@
   }
   String id=makeIdTenantAware(baseId,delegator);
   ServerHitBin bin=null;
-  List<ServerHitBin> binList=null;
+  Deque<ServerHitBin> binList=null;
 switch (type) {
 case REQUEST:
     binList=requestHistory.get(id);
@@ -28,67 +28,67 @@ binList=serviceHistory.get(id);
 break;
 }
 if (binList == null) {
-synchronized (ServerHitBin.class) {
+binList=new ConcurrentLinkedDeque<ServerHitBin>();
+Deque<ServerHitBin> listFromMap=null;
 switch (type) {
 case REQUEST:
-binList=requestHistory.get(id);
+listFromMap=requestHistory.putIfAbsent(id,binList);
 break;
 case EVENT:
-binList=eventHistory.get(id);
+listFromMap=eventHistory.putIfAbsent(id,binList);
 break;
 case VIEW:
-binList=viewHistory.get(id);
+listFromMap=viewHistory.putIfAbsent(id,binList);
 break;
 case ENTITY:
-binList=entityHistory.get(id);
+listFromMap=entityHistory.putIfAbsent(id,binList);
 break;
 case SERVICE:
-binList=serviceHistory.get(id);
+listFromMap=serviceHistory.putIfAbsent(id,binList);
 break;
 }
-if (binList == null) {
-binList=FastList.newInstance();
-switch (type) {
-case REQUEST:
-requestHistory.put(id,binList);
-break;
-case EVENT:
-eventHistory.put(id,binList);
-break;
-case VIEW:
-viewHistory.put(id,binList);
-break;
-case ENTITY:
-entityHistory.put(id,binList);
-break;
-case SERVICE:
-serviceHistory.put(id,binList);
-break;
+binList=listFromMap != null ? listFromMap : binList;
 }
-}
-}
-}
-if (binList.size() > 0) {
-bin=binList.get(0);
-}
+do {
+bin=binList.peek();
 if (bin == null) {
-synchronized (ServerHitBin.class) {
-if (binList.size() > 0) {
-bin=binList.get(0);
+binList.addFirst(new ServerHitBin(id,type,true,delegator));
 }
-if (bin == null) {
-bin=new ServerHitBin(id,type,true,delegator);
-if (binList.size() > 0) {
-binList.add(0,bin);
+}
+ while (bin == null);
+long toTime=startTime + runningTime;
+while (bin.limitLength && toTime > bin.endTime) {
+if (bin.getNumberHits() > 0) {
+if (UtilProperties.propertyValueEqualsIgnoreCase("serverstats","stats.persist." + ServerHitBin.typeIds[type] + ".bin","true")) {
+GenericValue serverHitBin=delegator.makeValue("ServerHitBin");
+serverHitBin.set("contentId",bin.id);
+serverHitBin.set("hitTypeId",ServerHitBin.typeIds[bin.type]);
+serverHitBin.set("binStartDateTime",new java.sql.Timestamp(bin.startTime));
+serverHitBin.set("binEndDateTime",new java.sql.Timestamp(bin.endTime));
+serverHitBin.set("numberHits",Long.valueOf(bin.getNumberHits()));
+serverHitBin.set("totalTimeMillis",Long.valueOf(bin.getTotalRunningTime()));
+serverHitBin.set("minTimeMillis",Long.valueOf(bin.getMinTime()));
+serverHitBin.set("maxTimeMillis",Long.valueOf(bin.getMaxTime()));
+if (VisitHandler.address != null) {
+serverHitBin.set("serverIpAddress",VisitHandler.address.getHostAddress());
+serverHitBin.set("serverHostName",VisitHandler.address.getHostName());
+}
+try {
+delegator.createSetNextSeqId(serverHitBin);
+}
+ catch (GenericEntityException e) {
+Debug.logError(e,"Could not save ServerHitBin:",module);
+}
+}
 }
  else {
-binList.add(bin);
+binList.pollFirst();
 }
+bin=new ServerHitBin(bin,bin.endTime + 1);
+binList.addFirst(bin);
 }
-}
-}
-bin.addHit(startTime,runningTime);
-if (isOriginal && !id.startsWith("GLOBAL")) {
+bin.addHit(runningTime);
+if (isOriginal) {
 try {
 bin.saveHit(request,startTime,runningTime,userLogin);
 }
@@ -96,9 +96,16 @@ bin.saveHit(request,startTime,runningTime,userLogin);
 Debug.logWarning("Error saving ServerHit: " + e.toString(),module);
 }
 }
-if (!id.startsWith("GLOBAL")) countHitSinceStart(id,type,startTime,runningTime,isOriginal,delegator);
+if (!id.startsWith("GLOBAL")) {
+countHitSinceStart(id,type,runningTime,delegator);
+if (isOriginal) {
+countHitSinceStart(makeIdTenantAware("GLOBAL",delegator),type,runningTime,delegator);
+}
+}
 if (id.indexOf('.') > 0) {
 countHit(id.substring(0,id.lastIndexOf('.')),type,request,startTime,runningTime,userLogin,false);
 }
-if (isOriginal && !id.startsWith("GLOBAL")) countHit("GLOBAL",type,request,startTime,runningTime,userLogin,true);
+if (isOriginal) {
+countHit("GLOBAL",type,request,startTime,runningTime,userLogin,false);
+}
 }
