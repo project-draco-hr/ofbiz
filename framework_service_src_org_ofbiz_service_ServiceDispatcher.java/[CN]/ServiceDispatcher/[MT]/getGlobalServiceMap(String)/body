@@ -1,5 +1,5 @@
 {
-  Map<String,ModelService> serviceMap=modelServiceMapByModel.get(this.model);
+  Map<String,ModelService> serviceMap=modelServiceMapByModel.get(model);
   if (serviceMap == null) {
     serviceMap=new HashMap<String,ModelService>();
     List<Future<Map<String,ModelService>>> futures=new LinkedList<Future<Map<String,ModelService>>>();
@@ -23,11 +23,21 @@
         serviceMap.putAll(servicesMap);
       }
     }
-    if (serviceMap != null) {
-      Map<String,ModelService> cachedServiceMap=modelServiceMapByModel.putIfAbsentAndGet(this.model,serviceMap);
-      if (cachedServiceMap == serviceMap) {
-        ServiceEcaUtil.reloadConfig();
+    for (    ModelService modelService : serviceMap.values()) {
+      if (!modelService.inheritedParameters()) {
+        try {
+          modelService.interfaceUpdate(serviceMap);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          throw new RuntimeException(e.getMessage());
+        }
       }
+    }
+    serviceMap=Collections.unmodifiableMap(serviceMap);
+    Map<String,ModelService> cachedServiceMap=modelServiceMapByModel.putIfAbsentAndGet(model,serviceMap);
+    if (cachedServiceMap == serviceMap) {
+      ServiceEcaUtil.reloadConfig();
     }
   }
   return serviceMap;
