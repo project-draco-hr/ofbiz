@@ -3,15 +3,14 @@
   String javaVendor=System.getProperty("java.vendor");
   Properties props=this.getPropertiesFile(config);
   System.out.println("Start.java using configuration file " + config);
-  if (ofbizHome == null) {
-    ofbizHome=props.getProperty("ofbiz.home",".");
-    if (ofbizHome.equals(".")) {
-      ofbizHome=System.getProperty("user.dir");
-      ofbizHome=ofbizHome.replace('\\','/');
-      System.out.println("Set OFBIZ_HOME to - " + ofbizHome);
-    }
+  String ofbizHomeTmp=props.getProperty("ofbiz.home",".");
+  if (ofbizHomeTmp.equals(".")) {
+    ofbizHomeTmp=System.getProperty("user.dir");
+    ofbizHomeTmp=ofbizHomeTmp.replace('\\','/');
   }
+  ofbizHome=ofbizHomeTmp;
   System.setProperty("ofbiz.home",ofbizHome);
+  System.out.println("Set OFBIZ_HOME to - " + ofbizHome);
   baseConfig=getOfbizHomeProp(props,"ofbiz.base.config","framework/base/config");
   baseDtd=getOfbizHomeProp(props,"ofbiz.base.schema","framework/base/dtd");
   baseLib=getOfbizHomeProp(props,"ofbiz.base.lib","framework/base/lib");
@@ -28,21 +27,23 @@
   String adminPortStr=getProp(props,"ofbiz.admin.port","0");
   adminKey=getProp(props,"ofbiz.admin.key","NA");
   adminAddress=InetAddress.getByName(serverHost);
+  int adminPortTmp;
   try {
-    adminPort=Integer.parseInt(adminPortStr);
+    adminPortTmp=Integer.parseInt(adminPortStr);
     if (args.length > 0) {
       for (      String arg : args) {
         if (arg.toLowerCase().contains("portoffset=") && !arg.toLowerCase().contains("${portoffset}")) {
-          adminPort=adminPort != 0 ? adminPort : 10523;
-          adminPort+=Integer.parseInt(arg.split("=")[1]);
+          adminPortTmp=adminPortTmp != 0 ? adminPortTmp : 10523;
+          adminPortTmp+=Integer.parseInt(arg.split("=")[1]);
         }
       }
     }
   }
  catch (  Exception e) {
     System.out.println("Error while parsing admin port number (so default to 10523) = " + e);
-    adminPort=10523;
+    adminPortTmp=10523;
   }
+  adminPort=adminPortTmp;
   String derbyPath=getProp(props,"derby.system.home","runtime/data/derby");
   System.setProperty("derby.system.home",derbyPath);
   String log4jConfig=getProp(props,"log4j.configuration","log4j.xml");
@@ -53,11 +54,17 @@
  else   if (props.getProperty("ofbiz.enable.hook") != null && props.getProperty("ofbiz.enable.hook").length() > 0) {
     useShutdownHook="true".equalsIgnoreCase(props.getProperty("ofbiz.enable.hook"));
   }
+ else {
+    useShutdownHook=true;
+  }
   if (System.getProperty("ofbiz.auto.shutdown") != null && System.getProperty("ofbiz.auto.shutdown").length() > 0) {
     shutdownAfterLoad="true".equalsIgnoreCase(System.getProperty("ofbiz.auto.shutdown"));
   }
  else   if (props.getProperty("ofbiz.auto.shutdown") != null && props.getProperty("ofbiz.auto.shutdown").length() > 0) {
     shutdownAfterLoad="true".equalsIgnoreCase(props.getProperty("ofbiz.auto.shutdown"));
+  }
+ else {
+    shutdownAfterLoad=false;
   }
   awtHeadless=getProp(props,"java.awt.headless",null);
   if (awtHeadless != null) {
@@ -86,7 +93,7 @@ TimeZone.setDefault(TimeZone.getTimeZone(tzString));
 }
 instrumenterClassName=getProp(props,"ofbiz.instrumenterClassName",null);
 instrumenterFile=getProp(props,"ofbiz.instrumenterFile",null);
-loaders=new ArrayList<Map<String,String>>();
+List loadersTmp=new ArrayList<Map<String,String>>();
 int currentPosition=1;
 Map<String,String> loader=null;
 while (true) {
@@ -98,8 +105,9 @@ break;
  else {
 loader.put("class",loaderClass);
 loader.put("profiles",props.getProperty("ofbiz.start.loader" + currentPosition + ".loaders"));
-loaders.add(loader);
+loadersTmp.add(Collections.unmodifiableMap(loader));
 currentPosition++;
 }
 }
+loaders=Collections.unmodifiableList(loadersTmp);
 }
