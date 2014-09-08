@@ -1,0 +1,86 @@
+{
+  if (!inheritedParameters) {
+    if (this.engineName.equals("group") && implServices.size() == 0) {
+      GroupModel group=internalGroup;
+      if (group == null) {
+        group=ServiceGroupReader.getGroupModel(this.location);
+      }
+      if (group != null) {
+        for (        GroupServiceModel sm : group.getServices()) {
+          implServices.add(new ModelServiceIface(sm.getName(),sm.isOptional()));
+          if (Debug.verboseOn())           Debug.logVerbose("Adding service [" + sm.getName() + "] as interface of: ["+ this.name+ "]",module);
+        }
+      }
+    }
+    if (UtilValidate.isNotEmpty(implServices) && serviceMap != null) {
+      for (      ModelServiceIface iface : implServices) {
+        String serviceName=iface.getService();
+        boolean optional=iface.isOptional();
+        ModelService model=serviceMap.get(serviceName);
+        if (model != null) {
+          if (!model.inheritedParameters()) {
+            model.interfaceUpdate(serviceMap);
+          }
+          for (          ModelParam newParam : model.contextParamList) {
+            ModelParam existingParam=this.contextInfo.get(newParam.name);
+            if (existingParam != null) {
+              if (!"INOUT".equals(existingParam.mode) && !existingParam.mode.equals(newParam.mode)) {
+                existingParam.mode="INOUT";
+                if (existingParam.optional || newParam.optional) {
+                  existingParam.optional=true;
+                }
+              }
+            }
+ else {
+              ModelParam newParamClone=new ModelParam(newParam);
+              if (optional) {
+                newParamClone.optional=true;
+              }
+              this.addParam(newParamClone);
+            }
+          }
+        }
+ else {
+          Debug.logWarning("Inherited model [" + serviceName + "] not found for ["+ this.name+ "]",module);
+        }
+      }
+    }
+    if (UtilValidate.isNotEmpty(overrideParameters)) {
+      for (      ModelParam overrideParam : overrideParameters) {
+        ModelParam existingParam=contextInfo.get(overrideParam.name);
+        contextParamList.remove(existingParam);
+        if (existingParam != null) {
+          if (UtilValidate.isNotEmpty(overrideParam.type)) {
+            existingParam.type=overrideParam.type;
+          }
+          if (UtilValidate.isNotEmpty(overrideParam.mode)) {
+            existingParam.mode=overrideParam.mode;
+          }
+          if (UtilValidate.isNotEmpty(overrideParam.entityName)) {
+            existingParam.entityName=overrideParam.entityName;
+          }
+          if (UtilValidate.isNotEmpty(overrideParam.fieldName)) {
+            existingParam.fieldName=overrideParam.fieldName;
+          }
+          if (UtilValidate.isNotEmpty(overrideParam.formLabel)) {
+            existingParam.formLabel=overrideParam.formLabel;
+          }
+          if (overrideParam.getDefaultValue() != null) {
+            existingParam.copyDefaultValue(overrideParam);
+          }
+          if (overrideParam.overrideFormDisplay) {
+            existingParam.formDisplay=overrideParam.formDisplay;
+          }
+          if (overrideParam.overrideOptional) {
+            existingParam.optional=overrideParam.optional;
+          }
+          addParam(existingParam);
+        }
+ else {
+          Debug.logWarning("Override param found but no parameter existing; ignoring: " + overrideParam.name,module);
+        }
+      }
+    }
+    this.inheritedParameters=true;
+  }
+}

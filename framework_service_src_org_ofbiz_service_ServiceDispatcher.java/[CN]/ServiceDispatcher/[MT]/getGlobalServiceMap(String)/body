@@ -1,0 +1,44 @@
+{
+  Map<String,ModelService> serviceMap=modelServiceMapByModel.get(model);
+  if (serviceMap == null) {
+    serviceMap=new HashMap<String,ModelService>();
+    List<Future<Map<String,ModelService>>> futures=new LinkedList<Future<Map<String,ModelService>>>();
+    List<GlobalServices> globalServicesList=null;
+    try {
+      globalServicesList=ServiceConfigUtil.getServiceEngine().getGlobalServices();
+    }
+ catch (    GenericConfigException e) {
+      Debug.logError(e,module);
+      throw new RuntimeException(e.getMessage());
+    }
+    for (    GlobalServices globalServices : globalServicesList) {
+      ResourceHandler handler=new MainResourceHandler(ServiceConfigUtil.SERVICE_ENGINE_XML_FILENAME,globalServices.getLoader(),globalServices.getLocation());
+      futures.add(ExecutionPool.GLOBAL_FORK_JOIN.submit(createServiceReaderCallable(handler)));
+    }
+    for (    ComponentConfig.ServiceResourceInfo componentResourceInfo : ComponentConfig.getAllServiceResourceInfos("model")) {
+      futures.add(ExecutionPool.GLOBAL_FORK_JOIN.submit(createServiceReaderCallable(componentResourceInfo.createResourceHandler())));
+    }
+    for (    Map<String,ModelService> servicesMap : ExecutionPool.getAllFutures(futures)) {
+      if (servicesMap != null) {
+        serviceMap.putAll(servicesMap);
+      }
+    }
+    for (    ModelService modelService : serviceMap.values()) {
+      if (!modelService.inheritedParameters()) {
+        try {
+          modelService.interfaceUpdate(serviceMap);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          throw new RuntimeException(e.getMessage());
+        }
+      }
+    }
+    serviceMap=Collections.unmodifiableMap(serviceMap);
+    Map<String,ModelService> cachedServiceMap=modelServiceMapByModel.putIfAbsentAndGet(model,serviceMap);
+    if (cachedServiceMap == serviceMap) {
+      ServiceEcaUtil.reloadConfig();
+    }
+  }
+  return serviceMap;
+}
