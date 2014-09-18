@@ -1,42 +1,30 @@
 {
   Debug.logInfo("Creating context [" + appInfo.name + "]",module);
-  final Engine engine=engines.get(appInfo.server);
-  if (engine == null) {
-    Debug.logWarning("Server with name [" + appInfo.server + "] not found; not mounting ["+ appInfo.name+ "]",module);
-    return null;
-  }
+  final Engine engine=tomcat.getEngine();
   List<String> virtualHosts=appInfo.getVirtualHosts();
   final Host host;
   if (UtilValidate.isEmpty(virtualHosts)) {
-    host=hosts.get(engine.getName() + "._DEFAULT");
+    host=tomcat.getHost();
   }
  else {
     Iterator<String> vhi=virtualHosts.iterator();
     String hostName=vhi.next();
-    boolean newHost=false;
-    if (hosts.containsKey(engine.getName() + "." + hostName)) {
-      host=hosts.get(engine.getName() + "." + hostName);
+    org.apache.catalina.Container childContainer=engine.findChild(hostName);
+    if (childContainer instanceof Host) {
+      host=(Host)childContainer;
     }
  else {
       host=createHost(engine,hostName);
-      newHost=true;
+      engine.addChild(host);
     }
     while (vhi.hasNext()) {
       host.addAlias(vhi.next());
     }
-    if (newHost) {
-      hosts.put(engine.getName() + "." + hostName,host);
-      engine.addChild(host);
-    }
-  }
-  if (host instanceof StandardHost) {
-    StandardHost standardHost=(StandardHost)host;
-    standardHost.setWorkDir(new File(System.getProperty(Globals.CATALINA_HOME_PROP),"work" + File.separator + engine.getName()+ File.separator+ host.getName()).getAbsolutePath());
   }
   return new Callable<Context>(){
     public Context call() throws ContainerException, LifecycleException {
       StandardContext context=configureContext(engine,host,appInfo);
-      context.setParent(host);
+      host.addChild(context);
       return context;
     }
   }

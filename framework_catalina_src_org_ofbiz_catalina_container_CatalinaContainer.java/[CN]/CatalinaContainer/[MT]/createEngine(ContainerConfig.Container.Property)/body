@@ -8,9 +8,8 @@
   }
   String engineName=engineConfig.name;
   String hostName=defaultHostProp.value;
-  StandardEngine engine=new StandardEngine();
+  Engine engine=tomcat.getEngine();
   engine.setName(engineName);
-  engine.setDefaultHost(hostName);
   String jvmRoute=ContainerConfig.getPropertyValue(engineConfig,"jvm-route",null);
   if (jvmRoute != null) {
     engine.setJvmRoute(jvmRoute);
@@ -19,10 +18,9 @@
   MemoryRealm realm=new MemoryRealm();
   realm.setPathname(dbConfigPath);
   engine.setRealm(realm);
-  engines.put(engine.getName(),engine);
   Host host=createHost(engine,hostName);
-  hosts.put(engineName + "._DEFAULT",host);
   engine.addChild(host);
+  engine.setDefaultHost(hostName);
   List<ContainerConfig.Container.Property> clusterProps=engineConfig.getPropertiesWithValue("cluster");
   if (clusterProps != null && clusterProps.size() > 1) {
     throw new ContainerException("Only one cluster configuration allowed per engine");
@@ -35,7 +33,7 @@
   boolean enableSessionValve=ContainerConfig.getPropertyValue(engineConfig,"enable-cross-subdomain-sessions",false);
   if (enableSessionValve) {
     CrossSubdomainSessionValve sessionValve=new CrossSubdomainSessionValve();
-    engine.addValve(sessionValve);
+    ((StandardEngine)engine).addValve(sessionValve);
   }
   String logDir=ContainerConfig.getPropertyValue(engineConfig,"access-log-dir",null);
   AccessLogValve al=null;
@@ -55,7 +53,7 @@
     Integer sslAcceleratorPort=Integer.valueOf(sslAcceleratorPortStr);
     SslAcceleratorValve sslAcceleratorValve=new SslAcceleratorValve();
     sslAcceleratorValve.setSslAcceleratorPort(sslAcceleratorPort);
-    engine.addValve(sslAcceleratorValve);
+    ((StandardEngine)engine).addValve(sslAcceleratorValve);
   }
   String alp2=ContainerConfig.getPropertyValue(engineConfig,"access-log-pattern",null);
   if (al != null && !UtilValidate.isEmpty(alp2)) {
@@ -70,8 +68,7 @@
     al.setRotatable(alp5);
   }
   if (al != null) {
-    engine.addValve(al);
+    ((StandardEngine)engine).addValve(al);
   }
-  tomcat.getService().setContainer(engine);
   return engine;
 }
