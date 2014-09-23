@@ -2,6 +2,7 @@
   if (isLegacy) {
     throw new RuntimeException("Cannot run checkDb on a legacy database connection; configure a database helper (entityengine.xml)");
   }
+  ExecutorService executor=Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
   UtilTimer timer=new UtilTimer();
   timer.timerString("Start - Before Get Database Meta Data");
   TreeSet<String> tableNames=this.getTableNames(messages);
@@ -14,7 +15,7 @@
     return;
   }
   timer.timerString("After Get All Table Names");
-  Map<String,Map<String,ColumnCheckInfo>> colInfo=this.getColumnInfo(tableNames,checkPks,messages);
+  Map<String,Map<String,ColumnCheckInfo>> colInfo=getColumnInfo(tableNames,checkPks,messages,executor);
   if (colInfo == null) {
     String message="Could not get column information from the database, aborting.";
     if (messages != null)     messages.add(message);
@@ -195,7 +196,7 @@
       Debug.logWarning(message,module);
       if (messages != null)       messages.add(message);
       if (addMissing) {
-        tableFutures.add(submitWork(new CreateTableCallable(entity,modelEntities,tableName)));
+        tableFutures.add(executor.submit(new CreateTableCallable(entity,modelEntities,tableName)));
       }
     }
   }
@@ -213,7 +214,7 @@
     List<Future<AbstractCountingCallable>> fkIndicesFutures=new LinkedList<Future<AbstractCountingCallable>>();
     for (    ModelEntity curEntity : entitiesAdded) {
       if (curEntity.getRelationsOneSize() > 0) {
-        fkIndicesFutures.add(submitWork(new AbstractCountingCallable(curEntity,modelEntities){
+        fkIndicesFutures.add(executor.submit(new AbstractCountingCallable(curEntity,modelEntities){
           public AbstractCountingCallable call() throws Exception {
             count=createForeignKeyIndices(entity,datasourceInfo.getConstraintNameClipLength(),messages);
             return this;
@@ -239,7 +240,7 @@
     List<Future<AbstractCountingCallable>> disFutures=new LinkedList<Future<AbstractCountingCallable>>();
     for (    ModelEntity curEntity : entitiesAdded) {
       if (curEntity.getIndexesSize() > 0) {
-        disFutures.add(submitWork(new AbstractCountingCallable(curEntity,modelEntities){
+        disFutures.add(executor.submit(new AbstractCountingCallable(curEntity,modelEntities){
           public AbstractCountingCallable call() throws Exception {
             count=createDeclaredIndices(entity,messages);
             return this;
@@ -441,5 +442,6 @@
     }
     if (numIndicesCreated > 0 && Debug.infoOn())     Debug.logInfo("Created " + numIndicesCreated + " indices",module);
   }
+  executor.shutdown();
   timer.timerString("Finished Checking Entity Database");
 }
