@@ -8,7 +8,7 @@
   boolean purchaseReturnFound=false;
   List<String> invoicesCreated=FastList.newInstance();
   try {
-    GenericValue shipment=delegator.findOne("Shipment",UtilMisc.toMap("shipmentId",shipmentId),false);
+    GenericValue shipment=EntityQuery.use(delegator).from("Shipment").where("shipmentId",shipmentId).queryOne();
     if (shipment == null) {
       return ServiceUtil.returnError(errorMsg + UtilProperties.getMessage(resource,"AccountingShipmentNotFound",locale));
     }
@@ -40,18 +40,18 @@
         returnId=item.getString("returnId");
       }
  else       if (item.getEntityName().equals("ItemIssuance")) {
-        GenericValue returnItemShipment=EntityUtil.getFirst(delegator.findByAnd("ReturnItemShipment",UtilMisc.toMap("shipmentId",item.getString("shipmentId"),"shipmentItemSeqId",item.getString("shipmentItemSeqId")),null,false));
+        GenericValue returnItemShipment=EntityQuery.use(delegator).from("ReturnItemShipment").where("shipmentId",item.get("shipmentId"),"shipmentItemSeqId",item.get("shipmentItemSeqId")).queryFirst();
         returnId=returnItemShipment.getString("returnId");
         returnItemSeqId=returnItemShipment.getString("returnItemSeqId");
       }
-      List<GenericValue> billings=null;
+      Long billingCount=0L;
       if (item.getEntityName().equals("ShipmentReceipt")) {
-        billings=delegator.findByAnd("ReturnItemBilling",UtilMisc.toMap("shipmentReceiptId",item.getString("receiptId"),"returnId",returnId,"returnItemSeqId",item.get("returnItemSeqId")),null,false);
+        billingCount=EntityQuery.use(delegator).from("ReturnItemBilling").where("shipmentReceiptId",item.get("receiptId"),"returnId",returnId,"returnItemSeqId",item.get("returnItemSeqId")).queryCount();
       }
  else       if (item.getEntityName().equals("ItemIssuance")) {
-        billings=delegator.findByAnd("ReturnItemBilling",UtilMisc.toMap("returnId",returnId,"returnItemSeqId",returnItemSeqId),null,false);
+        billingCount=EntityQuery.use(delegator).from("ReturnItemBilling").where("returnId",returnId,"returnItemSeqId",returnItemSeqId).queryCount();
       }
-      if (UtilValidate.isNotEmpty(billings))       continue;
+      if (billingCount > 0)       continue;
       List<GenericValue> billItems=itemsShippedGroupedByReturn.get(returnId);
       if (billItems == null) {
         billItems=FastList.newInstance();

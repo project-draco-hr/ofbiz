@@ -9,7 +9,7 @@
   Locale locale=(Locale)context.get("locale");
   Map<String,Object> results=ServiceUtil.returnSuccess();
   try {
-    GenericValue invoice=delegator.findOne("Invoice",UtilMisc.toMap("invoiceId",invoiceId),false);
+    GenericValue invoice=EntityQuery.use(delegator).from("Invoice").where("invoiceId",invoiceId).queryOne();
     Map<String,Object> paymentParams=UtilMisc.<String,Object>toMap("paymentTypeId","CUSTOMER_PAYMENT","paymentMethodTypeId","EXT_BILLACT","partyIdFrom",invoice.getString("partyId"),"partyIdTo",invoice.getString("partyIdFrom"),"statusId","PMNT_RECEIVED","effectiveDate",UtilDateTime.nowTimestamp());
     paymentParams.put("amount",captureAmount);
     paymentParams.put("currencyUomId",invoice.getString("currencyUomId"));
@@ -28,13 +28,12 @@
     }
     results.put("paymentId",paymentId);
     if (orderId != null && captureAmount.compareTo(BigDecimal.ZERO) > 0) {
-      GenericValue order=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
+      GenericValue order=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
       if (order == null) {
         return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingNoPaymentGatewayResponseCreatedForInvoice",UtilMisc.toMap("invoiceId",invoiceId,"billingAccountId",billingAccountId,"orderId",orderId),locale));
       }
-      List<GenericValue> orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId,"paymentMethodTypeId","EXT_BILLACT"),null,false);
-      if (orderPaymentPreferences.size() > 0) {
-        GenericValue orderPaymentPreference=EntityUtil.getFirst(orderPaymentPreferences);
+      GenericValue orderPaymentPreference=EntityQuery.use(delegator).from("OrderPaymentPreference").where("orderId",orderId,"paymentMethodTypeId","EXT_BILLACT").queryFirst();
+      if (orderPaymentPreference != null) {
         GenericValue productStore=order.getRelatedOne("ProductStore",false);
         if (productStore.getString("manualAuthIsCapture") == null || (!productStore.getString("manualAuthIsCapture").equalsIgnoreCase("Y"))) {
           String responseId=delegator.getNextSeqId("PaymentGatewayResponse");

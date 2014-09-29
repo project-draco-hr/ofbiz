@@ -14,7 +14,7 @@
     return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"AccountingNoOrderItemsToInvoice",locale));
   }
   try {
-    GenericValue orderHeader=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
+    GenericValue orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
     if (orderHeader == null) {
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingNoOrderHeader",locale));
     }
@@ -241,7 +241,7 @@
         return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingErrorCreatingOrderItemBillingFromOrder",locale),null,null,createOrderItemBillingResult);
       }
       if ("ItemIssuance".equals(currentValue.getEntityName())) {
-        List<GenericValue> shipmentItemBillings=delegator.findByAnd("ShipmentItemBilling",UtilMisc.toMap("shipmentId",currentValue.get("shipmentId"),"shipmentItemSeqId",currentValue.get("shipmentItemSeqId")),null,false);
+        List<GenericValue> shipmentItemBillings=EntityQuery.use(delegator).from("ShipmentItemBilling").where("shipmentId",currentValue.get("shipmentId"),"shipmentItemSeqId",currentValue.get("shipmentItemSeqId")).queryList();
         if (UtilValidate.isEmpty(shipmentItemBillings)) {
           GenericValue shipmentItemBilling=delegator.makeValue("ShipmentItemBilling",UtilMisc.toMap("invoiceId",invoiceId,"invoiceItemSeqId",invoiceItemSeqId));
           shipmentItemBilling.put("shipmentId",currentValue.get("shipmentId"));
@@ -252,7 +252,7 @@
       String parentInvoiceItemSeqId=invoiceItemSeqId;
       invoiceItemSeqNum++;
       invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
-      GenericValue originalOrderItem=delegator.findOne("OrderItem",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.getString("orderItemSeqId")),false);
+      GenericValue originalOrderItem=EntityQuery.use(delegator).from("OrderItem").where("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId")).queryOne();
       List<GenericValue> itemAdjustments=OrderReadHelper.getOrderItemAdjustmentList(orderItem,orh.getAdjustments());
       for (      GenericValue adj : itemAdjustments) {
         BigDecimal adjAlreadyInvoicedAmount=null;
@@ -422,8 +422,7 @@
       invoiceItemSeqNum++;
       invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
     }
-    List<EntityExpr> paymentPrefConds=UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
-    List<GenericValue> orderPaymentPrefs=delegator.findList("OrderPaymentPreference",EntityCondition.makeCondition(paymentPrefConds,EntityOperator.AND),null,null,null,false);
+    List<GenericValue> orderPaymentPrefs=EntityQuery.use(delegator).from("OrderPaymentPreference").where(UtilMisc.<EntityCondition>toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"))).queryList();
     List<GenericValue> currentPayments=FastList.newInstance();
     for (    GenericValue paymentPref : orderPaymentPrefs) {
       List<GenericValue> payments=paymentPref.getRelated("Payment",null,null,false);
