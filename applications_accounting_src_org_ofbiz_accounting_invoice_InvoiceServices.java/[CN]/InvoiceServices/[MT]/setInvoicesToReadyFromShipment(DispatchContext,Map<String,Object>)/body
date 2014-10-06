@@ -5,7 +5,7 @@
   Locale locale=(Locale)context.get("locale");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   try {
-    delegator.findOne("Shipment",UtilMisc.toMap("shipmentId",shipmentId),false);
+    EntityQuery.use(delegator).from("Shipment").where("shipmentId",shipmentId).queryOne();
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Trouble getting Shipment entity for shipment " + shipmentId,module);
@@ -13,10 +13,7 @@
   }
   List<GenericValue> itemIssuances=FastList.newInstance();
   try {
-    EntityFindOptions findOptions=new EntityFindOptions();
-    findOptions.setDistinct(true);
-    Set<String> fieldsToSelect=UtilMisc.toSet("orderId","shipmentId");
-    itemIssuances=delegator.findList("ItemIssuance",EntityCondition.makeCondition("shipmentId",shipmentId),fieldsToSelect,UtilMisc.toList("orderId"),findOptions,false);
+    itemIssuances=EntityQuery.use(delegator).select("orderId","shipmentId").from("ItemIssuance").orderBy("orderId").distinct().queryList();
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Problem getting issued items from shipments",module);
@@ -31,16 +28,15 @@
     String orderId=itemIssuance.getString("orderId");
     Map<String,Object> billFields=FastMap.newInstance();
     billFields.put("orderId",orderId);
-    List<GenericValue> orderItemBillings=FastList.newInstance();
+    GenericValue orderItemBilling=null;
     try {
-      orderItemBillings=delegator.findByAnd("OrderItemBilling",billFields,null,false);
+      orderItemBilling=EntityQuery.use(delegator).from("OrderItemBilling").where(billFields).queryFirst();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Problem looking up OrderItemBilling records for " + billFields,module);
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemLookingUpOrderItemBilling",UtilMisc.toMap("billFields",billFields),locale));
     }
-    if (orderItemBillings.size() != 0) {
-      GenericValue orderItemBilling=EntityUtil.getFirst(orderItemBillings);
+    if (orderItemBilling != null) {
       GenericValue invoice=null;
       try {
         invoice=orderItemBilling.getRelatedOne("Invoice",false);

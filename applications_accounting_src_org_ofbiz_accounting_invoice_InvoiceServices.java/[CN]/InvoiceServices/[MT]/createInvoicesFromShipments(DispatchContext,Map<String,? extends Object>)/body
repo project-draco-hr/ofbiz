@@ -11,7 +11,7 @@
   List<String> invoicesCreated=FastList.newInstance();
   for (  String tmpShipmentId : shipmentIds) {
     try {
-      GenericValue shipment=delegator.findOne("Shipment",UtilMisc.toMap("shipmentId",tmpShipmentId),false);
+      GenericValue shipment=EntityQuery.use(delegator).from("Shipment").where("shipmentId",tmpShipmentId).queryOne();
       if ((shipment.getString("shipmentTypeId") != null) && (shipment.getString("shipmentTypeId").equals("PURCHASE_SHIPMENT"))) {
         purchaseShipmentFound=true;
       }
@@ -30,35 +30,35 @@
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingTroubleGettingShipmentEntity",UtilMisc.toMap("tmpShipmentId",tmpShipmentId),locale));
     }
   }
-  EntityCondition shipmentIdsCond=EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds);
+  EntityQuery shipmentQuery=EntityQuery.use(delegator).where(EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds)).orderBy("shipmentId");
   List<GenericValue> items=null;
   List<GenericValue> orderItemAssocs=null;
   try {
     if (purchaseShipmentFound) {
-      items=delegator.findList("ShipmentReceipt",shipmentIdsCond,null,UtilMisc.toList("shipmentId"),null,false);
+      items=shipmentQuery.from("ShipmentReceipt").queryList();
       Iterator<GenericValue> itemsIter=items.iterator();
       while (itemsIter.hasNext()) {
         GenericValue item=itemsIter.next();
         GenericValue inventoryItem=item.getRelatedOne("InventoryItem",false);
-        GenericValue ownerPartyRole=delegator.findOne("PartyRole",UtilMisc.toMap("partyId",inventoryItem.getString("ownerPartyId"),"roleTypeId","INTERNAL_ORGANIZATIO"),true);
+        GenericValue ownerPartyRole=EntityQuery.use(delegator).from("PartyRole").where("partyId",inventoryItem.get("ownerPartyId"),"roleTypeId","INTERNAL_ORGANIZATIO").cache().queryOne();
         if (UtilValidate.isEmpty(ownerPartyRole)) {
           itemsIter.remove();
         }
       }
     }
  else     if (dropShipmentFound) {
-      List<GenericValue> shipments=delegator.findList("Shipment",shipmentIdsCond,null,null,null,false);
+      List<GenericValue> shipments=shipmentQuery.from("Shipment").queryList();
       List<String> purchaseOrderIds=EntityUtil.getFieldListFromEntityList(shipments,"primaryOrderId",true);
       if (createSalesInvoicesForDropShipments) {
-        orderItemAssocs=delegator.findList("OrderItemAssoc",EntityCondition.makeCondition("toOrderId",EntityOperator.IN,purchaseOrderIds),null,null,null,false);
+        orderItemAssocs=EntityQuery.use(delegator).from("OrderItemAssoc").where(EntityCondition.makeCondition("toOrderId",EntityOperator.IN,purchaseOrderIds)).queryList();
         items=EntityUtil.getRelated("FromOrderItem",null,orderItemAssocs,false);
       }
  else {
-        items=delegator.findList("OrderItem",EntityCondition.makeCondition("orderId",EntityOperator.IN,purchaseOrderIds),null,null,null,false);
+        items=EntityQuery.use(delegator).from("OrderItem").where(EntityCondition.makeCondition("orderId",EntityOperator.IN,purchaseOrderIds)).queryList();
       }
     }
  else {
-      items=delegator.findList("ItemIssuance",shipmentIdsCond,null,UtilMisc.toList("shipmentId"),null,false);
+      items=shipmentQuery.from("ItemIssuance").queryList();
     }
   }
  catch (  GenericEntityException e) {
@@ -94,7 +94,7 @@
     }
     List<GenericValue> itemBillings=null;
     try {
-      itemBillings=delegator.findList("OrderItemBillingAndInvoiceAndItem",EntityCondition.makeCondition(billFields,EntityOperator.AND),null,null,null,false);
+      itemBillings=EntityQuery.use(delegator).from("OrderItemBillingAndInvoiceAndItem").where(billFields).queryList();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,"Problem looking up OrderItemBilling records for " + billFields,module);
@@ -136,7 +136,7 @@
             orderItem.set("quantity",purchaseOrderItem.getBigDecimal("quantity"));
             issueQty=purchaseOrderItem.getBigDecimal("quantity");
           }
-          billed=delegator.findList("OrderItemBillingAndInvoiceAndItem",EntityCondition.makeCondition(lookup,EntityOperator.AND),null,null,null,false);
+          billed=EntityQuery.use(delegator).from("OrderItemBillingAndInvoiceAndItem").where(lookup).queryList();
         }
  catch (        GenericEntityException e) {
           Debug.logError(e,"Problem getting OrderItem/OrderItemBilling records " + lookup,module);
@@ -191,14 +191,13 @@
             invoiceablePrimaryOrderIds=EntityUtil.getFieldListFromEntityList(toBillItems,"orderId",true);
           }
           if (!UtilValidate.isEmpty(invoiceablePrimaryOrderIds)) {
-            List<EntityExpr> invoiceableShipmentConds=UtilMisc.toList(EntityCondition.makeCondition("primaryOrderId",EntityOperator.IN,invoiceablePrimaryOrderIds),EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds));
-            invoiceableShipments=delegator.findList("Shipment",EntityCondition.makeCondition(invoiceableShipmentConds,EntityOperator.AND),null,null,null,false);
+            invoiceableShipments=EntityQuery.use(delegator).from("Shipment").where(UtilMisc.toList(EntityCondition.makeCondition("primaryOrderId",EntityOperator.IN,invoiceablePrimaryOrderIds),EntityCondition.makeCondition("shipmentId",EntityOperator.IN,shipmentIds))).queryList();
           }
         }
  else {
           List<String> invoiceableShipmentIds=EntityUtil.getFieldListFromEntityList(toBillItems,"shipmentId",true);
           if (UtilValidate.isNotEmpty(invoiceableShipmentIds)) {
-            invoiceableShipments=delegator.findList("Shipment",EntityCondition.makeCondition("shipmentId",EntityOperator.IN,invoiceableShipmentIds),null,null,null,false);
+            invoiceableShipments=EntityQuery.use(delegator).from("Shipment").where(EntityCondition.makeCondition("shipmentId",EntityOperator.IN,invoiceableShipmentIds)).queryList();
           }
         }
       }
@@ -291,7 +290,7 @@
           }
           List<GenericValue> orderPaymentPreferences=null;
           try {
-            orderPaymentPreferences=delegator.findByAnd("OrderPaymentPreference",UtilMisc.toMap("orderId",orderId,"paymentMethodTypeId","CREDIT_CARD"),null,false);
+            orderPaymentPreferences=EntityQuery.use(delegator).from("OrderPaymentPreference").where("orderId",orderId,"paymentMethodTypeId","CREDIT_CARD").queryList();
           }
  catch (          GenericEntityException e) {
             Debug.logError(e,"Problem getting OrderPaymentPreference records",module);
@@ -357,16 +356,15 @@
       Debug.logInfo(UtilProperties.getMessage(resource,"AccountingIgnoringAdditionalShipCharges",UtilMisc.toMap("productStoreId",orh.getProductStoreId()),locale),module);
     }
     String invoiceId=null;
-    List<GenericValue> shipmentItemBillings=null;
+    GenericValue shipmentItemBilling=null;
     String shipmentId=shipmentIds.get(0);
     try {
-      shipmentItemBillings=delegator.findByAnd("ShipmentItemBilling",UtilMisc.toMap("shipmentId",shipmentId),null,false);
+      shipmentItemBilling=EntityQuery.use(delegator).from("ShipmentItemBilling").where("shipmentId",shipmentId).queryFirst();
     }
  catch (    GenericEntityException e) {
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingShipmentItemBilling",locale));
     }
-    if (UtilValidate.isNotEmpty(shipmentItemBillings)) {
-      GenericValue shipmentItemBilling=EntityUtil.getFirst(shipmentItemBillings);
+    if (shipmentItemBilling != null) {
       invoiceId=shipmentItemBilling.getString("invoiceId");
     }
     Map<String,Object> serviceContext=UtilMisc.toMap("orderId",orderId,"billItems",toBillItems,"invoiceId",invoiceId,"eventDate",context.get("eventDate"),"userLogin",context.get("userLogin"));
