@@ -4,10 +4,9 @@
   ptiConditionList.add(EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp));
   ptiConditionList.add(EntityCondition.makeCondition(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN,nowTimestamp)));
   EntityCondition ptiCondition=EntityCondition.makeCondition(ptiConditionList,EntityOperator.AND);
-  List<GenericValue> partyTaxInfos=delegator.findList("PartyTaxAuthInfo",ptiCondition,null,UtilMisc.toList("-fromDate"),null,false);
+  GenericValue partyTaxInfo=EntityQuery.use(delegator).from("PartyTaxAuthInfo").where(ptiCondition).orderBy("-fromDate").queryFirst();
   boolean foundExemption=false;
-  if (partyTaxInfos.size() > 0) {
-    GenericValue partyTaxInfo=partyTaxInfos.get(0);
+  if (partyTaxInfo != null) {
     adjValue.set("customerReferenceId",partyTaxInfo.get("partyTaxId"));
     if ("Y".equals(partyTaxInfo.getString("isExempt"))) {
       adjValue.set("amount",BigDecimal.ZERO);
@@ -16,9 +15,7 @@
     }
   }
   if (!foundExemption) {
-    List<GenericValue> taxAuthorityAssocList=delegator.findByAnd("TaxAuthorityAssoc",UtilMisc.toMap("toTaxAuthGeoId",taxAuthGeoId,"toTaxAuthPartyId",taxAuthPartyId,"taxAuthorityAssocTypeId","EXEMPT_INHER"),UtilMisc.toList("-fromDate"),true);
-    taxAuthorityAssocList=EntityUtil.filterByDate(taxAuthorityAssocList,true);
-    GenericValue taxAuthorityAssoc=EntityUtil.getFirst(taxAuthorityAssocList);
+    GenericValue taxAuthorityAssoc=EntityQuery.use(delegator).from("TaxAuthorityAssoc").where("toTaxAuthGeoId",taxAuthGeoId,"toTaxAuthPartyId",taxAuthPartyId,"taxAuthorityAssocTypeId","EXEMPT_INHER").orderBy("-fromDate").filterByDate().queryFirst();
     if (taxAuthorityAssoc != null) {
       handlePartyTaxExempt(adjValue,billToPartyIdSet,taxAuthorityAssoc.getString("taxAuthGeoId"),taxAuthorityAssoc.getString("taxAuthPartyId"),taxAmount,nowTimestamp,delegator);
     }

@@ -35,8 +35,7 @@
  else {
         productIdCond=EntityCondition.makeCondition("productId",EntityOperator.EQUALS,product.getString("productId"));
       }
-      List<GenericValue> pcmList=delegator.findList("ProductCategoryMember",productIdCond,UtilMisc.toSet("productCategoryId","fromDate","thruDate"),null,null,true);
-      pcmList=EntityUtil.filterByDate(pcmList,true);
+      List<GenericValue> pcmList=EntityQuery.use(delegator).select("productCategoryId","fromDate","thruDate").from("ProductCategoryMember").where(productIdCond).cache().filterByDate().queryList();
       for (      GenericValue pcm : pcmList) {
         productCategoryIdSet.add(pcm.getString("productCategoryId"));
       }
@@ -66,14 +65,12 @@
     mainExprs.add(EntityCondition.makeCondition(EntityCondition.makeCondition("minItemPrice",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("minItemPrice",EntityOperator.LESS_THAN_EQUAL_TO,itemPrice)));
     mainExprs.add(EntityCondition.makeCondition(EntityCondition.makeCondition("minPurchase",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("minPurchase",EntityOperator.LESS_THAN_EQUAL_TO,itemAmount)));
     EntityCondition mainCondition=EntityCondition.makeCondition(mainExprs,EntityOperator.AND);
-    List<String> orderList=UtilMisc.<String>toList("minItemPrice","minPurchase","fromDate");
-    List<GenericValue> lookupList=delegator.findList("TaxAuthorityRateProduct",mainCondition,null,orderList,null,false);
-    List<GenericValue> filteredList=EntityUtil.filterByDate(lookupList,true);
-    if (filteredList.size() == 0) {
+    List<GenericValue> lookupList=EntityQuery.use(delegator).from("TaxAuthorityRateProduct").where(mainCondition).orderBy("minItemPrice","minPurchase","fromDate").filterByDate().queryList();
+    if (lookupList.size() == 0) {
       Debug.logWarning("In TaxAuthority Product Rate no records were found for condition:" + mainCondition.toString(),module);
       return adjustments;
     }
-    for (    GenericValue taxAuthorityRateProduct : filteredList) {
+    for (    GenericValue taxAuthorityRateProduct : lookupList) {
       BigDecimal taxRate=taxAuthorityRateProduct.get("taxPercentage") != null ? taxAuthorityRateProduct.getBigDecimal("taxPercentage") : ZERO_BASE;
       BigDecimal taxable=ZERO_BASE;
       if (product != null && (product.get("taxable") == null || (product.get("taxable") != null && product.getBoolean("taxable").booleanValue()))) {
@@ -91,7 +88,7 @@
       BigDecimal taxAmount=(taxable.multiply(taxRate)).divide(PERCENT_SCALE,salestaxCalcDecimals,salestaxRounding);
       String taxAuthGeoId=taxAuthorityRateProduct.getString("taxAuthGeoId");
       String taxAuthPartyId=taxAuthorityRateProduct.getString("taxAuthPartyId");
-      GenericValue taxAuthorityGlAccount=delegator.findOne("TaxAuthorityGlAccount",UtilMisc.toMap("taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"organizationPartyId",payToPartyId),false);
+      GenericValue taxAuthorityGlAccount=EntityQuery.use(delegator).from("TaxAuthorityGlAccount").where("taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"organizationPartyId",payToPartyId).queryOne();
       String taxAuthGlAccountId=null;
       if (taxAuthorityGlAccount != null) {
         taxAuthGlAccountId=taxAuthorityGlAccount.getString("glAccountId");
@@ -100,10 +97,7 @@
       }
       GenericValue productPrice=null;
       if (product != null && taxAuthPartyId != null && taxAuthGeoId != null) {
-        Map<String,String> priceFindMap=UtilMisc.toMap("productId",product.getString("productId"),"taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"productPricePurposeId","PURCHASE");
-        List<GenericValue> productPriceList=delegator.findByAnd("ProductPrice",priceFindMap,UtilMisc.toList("-fromDate"),false);
-        productPriceList=EntityUtil.filterByDate(productPriceList,true);
-        productPrice=(productPriceList != null && productPriceList.size() > 0) ? productPriceList.get(0) : null;
+        productPrice=EntityQuery.use(delegator).from("ProductPrice").where("productId",product.get("productId"),"taxAuthPartyId",taxAuthPartyId,"taxAuthGeoId",taxAuthGeoId,"productPricePurposeId","PURCHASE").orderBy("-fromDate").filterByDate().queryFirst();
       }
       GenericValue taxAdjValue=delegator.makeValue("OrderAdjustment");
       if (productPrice != null && "Y".equals(productPrice.getString("taxInPrice"))) {
@@ -126,7 +120,7 @@
       if (UtilValidate.isNotEmpty(billToPartyId) && UtilValidate.isNotEmpty(taxAuthGeoId)) {
         Set<String> billToPartyIdSet=FastSet.newInstance();
         billToPartyIdSet.add(billToPartyId);
-        List<GenericValue> partyRelationshipList=EntityUtil.filterByDate(delegator.findByAnd("PartyRelationship",UtilMisc.toMap("partyIdTo",billToPartyId,"partyRelationshipTypeId","GROUP_ROLLUP"),null,true),true);
+        List<GenericValue> partyRelationshipList=EntityQuery.use(delegator).from("PartyRelationship").where("partyIdTo",billToPartyId,"partyRelationshipTypeId","GROUP_ROLLUP").cache().filterByDate().queryList();
         for (        GenericValue partyRelationship : partyRelationshipList) {
           billToPartyIdSet.add(partyRelationship.getString("partyIdFrom"));
         }

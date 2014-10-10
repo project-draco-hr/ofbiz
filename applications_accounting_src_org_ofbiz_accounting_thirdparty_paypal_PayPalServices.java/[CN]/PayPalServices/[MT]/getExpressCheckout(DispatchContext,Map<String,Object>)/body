@@ -29,7 +29,7 @@
   }
   if (cart.getUserLogin() == null) {
     try {
-      GenericValue userLogin=delegator.findOne("UserLogin",false,"userLoginId","anonymous");
+      GenericValue userLogin=EntityQuery.use(delegator).from("UserLogin").where("userLoginId","anonymous").queryOne();
       try {
         cart.setUserLogin(userLogin,dispatcher);
       }
@@ -52,7 +52,7 @@
   if (partyId != null) {
     GenericValue party=null;
     try {
-      party=delegator.findOne("Party",false,"partyId",partyId);
+      party=EntityQuery.use(delegator).from("Party").where("partyId",partyId).queryOne();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
@@ -92,16 +92,15 @@
   String emailContactPurposeTypeId="PRIMARY_EMAIL";
   String emailAddress=decoder.get("EMAIL");
   if (!newParty) {
-    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(UtilMisc.toMap("partyId",partyId,"contactMechTypeId","EMAIL_ADDRESS")),EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("infoString"),EntityComparisonOperator.EQUALS,EntityFunction.UPPER(emailAddress)),EntityUtil.getFilterByDateExpr()));
+    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(UtilMisc.toMap("partyId",partyId,"contactMechTypeId","EMAIL_ADDRESS")),EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("infoString"),EntityComparisonOperator.EQUALS,EntityFunction.UPPER(emailAddress))));
     try {
-      GenericValue matchingEmail=EntityUtil.getFirst(delegator.findList("PartyAndContactMech",cond,null,UtilMisc.toList("fromDate"),null,false));
+      GenericValue matchingEmail=EntityQuery.use(delegator).from("PartyAndContactMech").where(cond).orderBy("fromDate").filterByDate().queryFirst();
       if (matchingEmail != null) {
         emailContactMechId=matchingEmail.getString("contactMechId");
       }
  else {
-        cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(UtilMisc.toMap("partyId",partyId,"contactMechTypeId","EMAIL_ADDRESS","contactMechPurposeTypeId","PRIMARY_EMAIL")),EntityCondition.makeConditionDate("contactFromDate","contactThruDate"),EntityCondition.makeConditionDate("purposeFromDate","purposeThruDate")));
-        List<GenericValue> primaryEmails=delegator.findList("PartyContactWithPurpose",cond,null,null,null,false);
-        if (UtilValidate.isNotEmpty(primaryEmails))         emailContactPurposeTypeId="BILLING_EMAIL";
+        long primaryEmails=EntityQuery.use(delegator).from("PartyContactWithPurpose").where("partyId",partyId,"contactMechTypeId","EMAIL_ADDRESS","contactMechPurposeTypeId","PRIMARY_EMAIL").filterByDate("contactFromDate","contactThruDate","purposeFromDate","purposeThruDate").queryCount();
+        if (primaryEmails > 0)         emailContactPurposeTypeId="BILLING_EMAIL";
       }
     }
  catch (    GenericEntityException e) {
@@ -166,13 +165,12 @@
   postalMap.put("stateProvinceGeoId",parseStateProvinceGeoId(decoder.get("SHIPTOSTATE"),countryGeoId,delegator));
   postalMap.put("postalCode",decoder.get("SHIPTOZIP"));
   if (!newParty) {
-    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(postalMap),EntityCondition.makeCondition(UtilMisc.toMap("attnName",null,"directions",null,"postalCodeExt",null,"postalCodeGeoId",null)),EntityUtil.getFilterByDateExpr(),EntityCondition.makeCondition("partyId",partyId)));
+    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(postalMap),EntityCondition.makeCondition(UtilMisc.toMap("attnName",null,"directions",null,"postalCodeExt",null,"postalCodeGeoId",null)),EntityCondition.makeCondition("partyId",partyId)));
     try {
-      GenericValue postalMatch=EntityUtil.getFirst(delegator.findList("PartyAndPostalAddress",cond,null,UtilMisc.toList("fromDate"),null,false));
+      GenericValue postalMatch=EntityQuery.use(delegator).from("PartyAndPostalAddress").where(cond).orderBy("fromDate").filterByDate().queryFirst();
       if (postalMatch != null) {
         postalContactId=postalMatch.getString("contactMechId");
-        EntityCondition purposeCond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(UtilMisc.toMap("partyId",partyId,"contactMechId",postalContactId)),EntityUtil.getFilterByDateExpr()));
-        List<GenericValue> postalPurposes=delegator.findList("PartyContactMechPurpose",purposeCond,null,null,null,false);
+        List<GenericValue> postalPurposes=EntityQuery.use(delegator).from("PartyContactMechPurpose").where("partyId",partyId,"contactMechId",postalContactId).filterByDate().queryList();
         List<Object> purposeStrings=EntityUtil.getFieldListFromEntityList(postalPurposes,"contactMechPurposeTypeId",false);
         if (UtilValidate.isNotEmpty(purposeStrings) && purposeStrings.contains("SHIPPING_LOCATION")) {
           needsShippingPurpose=false;
@@ -227,8 +225,7 @@
     cart.setAllCarrierPartyId(shipMethodSplit[0]);
     String shippingMethodTypeDesc=StringUtils.join(shipMethodSplit," - ",1,shipMethodSplit.length);
     try {
-      EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toMap("productStoreId",cart.getProductStoreId(),"partyId",shipMethodSplit[0],"roleTypeId","CARRIER","description",shippingMethodTypeDesc));
-      GenericValue shipmentMethod=EntityUtil.getFirst(delegator.findList("ProductStoreShipmentMethView",cond,null,null,null,false));
+      GenericValue shipmentMethod=EntityQuery.use(delegator).from("ProductStoreShipmentMethView").where("productStoreId",cart.getProductStoreId(),"partyId",shipMethodSplit[0],"roleTypeId","CARRIER","description",shippingMethodTypeDesc).queryFirst();
       cart.setAllShipmentMethodTypeId(shipmentMethod.getString("shipmentMethodTypeId"));
     }
  catch (    GenericEntityException e1) {
