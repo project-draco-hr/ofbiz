@@ -4,7 +4,7 @@
   String orderId=(String)request.getAttribute("orderId");
   GenericValue orderHeader=null;
   try {
-    orderHeader=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
+    orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
   }
  catch (  GenericEntityException e) {
     Debug.logError(e,"Cannot get the order header for order: " + orderId,module);
@@ -40,16 +40,15 @@
   String testMode=getPaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"testMode",configString,"payment.worldpay.testMode","100");
   GenericValue contactAddress=null;
   GenericValue contactAddressShip=null;
-  List<GenericValue> addresses=null;
-  List<GenericValue> shippingAddresses=null;
+  GenericValue addressOcm=null;
+  GenericValue shippingAddress=null;
   try {
-    addresses=delegator.findByAnd("OrderContactMech",UtilMisc.toMap("orderId",orderId,"contactMechPurposeTypeId","BILLING_LOCATION"),null,false);
-    shippingAddresses=delegator.findByAnd("OrderContactMech",UtilMisc.toMap("orderId",orderId,"contactMechPurposeTypeId","SHIPPING_LOCATION"),null,false);
-    if (addresses.size() == 0) {
-      addresses=shippingAddresses;
+    addressOcm=EntityQuery.use(delegator).from("OrderContactMech").where("orderId",orderId,"contactMechPurposeTypeId","BILLING_LOCATION").queryFirst();
+    shippingAddress=EntityQuery.use(delegator).from("OrderContactMech").where("orderId",orderId,"contactMechPurposeTypeId","SHIPPING_LOCATION").queryFirst();
+    if (addressOcm == null) {
+      addressOcm=shippingAddress;
     }
-    GenericValue contactMech=EntityUtil.getFirst(addresses);
-    contactAddress=delegator.findOne("PostalAddress",UtilMisc.toMap("contactMechId",contactMech.getString("contactMechId")),false);
+    contactAddress=EntityQuery.use(delegator).from("PostalAddress").where("contactMechId",addressOcm.getString("contactMechId")).queryOne();
   }
  catch (  GenericEntityException e) {
     Debug.logWarning(e,"Problems getting order contact information",module);
@@ -103,9 +102,8 @@
   String emailAddress=null;
   GenericValue emailContact=null;
   try {
-    List<GenericValue> emails=delegator.findByAnd("OrderContactMech",UtilMisc.toMap("orderId",orderId,"contactMechPurposeTypeId","ORDER_EMAIL"),null,false);
-    GenericValue firstEmail=EntityUtil.getFirst(emails);
-    emailContact=delegator.findOne("ContactMech",UtilMisc.toMap("contactMechId",firstEmail.getString("contactMechId")),false);
+    GenericValue emailOcm=EntityQuery.use(delegator).from("OrderContactMech").where("orderId",orderId,"contactMechPurposeTypeId","ORDER_EMAIL").queryFirst();
+    emailContact=emailOcm.getRelatedOne("ContactMech",false);
     emailAddress=emailContact.getString("infoString");
   }
  catch (  GenericEntityException e) {
@@ -114,10 +112,9 @@
   StringBuilder shipAddress=new StringBuilder();
   String shipPostalCode="";
   String shipName="";
-  if (shippingAddresses != null) {
+  if (shippingAddress != null) {
     try {
-      GenericValue contactMechShip=EntityUtil.getFirst(shippingAddresses);
-      contactAddressShip=delegator.findOne("PostalAddress",UtilMisc.toMap("contactMechId",contactMechShip.getString("contactMechId")),false);
+      contactAddressShip=EntityQuery.use(delegator).from("PostalAddress").where("contactMechId",shippingAddress.get("contactMechId")).queryOne();
       if (UtilValidate.isNotEmpty(contactAddressShip)) {
         if (UtilValidate.isNotEmpty(contactAddressShip.getString("attnName"))) {
           shipName=contactAddressShip.getString("attnName");
