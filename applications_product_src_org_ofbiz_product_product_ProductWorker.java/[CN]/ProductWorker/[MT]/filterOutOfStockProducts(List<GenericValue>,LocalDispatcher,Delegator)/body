@@ -1,0 +1,36 @@
+{
+  ArrayList<GenericValue> productsInStock=new ArrayList<GenericValue>();
+  if (UtilValidate.isNotEmpty(productsToFilter)) {
+    for (    GenericValue genericRecord : productsToFilter) {
+      String productId=genericRecord.getString("productId");
+      GenericValue product=null;
+      product=delegator.findOne("Product",UtilMisc.toMap("productId",productId),true);
+      Boolean isMarketingPackage=EntityTypeUtil.hasParentType(delegator,"ProductType","productTypeId",product.getString("productTypeId"),"parentTypeId","MARKETING_PKG");
+      if (UtilValidate.isNotEmpty(isMarketingPackage) && isMarketingPackage) {
+        Map<String,Object> resultOutput=new FastMap<String,Object>();
+        resultOutput=dispatcher.runSync("getMktgPackagesAvailable",UtilMisc.toMap("productId",productId));
+        Debug.logWarning("Error getting available marketing package.",module);
+        BigDecimal availableInventory=(BigDecimal)resultOutput.get("availableToPromiseTotal");
+        if (availableInventory.compareTo(BigDecimal.ZERO) > 0) {
+          productsInStock.add(genericRecord);
+        }
+      }
+ else {
+        List<GenericValue> facilities=delegator.findList("ProductFacility",EntityCondition.makeCondition("productId",EntityOperator.EQUALS,productId),null,null,null,false);
+        BigDecimal availableInventory=BigDecimal.ZERO;
+        if (UtilValidate.isNotEmpty(facilities)) {
+          for (          GenericValue facility : facilities) {
+            BigDecimal lastInventoryCount=facility.getBigDecimal("lastInventoryCount");
+            if (lastInventoryCount != null) {
+              availableInventory=lastInventoryCount.add(availableInventory);
+            }
+          }
+          if (availableInventory.compareTo(BigDecimal.ZERO) > 0) {
+            productsInStock.add(genericRecord);
+          }
+        }
+      }
+    }
+  }
+  return productsInStock;
+}
