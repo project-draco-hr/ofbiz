@@ -1,20 +1,18 @@
 {
-  GenericValue content;
   if (UtilValidate.isEmpty(contentId)) {
     Debug.logError("No content ID found.",module);
     return null;
   }
-  content=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),cache);
+  GenericValue content=EntityQuery.use(delegator).from("Content").where("contentId",contentId).cache(cache).queryOne();
   if (content == null) {
     throw new GeneralException("No content found for content ID [" + contentId + "]");
   }
   if ("WEB_SITE_PUB_PT".equals(content.get("contentTypeId")) && content.get("dataResourceId") == null) {
-    List<GenericValue> relContentIds=delegator.findByAnd("ContentAssocDataResourceViewTo",UtilMisc.toMap("contentIdStart",content.get("contentId"),"statusId","CTNT_PUBLISHED","caContentAssocTypeId","PUBLISH_LINK"),UtilMisc.toList("caFromDate"),true);
-    relContentIds=EntityUtil.filterByDate(relContentIds,UtilDateTime.nowTimestamp(),"caFromDate","caThruDate",true);
-    if (UtilValidate.isNotEmpty(relContentIds)) {
-      content=EntityUtil.getFirst(relContentIds);
+    GenericValue relContent=EntityQuery.use(delegator).from("ContentAssocDataResourceViewTo").where("contentIdStart",content.get("contentId"),"statusId","CTNT_PUBLISHED","caContentAssocTypeId","PUBLISH_LINK").orderBy("caFromDate").filterByDate("caFromDate","caThruDate").cache().queryFirst();
+    if (relContent != null) {
+      content=relContent;
     }
-    if (content == null) {
+    if (relContent == null) {
       throw new GeneralException("No related content found for publish point [" + contentId + "]");
     }
   }
