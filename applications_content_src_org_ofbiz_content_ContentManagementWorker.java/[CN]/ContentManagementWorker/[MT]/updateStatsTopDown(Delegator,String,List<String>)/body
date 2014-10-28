@@ -1,23 +1,19 @@
 {
   int subLeafCount=0;
-  GenericValue thisContent=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),false);
+  GenericValue thisContent=EntityQuery.use(delegator).from("Content").where("contentId",contentId).queryOne();
   if (thisContent == null)   throw new RuntimeException("No entity found for id=" + contentId);
-  EntityCondition conditionMain=null;
+  List<EntityCondition> conditionMain=new ArrayList<EntityCondition>();
+  conditionMain.add(EntityCondition.makeCondition("contentIdTo",contentId));
   if (typeList.size() > 0) {
-    EntityCondition conditionType=EntityCondition.makeCondition("contentAssocTypeId",EntityOperator.IN,typeList);
-    conditionMain=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("contentIdTo",EntityOperator.EQUALS,contentId),conditionType),EntityOperator.AND);
+    conditionMain.add(EntityCondition.makeCondition("contentAssocTypeId",EntityOperator.IN,typeList));
   }
- else {
-    conditionMain=EntityCondition.makeCondition("contentIdTo",EntityOperator.EQUALS,contentId);
-  }
-  List<GenericValue> listAll=delegator.findList("ContentAssoc",conditionMain,null,null,null,true);
-  List<GenericValue> listFiltered=EntityUtil.filterByDate(listAll);
-  for (  GenericValue contentAssoc : listFiltered) {
+  List<GenericValue> contentAssocs=EntityQuery.use(delegator).from("ContentAssoc").where(conditionMain).filterByDate().cache().queryList();
+  for (  GenericValue contentAssoc : contentAssocs) {
     String subContentId=contentAssoc.getString("contentId");
     subLeafCount+=updateStatsTopDown(delegator,subContentId,typeList);
   }
   if (subLeafCount == 0)   subLeafCount=1;
-  thisContent.put("childBranchCount",Long.valueOf(listFiltered.size()));
+  thisContent.put("childBranchCount",Long.valueOf(contentAssocs.size()));
   thisContent.put("childLeafCount",Long.valueOf(subLeafCount));
   thisContent.store();
   return subLeafCount;

@@ -9,12 +9,11 @@
       return fields;
     }
     try {
+      EntityQuery contentQuery=EntityQuery.use(delegator).from("Content").where("contentId",contentId);
       if (cache) {
-        this.fields=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),true);
+        contentQuery.cache();
       }
- else {
-        this.fields=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),false);
-      }
+      this.fields=contentQuery.queryOne();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
@@ -30,10 +29,8 @@
       Delegator delegator=(Delegator)request.getAttribute("delegator");
       String contentUri=this.contentId;
       if (webSiteId != null && delegator != null) {
-        EntityCondition condition=EntityCondition.makeCondition(UtilMisc.toMap("mapKey",null,"webSiteId",webSiteId,"contentId",this.contentId));
         try {
-          List<GenericValue> webSitePathAliases=delegator.findList("WebSitePathAlias",condition,null,null,null,true);
-          GenericValue webSitePathAlias=EntityUtil.getFirst(webSitePathAliases);
+          GenericValue webSitePathAlias=EntityQuery.use(delegator).from("WebSitePathAlias").where("mapKey",null,"webSiteId",webSiteId,"contentId",this.contentId).cache().queryFirst();
           if (webSitePathAlias != null) {
             contentUri=webSitePathAlias.getString("pathAlias");
           }
@@ -64,13 +61,12 @@
       if (!this.statusFilter.equals("")) {
         expressions.put("statusId",this.statusFilter);
       }
-      subs=delegator.findByAnd("ContentAssocViewTo",expressions,UtilMisc.toList(this.sortOrder),cache);
+      subs=EntityQuery.use(delegator).from("ContentAssocViewTo").where(expressions).orderBy(this.sortOrder).filterByDate().cache(cache).queryList();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
     }
     if (subs != null) {
-      subs=EntityUtil.filterByDate(subs);
       for (      GenericValue v : subs) {
         subContent.add(new ContentMapFacade(dispatcher,delegator,v.getString("contentId"),context,locale,mimeType,cache));
       }

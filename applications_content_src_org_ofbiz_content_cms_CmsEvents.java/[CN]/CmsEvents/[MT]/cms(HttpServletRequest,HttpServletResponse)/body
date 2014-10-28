@@ -45,15 +45,13 @@
     }
   }
   if (pathInfo == null) {
-    List<GenericValue> defaultContents=null;
+    GenericValue defaultContent=null;
     try {
-      defaultContents=delegator.findByAnd("WebSiteContent",UtilMisc.toMap("webSiteId",webSiteId,"webSiteContentTypeId","DEFAULT_PAGE"),UtilMisc.toList("-fromDate"),true);
+      defaultContent=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","DEFAULT_PAGE").orderBy("-fromDate").filterByDate().cache().queryFirst();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
     }
-    defaultContents=EntityUtil.filterByDate(defaultContents);
-    GenericValue defaultContent=EntityUtil.getFirst(defaultContents);
     if (defaultContent != null) {
       pathInfo=defaultContent.getString("contentId");
     }
@@ -68,7 +66,7 @@
     }
     GenericValue pathAlias=null;
     try {
-      pathAlias=delegator.findOne("WebSitePathAlias",UtilMisc.toMap("webSiteId",webSiteId,"pathAlias",pathInfo),true);
+      pathAlias=EntityQuery.use(delegator).from("WebSitePathAlias").where("webSiteId",webSiteId,"pathAlias",pathInfo).cache().queryOne();
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
@@ -116,28 +114,25 @@ catch (        IOException e) {
       throw new GeneralRuntimeException(e.getMessage(),e);
     }
     if (statusCode != HttpServletResponse.SC_OK) {
-      List<GenericValue> errorContainers=null;
+      GenericValue errorContainer=null;
       try {
-        errorContainers=delegator.findByAnd("WebSiteContent",UtilMisc.toMap("webSiteId",webSiteId,"webSiteContentTypeId","ERROR_ROOT"),UtilMisc.toList("-fromDate"),true);
+        errorContainer=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","ERROR_ROOT").orderBy("fromDate").filterByDate().cache().queryFirst();
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,module);
       }
-      errorContainers=EntityUtil.filterByDate(errorContainers);
-      if (UtilValidate.isNotEmpty(errorContainers)) {
-        if (Debug.verboseOn())         Debug.logVerbose("Found error containers: " + errorContainers,module);
-        GenericValue errorContainer=EntityUtil.getFirst(errorContainers);
-        List<GenericValue> errorPages=null;
+      if (errorContainer != null) {
+        if (Debug.verboseOn())         Debug.logVerbose("Found error containers: " + errorContainer,module);
+        GenericValue errorPage=null;
         try {
-          errorPages=delegator.findByAnd("ContentAssocViewTo",UtilMisc.toMap("contentIdStart",errorContainer.getString("contentId"),"caContentAssocTypeId","TREE_CHILD","contentTypeId","DOCUMENT","caMapKey",String.valueOf(statusCode)),null,false);
+          errorPage=EntityQuery.use(delegator).from("ContentAssocViewTo").where("contentIdStart",errorContainer.getString("contentId"),"caContentAssocTypeId","TREE_CHILD","contentTypeId","DOCUMENT","caMapKey",String.valueOf(statusCode)).filterByDate().queryFirst();
         }
  catch (        GenericEntityException e) {
           Debug.logError(e,module);
         }
-        errorPages=EntityUtil.filterByDate(errorPages);
-        if (UtilValidate.isNotEmpty(errorPages)) {
-          if (Debug.verboseOn())           Debug.logVerbose("Found error pages " + statusCode + " : "+ errorPages,module);
-          contentId=EntityUtil.getFirst(errorPages).getString("contentId");
+        if (errorPage != null) {
+          if (Debug.verboseOn())           Debug.logVerbose("Found error pages " + statusCode + " : "+ errorPage,module);
+          contentId=errorPage.getString("contentId");
         }
  else {
           if (Debug.verboseOn())           Debug.logVerbose("No specific error page, falling back to the Error Container for " + statusCode,module);
@@ -148,7 +143,7 @@ catch (        IOException e) {
       }
       if (!hasErrorPage) {
         try {
-          GenericValue errorPage=delegator.findOne("Content",UtilMisc.toMap("contentId","CONTENT_ERROR_" + statusCode),true);
+          GenericValue errorPage=EntityQuery.use(delegator).from("Content").where("contentId","CONTENT_ERROR_" + statusCode).cache().queryOne();
           if (errorPage != null) {
             Debug.logVerbose("Found generic page " + statusCode,module);
             contentId=errorPage.getString("contentId");
@@ -173,7 +168,7 @@ catch (        IOException e) {
         Writer writer=response.getWriter();
         FormStringRenderer formStringRenderer=new MacroFormRenderer(UtilProperties.getPropertyValue("widget","screen.formrenderer"),request,response);
         templateMap.put("formStringRenderer",formStringRenderer);
-        List<GenericValue> webAnalytics=delegator.findByAnd("WebAnalyticsConfig",UtilMisc.toMap("webSiteId",webSiteId),null,false);
+        List<GenericValue> webAnalytics=EntityQuery.use(delegator).from("WebAnalyticsConfig").where("webSiteId",webSiteId).queryList();
         if (UtilValidate.isNotEmpty(webAnalytics) && hasErrorPage) {
           ContentWorker.renderContentAsText(dispatcher,delegator,contentId,writer,templateMap,locale,"text/html",null,null,true,webAnalytics);
         }
@@ -199,7 +194,7 @@ catch (      GeneralException e) {
       String contentName=null;
       String siteName=null;
       try {
-        GenericValue content=delegator.findOne("Content",UtilMisc.toMap("contentId",contentId),true);
+        GenericValue content=EntityQuery.use(delegator).from("Content").where("contentId",contentId).cache().queryOne();
         if (content != null && UtilValidate.isNotEmpty(content)) {
           contentName=content.getString("contentName");
         }
@@ -207,7 +202,7 @@ catch (      GeneralException e) {
           request.setAttribute("_ERROR_MESSAGE_","Content: " + contentName + " ["+ contentId+ "] is not a publish point for the current website: ["+ webSiteId+ "]");
           return "error";
         }
-        siteName=delegator.findOne("WebSite",UtilMisc.toMap("webSiteId",webSiteId),true).getString("siteName");
+        siteName=EntityQuery.use(delegator).from("WebSite").where("webSiteId",webSiteId).cache().queryOne().getString("siteName");
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,module);
@@ -219,7 +214,7 @@ catch (      GeneralException e) {
   String siteName=null;
   GenericValue webSite=null;
   try {
-    webSite=delegator.findOne("WebSite",UtilMisc.toMap("webSiteId",webSiteId),true);
+    webSite=EntityQuery.use(delegator).from("WebSite").where("webSiteId",webSiteId).cache().queryOne();
     if (webSite != null) {
       siteName=webSite.getString("siteName");
     }

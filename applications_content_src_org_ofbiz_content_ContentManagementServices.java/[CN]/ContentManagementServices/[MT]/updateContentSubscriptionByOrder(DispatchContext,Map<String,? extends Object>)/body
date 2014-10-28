@@ -7,9 +7,8 @@
   Debug.logInfo("In updateContentSubscriptionByOrder service with orderId: " + orderId,module);
   GenericValue orderHeader=null;
   try {
-    List<GenericValue> orderRoleList=delegator.findByAnd("OrderRole",UtilMisc.toMap("orderId",orderId,"roleTypeId","END_USER_CUSTOMER"),null,false);
-    if (orderRoleList.size() > 0) {
-      GenericValue orderRole=orderRoleList.get(0);
+    GenericValue orderRole=EntityQuery.use(delegator).from("OrderRole").where("orderId",orderId,"roleTypeId","END_USER_CUSTOMER").queryFirst();
+    if (orderRole != null) {
       String partyId=(String)orderRole.get("partyId");
       context.put("partyId",partyId);
     }
@@ -17,7 +16,7 @@
       String msg="No OrderRole found for orderId:" + orderId;
       return ServiceUtil.returnFailure(msg);
     }
-    orderHeader=delegator.findOne("OrderHeader",UtilMisc.toMap("orderId",orderId),false);
+    orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
     if (orderHeader == null) {
       String msg="No OrderHeader found for orderId:" + orderId;
       return ServiceUtil.returnError(msg);
@@ -29,9 +28,8 @@
     for (    GenericValue orderItem : orderItemList) {
       BigDecimal qty=orderItem.getBigDecimal("quantity");
       String productId=(String)orderItem.get("productId");
-      List<GenericValue> productContentList=delegator.findByAnd("ProductContent",UtilMisc.toMap("productId",productId,"productContentTypeId","ONLINE_ACCESS"),null,false);
-      List<GenericValue> productContentListFiltered=EntityUtil.filterByDate(productContentList);
-      if (productContentListFiltered.size() > 0) {
+      long productContentCount=EntityQuery.use(delegator).from("ProductContent").where("productId",productId,"productContentTypeId","ONLINE_ACCESS").filterByDate().queryCount();
+      if (productContentCount > 0) {
         context.put("productId",productId);
         context.put("quantity",Integer.valueOf(qty.intValue()));
         Map<String,Object> ctx=subscriptionModel.makeValid(context,"IN");

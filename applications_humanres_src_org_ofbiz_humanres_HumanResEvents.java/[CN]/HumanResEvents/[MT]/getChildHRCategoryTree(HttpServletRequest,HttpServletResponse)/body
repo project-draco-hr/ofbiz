@@ -8,18 +8,18 @@
   List categoryList=FastList.newInstance();
   List<GenericValue> childOfComs;
   try {
-    List<GenericValue> isEmpl=delegator.findByAnd("EmplPosition",UtilMisc.toMap("emplPositionId",partyId),null,false);
-    if (UtilValidate.isNotEmpty(isEmpl)) {
+    long emplPosCount=EntityQuery.use(delegator).from("EmplPosition").where("emplPositionId",partyId).queryCount();
+    if (emplPosCount > 0) {
       String emplId=partyId;
-      List<GenericValue> emlpfillCtxs=EntityUtil.filterByDate(delegator.findByAnd("EmplPositionFulfillment",UtilMisc.toMap("emplPositionId",emplId),null,false));
+      List<GenericValue> emlpfillCtxs=EntityQuery.use(delegator).from("EmplPositionFulfillment").where("emplPositionId",emplId).filterByDate().queryList();
       if (UtilValidate.isNotEmpty(emlpfillCtxs)) {
         for (        GenericValue emlpfillCtx : emlpfillCtxs) {
           String memberId=emlpfillCtx.getString("partyId");
-          GenericValue memCtx=delegator.findOne("Person",UtilMisc.toMap("partyId",memberId),false);
+          GenericValue memCtx=EntityQuery.use(delegator).from("Person").where("partyId",partyId).queryOne();
           String title=null;
-          if (UtilValidate.isNotEmpty(memCtx)) {
-            String firstname=(String)memCtx.get("firstName");
-            String lastname=(String)memCtx.get("lastName");
+          if (memCtx != null) {
+            String firstname=memCtx.getString("firstName");
+            String lastname=memCtx.getString("lastName");
             if (UtilValidate.isEmpty(lastname)) {
               lastname="";
             }
@@ -28,8 +28,8 @@
             }
             title=firstname + " " + lastname;
           }
-          GenericValue memGroupCtx=delegator.findOne("PartyGroup",UtilMisc.toMap("partyId",memberId),false);
-          if (UtilValidate.isNotEmpty(memGroupCtx)) {
+          GenericValue memGroupCtx=EntityQuery.use(delegator).from("PartyGroup").where("partyId",partyId).queryOne();
+          if (memGroupCtx != null) {
             title=memGroupCtx.getString("groupName");
           }
           Map josonMap=FastMap.newInstance();
@@ -58,9 +58,9 @@
     e.printStackTrace();
   }
   try {
-    GenericValue partyGroup=delegator.findOne("PartyGroup",UtilMisc.toMap("partyId",partyId),false);
+    GenericValue partyGroup=EntityQuery.use(delegator).from("PartyGroup").where("partyId",partyId).queryOne();
     if (UtilValidate.isNotEmpty(partyGroup)) {
-      childOfComs=EntityUtil.filterByDate(delegator.findByAnd("PartyRelationship",UtilMisc.toMap("partyIdFrom",partyGroup.get("partyId"),"partyRelationshipTypeId","GROUP_ROLLUP"),null,false));
+      childOfComs=EntityQuery.use(delegator).from("PartyRelationship").where("partyIdFrom",partyGroup.get("partyId"),"partyRelationshipTypeId","GROUP_ROLLUP").filterByDate().queryList();
       if (UtilValidate.isNotEmpty(childOfComs)) {
         for (        GenericValue childOfCom : childOfComs) {
           Object catId=null;
@@ -71,18 +71,18 @@
           Map dataAttrMap=FastMap.newInstance();
           Map attrMap=FastMap.newInstance();
           catId=childOfCom.get("partyIdTo");
-          GenericValue childContext=delegator.findOne("PartyGroup",UtilMisc.toMap("partyId",catId),false);
+          GenericValue childContext=EntityQuery.use(delegator).from("PartyGroup").where("partyId",catId).queryOne();
           if (UtilValidate.isNotEmpty(childContext)) {
             catNameField=(String)childContext.get("groupName");
             title=catNameField;
             josonMap.put("title",title);
           }
-          List<GenericValue> childOfSubComs=EntityUtil.filterByDate(delegator.findByAnd("PartyRelationship",UtilMisc.toMap("partyIdFrom",catId,"partyRelationshipTypeId","GROUP_ROLLUP"),null,false));
-          List<GenericValue> isPosition=delegator.findByAnd("EmplPosition",UtilMisc.toMap("partyId",catId),null,false);
+          List<GenericValue> childOfSubComs=EntityQuery.use(delegator).from("PartyRelationship").where("partyIdFrom",catId,"partyRelationshipTypeId","GROUP_ROLLUP").filterByDate().queryList();
+          List<GenericValue> isPosition=EntityQuery.use(delegator).from("EmplPosition").where("partyId",catId).queryList();
           if (UtilValidate.isNotEmpty(childOfSubComs) || UtilValidate.isNotEmpty(isPosition)) {
             josonMap.put("state","closed");
           }
-          GenericValue emContext=delegator.findOne("Person",UtilMisc.toMap("partyId",catId),false);
+          GenericValue emContext=EntityQuery.use(delegator).from("Person").where("partyId",catId).queryOne();
           if (UtilValidate.isNotEmpty(emContext)) {
             String firstname=(String)emContext.get("firstName");
             String lastname=(String)emContext.get("lastName");
@@ -109,17 +109,13 @@
           categoryList.add(josonMap);
         }
       }
-      List<EntityExpr> exprs=new ArrayList<EntityExpr>();
-      exprs.add(EntityCondition.makeCondition("partyId",EntityOperator.EQUALS,partyId));
-      exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"EMPL_POS_INACTIVE"));
       List<GenericValue> isEmpls=null;
       try {
-        isEmpls=delegator.findList("EmplPosition",EntityCondition.makeCondition(exprs,EntityOperator.AND),null,null,null,false);
+        isEmpls=EntityQuery.use(delegator).from("EmplPosition").where(EntityCondition.makeCondition("partyId",EntityOperator.EQUALS,partyId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"EMPL_POS_INACTIVE")).filterByDate("actualFromDate","actualThruDate").queryList();
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,module);
       }
-      isEmpls=EntityUtil.filterByDate(isEmpls,UtilDateTime.nowTimestamp(),"actualFromDate","actualThruDate",true);
       if (UtilValidate.isNotEmpty(isEmpls)) {
         for (        GenericValue childOfEmpl : isEmpls) {
           Map emplMap=FastMap.newInstance();
@@ -128,11 +124,11 @@
           Map emplDataAttrMap=FastMap.newInstance();
           String emplId=(String)childOfEmpl.get("emplPositionId");
           String typeId=(String)childOfEmpl.get("emplPositionTypeId");
-          List<GenericValue> emlpfCtxs=EntityUtil.filterByDate(delegator.findByAnd("EmplPositionFulfillment",UtilMisc.toMap("emplPositionId",emplId),null,false));
+          List<GenericValue> emlpfCtxs=EntityQuery.use(delegator).from("EmplPositionFulfillment").where("emplPositionId",emplId).filterByDate().queryList();
           if (UtilValidate.isNotEmpty(emlpfCtxs)) {
             emplMap.put("state","closed");
           }
-          GenericValue emplContext=delegator.findOne("EmplPositionType",UtilMisc.toMap("emplPositionTypeId",typeId),false);
+          GenericValue emplContext=EntityQuery.use(delegator).from("EmplPositionType").where("emplPositionTypeId",typeId).queryOne();
           String title=null;
           if (UtilValidate.isNotEmpty(emplContext)) {
             title=(String)emplContext.get("description") + " " + "["+ emplId+ "]";

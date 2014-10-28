@@ -11,24 +11,14 @@
   String oooPort=(String)context.get("oooPort");
   GenericValue userLogin=(GenericValue)context.get("userLogin");
   try {
-    Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
     List<EntityCondition> exprList=FastList.newInstance();
     exprList.add(EntityCondition.makeCondition("contentIdTo",EntityOperator.EQUALS,contentId));
+    exprList.add(EntityCondition.makeCondition("contentAssocTypeId",EntityOperator.EQUALS,"COMPDOC_PART"));
     exprList.add(EntityCondition.makeCondition("rootRevisionContentId",EntityOperator.EQUALS,contentId));
     if (UtilValidate.isNotEmpty(contentRevisionSeqId)) {
       exprList.add(EntityCondition.makeCondition("contentRevisionSeqId",EntityOperator.LESS_THAN_EQUAL_TO,contentRevisionSeqId));
     }
-    exprList.add(EntityCondition.makeCondition("contentAssocTypeId",EntityOperator.EQUALS,"COMPDOC_PART"));
-    exprList.add(EntityCondition.makeCondition("fromDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp));
-    List<EntityCondition> thruList=FastList.newInstance();
-    thruList.add(EntityCondition.makeCondition("thruDate",EntityOperator.EQUALS,null));
-    thruList.add(EntityCondition.makeCondition("thruDate",EntityOperator.GREATER_THAN,nowTimestamp));
-    exprList.add(EntityCondition.makeCondition(thruList,EntityOperator.OR));
-    EntityConditionList<EntityCondition> conditionList=EntityCondition.makeCondition(exprList,EntityOperator.AND);
-    String[] fields={"rootRevisionContentId","itemContentId","maxRevisionSeqId","contentId","dataResourceId","contentIdTo","contentAssocTypeId","fromDate","sequenceNum"};
-    Set<String> selectFields=UtilMisc.toSetArray(fields);
-    List<String> orderByFields=UtilMisc.toList("sequenceNum");
-    List<GenericValue> compDocParts=delegator.findList("ContentAssocRevisionItemView",conditionList,selectFields,orderByFields,null,false);
+    List<GenericValue> compDocParts=EntityQuery.use(delegator).select("rootRevisionContentId","itemContentId","maxRevisionSeqId","contentId","dataResourceId","contentIdTo","contentAssocTypeId","fromDate","sequenceNum").from("ContentAssocRevisionItemView").where(exprList).orderBy("sequenceNum").filterByDate().queryList();
     ByteArrayOutputStream baos=new ByteArrayOutputStream();
     Document document=new Document();
     document.setPageSize(PageSize.LETTER);
@@ -37,7 +27,7 @@
     int pgCnt=0;
     for (    GenericValue contentAssocRevisionItemView : compDocParts) {
       String thisDataResourceId=contentAssocRevisionItemView.getString("dataResourceId");
-      GenericValue dataResource=delegator.findOne("DataResource",UtilMisc.toMap("dataResourceId",thisDataResourceId),false);
+      GenericValue dataResource=EntityQuery.use(delegator).from("DataResource").where("dataResourceId",thisDataResourceId).queryOne();
       String inputMimeType=null;
       if (dataResource != null) {
         inputMimeType=dataResource.getString("mimeTypeId");
@@ -62,13 +52,13 @@
         String acroFormContentId=null;
         GenericValue surveyResponse=null;
         if (UtilValidate.isNotEmpty(surveyResponseId)) {
-          surveyResponse=delegator.findOne("SurveyResponse",UtilMisc.toMap("surveyResponseId",surveyResponseId),false);
+          surveyResponse=EntityQuery.use(delegator).from("SurveyResponse").where("surveyResponseId",surveyResponseId).queryOne();
           if (surveyResponse != null) {
             surveyId=surveyResponse.getString("surveyId");
           }
         }
         if (UtilValidate.isNotEmpty(surveyId)) {
-          GenericValue survey=delegator.findOne("Survey",UtilMisc.toMap("surveyId",surveyId),false);
+          GenericValue survey=EntityQuery.use(delegator).from("Survey").where("surveyId",surveyId).queryOne();
           if (survey != null) {
             acroFormContentId=survey.getString("acroFormContentId");
             if (UtilValidate.isNotEmpty(acroFormContentId)) {
