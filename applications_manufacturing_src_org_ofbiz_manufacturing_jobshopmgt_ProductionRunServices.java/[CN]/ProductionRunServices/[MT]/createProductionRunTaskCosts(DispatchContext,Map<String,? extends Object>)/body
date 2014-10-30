@@ -5,7 +5,7 @@
   Locale locale=(Locale)context.get("locale");
   String productionRunTaskId=(String)context.get("productionRunTaskId");
   try {
-    GenericValue workEffort=delegator.findOne("WorkEffort",UtilMisc.toMap("workEffortId",productionRunTaskId),false);
+    GenericValue workEffort=EntityQuery.use(delegator).from("WorkEffort").where("workEffortId",productionRunTaskId).queryOne();
     if (UtilValidate.isEmpty(workEffort)) {
       return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ManufacturingProductionRunTaskNotFound",UtilMisc.toMap("productionRunTaskId",productionRunTaskId),locale));
     }
@@ -20,13 +20,12 @@
     }
     actualTotalMilliSeconds+=actualSetupMillis.doubleValue();
     actualTotalMilliSeconds+=actualMilliSeconds.doubleValue();
-    GenericValue routingTaskAssoc=EntityUtil.getFirst(EntityUtil.filterByDate(delegator.findByAnd("WorkEffortAssoc",UtilMisc.toMap("workEffortIdTo",productionRunTaskId,"workEffortAssocTypeId","WORK_EFF_TEMPLATE"),null,false)));
+    GenericValue routingTaskAssoc=EntityQuery.use(delegator).from("WorkEffortAssoc").where("workEffortIdTo",productionRunTaskId,"workEffortAssocTypeId","WORK_EFF_TEMPLATE").filterByDate().queryFirst();
     GenericValue routingTask=null;
-    if (UtilValidate.isNotEmpty(routingTaskAssoc)) {
+    if (routingTaskAssoc != null) {
       routingTask=routingTaskAssoc.getRelatedOne("FromWorkEffort",false);
     }
-    List<GenericValue> workEffortCostCalcs=delegator.findByAnd("WorkEffortCostCalc",UtilMisc.toMap("workEffortId",productionRunTaskId),null,false);
-    workEffortCostCalcs=EntityUtil.filterByDate(workEffortCostCalcs);
+    List<GenericValue> workEffortCostCalcs=EntityQuery.use(delegator).from("WorkEffortCostCalc").where("workEffortId",productionRunTaskId).filterByDate().queryList();
     for (    GenericValue workEffortCostCalc : workEffortCostCalcs) {
       GenericValue costComponentCalc=workEffortCostCalc.getRelatedOne("CostComponentCalc",false);
       GenericValue customMethod=costComponentCalc.getRelatedOne("CustomMethod",false);
@@ -96,7 +95,7 @@
   }
   try {
     Map<String,BigDecimal> materialsCostByCurrency=FastMap.newInstance();
-    for (    GenericValue inventoryConsumed : delegator.findByAnd("WorkEffortAndInventoryAssign",UtilMisc.toMap("workEffortId",productionRunTaskId),null,false)) {
+    for (    GenericValue inventoryConsumed : EntityQuery.use(delegator).from("WorkEffortAndInventoryAssign").where("workEffortId",productionRunTaskId).queryList()) {
       BigDecimal quantity=inventoryConsumed.getBigDecimal("quantity");
       BigDecimal unitCost=inventoryConsumed.getBigDecimal("unitCost");
       if (UtilValidate.isEmpty(unitCost) || UtilValidate.isEmpty(quantity)) {
