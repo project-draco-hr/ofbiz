@@ -1,30 +1,29 @@
 {
-  String requiredLabels=request.getParameter("requiredLabel");
-  JSONObject uiLabelObject=null;
-  if (UtilValidate.isNotEmpty(requiredLabels)) {
-    uiLabelObject=(JSONObject)JSONSerializer.toJSON(requiredLabels);
+  String jsonString=request.getParameter("requiredLabel");
+  Map<String,String> uiLabelObject=null;
+  if (UtilValidate.isNotEmpty(jsonString)) {
+    JSON json=JSON.from(jsonString);
+    uiLabelObject=UtilGenerics.<Map<String,String>>cast(json.toObject(Map.class));
   }
-  JSONArray jsonUiLabel=new JSONArray();
+  if (UtilValidate.isEmpty(uiLabelObject)) {
+    Debug.logError("No resource and labels found in JSON string: " + jsonString,module);
+    return "error";
+  }
+ else   if (uiLabelObject.size() > 1) {
+    Debug.logError("More than one resource found, please use the method: getJSONuiLabelArray",module);
+    return "error";
+  }
   Locale locale=request.getLocale();
-  if (!uiLabelObject.isEmpty()) {
-    Set<String> resourceSet=UtilGenerics.checkSet(uiLabelObject.keySet());
-    if (UtilValidate.isEmpty(resourceSet)) {
-      Debug.logError("No resource and labels found",module);
-      return "error";
-    }
- else     if (resourceSet.size() > 1) {
-      Debug.logError("More than one resource found, please use the method: getJSONuiLabelArray",module);
-      return "error";
-    }
-    for (    String resource : resourceSet) {
-      String label=uiLabelObject.getString(resource);
-      if (UtilValidate.isEmail(label)) {
-        continue;
-      }
-      String receivedLabel=UtilProperties.getMessage(resource,label,locale);
-      jsonUiLabel.add(receivedLabel);
+  Map<String,String> uiLabelMap=new HashMap<String,String>();
+  Set<Map.Entry<String,String>> entrySet=uiLabelObject.entrySet();
+  for (  Map.Entry<String,String> entry : entrySet) {
+    String resource=entry.getKey();
+    String resourceKey=entry.getValue();
+    if (resourceKey != null) {
+      String label=UtilProperties.getMessage(resource,resourceKey,locale);
+      uiLabelMap.put(resource,label);
     }
   }
-  writeJSONtoResponse(jsonUiLabel,request.getMethod(),response);
+  writeJSONtoResponse(JSON.from(uiLabelMap),request.getMethod(),response);
   return "success";
 }
