@@ -39,7 +39,7 @@
     Debug.logVerbose("[Using delegator]: " + dispatcher.getDelegator().getDelegatorName(),module);
   }
   boolean isMultiPart=ServletFileUpload.isMultipartContent(request);
-  Map<String,Object> multiPartMap=FastMap.newInstance();
+  Map<String,Object> multiPartMap=new HashMap<String,Object>();
   if (isMultiPart) {
     String maxSizeStr=EntityUtilProperties.getPropertyValue("general.properties","http.upload.max.size","-1",dctx.getDelegator());
     long maxUploadSize=-1;
@@ -86,7 +86,7 @@
               checkList(mapValue,Object.class).add(item.getString());
             }
  else             if (mapValue instanceof String) {
-              List<String> newList=FastList.newInstance();
+              List<String> newList=new LinkedList<String>();
               newList.add((String)mapValue);
               newList.add(item.getString());
               multiPartMap.put(fieldName,newList);
@@ -132,7 +132,17 @@
   request.setAttribute("multiPartMap",multiPartMap);
   Map<String,Object> rawParametersMap=UtilHttp.getParameterMap(request,null,null);
   Set<String> urlOnlyParameterNames=UtilHttp.getUrlOnlyParameterMap(request).keySet();
-  Map<String,Object> serviceContext=FastMap.newInstance();
+  Map<String,Object> requestBodyMap=null;
+  try {
+    requestBodyMap=RequestBodyMapHandlerFactory.extractMapFromRequestBody(request);
+  }
+ catch (  IOException ioe) {
+    Debug.logWarning(ioe,module);
+  }
+  if (requestBodyMap != null) {
+    rawParametersMap.putAll(requestBodyMap);
+  }
+  Map<String,Object> serviceContext=new HashMap<String,Object>();
   for (  ModelParam modelParam : model.getInModelParamList()) {
     String name=modelParam.name;
     if ("userLogin".equals(name))     continue;
@@ -183,7 +193,7 @@
     }
     serviceContext.put(name,value);
   }
-  List<Object> errorMessages=FastList.newInstance();
+  List<Object> errorMessages=new LinkedList<Object>();
   serviceContext=model.makeValid(serviceContext,ModelService.IN_PARAM,true,errorMessages,timeZone,locale);
   if (errorMessages.size() > 0) {
     request.setAttribute("_ERROR_MESSAGE_LIST_",errorMessages);

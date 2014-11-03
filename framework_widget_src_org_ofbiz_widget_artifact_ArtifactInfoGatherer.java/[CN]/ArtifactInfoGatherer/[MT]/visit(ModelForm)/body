@@ -1,0 +1,75 @@
+{
+  if (modelForm.getActions() != null) {
+    for (    ModelWidgetAction action : modelForm.getActions()) {
+      action.accept(this);
+    }
+  }
+  if (modelForm.getRowActions() != null) {
+    for (    ModelWidgetAction action : modelForm.getRowActions()) {
+      action.accept(this);
+    }
+  }
+  for (  AutoFieldsEntity autoFieldsEntity : modelForm.getAutoFieldsEntities()) {
+    infoContext.addEntityName(autoFieldsEntity.entityName);
+  }
+  for (  AutoFieldsService autoFieldsService : modelForm.getAutoFieldsServices()) {
+    infoContext.addServiceName(autoFieldsService.serviceName);
+  }
+  if (modelForm.getAltTargets() != null) {
+    for (    AltTarget altTarget : modelForm.getAltTargets()) {
+      String target=altTarget.targetExdr.getOriginal();
+      String urlMode="intra-app";
+      try {
+        Set<String> controllerLocAndRequestSet=ConfigXMLReader.findControllerRequestUniqueForTargetType(target,urlMode);
+        if (controllerLocAndRequestSet != null) {
+          for (          String requestLocation : controllerLocAndRequestSet) {
+            infoContext.addTargetLocation(requestLocation);
+          }
+        }
+      }
+ catch (      GeneralException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+  if (!modelForm.getTarget().isEmpty()) {
+    String target=modelForm.getTarget();
+    String urlMode=UtilValidate.isNotEmpty(modelForm.getTargetType()) ? modelForm.getTargetType() : "intra-app";
+    if (target.indexOf("${") < 0) {
+      try {
+        Set<String> controllerLocAndRequestSet=ConfigXMLReader.findControllerRequestUniqueForTargetType(target,urlMode);
+        if (controllerLocAndRequestSet != null) {
+          for (          String requestLocation : controllerLocAndRequestSet) {
+            infoContext.addTargetLocation(requestLocation);
+          }
+        }
+      }
+ catch (      GeneralException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+  FieldInfoGatherer fieldInfoGatherer=new FieldInfoGatherer();
+  for (  ModelFormField modelFormField : modelForm.getFieldList()) {
+    if (UtilValidate.isNotEmpty(modelFormField.getEntityName())) {
+      infoContext.addEntityName(modelFormField.getEntityName());
+    }
+    if (modelFormField.getFieldInfo() instanceof ModelFormField.DisplayEntityField) {
+      infoContext.addEntityName(((ModelFormField.DisplayEntityField)modelFormField.getFieldInfo()).getEntityName());
+    }
+    if (modelFormField.getFieldInfo() instanceof ModelFormField.FieldInfoWithOptions) {
+      for (      ModelFormField.OptionSource optionSource : ((ModelFormField.FieldInfoWithOptions)modelFormField.getFieldInfo()).getOptionSources()) {
+        if (optionSource instanceof ModelFormField.EntityOptions) {
+          infoContext.addEntityName(((ModelFormField.EntityOptions)optionSource).getEntityName());
+        }
+      }
+    }
+    if (UtilValidate.isNotEmpty(modelFormField.getServiceName())) {
+      infoContext.addServiceName(modelFormField.getServiceName());
+    }
+    FieldInfo fieldInfo=modelFormField.getFieldInfo();
+    if (fieldInfo != null) {
+      fieldInfo.accept(fieldInfoGatherer);
+    }
+  }
+}

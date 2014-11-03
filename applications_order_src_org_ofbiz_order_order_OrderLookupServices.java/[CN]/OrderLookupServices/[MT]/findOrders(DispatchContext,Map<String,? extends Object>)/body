@@ -11,7 +11,7 @@
   if (showAll == null) {
     showAll="N";
   }
-  List<String> fieldsToSelect=FastList.newInstance();
+  Set<String> fieldsToSelect=FastSet.newInstance();
   fieldsToSelect.add("orderId");
   fieldsToSelect.add("orderName");
   fieldsToSelect.add("statusId");
@@ -160,7 +160,7 @@
   if (UtilValidate.isNotEmpty(userLoginId) && UtilValidate.isEmpty(partyId)) {
     GenericValue ul=null;
     try {
-      ul=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId",userLoginId),true);
+      ul=EntityQuery.use(delegator).from("UserLogin").where("userLoginId",userLoginId).cache().queryOne();
     }
  catch (    GenericEntityException e) {
       Debug.logWarning(e.getMessage(),module);
@@ -273,7 +273,7 @@
  else {
       GenericValue product=null;
       try {
-        product=delegator.findOne("Product",UtilMisc.toMap("productId",productId),false);
+        product=EntityQuery.use(delegator).from("Product").where("productId",productId).queryOne();
       }
  catch (      GenericEntityException e) {
         Debug.logWarning(e.getMessage(),module);
@@ -424,7 +424,6 @@
     }
     conditions.add(exprs);
   }
-  EntityFindOptions findOpts=new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true);
   EntityCondition cond=null;
   if (conditions.size() > 0 || showAll.equalsIgnoreCase("Y")) {
     cond=EntityCondition.makeCondition(conditions,EntityOperator.AND);
@@ -436,11 +435,10 @@
   int orderCount=0;
   int lowIndex=(((viewIndex.intValue() - 1) * viewSize.intValue()) + 1);
   int highIndex=viewIndex.intValue() * viewSize.intValue();
-  findOpts.setMaxRows(highIndex);
   if (cond != null) {
     EntityListIterator eli=null;
     try {
-      eli=delegator.findListIteratorByCondition(dve,cond,null,fieldsToSelect,orderBy,findOpts);
+      eli=EntityQuery.use(delegator).select(fieldsToSelect).from(dve).orderBy(orderBy).distinct().maxRows(highIndex).cursorScrollInsensitive().queryIterator();
       orderCount=eli.getResultsSizeAfterPartialList();
       eli.beforeFirst();
       if (orderCount > viewSize.intValue()) {
