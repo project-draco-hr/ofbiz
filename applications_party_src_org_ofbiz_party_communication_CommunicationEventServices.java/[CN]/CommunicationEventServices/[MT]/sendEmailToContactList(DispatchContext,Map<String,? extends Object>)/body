@@ -20,10 +20,7 @@
     sendMailParams.put("contentType",communicationEvent.getString("contentMimeTypeId"));
     sendMailParams.put("userLogin",userLogin);
     List<EntityCondition> conditionList=UtilMisc.toList(EntityCondition.makeCondition("contactListId",EntityOperator.EQUALS,contactList.get("contactListId")),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"CLPT_ACCEPTED"),EntityCondition.makeCondition("preferredContactMechId",EntityOperator.NOT_EQUAL,null),EntityUtil.getFilterByDateExpr(),EntityUtil.getFilterByDateExpr("contactFromDate","contactThruDate"));
-    EntityConditionList<EntityCondition> conditions=EntityCondition.makeCondition(conditionList,EntityOperator.AND);
-    Set<String> fieldsToSelect=UtilMisc.toSet("partyId","preferredContactMechId","fromDate","infoString");
-    eli=delegator.find("ContactListPartyAndContactMech",conditions,null,fieldsToSelect,null,new EntityFindOptions(true,EntityFindOptions.TYPE_SCROLL_INSENSITIVE,EntityFindOptions.CONCUR_READ_ONLY,true));
-    List<String> orderBy=UtilMisc.toList("-fromDate");
+    eli=EntityQuery.use(delegator).select("partyId","preferredContactMechId","fromDate","infoString").from("ContactListPartyAndContactMech").where(EntityCondition.makeCondition(conditionList,EntityOperator.AND)).cursorScrollInsensitive().distinct().queryIterator();
     for (GenericValue contactListPartyAndContactMech; (contactListPartyAndContactMech=eli.next()) != null; ) {
       Debug.logInfo("Contact info: " + contactListPartyAndContactMech,module);
       try {
@@ -37,15 +34,13 @@
         }
         List<EntityCondition> clpConditionList=UtilMisc.makeListWritable(conditionList);
         clpConditionList.add(EntityCondition.makeCondition("infoString",EntityOperator.EQUALS,emailAddress));
-        EntityConditionList<EntityCondition> clpConditions=EntityCondition.makeCondition(clpConditionList,EntityOperator.AND);
-        List<GenericValue> emailCLPaCMs=delegator.findList("ContactListPartyAndContactMech",clpConditions,null,orderBy,null,true);
-        GenericValue lastContactListPartyACM=EntityUtil.getFirst(emailCLPaCMs);
+        GenericValue lastContactListPartyACM=EntityQuery.use(delegator).from("ContactListPartyAndContactMech").where(EntityCondition.makeCondition(clpConditionList,EntityOperator.AND)).orderBy("-fromDate").cache(true).queryFirst();
         if (lastContactListPartyACM == null)         continue;
         String partyId=lastContactListPartyACM.getString("partyId");
         sendMailParams.put("sendTo",emailAddress);
         sendMailParams.put("partyId",partyId);
         Map<String,String> contactListCommStatusRecordMap=UtilMisc.toMap("contactListId",contactListId,"communicationEventId",communicationEventId,"contactMechId",lastContactListPartyACM.getString("preferredContactMechId"));
-        GenericValue contactListCommStatusRecord=delegator.findOne("ContactListCommStatus",contactListCommStatusRecordMap,false);
+        GenericValue contactListCommStatusRecord=EntityQuery.use(delegator).from("ContactListCommStatus").where(contactListCommStatusRecordMap).queryOne();
         if (contactListCommStatusRecord == null) {
           Map<String,String> newContactListCommStatusRecordMap=UtilMisc.makeMapWritable(contactListCommStatusRecordMap);
           newContactListCommStatusRecordMap.put("statusId","COM_IN_PROGRESS");
@@ -57,8 +52,7 @@
         }
         Debug.logInfo("Sending email to contact list [" + contactListId + "] party ["+ partyId+ "] : "+ emailAddress,module);
         Map<String,Object> tmpResult=null;
-        List<GenericValue> contactListPartyStatuses=delegator.findByAnd("ContactListPartyStatus",UtilMisc.toMap("contactListId",contactListId,"partyId",contactListPartyAndContactMech.getString("partyId"),"fromDate",contactListPartyAndContactMech.getTimestamp("fromDate"),"statusId","CLPT_ACCEPTED"),null,false);
-        GenericValue contactListPartyStatus=EntityUtil.getFirst(contactListPartyStatuses);
+        GenericValue contactListPartyStatus=EntityQuery.use(delegator).from("ContactListPartyStatus").where("contactListId",contactListId,"partyId",contactListPartyAndContactMech.getString("partyId"),"fromDate",contactListPartyAndContactMech.getTimestamp("fromDate"),"statusId","CLPT_ACCEPTED").queryFirst();
         if (UtilValidate.isNotEmpty(contactListPartyStatus)) {
           Map<String,Object> bodyParameters=new HashMap<String,Object>();
           bodyParameters.put("contactListId",contactListId);

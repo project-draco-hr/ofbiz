@@ -45,9 +45,9 @@
         List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"PAYMENT_SETTLED"),EntityCondition.makeCondition("statusId",EntityOperator.EQUALS,"PAYMENT_RECEIVED"));
         orderPayPrefs=EntityUtil.filterByOr(orderPayPrefs,exprs);
         if (UtilValidate.isEmpty(orderPayPrefs)) {
-          List<GenericValue> orderItemAssocs=delegator.findByAnd("OrderItemAssoc",UtilMisc.toMap("toOrderId",orderId,"orderItemAssocTypeId","REPLACEMENT"),null,false);
-          if (UtilValidate.isNotEmpty(orderItemAssocs)) {
-            String originalOrderId=EntityUtil.getFirst(orderItemAssocs).getString("orderId");
+          GenericValue orderItemAssoc=EntityQuery.use(delegator).from("OrderItemAssoc").where("toOrderId",orderId,"orderItemAssocTypeId","REPLACEMENT").queryFirst();
+          if (UtilValidate.isNotEmpty(orderItemAssoc)) {
+            String originalOrderId=orderItemAssoc.getString("orderId");
             orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",originalOrderId).queryOne();
             orderPayPrefs=orderHeader.getRelated("OrderPaymentPreference",null,UtilMisc.toList("-maxAmount"),false);
             orderPayPrefs=EntityUtil.filterByOr(orderPayPrefs,exprs);
@@ -130,10 +130,9 @@
       orderedRefundPaymentMethodTypes.add("GIFT_CARD");
       orderedRefundPaymentMethodTypes.add("CREDIT_CARD");
       orderedRefundPaymentMethodTypes.add("EFT_ACCOUNT");
-      EntityConditionList<EntityExpr> pmtConditionList=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.NOT_IN,orderedRefundPaymentMethodTypes)),EntityOperator.AND);
       List<GenericValue> otherPaymentMethodTypes=FastList.newInstance();
       try {
-        otherPaymentMethodTypes=delegator.findList("PaymentMethodType",pmtConditionList,null,null,null,true);
+        otherPaymentMethodTypes=EntityQuery.use(delegator).from("PaymentMethodType").where(EntityCondition.makeCondition("paymentMethodTypeId",EntityOperator.NOT_IN,orderedRefundPaymentMethodTypes)).cache(true).queryList();
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,"Cannot get PaymentMethodTypes",module);
