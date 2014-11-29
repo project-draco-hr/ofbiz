@@ -39,7 +39,7 @@
   Debug.logInfo("Processing oagisReceiveShowShipment for shipmentId [" + shipmentId + "] message ID ["+ omiPkMap+ "]",module);
   GenericValue previousOagisMessageInfo=null;
   try {
-    previousOagisMessageInfo=delegator.findOne("OagisMessageInfo",omiPkMap,false);
+    previousOagisMessageInfo=EntityQuery.use(delegator).from("OagisMessageInfo").where(omiPkMap).queryOne();
   }
  catch (  GenericEntityException e) {
     String errMsg="Error getting OagisMessageInfo from database for shipment ID [" + shipmentId + "] message ID ["+ omiPkMap+ "]: "+ e.toString();
@@ -174,7 +174,7 @@
                 }
               }
               if (UtilValidate.isEmpty(shipmentItemList)) {
-                shipmentItemList=delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId,"productId",productId),null,false);
+                shipmentItemList=EntityQuery.use(delegator).from("ShipmentItem").where("shipmentId",shipmentId,"productId",productId).queryList();
                 if (UtilValidate.isEmpty(shipmentItemList)) {
                   String errMsg="Could not find Shipment Item for Shipment with ID [" + shipmentId + "] and Product with ID ["+ productId+ "].";
                   errorMapList.add(UtilMisc.<String,String>toMap("reasonCode","ShipmentItemForProductNotFound","description",errMsg));
@@ -183,7 +183,7 @@
                 }
                 for (                GenericValue shipmentItem : shipmentItemList) {
                   if (messageQuantity.intValue() == shipmentItem.getDouble("quantity").intValue()) {
-                    List<GenericValue> itemIssuanceList=delegator.findByAnd("ItemIssuance",UtilMisc.toMap("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItem.get("shipmentItemSeqId")),null,false);
+                    List<GenericValue> itemIssuanceList=EntityQuery.use(delegator).from("ItemIssuance").where("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItem.get("shipmentItemSeqId")).queryList();
                     if (itemIssuanceList.size() == 0) {
                       shipmentItemList=UtilMisc.toList(shipmentItem);
                       break;
@@ -199,7 +199,7 @@
               }
               GenericValue shipmentItem=shipmentItemList.get(0);
               String shipmentItemSeqId=shipmentItem.getString("shipmentItemSeqId");
-              GenericValue orderShipment=EntityUtil.getFirst(delegator.findByAnd("OrderShipment",UtilMisc.toMap("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItemSeqId),null,false));
+              GenericValue orderShipment=EntityQuery.use(delegator).from("OrderShipment").where("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItemSeqId).queryFirst();
               if (orderShipment == null) {
                 String errMsg="Could not find Order-Shipment record for ShipmentItem with ID [" + shipmentId + "] and Item Seq-ID ["+ shipmentItemSeqId+ "].";
                 errorMapList.add(UtilMisc.<String,String>toMap("reasonCode","OrderShipmentNotFound","description",errMsg));
@@ -208,12 +208,11 @@
               }
               String orderId=orderShipment.getString("orderId");
               String orderItemSeqId=orderShipment.getString("orderItemSeqId");
-              GenericValue product=delegator.findOne("Product",UtilMisc.toMap("productId",productId),false);
-              String requireInventory=product.getString("requireInventory");
+              String requireInventory=EntityQuery.use(delegator).from("Product").where("productId",productId).queryOne().getString("requireInventory");
               if (requireInventory == null) {
                 requireInventory="N";
               }
-              List<GenericValue> orderItemShipGrpInvReservationList=delegator.findByAnd("OrderItemShipGrpInvRes",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId),null,false);
+              List<GenericValue> orderItemShipGrpInvReservationList=EntityQuery.use(delegator).from("OrderItemShipGrpInvRes").where("orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId).queryList();
               int totalReserved=0;
               for (              GenericValue orderItemShipGrpInvReservation : orderItemShipGrpInvReservationList) {
                 if (orderItemShipGrpInvReservation.getDouble("quantity") != null) {
@@ -283,8 +282,7 @@
                     if (OagisServices.requireSerialNumberExist != null) {
                       Set<String> productIdSet=ProductWorker.getRefurbishedProductIdSet(productId,delegator);
                       productIdSet.add(productId);
-                      EntityCondition bySerialNumberCondition=EntityCondition.makeCondition(EntityCondition.makeCondition("serialNumber",EntityOperator.EQUALS,serialNumber),EntityOperator.AND,EntityCondition.makeCondition("productId",EntityOperator.IN,productIdSet));
-                      List<GenericValue> inventoryItemsBySerialNumber=delegator.findList("InventoryItem",bySerialNumberCondition,null,null,null,false);
+                      List<GenericValue> inventoryItemsBySerialNumber=EntityQuery.use(delegator).from("InventoryItem").where(EntityCondition.makeCondition(EntityCondition.makeCondition("serialNumber",EntityOperator.EQUALS,serialNumber),EntityOperator.AND,EntityCondition.makeCondition("productId",EntityOperator.IN,productIdSet))).queryList();
                       if (OagisServices.requireSerialNumberExist.booleanValue()) {
                         if (inventoryItemsBySerialNumber.size() == 0) {
                           String errMsg="Referenced serial numbers must already exist, but serial number [" + serialNumber + "] was not found. Product ID(s) considered are: "+ productIdSet;
@@ -327,11 +325,11 @@
         }
       }
       if (errorMapList.size() == 0) {
-        List<GenericValue> shipmentItemList=delegator.findByAnd("ShipmentItem",UtilMisc.toMap("shipmentId",shipmentId),null,false);
+        List<GenericValue> shipmentItemList=EntityQuery.use(delegator).from("ShipmentItem").where("shipmentId",shipmentId).queryList();
         for (        GenericValue shipmentItem : shipmentItemList) {
           int shipmentItemQuantity=shipmentItem.getDouble("quantity").intValue();
           int totalItemIssuanceQuantity=0;
-          List<GenericValue> itemIssuanceList=delegator.findByAnd("ItemIssuance",UtilMisc.toMap("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItem.get("shipmentItemSeqId")),null,false);
+          List<GenericValue> itemIssuanceList=EntityQuery.use(delegator).from("ItemIssuance").where("shipmentId",shipmentId,"shipmentItemSeqId",shipmentItem.get("shipmentItemSeqId")).queryList();
           for (          GenericValue itemIssuance : itemIssuanceList) {
             totalItemIssuanceQuantity+=itemIssuance.getDouble("quantity").intValue();
           }
