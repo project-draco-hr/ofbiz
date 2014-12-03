@@ -1,11 +1,14 @@
 {
+  EntityExpr joinExpr=null;
   String viewName=null;
   String contentFieldName=null;
   if (direction != null && direction.equalsIgnoreCase("From")) {
-    contentFieldName="contentIdTo";
+    contentFieldName="caContentIdTo";
+    joinExpr=EntityCondition.makeCondition("caContentIdTo",EntityOperator.EQUALS,contentId);
   }
  else {
-    contentFieldName="contentId";
+    contentFieldName="caContentId";
+    joinExpr=EntityCondition.makeCondition("contentId",EntityOperator.EQUALS,contentId);
   }
   if (direction != null && direction.equalsIgnoreCase("From")) {
     viewName="ContentAssocDataResourceViewFrom";
@@ -14,24 +17,25 @@
     viewName="ContentAssocDataResourceViewTo";
   }
   List<EntityCondition> conditionList=new ArrayList<EntityCondition>();
+  conditionList.add(joinExpr);
   if (UtilValidate.isNotEmpty(mapKey)) {
     String mapKeyValue="is null".equalsIgnoreCase(mapKey) ? null : mapKey;
-    conditionList.add(EntityCondition.makeCondition("mapKey",mapKeyValue));
+    conditionList.add(EntityCondition.makeCondition("caMapKey",mapKeyValue));
   }
   if (UtilValidate.isNotEmpty(contentAssocPredicateId)) {
     String contentAssocPredicateIdValue="is null".equalsIgnoreCase(contentAssocPredicateId) ? null : contentAssocPredicateId;
-    conditionList.add(EntityCondition.makeCondition("mapKey",contentAssocPredicateIdValue));
+    conditionList.add(EntityCondition.makeCondition("caMapKey",contentAssocPredicateIdValue));
   }
   if (nullThruDatesOnly != null && nullThruDatesOnly) {
-    conditionList.add(EntityCondition.makeCondition("thruDate",null));
+    conditionList.add(EntityCondition.makeCondition("caThruDate",null));
   }
   if (UtilValidate.isNotEmpty(assocTypes)) {
-    conditionList.add(EntityCondition.makeCondition("contentAssocTypeId",EntityOperator.IN,assocTypes));
+    conditionList.add(EntityCondition.makeCondition("caContentAssocTypeId",EntityOperator.IN,assocTypes));
   }
   if (fromDate == null && fromDateStr != null) {
     fromDate=UtilDateTime.toTimestamp(fromDateStr);
   }
-  List<GenericValue> contentAssocsTypeFiltered=EntityQuery.use(delegator).from("ContentAssoc").where(conditionList).orderBy("sequenceNum","-fromDate").filterByDate(fromDate).cache().queryList();
+  List<GenericValue> contentAssocsTypeFiltered=EntityQuery.use(delegator).from(viewName).where(conditionList).orderBy("caSequenceNum","-caFromDate").cache().queryList();
   String assocRelationName=null;
   if (direction != null && direction.equalsIgnoreCase("To")) {
     assocRelationName="ToContent";
@@ -44,30 +48,36 @@
   GenericValue dataResource=null;
   List<GenericValue> contentAssocDataResourceList=FastList.newInstance();
   Locale locale=Locale.getDefault();
-  for (  GenericValue contentAssoc : contentAssocsTypeFiltered) {
-    content=contentAssoc.getRelatedOne(assocRelationName,true);
-    if (UtilValidate.isNotEmpty(contentTypes)) {
-      String contentTypeId=(String)content.get("contentTypeId");
-      if (contentTypes.contains(contentTypeId)) {
+  try {
+    for (    GenericValue contentAssocView : contentAssocsTypeFiltered) {
+      GenericValue contentAssoc=EntityQuery.use(delegator).from("ContentAssoc").where(UtilMisc.toMap("contentId",contentAssocView.getString("contentId"),"contentIdTo",contentAssocView.getString(contentFieldName),"contentAssocTypeId",contentAssocView.getString("caContentAssocTypeId"),"fromDate",contentAssocView.getTimestamp("caFromDate"))).queryOne();
+      content=contentAssoc.getRelatedOne(assocRelationName,true);
+      if (UtilValidate.isNotEmpty(contentTypes)) {
+        String contentTypeId=(String)content.get("contentTypeId");
+        if (contentTypes.contains(contentTypeId)) {
+          contentAssocDataResourceView=delegator.makeValue(viewName);
+          contentAssocDataResourceView.setAllFields(content,true,null,null);
+        }
+      }
+ else {
         contentAssocDataResourceView=delegator.makeValue(viewName);
         contentAssocDataResourceView.setAllFields(content,true,null,null);
       }
+      SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentAssocOut",contentAssoc,contentAssocDataResourceView,FastList.newInstance(),locale);
+      String dataResourceId=content.getString("dataResourceId");
+      if (UtilValidate.isNotEmpty(dataResourceId))       dataResource=content.getRelatedOne("DataResource",true);
+      if (dataResource != null) {
+        SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","dataResourceOut",dataResource,contentAssocDataResourceView,FastList.newInstance(),locale);
+      }
+      contentAssocDataResourceList.add(contentAssocDataResourceView);
     }
- else {
-      contentAssocDataResourceView=delegator.makeValue(viewName);
-      contentAssocDataResourceView.setAllFields(content,true,null,null);
-    }
-    SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","contentAssocOut",contentAssoc,contentAssocDataResourceView,FastList.newInstance(),locale);
-    String dataResourceId=content.getString("dataResourceId");
-    if (UtilValidate.isNotEmpty(dataResourceId))     dataResource=content.getRelatedOne("DataResource",true);
-    if (dataResource != null) {
-      SimpleMapProcessor.runSimpleMapProcessor("component://content/script/org/ofbiz/content/ContentManagementMapProcessors.xml","dataResourceOut",dataResource,contentAssocDataResourceView,FastList.newInstance(),locale);
-    }
-    contentAssocDataResourceList.add(contentAssocDataResourceView);
   }
-  List<String> orderByList=null;
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
   if (UtilValidate.isNotEmpty(orderBy)) {
-    orderByList=StringUtil.split(orderBy,"|");
+    List<String> orderByList=StringUtil.split(orderBy,"|");
     contentAssocDataResourceList=EntityUtil.orderBy(contentAssocDataResourceList,orderByList);
   }
   Map<String,Object> results=FastMap.newInstance();
