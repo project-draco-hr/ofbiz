@@ -1,0 +1,138 @@
+{
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  String message=null;
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  if (UtilValidate.isEmpty(quantity)) {
+    quantity=BigDecimal.ZERO;
+  }
+  BigDecimal totalQuantity=(BigDecimal)context.get("totalQuantity");
+  if (UtilValidate.isEmpty(totalQuantity)) {
+    totalQuantity=BigDecimal.ZERO;
+  }
+  String mainErrorMessage=UtilProperties.getMessage(resource_error,"OrderUnableToUpdateOrderItemFromOISG",locale);
+  Integer rowCount=(Integer)context.get("rowCount");
+  Integer rowNumber=(Integer)context.get("rowNumber");
+  if (rowNumber == null) {
+    Long count=EntityQuery.use(delegator).from("OrderItemShipGroupAssoc").where("orderId",orderId,"orderItemSeqId",orderItemSeqId).queryCount();
+    if (count != null) {
+      rowNumber=new Integer(count.intValue());
+      result.put("rowNumber",rowNumber);
+    }
+  }
+  GenericValue oisga=EntityQuery.use(delegator).from("OrderItemShipGroupAssoc").where("orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId).queryOne();
+  if (UtilValidate.isEmpty(oisga)) {
+    String errMsg=mainErrorMessage + " : Order Item Ship Group Assoc Does Not Exist";
+    Debug.logError(errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  GenericValue oisg=EntityQuery.use(delegator).from("OrderItemShipGroup").where("orderId",orderId,"shipGroupSeqId",shipGroupSeqId).queryOne();
+  GenericValue orderItem=EntityQuery.use(delegator).from("OrderItem").where("orderId",orderId,"orderItemSeqId",orderItemSeqId).queryOne();
+  if (UtilValidate.isEmpty(orderItem)) {
+    String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderErrorOrderItemNotFound",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId),locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (oisg != null) {
+    if (ZERO.compareTo(quantity) == 0) {
+      if (rowNumber.intValue() == 1) {
+        String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderQuantityAssociatedCannotBeNullOrNegative",locale);
+        Debug.logError(errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+      try {
+        Map<String,Object> cancelOrderInventoryReservationMap=dctx.makeValidContext("cancelOrderInventoryReservation","IN",context);
+        Map<String,Object> localResult=dispatcher.runSync("cancelOrderInventoryReservation",cancelOrderInventoryReservationMap);
+        if (ServiceUtil.isError(localResult))         return localResult;
+        Map<String,Object> deleteOrderItemShipGroupAssocMap=dctx.makeValidContext("deleteOrderItemShipGroupAssoc","IN",context);
+        localResult=dispatcher.runSync("deleteOrderItemShipGroupAssoc",deleteOrderItemShipGroupAssocMap);
+        if (ServiceUtil.isError(localResult))         return localResult;
+      }
+ catch (      GenericServiceException e) {
+        return ServiceUtil.returnError(e.toString());
+      }
+      if (rowCount != null && rowNumber != null) {
+        int rowCountInt=rowCount.intValue();
+        int rowNumberInt=rowNumber.intValue();
+        if (rowCountInt == rowNumberInt - 1) {
+          try {
+            message=validateOrderItemShipGroupAssoc(delegator,dispatcher,orderItem,totalQuantity,oisga,userLogin,locale);
+          }
+ catch (          Exception e) {
+            String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderQuantityAssociatedIsLessThanOrderItemQuantity",locale);
+            Debug.logError(errMsg,module);
+            return ServiceUtil.returnError(errMsg);
+          }
+        }
+      }
+      result.put("totalQuantity",totalQuantity);
+      if (UtilValidate.isNotEmpty(message)) {
+        result.put("successMessage",message);
+      }
+      return result;
+    }
+    BigDecimal actualQuantity=totalQuantity.add(quantity);
+    BigDecimal qty=(BigDecimal)orderItem.get("quantity");
+    if (UtilValidate.isEmpty(qty)) {
+      qty=BigDecimal.ZERO;
+    }
+    BigDecimal cancelQty=(BigDecimal)orderItem.get("cancelQuantity");
+    if (UtilValidate.isEmpty(cancelQty)) {
+      cancelQty=BigDecimal.ZERO;
+    }
+    BigDecimal orderItemQuantity=qty.subtract(cancelQty);
+    if (actualQuantity.compareTo(orderItemQuantity) > 0) {
+      String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderQuantityAssociatedIsBiggerThanOrderItemQuantity",locale);
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+    if (quantity.compareTo(orderItemQuantity) > 0) {
+      String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderQuantityAssociatedIsBiggerThanOrderItemQuantity",locale);
+      Debug.logError(errMsg,module);
+      return ServiceUtil.returnError(errMsg);
+    }
+    oisga.set("quantity",quantity);
+    oisga.store();
+    GenericValue orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
+    if (UtilValidate.isNotEmpty(orderHeader)) {
+      Map<String,Object> cancelResp=dispatcher.runSync("cancelOrderInventoryReservation",UtilMisc.toMap("userLogin",userLogin,"orderId",orderId,"orderItemSeqId",orderItemSeqId,"shipGroupSeqId",shipGroupSeqId));
+      if (ServiceUtil.isError(cancelResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(cancelResp));
+      }
+      String productStoreId=orderHeader.getString("productStoreId");
+      String orderTypeId=orderHeader.getString("orderTypeId");
+      List<String> resErrorMessages=new LinkedList<String>();
+      if (Debug.infoOn())       Debug.logInfo("Calling reserve inventory...",module);
+      reserveInventory(delegator,dispatcher,userLogin,locale,UtilMisc.toList(oisga),null,UtilMisc.<String,GenericValue>toMap(orderItemSeqId,orderItem),orderTypeId,productStoreId,resErrorMessages);
+    }
+    totalQuantity=totalQuantity.add(quantity);
+    result.put("totalQuantity",totalQuantity);
+    if (rowCount != null && rowNumber != null) {
+      int rowCountInt=rowCount.intValue();
+      int rowNumberInt=rowNumber.intValue();
+      if (rowCountInt == rowNumberInt - 1) {
+        try {
+          message=validateOrderItemShipGroupAssoc(delegator,dispatcher,orderItem,totalQuantity,oisga,userLogin,locale);
+        }
+ catch (        GeneralException e) {
+          String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderQuantityAssociatedIsLessThanOrderItemQuantity",locale);
+          Debug.logError(errMsg,module);
+          return ServiceUtil.returnError(errMsg);
+        }
+      }
+      if (UtilValidate.isNotEmpty(message)) {
+        result.put("successMessage",message);
+      }
+    }
+  }
+ else {
+    totalQuantity=totalQuantity.add(quantity);
+    result.put("totalQuantity",totalQuantity);
+  }
+  return result;
+}

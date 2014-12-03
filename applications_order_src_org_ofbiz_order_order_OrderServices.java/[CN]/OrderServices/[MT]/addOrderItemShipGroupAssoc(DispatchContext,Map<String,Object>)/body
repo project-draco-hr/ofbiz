@@ -1,0 +1,66 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  String orderItemSeqId=(String)context.get("orderItemSeqId");
+  String shipGroupSeqId=(String)context.get("shipGroupSeqId");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  String mainErrorMessage=UtilProperties.getMessage(resource_error,"OrderUnableToAddItemToOISG",locale);
+  GenericValue orderItem=EntityQuery.use(delegator).from("OrderItem").where("orderId",orderId,"orderItemSeqId",orderItemSeqId).queryOne();
+  if (orderItem == null) {
+    String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderErrorOrderItemNotFound",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItemSeqId),locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  String statusId=orderItem.getString("statusId");
+  if ("ITEM_CREATED".equals(statusId) || "ITEM_APPROVED".equals(statusId)) {
+    if ("new".equals(shipGroupSeqId)) {
+      try {
+        Map<String,Object> addOrderItemShipGroupMap=dctx.makeValidContext("addOrderItemShipGroup","IN",context);
+        addOrderItemShipGroupMap.remove("shipGroupSeqId");
+        List<GenericValue> oisgas=orderItem.getRelated("OrderItemShipGroupAssoc",null,null,false);
+        if (UtilValidate.isNotEmpty(oisgas)) {
+          GenericValue oisga=EntityUtil.getFirst(oisgas);
+          GenericValue oisg=oisga.getRelatedOne("OrderItemShipGroup",false);
+          if (UtilValidate.isNotEmpty(oisg)) {
+            addOrderItemShipGroupMap.put("shipmentMethodTypeId",oisg.get("shipmentMethodTypeId"));
+            addOrderItemShipGroupMap.put("carrierPartyId",oisg.get("carrierPartyId"));
+            addOrderItemShipGroupMap.put("carrierRoleTypeId",oisg.get("carrierRoleTypeId"));
+            addOrderItemShipGroupMap.put("contactMechId",oisg.get("contactMechId"));
+          }
+        }
+        Map<String,Object> result=null;
+        result=dispatcher.runSync("addOrderItemShipGroup",addOrderItemShipGroupMap);
+        if (result.containsKey("shipGroupSeqId")) {
+          shipGroupSeqId=(String)result.get("shipGroupSeqId");
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(resource,mainErrorMessage,locale);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+    GenericValue orderItemShipGroup=EntityQuery.use(delegator).from("OrderItemShipGroup").where("orderId",orderId,"shipGroupSeqId",shipGroupSeqId).queryOne();
+    if (UtilValidate.isEmpty(orderItemShipGroup)) {
+      String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderCartShipGroupNotFound",UtilMisc.toMap("groupIndex",shipGroupSeqId),locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+    if (quantity == null || quantity.compareTo(BigDecimal.ZERO) == -1) {
+      String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderQuantityAssociatedCannotBeNullOrNegative",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+    GenericValue oisgAssoc=EntityQuery.use(delegator).from("OrderItemShipGroupAssoc").where("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"shipGroupSeqId",shipGroupSeqId).queryOne();
+    if (UtilValidate.isNotEmpty(oisgAssoc)) {
+      String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderErrorOrderItemAlreadyRelatedToShipGroup",locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+    oisgAssoc=delegator.makeValue("OrderItemShipGroupAssoc",UtilMisc.toMap("orderId",orderId,"orderItemSeqId",orderItem.get("orderItemSeqId"),"shipGroupSeqId",shipGroupSeqId));
+    oisgAssoc.set("quantity",quantity);
+    oisgAssoc.create();
+    return ServiceUtil.returnSuccess();
+  }
+ else {
+    String errMsg=UtilProperties.getMessage(resource,mainErrorMessage + orderItem,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+}

@@ -129,14 +129,6 @@
   List<GenericValue> orderItemShipGroupList=orh.getOrderItemShipGroups();
   for (  GenericValue orderItemShipGroup : orderItemShipGroupList) {
     int newShipInfoIndex=cart.addShipInfo();
-    String cartShipGroupIndexStr=orderItemShipGroup.getString("shipGroupSeqId");
-    int cartShipGroupIndex=NumberUtils.toInt(cartShipGroupIndexStr);
-    if (newShipInfoIndex != (cartShipGroupIndex - 1)) {
-      int groupDiff=cartShipGroupIndex - cart.getShipGroupSize();
-      for (int i=0; i < groupDiff; i++) {
-        newShipInfoIndex=cart.addShipInfo();
-      }
-    }
     CartShipInfo cartShipInfo=cart.getShipInfo(newShipInfoIndex);
     cartShipInfo.shipAfterDate=orderItemShipGroup.getTimestamp("shipAfterDate");
     cartShipInfo.shipBeforeDate=orderItemShipGroup.getTimestamp("shipByDate");
@@ -151,6 +143,7 @@
     cartShipInfo.setVendorPartyId(orderItemShipGroup.getString("vendorPartyId"));
     cartShipInfo.setShipGroupSeqId(orderItemShipGroup.getString("shipGroupSeqId"));
     cartShipInfo.shipTaxAdj.addAll(orh.getOrderHeaderAdjustmentsTax(orderItemShipGroup.getString("shipGroupSeqId")));
+    cart.setShipGroupSeqId(newShipInfoIndex - 1,orderItemShipGroup.getString("shipGroupSeqId"));
   }
   List<GenericValue> orderItems=orh.getOrderItems();
   long nextItemSeq=0;
@@ -349,6 +342,9 @@ catch (        CartItemModifyException e) {
         if ("ITEM_REJECTED".equals(item.getString("statusId")) || "ITEM_CANCELLED".equals(item.getString("statusId")))         continue;
         List<GenericValue> orderItemAdjustments=orh.getOrderItemAdjustments(item);
         List<GenericValue> shipGroupAssocs=orh.getOrderItemShipGroupAssocs(item);
+        if (UtilValidate.isNotEmpty(shipGroupAssocs)) {
+          shipGroupAssocs=EntityUtil.orderBy(shipGroupAssocs,UtilMisc.toList("-shipGroupSeqId"));
+        }
         for (int g=0; g < shipGroupAssocs.size(); g++) {
           GenericValue sgAssoc=shipGroupAssocs.get(g);
           BigDecimal shipGroupQty=OrderReadHelper.getOrderItemShipGroupQuantity(sgAssoc);
@@ -356,8 +352,7 @@ catch (        CartItemModifyException e) {
             shipGroupQty=BigDecimal.ZERO;
           }
           String cartShipGroupIndexStr=sgAssoc.getString("shipGroupSeqId");
-          int cartShipGroupIndex=NumberUtils.toInt(cartShipGroupIndexStr);
-          cartShipGroupIndex=cartShipGroupIndex - 1;
+          int cartShipGroupIndex=cart.getShipInfoIndex(cartShipGroupIndexStr);
           if (cartShipGroupIndex > 0) {
             cart.positionItemToGroup(itemIndex,shipGroupQty,0,cartShipGroupIndex,false);
           }
