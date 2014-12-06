@@ -25,7 +25,11 @@
   boolean setupNewDelegatorEtc=false;
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
   Delegator delegator=(Delegator)request.getAttribute("delegator");
+  ServletContext servletContext=session.getServletContext();
   String tenantId=request.getParameter("tenantId");
+  if (UtilValidate.isEmpty(tenantId)) {
+    tenantId=(String)request.getAttribute("tenantId");
+  }
   if (UtilValidate.isNotEmpty(tenantId)) {
     String oldDelegatorName=delegator.getDelegatorName();
     int delegatorNameHashIndex=oldDelegatorName.indexOf('#');
@@ -35,7 +39,6 @@
       if (currentDelegatorTenantId != null)       currentDelegatorTenantId=currentDelegatorTenantId.trim();
     }
     if (delegatorNameHashIndex == -1 || (currentDelegatorTenantId != null && !tenantId.equals(currentDelegatorTenantId))) {
-      ServletContext servletContext=session.getServletContext();
       String delegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
       try {
         delegator=DelegatorFactory.getDelegator(delegatorName);
@@ -50,6 +53,22 @@
       }
       setupNewDelegatorEtc=true;
     }
+  }
+ else {
+    Debug.logInfo("Setting default delegator",module);
+    String delegatorName=delegator.getDelegatorBaseName();
+    try {
+      delegator=DelegatorFactory.getDelegator(delegatorName);
+      dispatcher=ContextFilter.makeWebappDispatcher(servletContext,delegator);
+    }
+ catch (    NullPointerException e) {
+      Debug.logError(e,"Error getting default delegator",module);
+      Map<String,String> messageMap=UtilMisc.toMap("errorMessage","Error getting default delegator");
+      String errMsg=UtilProperties.getMessage(resourceWebapp,"loginevents.following_error_occurred_during_login",messageMap,UtilHttp.getLocale(request));
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+    setupNewDelegatorEtc=true;
   }
   Map<String,Object> result=null;
   try {
