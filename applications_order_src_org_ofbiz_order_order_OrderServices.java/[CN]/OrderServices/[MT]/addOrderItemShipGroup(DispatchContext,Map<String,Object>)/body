@@ -1,0 +1,74 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  String orderId=(String)context.get("orderId");
+  String mainErrorMessage=UtilProperties.getMessage(resource_error,"OrderUnableToAddOISGToOrder",locale);
+  Map<String,Object> createOrderItemShipGroupMap=null;
+  try {
+    createOrderItemShipGroupMap=dctx.makeValidContext("createOrderItemShipGroup","IN",context);
+  }
+ catch (  GenericServiceException gse) {
+    String errMsg=mainErrorMessage + gse.toString();
+    return ServiceUtil.returnError(errMsg);
+  }
+  try {
+    String carrierPartyId=(String)context.get("carrierPartyId");
+    GenericValue carrierRole=EntityQuery.use(delegator).from("PartyRole").where("partyId",carrierPartyId,"roleTypeId","CARRIER").cache().queryOne();
+    if (UtilValidate.isNotEmpty(carrierPartyId) && UtilValidate.isEmpty(carrierRole)) {
+      String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderCartShipGroupPartyCarrierNotFound",UtilMisc.toMap("partyId",carrierPartyId),locale);
+      return ServiceUtil.returnError(errMsg);
+    }
+    String shipmentMethodTypeId=(String)context.get("shipmentMethodTypeId");
+    if (UtilValidate.isNotEmpty(shipmentMethodTypeId)) {
+      if (shipmentMethodTypeId.indexOf("_o_") == -1) {
+        GenericValue shipmentMethod=EntityQuery.use(delegator).from("CarrierShipmentMethod").where("partyId",carrierPartyId,"roleTypeId","CARRIER","shipmentMethodTypeId",shipmentMethodTypeId).cache().queryOne();
+        if (UtilValidate.isEmpty(shipmentMethod)) {
+          String errMsg=mainErrorMessage + UtilProperties.getMessage(resource_error,"OrderCartShipGroupShipmentMethodNotFound",UtilMisc.toMap("shipmentMethodTypeId",shipmentMethodTypeId),locale);
+          return ServiceUtil.returnError(errMsg);
+        }
+      }
+ else {
+        String[] carrierShipmentMethod=shipmentMethodTypeId.split("_o_");
+        if (carrierShipmentMethod.length == 2) {
+          shipmentMethodTypeId=carrierShipmentMethod[0];
+          carrierPartyId=carrierShipmentMethod[1];
+        }
+        context.put("carrierPartyId",carrierPartyId);
+        context.put("shipmentMethodTypeId",shipmentMethodTypeId);
+      }
+    }
+    List<GenericValue> oisgs=EntityQuery.use(delegator).from("OrderItemShipGroup").where("orderId",orderId).orderBy("shipGroupSeqId DESC").queryList();
+    if (UtilValidate.isNotEmpty(oisgs)) {
+      GenericValue oisg=EntityUtil.getFirst(oisgs);
+      if (UtilValidate.isEmpty(carrierPartyId) && UtilValidate.isEmpty(shipmentMethodTypeId)) {
+        createOrderItemShipGroupMap.put("shipmentMethodTypeId",oisg.get("shipmentMethodTypeId"));
+        createOrderItemShipGroupMap.put("carrierPartyId",oisg.get("carrierPartyId"));
+        createOrderItemShipGroupMap.put("carrierRoleTypeId",oisg.get("carrierRoleTypeId"));
+        createOrderItemShipGroupMap.put("contactMechId",oisg.get("contactMechId"));
+      }
+    }
+  }
+ catch (  GenericEntityException gee) {
+    String errMsg=mainErrorMessage + gee.toString();
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (UtilValidate.isEmpty(createOrderItemShipGroupMap.get("maySplit"))) {
+    createOrderItemShipGroupMap.put("maySplit","N");
+  }
+  if (UtilValidate.isEmpty(createOrderItemShipGroupMap.get("isGift"))) {
+    createOrderItemShipGroupMap.put("isGift","N");
+  }
+  try {
+    result=dctx.getDispatcher().runSync("createOrderItemShipGroup",createOrderItemShipGroupMap);
+  }
+ catch (  GenericServiceException gse) {
+    String errMsg=mainErrorMessage + gse.toString();
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (ServiceUtil.isError(result)) {
+    String errMsg=UtilProperties.getMessage(resource,mainErrorMessage + result.get("errorMessage"),locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return result;
+}

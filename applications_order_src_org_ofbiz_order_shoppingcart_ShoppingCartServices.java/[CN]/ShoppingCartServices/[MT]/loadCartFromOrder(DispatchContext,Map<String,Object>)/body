@@ -129,14 +129,6 @@
   List<GenericValue> orderItemShipGroupList=orh.getOrderItemShipGroups();
   for (  GenericValue orderItemShipGroup : orderItemShipGroupList) {
     int newShipInfoIndex=cart.addShipInfo();
-    String cartShipGroupIndexStr=orderItemShipGroup.getString("shipGroupSeqId");
-    int cartShipGroupIndex=NumberUtils.toInt(cartShipGroupIndexStr);
-    if (newShipInfoIndex != (cartShipGroupIndex - 1)) {
-      int groupDiff=cartShipGroupIndex - cart.getShipGroupSize();
-      for (int i=0; i < groupDiff; i++) {
-        newShipInfoIndex=cart.addShipInfo();
-      }
-    }
     CartShipInfo cartShipInfo=cart.getShipInfo(newShipInfoIndex);
     cartShipInfo.shipAfterDate=orderItemShipGroup.getTimestamp("shipAfterDate");
     cartShipInfo.shipBeforeDate=orderItemShipGroup.getTimestamp("shipByDate");
@@ -349,6 +341,9 @@ catch (        CartItemModifyException e) {
         if ("ITEM_REJECTED".equals(item.getString("statusId")) || "ITEM_CANCELLED".equals(item.getString("statusId")))         continue;
         List<GenericValue> orderItemAdjustments=orh.getOrderItemAdjustments(item);
         List<GenericValue> shipGroupAssocs=orh.getOrderItemShipGroupAssocs(item);
+        if (UtilValidate.isNotEmpty(shipGroupAssocs)) {
+          shipGroupAssocs=EntityUtil.orderBy(shipGroupAssocs,UtilMisc.toList("-shipGroupSeqId"));
+        }
         for (int g=0; g < shipGroupAssocs.size(); g++) {
           GenericValue sgAssoc=shipGroupAssocs.get(g);
           BigDecimal shipGroupQty=OrderReadHelper.getOrderItemShipGroupQuantity(sgAssoc);
@@ -356,21 +351,20 @@ catch (        CartItemModifyException e) {
             shipGroupQty=BigDecimal.ZERO;
           }
           String cartShipGroupIndexStr=sgAssoc.getString("shipGroupSeqId");
-          int cartShipGroupIndex=NumberUtils.toInt(cartShipGroupIndexStr);
-          cartShipGroupIndex=cartShipGroupIndex - 1;
+          int cartShipGroupIndex=cart.getShipInfoIndex(cartShipGroupIndexStr);
           if (cartShipGroupIndex > 0) {
             cart.positionItemToGroup(itemIndex,shipGroupQty,0,cartShipGroupIndex,false);
           }
           ShoppingCart.CartShipInfo csi=cart.getShipInfo(cartShipGroupIndex);
           ShoppingCartItem cartItem=cart.findCartItem(itemIndex);
           if (cartItem == null || cartItem.getQuantity() == null || BigDecimal.ZERO.equals(cartItem.getQuantity()) || shipGroupQty.equals(cartItem.getQuantity())) {
-            Debug.logInfo("In loadCartFromOrder not adding item [" + item.getString("orderItemSeqId") + "] to ship group with index ["+ itemIndex+ "]; group quantity is ["+ shipGroupQty+ "] item quantity is ["+ (cartItem != null ? cartItem.getQuantity() : "no cart item")+ "] cartShipGroupIndex is ["+ cartShipGroupIndex+ "], csi.shipItemInfo.size(): "+ csi.shipItemInfo.size(),module);
+            Debug.logInfo("In loadCartFromOrder not adding item [" + item.getString("orderItemSeqId") + "] to ship group with index ["+ itemIndex+ "]; group quantity is ["+ shipGroupQty+ "] item quantity is ["+ (cartItem != null ? cartItem.getQuantity() : "no cart item")+ "] cartShipGroupIndex is ["+ cartShipGroupIndex+ "], csi.shipItemInfo.size(): "+ (cartShipGroupIndex < 0 ? 0 : csi.shipItemInfo.size()),module);
           }
  else {
             cart.setItemShipGroupQty(itemIndex,shipGroupQty,cartShipGroupIndex);
           }
           List<GenericValue> shipGroupItemAdjustments=EntityUtil.filterByAnd(orderItemAdjustments,UtilMisc.toMap("shipGroupSeqId",cartShipGroupIndexStr));
-          if (cartItem == null) {
+          if (cartItem == null || cartShipGroupIndex < 0) {
             Debug.logWarning("In loadCartFromOrder could not find cart item for itemIndex=" + itemIndex + ", for orderId="+ orderId,module);
           }
  else {
