@@ -1,0 +1,43 @@
+{
+  if (request == null) {
+    throw new ViewHandlerException("Null HttpServletRequest object");
+  }
+  if (UtilValidate.isEmpty(page)) {
+    throw new ViewHandlerException("Null or empty source");
+  }
+  request.setAttribute(ContextFilter.FORWARDED_FROM_SERVLET,Boolean.TRUE);
+  RequestDispatcher rd=request.getRequestDispatcher(page);
+  if (rd == null) {
+    Debug.logInfo("HttpServletRequest.getRequestDispatcher() failed; trying ServletContext",module);
+    rd=context.getRequestDispatcher(page);
+    if (rd == null) {
+      Debug.logInfo("ServletContext.getRequestDispatcher() failed; trying ServletContext.getNamedDispatcher(\"jsp\")",module);
+      rd=context.getNamedDispatcher("jsp");
+      if (rd == null) {
+        throw new ViewHandlerException("Source returned a null dispatcher (" + page + ")");
+      }
+    }
+  }
+  try {
+    if (UtilValidate.isEmpty(request.getServletPath())) {
+      String uri=URLEncoder.encode(request.getContextPath() + page,"UTF-8");
+      request.setAttribute("_jsp_" + uri,Boolean.TRUE);
+      rd.forward(request,response);
+    }
+ else {
+      rd.include(request,response);
+    }
+  }
+ catch (  IOException ie) {
+    throw new ViewHandlerException("IO Error in view",ie);
+  }
+catch (  ServletException e) {
+    Throwable throwable=e.getRootCause() != null ? e.getRootCause() : e;
+    if (throwable instanceof JspException) {
+      JspException jspe=(JspException)throwable;
+      throwable=jspe.getCause() != null ? jspe.getCause() : jspe;
+    }
+    Debug.logError(throwable,"ServletException rendering JSP view",module);
+    throw new ViewHandlerException(e.getMessage(),throwable);
+  }
+}
