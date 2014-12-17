@@ -21,10 +21,6 @@
   EntityCondition cancelled=EntityCondition.makeCondition(canExp);
   EntityCondition finished=EntityCondition.makeCondition(finExp);
   EntityCondition doneCond=EntityCondition.makeCondition(UtilMisc.toList(cancelled,finished),EntityOperator.OR);
-  EntityCondition mainCond=EntityCondition.makeCondition(UtilMisc.toList(doneCond,pool));
-  EntityFindOptions findOptions=new EntityFindOptions();
-  findOptions.setResultSetType(EntityFindOptions.TYPE_SCROLL_INSENSITIVE);
-  findOptions.setMaxRows(1000);
   Transaction parent=null;
   try {
     if (TransactionUtil.getStatus() != TransactionUtil.STATUS_NO_TRANSACTION) {
@@ -38,7 +34,7 @@
         beganTx1=TransactionUtil.begin();
         EntityListIterator foundJobs=null;
         try {
-          foundJobs=delegator.find("JobSandbox",mainCond,null,UtilMisc.toSet("jobId"),null,findOptions);
+          foundJobs=EntityQuery.use(delegator).select("jobId").from("JobSandbox").where(EntityCondition.makeCondition(UtilMisc.toList(doneCond,pool))).cursorScrollInsensitive().maxRows(1000).queryIterator();
           curList=foundJobs.getPartialList(1,1000);
         }
   finally {
@@ -103,11 +99,11 @@
     long jobsandBoxCount=0;
     try {
       beganTx3=TransactionUtil.begin();
-      runTimeDataIt=delegator.find("RuntimeData",null,null,UtilMisc.toSet("runtimeDataId"),null,null);
+      runTimeDataIt=EntityQuery.use(delegator).select("runtimeDataId").from("RuntimeData").queryIterator();
       try {
         while ((runtimeData=runTimeDataIt.next()) != null) {
           EntityCondition whereCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("runtimeDataId",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("runtimeDataId",EntityOperator.EQUALS,runtimeData.getString("runtimeDataId"))),EntityOperator.AND);
-          jobsandBoxCount=delegator.findCountByCondition("JobSandbox",whereCondition,null,null);
+          jobsandBoxCount=EntityQuery.use(delegator).from("JobSandbox").where(whereCondition).queryCount();
           if (BigDecimal.ZERO.compareTo(BigDecimal.valueOf(jobsandBoxCount)) == 0) {
             runtimeDataToDelete.add(runtimeData);
           }
