@@ -394,14 +394,14 @@
   if (parentModelForm != null) {
     useWhenFields.addAll(parentModelForm.useWhenFields);
   }
-  ArrayList<ModelFormField> fieldList=new ArrayList<ModelFormField>();
-  Map<String,ModelFormField> fieldMap=new HashMap<String,ModelFormField>();
+  ArrayList<ModelFormFieldBuilder> fieldBuilderList=new ArrayList<ModelFormFieldBuilder>();
+  Map<String,ModelFormFieldBuilder> fieldBuilderMap=new HashMap<String,ModelFormFieldBuilder>();
   if (parentModelForm != null) {
     for (    ModelFormField parentChildField : parentModelForm.fieldList) {
-      ModelFormField childField=new ModelFormField(this);
-      childField.mergeOverrideModelFormField(parentChildField);
-      fieldList.add(childField);
-      fieldMap.put(childField.getName(),childField);
+      ModelFormFieldBuilder builder=new ModelFormFieldBuilder(parentChildField);
+      builder.setModelForm(this);
+      fieldBuilderList.add(builder);
+      fieldBuilderMap.put(builder.getName(),builder);
     }
   }
   Map<String,FieldGroupBase> fieldGroupMap=new HashMap<String,FieldGroupBase>();
@@ -566,7 +566,7 @@
     rowCountExdr=parentModelForm.rowCountExdr;
   }
   this.rowCountExdr=paginate;
-  ArrayList<ModelFormField> multiSubmitFields=new ArrayList<ModelFormField>();
+  ArrayList<ModelFormFieldBuilder> multiSubmitBuilders=new ArrayList<ModelFormFieldBuilder>();
   ArrayList<AutoFieldsService> autoFieldsServices=new ArrayList<AutoFieldsService>();
   ArrayList<AutoFieldsEntity> autoFieldsEntities=new ArrayList<AutoFieldsEntity>();
   ArrayList<SortField> sortOrderFields=new ArrayList<SortField>();
@@ -574,22 +574,22 @@
   for (  Element autoFieldsServiceElement : UtilXml.childElementList(formElement,"auto-fields-service")) {
     AutoFieldsService autoFieldsService=new AutoFieldsService(autoFieldsServiceElement);
     autoFieldsServices.add(autoFieldsService);
-    addAutoFieldsFromService(autoFieldsService,entityModelReader,dispatchContext,useWhenFields,fieldList,fieldMap);
+    addAutoFieldsFromService(autoFieldsService,entityModelReader,dispatchContext,useWhenFields,fieldBuilderList,fieldBuilderMap);
   }
   for (  Element autoFieldsEntityElement : UtilXml.childElementList(formElement,"auto-fields-entity")) {
     AutoFieldsEntity autoFieldsEntity=new AutoFieldsEntity(autoFieldsEntityElement);
     autoFieldsEntities.add(autoFieldsEntity);
-    addAutoFieldsFromEntity(autoFieldsEntity,entityModelReader,useWhenFields,fieldList,fieldMap);
+    addAutoFieldsFromEntity(autoFieldsEntity,entityModelReader,useWhenFields,fieldBuilderList,fieldBuilderMap);
   }
   String thisType=this.getType();
   for (  Element fieldElement : UtilXml.childElementList(formElement,"field")) {
-    ModelFormField modelFormField=new ModelFormField(fieldElement,this,entityModelReader,dispatchContext);
-    FieldInfo fieldInfo=modelFormField.getFieldInfo();
+    ModelFormFieldBuilder builder=new ModelFormFieldBuilder(fieldElement,this,entityModelReader,dispatchContext);
+    FieldInfo fieldInfo=builder.getFieldInfo();
     if (thisType.equals("multi") && fieldInfo instanceof ModelFormField.SubmitField) {
-      multiSubmitFields.add(modelFormField);
+      multiSubmitBuilders.add(builder);
     }
  else {
-      modelFormField=addUpdateField(modelFormField,useWhenFields,fieldList,fieldMap);
+      addUpdateField(builder,useWhenFields,fieldBuilderList,fieldBuilderMap);
     }
   }
   Element sortOrderElement=UtilXml.firstChildElement(formElement,"sort-order");
@@ -624,54 +624,60 @@
     }
   }
   if (sortOrderFields.size() > 0) {
-    ArrayList<ModelFormField> sortedFields=new ArrayList<ModelFormField>();
+    ArrayList<ModelFormFieldBuilder> sortedFields=new ArrayList<ModelFormFieldBuilder>();
     for (    SortField sortField : sortOrderFields) {
       String fieldName=sortField.getFieldName();
       if (UtilValidate.isEmpty(fieldName)) {
         continue;
       }
-      Iterator<ModelFormField> fieldIter=fieldList.iterator();
+      Iterator<ModelFormFieldBuilder> fieldIter=fieldBuilderList.iterator();
       while (fieldIter.hasNext()) {
-        ModelFormField modelFormField=fieldIter.next();
-        if (fieldName.equals(modelFormField.getName())) {
+        ModelFormFieldBuilder builder=fieldIter.next();
+        if (fieldName.equals(builder.getName())) {
           if (UtilValidate.isNotEmpty(sortField.getPosition())) {
-            modelFormField.setPosition(sortField.getPosition());
+            builder.setPosition(sortField.getPosition());
           }
           fieldIter.remove();
-          sortedFields.add(modelFormField);
+          sortedFields.add(builder);
         }
       }
     }
-    sortedFields.addAll(fieldList);
-    fieldList=sortedFields;
+    sortedFields.addAll(fieldBuilderList);
+    fieldBuilderList=sortedFields;
   }
   if (UtilValidate.isNotEmpty(lastOrderFields)) {
-    List<ModelFormField> lastedFields=new LinkedList<ModelFormField>();
+    List<ModelFormFieldBuilder> lastedFields=new LinkedList<ModelFormFieldBuilder>();
     for (    String fieldName : lastOrderFields) {
       if (UtilValidate.isEmpty(fieldName)) {
         continue;
       }
-      Iterator<ModelFormField> fieldIter=fieldList.iterator();
+      Iterator<ModelFormFieldBuilder> fieldIter=fieldBuilderList.iterator();
       while (fieldIter.hasNext()) {
-        ModelFormField modelFormField=fieldIter.next();
-        if (fieldName.equals(modelFormField.getName())) {
+        ModelFormFieldBuilder builder=fieldIter.next();
+        if (fieldName.equals(builder.getName())) {
           fieldIter.remove();
-          lastedFields.add(modelFormField);
+          lastedFields.add(builder);
         }
       }
     }
-    fieldList.addAll(lastedFields);
+    fieldBuilderList.addAll(lastedFields);
   }
-  this.useWhenFields=Collections.unmodifiableSet(useWhenFields);
-  fieldList.trimToSize();
+  List<ModelFormField> fieldList=new ArrayList<ModelFormField>(fieldBuilderList.size());
+  for (  ModelFormFieldBuilder builder : fieldBuilderList) {
+    fieldList.add(builder.build());
+  }
   this.fieldList=Collections.unmodifiableList(fieldList);
+  List<ModelFormField> multiSubmitFields=new ArrayList<ModelFormField>(multiSubmitBuilders.size());
+  for (  ModelFormFieldBuilder builder : multiSubmitBuilders) {
+    multiSubmitFields.add(builder.build());
+  }
+  this.multiSubmitFields=Collections.unmodifiableList(multiSubmitFields);
+  this.useWhenFields=Collections.unmodifiableSet(useWhenFields);
   this.fieldGroupMap=Collections.unmodifiableMap(fieldGroupMap);
   fieldGroupList.trimToSize();
   this.fieldGroupList=Collections.unmodifiableList(fieldGroupList);
   lastOrderFields.trimToSize();
   this.lastOrderFields=Collections.unmodifiableList(lastOrderFields);
-  multiSubmitFields.trimToSize();
-  this.multiSubmitFields=Collections.unmodifiableList(multiSubmitFields);
   autoFieldsServices.trimToSize();
   this.autoFieldsServices=Collections.unmodifiableList(autoFieldsServices);
   autoFieldsEntities.trimToSize();

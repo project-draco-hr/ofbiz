@@ -1,4 +1,7 @@
 {
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  HttpSession session=request.getSession();
+  GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
   String contentId=request.getParameter("contentId");
   String rootContentId=request.getParameter("rootContentId");
   String mapKey=request.getParameter("mapKey");
@@ -66,6 +69,36 @@
       String fileName=null;
       if (!UtilValidate.isEmpty(dataResource.getString("dataResourceName"))) {
         fileName=dataResource.getString("dataResourceName").replace(" ","_");
+      }
+      String isPublic=dataResource.getString("isPublic");
+      if (UtilValidate.isEmpty(isPublic)) {
+        isPublic="N";
+      }
+      String permissionService=EntityUtilProperties.getPropertyValue("content.properties","stream.permission.service","genericContentPermission",delegator);
+      if (!"Y".equalsIgnoreCase(isPublic)) {
+        Map<String,? extends Object> permSvcCtx=UtilMisc.toMap("userLogin",userLogin,"locale",locale,"mainAction","VIEW","contentId",contentId);
+        Map<String,Object> permSvcResp;
+        try {
+          permSvcResp=dispatcher.runSync(permissionService,permSvcCtx);
+        }
+ catch (        GenericServiceException e) {
+          Debug.logError(e,module);
+          request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+          throw new ViewHandlerException(e.getMessage());
+        }
+        if (ServiceUtil.isError(permSvcResp)) {
+          String errorMsg=ServiceUtil.getErrorMessage(permSvcResp);
+          Debug.logError(errorMsg,module);
+          request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+          throw new ViewHandlerException(errorMsg);
+        }
+        Boolean hasPermission=(Boolean)permSvcResp.get("hasPermission");
+        if (!hasPermission.booleanValue()) {
+          String errorMsg=(String)permSvcResp.get("failMessage");
+          Debug.logError(errorMsg,module);
+          request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+          throw new ViewHandlerException(errorMsg);
+        }
       }
       UtilHttp.streamContentToBrowser(response,bais,byteBuffer.limit(),contentType2,fileName);
     }
