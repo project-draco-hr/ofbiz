@@ -1,0 +1,92 @@
+{
+  boolean passed=true;
+  if (this.condition != null) {
+    if (!this.condition.getCondition().eval(context)) {
+      passed=false;
+    }
+  }
+  if (passed) {
+    List<String> currentNodeTrail=UtilGenerics.toList(context.get("currentNodeTrail"));
+    context.put("processChildren",Boolean.TRUE);
+    ModelTreeAction.runSubActions(this.actions,context);
+    String pkName=getPkName(context);
+    String id=null;
+    if (!this.entryName.isEmpty()) {
+      id=UtilGenerics.<Map<String,String>>cast(context.get(this.entryName)).get(pkName);
+    }
+ else {
+      id=(String)context.get(pkName);
+    }
+    currentNodeTrail.add(id);
+    treeStringRenderer.renderNodeBegin(writer,context,this,depth);
+    try {
+      String screenName=null;
+      if (!screenNameExdr.isEmpty())       screenName=screenNameExdr.expandString(context);
+      String screenLocation=null;
+      if (!screenLocationExdr.isEmpty())       screenLocation=screenLocationExdr.expandString(context);
+      if (screenName != null && screenLocation != null) {
+        ScreenStringRenderer screenStringRenderer=treeStringRenderer.getScreenStringRenderer(context);
+        ModelScreen modelScreen=ScreenFactory.getScreenFromLocation(screenLocation,screenName);
+        modelScreen.renderScreenString(writer,context,screenStringRenderer);
+      }
+      if (label != null) {
+        label.renderLabelString(writer,context,treeStringRenderer);
+      }
+      if (link != null) {
+        link.renderLinkString(writer,context,treeStringRenderer);
+      }
+      treeStringRenderer.renderLastElement(writer,context,this);
+      Boolean processChildren=(Boolean)context.get("processChildren");
+      if (processChildren.booleanValue()) {
+        List<Object[]> subNodeValues=getChildren(context);
+        int newDepth=depth + 1;
+        for (        Object[] arr : subNodeValues) {
+          ModelNode node=(ModelNode)arr[0];
+          Map<String,Object> val=UtilGenerics.checkMap(arr[1]);
+          String thisPkName=node.getPkName(context);
+          String thisEntityId=(String)val.get(thisPkName);
+          MapStack<String> newContext=MapStack.create(context);
+          newContext.push();
+          String nodeEntryName=node.getEntryName();
+          if (!nodeEntryName.isEmpty()) {
+            newContext.put(nodeEntryName,val);
+          }
+ else {
+            newContext.putAll(val);
+          }
+          String targetEntityId=null;
+          List<String> targetNodeTrail=UtilGenerics.checkList(context.get("targetNodeTrail"));
+          if (newDepth < targetNodeTrail.size()) {
+            targetEntityId=targetNodeTrail.get(newDepth);
+          }
+          if ((targetEntityId != null && targetEntityId.equals(thisEntityId)) || this.showPeers(newDepth,context)) {
+            node.renderNodeString(writer,newContext,treeStringRenderer,newDepth);
+          }
+        }
+      }
+    }
+ catch (    ScreenRenderException e) {
+      String errMsg="Error rendering included label with name [" + getName() + "] : "+ e.toString();
+      Debug.logError(e,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+catch (    SAXException e) {
+      String errMsg="Error rendering included label with name [" + getName() + "] : "+ e.toString();
+      Debug.logError(e,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+catch (    ParserConfigurationException e3) {
+      String errMsg="Error rendering included label with name [" + getName() + "] : "+ e3.toString();
+      Debug.logError(e3,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+catch (    IOException e2) {
+      String errMsg="Error rendering included label with name [" + getName() + "] : "+ e2.toString();
+      Debug.logError(e2,errMsg,module);
+      throw new RuntimeException(errMsg);
+    }
+    treeStringRenderer.renderNodeEnd(writer,context,this);
+    int removeIdx=currentNodeTrail.size() - 1;
+    if (removeIdx >= 0)     currentNodeTrail.remove(removeIdx);
+  }
+}
