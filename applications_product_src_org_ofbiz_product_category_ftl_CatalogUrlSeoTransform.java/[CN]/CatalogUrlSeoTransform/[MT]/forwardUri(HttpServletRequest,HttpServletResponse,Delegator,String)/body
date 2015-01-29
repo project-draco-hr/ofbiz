@@ -1,0 +1,108 @@
+{
+  String pathInfo=request.getRequestURI();
+  String contextPath=request.getContextPath();
+  if (!isCategoryMapInitialed()) {
+    initCategoryMap(request,delegator);
+  }
+  if (!SeoConfigUtil.isCategoryUrlEnabled(contextPath)) {
+    return false;
+  }
+  List<String> pathElements=StringUtil.split(pathInfo,"/");
+  if (UtilValidate.isEmpty(pathElements)) {
+    return false;
+  }
+  pathInfo=SeoUrlUtil.removeContextPath(pathInfo,contextPath);
+  pathInfo=SeoUrlUtil.removeContextPath(pathInfo,request.getServletPath());
+  if (pathInfo.startsWith("/" + CatalogUrlServlet.CATEGORY_REQUEST + "/")) {
+    return forwardCategoryUri(request,response,delegator,controlServlet);
+  }
+  String lastPathElement=pathElements.get(pathElements.size() - 1);
+  String categoryId=null;
+  String productId=null;
+  if (UtilValidate.isNotEmpty(lastPathElement)) {
+    if (UtilValidate.isNotEmpty(SeoConfigUtil.getCategoryUrlSuffix())) {
+      if (lastPathElement.endsWith(SeoConfigUtil.getCategoryUrlSuffix())) {
+        lastPathElement=lastPathElement.substring(0,lastPathElement.length() - SeoConfigUtil.getCategoryUrlSuffix().length());
+      }
+ else {
+        return false;
+      }
+    }
+    if (SeoConfigUtil.isCategoryNameEnabled() || pathInfo.startsWith("/" + CatalogUrlServlet.CATEGORY_REQUEST + "/")) {
+      for (      String categoryName : categoryNameIdMap.keySet()) {
+        if (lastPathElement.startsWith(categoryName)) {
+          categoryId=categoryNameIdMap.get(categoryName);
+          if (!lastPathElement.equals(categoryName)) {
+            lastPathElement=lastPathElement.substring(categoryName.length() + URL_HYPHEN.length());
+          }
+          break;
+        }
+      }
+      if (UtilValidate.isEmpty(categoryId)) {
+        categoryId=lastPathElement;
+      }
+    }
+    if (UtilValidate.isNotEmpty(lastPathElement)) {
+      List<String> urlElements=StringUtil.split(lastPathElement,URL_HYPHEN);
+      if (UtilValidate.isEmpty(urlElements)) {
+        try {
+          if (delegator.findOne("Product",UtilMisc.toMap("productId",lastPathElement),true) != null) {
+            productId=lastPathElement;
+          }
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Error looking up product info for ProductUrl with path info [" + pathInfo + "]: "+ e.toString(),module);
+        }
+      }
+ else {
+        int i=urlElements.size() - 1;
+        String tempProductId=urlElements.get(i);
+        while (i >= 0) {
+          try {
+            List<EntityExpr> exprs=FastList.newInstance();
+            exprs.add(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,lastPathElement));
+            exprs.add(EntityCondition.makeCondition("productId",EntityOperator.EQUALS,tempProductId));
+            List<GenericValue> products=delegator.findList("Product",EntityCondition.makeCondition(exprs,EntityOperator.OR),UtilMisc.toSet("productId","productName"),null,null,true);
+            if (products != null && products.size() > 0) {
+              if (products.size() == 1) {
+                productId=products.get(0).getString("productId");
+                break;
+              }
+ else {
+                productId=tempProductId;
+                break;
+              }
+            }
+ else             if (i > 0) {
+              tempProductId=urlElements.get(i - 1) + URL_HYPHEN + tempProductId;
+            }
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,"Error looking up product info for ProductUrl with path info [" + pathInfo + "]: "+ e.toString(),module);
+          }
+          i--;
+        }
+      }
+    }
+  }
+  if (UtilValidate.isNotEmpty(productId) || UtilValidate.isNotEmpty(categoryId)) {
+    if (categoryId != null) {
+      request.setAttribute("productCategoryId",categoryId);
+    }
+    if (productId != null) {
+      request.setAttribute("product_id",productId);
+      request.setAttribute("productId",productId);
+    }
+    StringBuilder urlBuilder=new StringBuilder();
+    if (UtilValidate.isNotEmpty(controlServlet)) {
+      urlBuilder.append("/" + controlServlet);
+    }
+    urlBuilder.append("/" + (productId != null ? CatalogUrlServlet.PRODUCT_REQUEST : CatalogUrlServlet.CATEGORY_REQUEST));
+    UrlServletHelper.setViewQueryParameters(request,urlBuilder);
+    Debug.logInfo("[Filtered request]: " + pathInfo + " ("+ urlBuilder+ ")",module);
+    RequestDispatcher rd=request.getRequestDispatcher(urlBuilder.toString());
+    rd.forward(request,response);
+    return true;
+  }
+  return false;
+}
