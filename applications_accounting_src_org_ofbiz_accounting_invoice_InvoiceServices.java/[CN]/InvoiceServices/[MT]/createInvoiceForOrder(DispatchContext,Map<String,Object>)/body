@@ -37,8 +37,11 @@
     String billToCustomerPartyId=orh.getBillToParty().getString("partyId");
     String billFromVendorPartyId=orh.getBillFromParty().getString("partyId");
     BigDecimal shippableAmount=orh.getShippableTotal(null);
+    BigDecimal shippableQuantity=orh.getShippableQuantity(null);
     BigDecimal orderSubTotal=orh.getOrderItemsSubTotal();
+    BigDecimal orderQuantity=orh.getTotalOrderItemsQuantity();
     BigDecimal invoiceShipProRateAmount=ZERO;
+    BigDecimal invoiceShippableQuantity=ZERO;
     BigDecimal invoiceSubTotal=ZERO;
     BigDecimal invoiceQuantity=ZERO;
     GenericValue billingAccount=orderHeader.getRelatedOne("BillingAccount",false);
@@ -221,6 +224,7 @@
       BigDecimal thisAmount=billingAmount.multiply(billingQuantity).setScale(invoiceTypeDecimals,ROUNDING);
       if (shippingApplies) {
         invoiceShipProRateAmount=invoiceShipProRateAmount.add(thisAmount).setScale(invoiceTypeDecimals,ROUNDING);
+        invoiceShippableQuantity=invoiceQuantity.add(billingQuantity).setScale(invoiceTypeDecimals,ROUNDING);
       }
       invoiceSubTotal=invoiceSubTotal.add(thisAmount).setScale(100,ROUNDING);
       invoiceQuantity=invoiceQuantity.add(billingQuantity).setScale(invoiceTypeDecimals,ROUNDING);
@@ -376,7 +380,13 @@
         taxAdjustments.put(adj,adjAlreadyInvoicedAmount);
       }
  else {
-        calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,orderSubTotal,invoiceSubTotal,adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,ROUNDING),invoiceTypeDecimals,ROUNDING,userLogin,dispatcher,locale);
+        BigDecimal divisor=orderSubTotal;
+        BigDecimal multiplier=invoiceSubTotal;
+        if (BigDecimal.ZERO.compareTo(multiplier) == 0 && BigDecimal.ZERO.compareTo(divisor) == 0) {
+          divisor=orderQuantity;
+          multiplier=invoiceQuantity;
+        }
+        calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,ROUNDING),invoiceTypeDecimals,ROUNDING,userLogin,dispatcher,locale);
         invoiceItemSeqNum++;
         invoiceItemSeqId=UtilFormatOut.formatPaddedNumber(invoiceItemSeqNum,INVOICE_ITEM_SEQUENCE_ID_DIGITS);
       }
@@ -392,6 +402,10 @@
  else {
         BigDecimal divisor=shippableAmount;
         BigDecimal multiplier=invoiceShipProRateAmount;
+        if (BigDecimal.ZERO.compareTo(multiplier) == 0 && BigDecimal.ZERO.compareTo(divisor) == 0) {
+          divisor=shippableQuantity;
+          multiplier=invoiceShippableQuantity;
+        }
         BigDecimal baseAmount=adj.getBigDecimal("amount").setScale(invoiceTypeDecimals,ROUNDING);
         calcHeaderAdj(delegator,adj,invoiceType,invoiceId,invoiceItemSeqId,divisor,multiplier,baseAmount,invoiceTypeDecimals,ROUNDING,userLogin,dispatcher,locale);
       }
