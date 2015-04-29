@@ -1,13 +1,11 @@
 {
-  Classpath classPath=new Classpath();
-  Classpath libraryPath=new Classpath(System.getProperty("java.library.path"));
+  NativeLibClassLoader classloader=null;
   try {
-    this.config.initClasspath(classPath,libraryPath);
+    classloader=createClassLoader();
   }
- catch (  Exception e) {
-    throw new StartupException("Couldn't initialize classpath",e);
+ catch (  IOException e) {
+    throw new StartupException("Couldn't create NativeLibClassLoader",e);
   }
-  ClassLoader classloader=classPath.getClassLoader();
   Thread.currentThread().setContextClassLoader(classloader);
 synchronized (this.loaders) {
     for (    Map<String,String> loaderMap : config.loaders) {
@@ -18,8 +16,8 @@ synchronized (this.loaders) {
         String loaderClassName=loaderMap.get("class");
         Class<?> loaderClass=classloader.loadClass(loaderClassName);
         StartupLoader loader=(StartupLoader)loaderClass.newInstance();
-        loader.load(config,loaderArgs.toArray(new String[loaderArgs.size()]));
         loaders.add(loader);
+        loader.load(config,loaderArgs.toArray(new String[loaderArgs.size()]));
       }
  catch (      ClassNotFoundException e) {
         throw new StartupException(e.getMessage(),e);
@@ -33,5 +31,20 @@ catch (      IllegalAccessException e) {
     }
     this.loaders.trimToSize();
   }
-  return;
+  if (classloader instanceof InstrumentingClassLoader) {
+    try {
+      ((InstrumentingClassLoader)classloader).closeInstrumenter();
+    }
+ catch (    IOException e) {
+      throw new StartupException(e.getMessage(),e);
+    }
+  }
+  StringBuilder sb=new StringBuilder();
+  for (  String path : classloader.getNativeLibPaths()) {
+    if (sb.length() > 0) {
+      sb.append(File.pathSeparator);
+    }
+    sb.append(path);
+  }
+  System.setProperty("java.library.path",sb.toString());
 }

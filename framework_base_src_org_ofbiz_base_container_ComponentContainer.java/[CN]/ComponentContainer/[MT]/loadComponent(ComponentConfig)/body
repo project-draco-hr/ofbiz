@@ -1,7 +1,52 @@
 {
   if (!config.enabled()) {
-    Debug.logInfo("Not Loaded component : [" + config.getComponentName() + "] (disabled)",module);
+    Debug.logInfo("Not loading component [" + config.getComponentName() + "] because it is disabled",module);
     return;
+  }
+  List<ComponentConfig.ClasspathInfo> classpathInfos=config.getClasspathInfos();
+  String configRoot=config.getRootLocation();
+  configRoot=configRoot.replace('\\','/');
+  if (!configRoot.endsWith("/")) {
+    configRoot=configRoot + "/";
+  }
+  if (classpathInfos != null) {
+    Classpath classPath=new Classpath();
+    NativeLibClassLoader classloader=(NativeLibClassLoader)Thread.currentThread().getContextClassLoader();
+    for (    ComponentConfig.ClasspathInfo cp : classpathInfos) {
+      String location=cp.location.replace('\\','/');
+      if (location.startsWith("/")) {
+        location=location.substring(1);
+      }
+      if (!"jar".equals(cp.type) && !"dir".equals(cp.type)) {
+        Debug.logError("Classpath type '" + cp.type + "' is not supported; '"+ location+ "' not loaded",module);
+        continue;
+      }
+      String dirLoc=location;
+      if (dirLoc.endsWith("/*")) {
+        dirLoc=location.substring(0,location.length() - 2);
+      }
+      File path=FileUtil.getFile(configRoot + dirLoc);
+      if (path.exists()) {
+        if (path.isDirectory()) {
+          if ("dir".equals(cp.type)) {
+            classPath.addComponent(configRoot + location);
+          }
+          classPath.addFilesFromPath(path);
+        }
+ else {
+          classPath.addComponent(configRoot + location);
+        }
+      }
+ else {
+        Debug.logWarning("Location '" + configRoot + dirLoc+ "' does not exist",module);
+      }
+    }
+    for (    URL url : classPath.getUrls()) {
+      classloader.addURL(url);
+    }
+    for (    File folder : classPath.getNativeFolders()) {
+      classloader.addNativeClassPath(folder);
+    }
   }
   Debug.logInfo("Loaded component : [" + config.getComponentName() + "]",module);
 }

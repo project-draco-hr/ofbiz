@@ -1,0 +1,47 @@
+{
+  ClassLoader parent=Thread.currentThread().getContextClassLoader();
+  if (parent != null) {
+    System.out.println("ClassLoader: " + parent.getClass().getName());
+  }
+  if (parent instanceof NativeLibClassLoader) {
+    parent=parent.getParent();
+  }
+  if (parent == null) {
+    parent=Start.class.getClassLoader();
+    if (parent == null) {
+      parent=ClassLoader.getSystemClassLoader();
+    }
+  }
+  Classpath classPath=new Classpath();
+  classPath.addComponent(config.ofbizHome);
+  String ofbizHomeTmp=config.ofbizHome;
+  if (!ofbizHomeTmp.isEmpty() && !ofbizHomeTmp.endsWith("/")) {
+    ofbizHomeTmp=ofbizHomeTmp.concat("/");
+  }
+  if (config.classpathAddComponent != null) {
+    String[] components=config.classpathAddComponent.split(",");
+    for (    String component : components) {
+      classPath.addComponent(ofbizHomeTmp.concat(component.trim()));
+    }
+  }
+  if (config.classpathAddFilesFromPath != null) {
+    String[] paths=config.classpathAddFilesFromPath.split(",");
+    for (    String path : paths) {
+      classPath.addFilesFromPath(new File(ofbizHomeTmp.concat(path.trim())));
+    }
+  }
+  NativeLibClassLoader classloader=new NativeLibClassLoader(classPath.getUrls(),parent);
+  if (config.instrumenterFile != null && config.instrumenterClassName != null) {
+    try {
+      classloader=new InstrumentingClassLoader(classPath.getUrls(),parent,config.instrumenterFile,config.instrumenterClassName);
+    }
+ catch (    Exception e) {
+      System.out.println("Instrumenter not enabled - " + e);
+    }
+  }
+  classloader.addNativeClassPath(System.getProperty("java.library.path"));
+  for (  File folder : classPath.getNativeFolders()) {
+    classloader.addNativeClassPath(folder);
+  }
+  return classloader;
+}
