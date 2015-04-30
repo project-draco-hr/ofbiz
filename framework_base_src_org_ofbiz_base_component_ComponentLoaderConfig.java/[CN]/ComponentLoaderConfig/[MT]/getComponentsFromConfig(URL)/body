@@ -1,8 +1,7 @@
 {
   if (configUrl == null) {
-    throw new ComponentException("Component config file does not exist: " + configUrl);
+    throw new IllegalArgumentException("configUrl cannot be null");
   }
-  List<ComponentDef> componentsFromConfig=null;
   Document document=null;
   try {
     document=UtilXml.readXmlDocument(configUrl,true);
@@ -18,10 +17,27 @@ catch (  IOException e) {
   }
   Element root=document.getDocumentElement();
   List<? extends Element> toLoad=UtilXml.childElementList(root);
-  if (UtilValidate.isNotEmpty(toLoad)) {
-    componentsFromConfig=new LinkedList<ComponentDef>();
+  List<ComponentDef> componentsFromConfig=null;
+  if (!toLoad.isEmpty()) {
+    componentsFromConfig=new ArrayList<ComponentDef>(toLoad.size());
+    Map<String,? extends Object> systemProps=UtilGenerics.<String,Object>checkMap(System.getProperties());
     for (    Element element : toLoad) {
-      componentsFromConfig.add(new ComponentDef(element));
+      String nodeName=element.getNodeName();
+      String name=null;
+      String location=null;
+      int type=SINGLE_COMPONENT;
+      if ("load-component".equals(nodeName)) {
+        name=element.getAttribute("component-name");
+        location=FlexibleStringExpander.expandString(element.getAttribute("component-location"),systemProps);
+      }
+ else       if ("load-components".equals(nodeName)) {
+        location=FlexibleStringExpander.expandString(element.getAttribute("parent-directory"),systemProps);
+        type=COMPONENT_DIRECTORY;
+      }
+ else {
+        throw new ComponentException("Invalid element '" + nodeName + "' found in component config file "+ configUrl);
+      }
+      componentsFromConfig.add(new ComponentDef(name,location,type));
     }
   }
   return componentsFromConfig;
