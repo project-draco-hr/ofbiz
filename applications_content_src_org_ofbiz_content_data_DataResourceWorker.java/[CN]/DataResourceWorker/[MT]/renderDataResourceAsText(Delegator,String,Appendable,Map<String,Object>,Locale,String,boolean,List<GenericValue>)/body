@@ -11,28 +11,6 @@
   if (locale == null) {
     locale=Locale.getDefault();
   }
-  if (cache) {
-    String disableCache=EntityUtilProperties.getPropertyValue("content","disable.ftl.template.cache",delegator);
-    if (disableCache == null || !disableCache.equalsIgnoreCase("true")) {
-      try {
-        Template cachedTemplate=FreeMarkerWorker.getTemplate(delegator.getDelegatorName() + ":DataResource:" + dataResourceId);
-        if (cachedTemplate != null) {
-          String subContentId=(String)templateContext.get("subContentId");
-          if (UtilValidate.isNotEmpty(subContentId)) {
-            templateContext.put("contentId",subContentId);
-            templateContext.put("subContentId",null);
-            templateContext.put("globalNodeTrail",null);
-          }
-          FreeMarkerWorker.renderTemplate(cachedTemplate,templateContext,out);
-        }
-      }
- catch (      TemplateException e) {
-        Debug.logError("Error rendering FTL template. " + e.getMessage(),module);
-        throw new GeneralException("Error rendering FTL template",e);
-      }
-      return;
-    }
-  }
   if (!targetMimeTypeId.startsWith("text/")) {
     throw new GeneralException("The desired mime-type is not a text type, cannot render as text: " + targetMimeTypeId);
   }
@@ -42,7 +20,7 @@
   }
   String dataTemplateTypeId=dataResource.getString("dataTemplateTypeId");
   if (UtilValidate.isEmpty(dataTemplateTypeId) || "NONE".equals(dataTemplateTypeId)) {
-    DataResourceWorker.writeDataResourceText(dataResource,targetMimeTypeId,locale,templateContext,delegator,out,true);
+    DataResourceWorker.writeDataResourceText(dataResource,targetMimeTypeId,locale,templateContext,delegator,out,cache);
   }
  else {
     templateContext.put("mimeTypeId",targetMimeTypeId);
@@ -60,7 +38,8 @@
           newTemplateText.insert(templateText.lastIndexOf("</head>"),webAnalyticsCode);
           templateText=newTemplateText.toString();
         }
-        FreeMarkerWorker.renderTemplate(delegator.getDelegatorName() + ":DataResource:" + dataResourceId,templateText,templateContext,out);
+        boolean useTemplateCache=cache && !UtilProperties.getPropertyAsBoolean("content","disable.ftl.template.cache",false);
+        FreeMarkerWorker.renderTemplate(delegator.getDelegatorName() + ":DataResource:" + dataResourceId,templateText,templateContext,out,useTemplateCache);
       }
  catch (      TemplateException e) {
         throw new GeneralException("Error rendering FTL template",e);
