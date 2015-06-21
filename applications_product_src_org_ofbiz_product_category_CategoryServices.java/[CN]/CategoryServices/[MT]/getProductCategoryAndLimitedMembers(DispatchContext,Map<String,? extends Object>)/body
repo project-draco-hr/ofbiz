@@ -51,7 +51,7 @@
     lowIndex=0;
     highIndex=0;
   }
-  Boolean filterOutOfStock=false;
+  boolean filterOutOfStock=false;
   try {
     String productStoreId=(String)context.get("productStoreId");
     if (UtilValidate.isNotEmpty(productStoreId)) {
@@ -66,6 +66,7 @@
   }
   List<GenericValue> productCategoryMembers=null;
   if (productCategory != null) {
+    EntityListIterator pli=null;
     try {
       if (useCacheForMembers) {
         productCategoryMembers=EntityQuery.use(delegator).from(entityName).where("productCategoryId",productCategoryId).orderBy(orderByFields).cache(true).queryList();
@@ -94,13 +95,17 @@
         }
         if (UtilValidate.isNotEmpty(viewProductCategoryId)) {
           productCategoryMembers=CategoryWorker.filterProductsInCategory(delegator,productCategoryMembers,viewProductCategoryId);
-          listSize=productCategoryMembers.size();
         }
         listSize=productCategoryMembers.size();
-        if (highIndex > listSize) {
-          highIndex=listSize;
-        }
         if (limitView) {
+          if (highIndex > listSize) {
+            highIndex=listSize;
+          }
+          if (lowIndex > listSize) {
+            viewIndex=0;
+            lowIndex=1;
+            highIndex=Math.min(viewSize,highIndex);
+          }
           if (UtilValidate.isNotEmpty(productCategoryMembers)) {
             productCategoryMembers=productCategoryMembers.subList(lowIndex - 1,highIndex);
           }
@@ -124,7 +129,7 @@
           mainCondList.add(EntityCondition.makeCondition(EntityCondition.makeCondition("releaseDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("releaseDate",EntityOperator.LESS_THAN_EQUAL_TO,releaseDateLimit)));
         }
         EntityCondition mainCond=EntityCondition.makeCondition(mainCondList,EntityOperator.AND);
-        EntityListIterator pli=EntityQuery.use(delegator).from(entityName).where(mainCond).orderBy(orderByFields).cursorScrollInsensitive().maxRows(highIndex).queryIterator();
+        pli=EntityQuery.use(delegator).from(entityName).where(mainCond).orderBy(orderByFields).cursorScrollInsensitive().maxRows(highIndex).queryIterator();
         if (limitView) {
           if (viewProductCategoryId != null) {
             productCategoryMembers=new LinkedList<GenericValue>();
@@ -171,11 +176,20 @@
         if (highIndex > listSize) {
           highIndex=listSize;
         }
-        pli.close();
       }
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
+    }
+ finally {
+      if (pli != null) {
+        try {
+          pli.close();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+        }
+      }
     }
   }
   Map<String,Object> result=new HashMap<String,Object>();
