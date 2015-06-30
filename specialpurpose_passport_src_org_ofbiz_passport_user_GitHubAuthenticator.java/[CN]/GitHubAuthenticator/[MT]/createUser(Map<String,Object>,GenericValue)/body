@@ -1,0 +1,78 @@
+{
+  Map<String,Serializable> createPersonUlMap=FastMap.newInstance();
+  String userLoginId=delegator.getNextSeqId("UserLogin");
+  if (userMap.containsKey("name")) {
+    createPersonUlMap.put("lastName",(String)userMap.get("name"));
+  }
+  if (userMap.containsKey("login")) {
+    createPersonUlMap.put("externalAuthId",(String)userMap.get("login"));
+  }
+  createPersonUlMap.put("userLoginId",userLoginId);
+  createPersonUlMap.put("currentPassword","[EXTERNAL]");
+  createPersonUlMap.put("currentPasswordVerify","[EXTERNAL]");
+  createPersonUlMap.put("userLogin",system);
+  Map<String,Object> createPersonResult;
+  try {
+    createPersonResult=dispatcher.runSync("createPersonAndUserLogin",createPersonUlMap);
+  }
+ catch (  GenericServiceException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  if (ServiceUtil.isError(createPersonResult)) {
+    throw new AuthenticatorException(ServiceUtil.getErrorMessage(createPersonResult));
+  }
+  String partyId=(String)createPersonResult.get("partyId");
+  GenericValue partyRole=delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",partyId,"roleTypeId","CUSTOMER"));
+  try {
+    delegator.create(partyRole);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  if (userMap.containsKey("email")) {
+    Map<String,Serializable> createEmailMap=FastMap.newInstance();
+    createEmailMap.put("emailAddress",(String)userMap.get("email"));
+    createEmailMap.put("contactMechPurposeTypeId","PRIMARY_EMAIL");
+    createEmailMap.put("partyId",partyId);
+    createEmailMap.put("userLogin",system);
+    Map<String,Object> createEmailResult;
+    try {
+      createEmailResult=dispatcher.runSync("createPartyEmailAddress",createEmailMap);
+    }
+ catch (    GenericServiceException e) {
+      throw new AuthenticatorException(e.getMessage(),e);
+    }
+    if (ServiceUtil.isError(createEmailResult)) {
+      throw new AuthenticatorException(ServiceUtil.getErrorMessage(createEmailResult));
+    }
+  }
+  Timestamp now=UtilDateTime.nowTimestamp();
+  for (  String securityGroup : (new GitHubUserGroupMapper(new String[]{(String)userMap.get("type")}).getSecurityGroups())) {
+    GenericValue secGroup=null;
+    try {
+      secGroup=delegator.findOne("SecurityGroup",UtilMisc.toMap("groupId",securityGroup),true);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,e.getMessage(),module);
+    }
+    if (secGroup != null) {
+      Map<String,Serializable> createSecGrpMap=FastMap.newInstance();
+      createSecGrpMap.put("userLoginId",userLoginId);
+      createSecGrpMap.put("groupId",securityGroup);
+      createSecGrpMap.put("fromDate",now);
+      createSecGrpMap.put("userLogin",system);
+      Map<String,Object> createSecGrpResult;
+      try {
+        createSecGrpResult=dispatcher.runSync("addUserLoginToSecurityGroup",createSecGrpMap);
+      }
+ catch (      GenericServiceException e) {
+        throw new AuthenticatorException(e.getMessage(),e);
+      }
+      if (ServiceUtil.isError(createSecGrpResult)) {
+        throw new AuthenticatorException(ServiceUtil.getErrorMessage(createSecGrpResult));
+      }
+    }
+  }
+  return userLoginId;
+}
