@@ -1,0 +1,105 @@
+{
+  HttpSession session=((HttpServletRequest)request).getSession();
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Map<String,Object> parameters=UtilHttp.getParameterMap(request);
+  String message=(String)parameters.get("message");
+  GenericValue userLogin=(GenericValue)request.getAttribute("userLogin");
+  if (userLogin == null)   userLogin=(GenericValue)session.getAttribute("userLogin");
+  if (userLogin == null)   userLogin=(GenericValue)session.getAttribute("autoUserLogin");
+  Locale locale=UtilHttp.getLocale(request);
+  if (UtilValidate.isEmpty(message)) {
+    message="Error get message parameter.";
+  }
+  String format=(String)parameters.get("format");
+  if (UtilValidate.isEmpty(format)) {
+    format="jpg";
+  }
+  String mimeType="image/" + format;
+  String width=(String)parameters.get("width");
+  String height=(String)parameters.get("height");
+  String encoding=(String)parameters.get("encoding");
+  Boolean verifyOutput=Boolean.valueOf((String)parameters.get("verifyOutput"));
+  String logoImageMaxWidth=(String)parameters.get("logoImageMaxWidth");
+  String logoImageMaxHeight=(String)parameters.get("logoImageMaxHeight");
+  try {
+    if (mimeType != null) {
+      response.setContentType(mimeType);
+    }
+    OutputStream os=response.getOutputStream();
+    Map<String,Object> context=UtilMisc.<String,Object>toMap("message",message,"format",format,"userLogin",userLogin,"locale",locale);
+    if (UtilValidate.isNotEmpty(width)) {
+      try {
+        context.put("width",Integer.parseInt(width));
+      }
+ catch (      NumberFormatException e) {
+      }
+      if (UtilValidate.isEmpty(height)) {
+        try {
+          context.put("height",Integer.parseInt(width));
+        }
+ catch (        NumberFormatException e) {
+        }
+      }
+    }
+    if (UtilValidate.isNotEmpty(height)) {
+      try {
+        context.put("height",Integer.parseInt(height));
+      }
+ catch (      NumberFormatException e) {
+      }
+      if (UtilValidate.isEmpty(width)) {
+        try {
+          context.put("width",Integer.parseInt(height));
+        }
+ catch (        NumberFormatException e) {
+        }
+      }
+    }
+    if (UtilValidate.isNotEmpty(encoding)) {
+      context.put("encoding",encoding);
+    }
+    if (UtilValidate.isNotEmpty(verifyOutput) && verifyOutput.booleanValue()) {
+      context.put("verifyOutput",verifyOutput);
+    }
+    if (UtilValidate.isNotEmpty(logoImageMaxWidth)) {
+      try {
+        context.put("logoImageMaxWidth",Integer.parseInt(logoImageMaxWidth));
+      }
+ catch (      NumberFormatException e) {
+      }
+    }
+    if (UtilValidate.isNotEmpty(logoImageMaxHeight)) {
+      try {
+        context.put("logoImageMaxHeight",Integer.parseInt(logoImageMaxHeight));
+      }
+ catch (      NumberFormatException e) {
+      }
+    }
+    Map<String,Object> results=dispatcher.runSync("generateQRCodeImage",context);
+    if (!ServiceUtil.isError(results)) {
+      BufferedImage bufferedImage=(BufferedImage)results.get("bufferedImage");
+      if (!ImageIO.write(bufferedImage,format,os)) {
+        String errMsg=UtilProperties.getMessage("QRCodeUiLabels","ErrorWriteFormatToFile",new Object[]{format},locale);
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
+      os.flush();
+    }
+ else {
+      String errMsg=ServiceUtil.getErrorMessage(results);
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+  }
+ catch (  IOException e) {
+    String errMsg=UtilProperties.getMessage("QRCodeUiLabels","ErrorGenerateQRCode",new Object[]{e.getMessage()},locale);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage("QRCodeUiLabels","ErrorGenerateQRCode",new Object[]{e.getMessage()},locale);
+    request.setAttribute("_ERROR_MESSAGE_",errMsg);
+    return "error";
+  }
+  return "success";
+}
