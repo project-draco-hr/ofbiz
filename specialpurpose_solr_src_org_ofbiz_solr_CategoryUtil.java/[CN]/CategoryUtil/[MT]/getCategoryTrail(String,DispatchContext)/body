@@ -1,0 +1,47 @@
+{
+  GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
+  List<List<String>> trailElements=FastList.newInstance();
+  String parentProductCategoryId=productCategoryId;
+  while (UtilValidate.isNotEmpty(parentProductCategoryId)) {
+    try {
+      List<EntityCondition> rolllupConds=FastList.newInstance();
+      rolllupConds.add(EntityCondition.makeCondition("productCategoryId",parentProductCategoryId));
+      rolllupConds.add(EntityUtil.getFilterByDateExpr());
+      List<GenericValue> productCategoryRollups=delegator.findList("ProductCategoryRollup",EntityCondition.makeCondition(rolllupConds),null,UtilMisc.toList("-fromDate"),null,true);
+      if (UtilValidate.isNotEmpty(productCategoryRollups)) {
+        List<List<String>> trailElementsAux=FastList.newInstance();
+        trailElementsAux.addAll(trailElements);
+        for (        GenericValue productCategoryRollup : productCategoryRollups) {
+          String trailCategoryId=productCategoryRollup.getString("parentProductCategoryId");
+          parentProductCategoryId=trailCategoryId;
+          List<String> trailElement=FastList.newInstance();
+          if (!trailElements.isEmpty()) {
+            for (            List<String> trailList : trailElementsAux) {
+              trailElement.add(trailCategoryId);
+              trailElement.addAll(trailList);
+              trailElements.remove(trailList);
+              trailElements.add(trailElement);
+            }
+          }
+ else {
+            trailElement.add(trailCategoryId);
+            trailElement.add(productCategoryId);
+            trailElements.add(trailElement);
+          }
+        }
+      }
+ else {
+        parentProductCategoryId=null;
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot generate trail from product category",module);
+    }
+  }
+  if (trailElements.size() == 0) {
+    List<String> trailElement=FastList.newInstance();
+    trailElement.add(productCategoryId);
+    trailElements.add(trailElement);
+  }
+  return trailElements;
+}

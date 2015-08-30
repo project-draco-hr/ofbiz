@@ -1,0 +1,83 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  HttpServletResponse httpResponse=(HttpServletResponse)response;
+  httpRequest.setAttribute("servletContext",config.getServletContext());
+  if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
+    httpRequest.getSession().setAttribute("webSiteId",WebSiteWorker.getWebSiteId(httpRequest));
+  }
+  httpRequest.setAttribute("_CONTEXT_ROOT_",config.getServletContext().getRealPath("/"));
+  httpRequest.setAttribute("_SERVER_ROOT_URL_",UtilHttp.getServerRootUrl(httpRequest));
+  String reqAttrMapHex=(String)httpRequest.getSession().getAttribute("_REQ_ATTR_MAP_");
+  if (UtilValidate.isNotEmpty(reqAttrMapHex)) {
+    byte[] reqAttrMapBytes=StringUtil.fromHexString(reqAttrMapHex);
+    Map<String,Object> reqAttrMap=checkMap(UtilObject.getObject(reqAttrMapBytes),String.class,Object.class);
+    if (reqAttrMap != null) {
+      for (      Map.Entry<String,Object> entry : reqAttrMap.entrySet()) {
+        httpRequest.setAttribute(entry.getKey(),entry.getValue());
+      }
+    }
+    httpRequest.getSession().removeAttribute("_REQ_ATTR_MAP_");
+  }
+  String disableSecurity=config.getInitParameter("disableContextSecurity");
+  if (disableSecurity != null && "Y".equalsIgnoreCase(disableSecurity)) {
+    chain.doFilter(httpRequest,httpResponse);
+    return;
+  }
+  String redirectAllTo=config.getInitParameter("forceRedirectAll");
+  if (UtilValidate.isNotEmpty(redirectAllTo)) {
+    if (httpRequest.getSession().getAttribute("_FORCE_REDIRECT_") == null) {
+      httpRequest.getSession().setAttribute("_FORCE_REDIRECT_","true");
+      Debug.logWarning("Redirecting user to: " + redirectAllTo,module);
+      if (!redirectAllTo.toLowerCase().startsWith("http")) {
+        redirectAllTo=httpRequest.getContextPath() + redirectAllTo;
+      }
+      httpResponse.sendRedirect(redirectAllTo);
+      return;
+    }
+ else {
+      httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
+      chain.doFilter(httpRequest,httpResponse);
+      return;
+    }
+  }
+  String servletPath=httpRequest.getServletPath();
+  if (UtilValidate.isNotEmpty(servletPath) && servletPath.equals("/control")) {
+    doControlFilter(request,response,chain);
+    chain.doFilter(request,response);
+  }
+ else {
+    if (UtilValidate.isNotEmpty(servletPath) && servletPath.startsWith("/admin/")) {
+      HttpSession session=httpRequest.getSession();
+      GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+      Security security=(Security)request.getAttribute("security");
+      if (security == null) {
+        security=(Security)httpRequest.getServletContext().getAttribute("security");
+        if (security != null) {
+          request.setAttribute("security",security);
+        }
+      }
+      if (security == null) {
+        security=getSecurity();
+        if (security != null) {
+          request.setAttribute("security",security);
+        }
+      }
+      if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
+        response.setContentType("application/x-json");
+        MapToJSON mapToJson=new MapToJSON();
+        JSON json;
+        try {
+          json=mapToJson.convert(UtilMisc.toMap("ofbizLogin",(Object)"true"));
+          OutputStream os=response.getOutputStream();
+          os.write(json.toString().getBytes());
+          os.flush();
+        }
+ catch (        ConversionException e) {
+          Debug.logError("Error while converting ofbizLogin map to JSON.",module);
+        }
+        return;
+      }
+    }
+    super.doFilter(request,response,chain);
+  }
+}

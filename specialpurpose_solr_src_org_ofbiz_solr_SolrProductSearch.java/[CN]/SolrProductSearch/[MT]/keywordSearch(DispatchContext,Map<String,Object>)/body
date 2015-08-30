@@ -1,0 +1,58 @@
+{
+  Map<String,Object> result;
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  try {
+    if (context.get("query") == null || context.get("query").equals(""))     context.put("query","*:*");
+    Map<String,Object> dispatchMap=FastMap.newInstance();
+    if (context.get("viewSize") != null)     dispatchMap.put("viewSize",Integer.parseInt(((String)context.get("viewSize"))));
+    if (context.get("viewIndex") != null)     dispatchMap.put("viewIndex",Integer.parseInt((String)context.get("viewIndex")));
+    if (context.get("query") != null)     dispatchMap.put("query",context.get("query"));
+    if (context.get("queryFilter") != null)     dispatchMap.put("queryFilter",context.get("queryFilter"));
+    dispatchMap.put("spellcheck",true);
+    Map<String,Object> searchResult=dispatcher.runSync("runSolrQuery",dispatchMap);
+    QueryResponse queryResult=(QueryResponse)searchResult.get("queryResult");
+    List<List<String>> suggestions=FastList.newInstance();
+    if (queryResult.getSpellCheckResponse() != null && queryResult.getSpellCheckResponse().getSuggestions() != null) {
+      Iterator<Suggestion> iter=queryResult.getSpellCheckResponse().getSuggestions().iterator();
+      while (iter.hasNext()) {
+        Suggestion resultDoc=iter.next();
+        Debug.logInfo("Suggestion " + resultDoc.getAlternatives(),module);
+        suggestions.add(resultDoc.getAlternatives());
+      }
+    }
+    Boolean isCorrectlySpelled=true;
+    if (queryResult.getSpellCheckResponse() != null) {
+      isCorrectlySpelled=queryResult.getSpellCheckResponse().isCorrectlySpelled();
+    }
+    result=ServiceUtil.returnSuccess();
+    result.put("isCorrectlySpelled",isCorrectlySpelled);
+    Map<String,Integer> facetQuery=queryResult.getFacetQuery();
+    Map<String,String> facetQueries=FastMap.newInstance();
+    for (    String fq : facetQuery.keySet()) {
+      if (facetQuery.get(fq).intValue() > 0)       facetQueries.put(fq,fq.replaceAll("^.*\\u005B(.*)\\u005D","$1") + " (" + facetQuery.get(fq).intValue()+ ")");
+    }
+    Map<String,Map<String,Long>> facetFields=FastMap.newInstance();
+    List<FacetField> facets=queryResult.getFacetFields();
+    for (    FacetField facet : facets) {
+      Map<String,Long> facetEntry=FastMap.newInstance();
+      List<FacetField.Count> facetEntries=facet.getValues();
+      if (UtilValidate.isNotEmpty(facetEntries)) {
+        for (        FacetField.Count fcount : facetEntries)         facetEntry.put(fcount.getName(),fcount.getCount());
+        facetFields.put(facet.getName(),facetEntry);
+      }
+    }
+    result.put("results",queryResult.getResults());
+    result.put("facetFields",facetFields);
+    result.put("facetQueries",facetQueries);
+    result.put("queryTime",queryResult.getElapsedTime());
+    result.put("listSize",queryResult.getResults().getNumFound());
+    result.put("viewIndex",queryResult.getResults().getStart());
+    result.put("viewSize",queryResult.getResults().size());
+    result.put("suggestions",suggestions);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,e.getMessage(),module);
+    result=ServiceUtil.returnError(e.toString());
+  }
+  return result;
+}

@@ -1,0 +1,38 @@
+{
+  Map<String,Object> result;
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue productInstance=(GenericValue)context.get("instance");
+  String productId=(String)productInstance.get("productId");
+  if (SolrUtil.isSolrEcaEnabled()) {
+    try {
+      GenericValue product=delegator.findOne("Product",UtilMisc.toMap("productId",productId),false);
+      Map<String,Object> dispatchContext=ProductUtil.getProductContent(product,dctx,context);
+      dispatchContext.put("treatConnectErrorNonFatal",SolrUtil.isEcaTreatConnectErrorNonFatal());
+      Map<String,Object> runResult=dispatcher.runSync("addToSolrIndex",dispatchContext);
+      String runMsg=ServiceUtil.getErrorMessage(runResult);
+      if (UtilValidate.isEmpty(runMsg)) {
+        runMsg=null;
+      }
+      if (ServiceUtil.isError(runResult)) {
+        result=ServiceUtil.returnError(runMsg);
+      }
+ else       if (ServiceUtil.isFailure(runResult)) {
+        result=ServiceUtil.returnFailure(runMsg);
+      }
+ else {
+        result=ServiceUtil.returnSuccess();
+      }
+    }
+ catch (    Exception e) {
+      Debug.logError(e,e.getMessage(),module);
+      result=ServiceUtil.returnError(e.toString());
+    }
+  }
+ else {
+    final String statusMsg="Solr ECA indexing disabled; skipping indexing for productId '" + productId + "'";
+    Debug.logVerbose("Solr: addToSolr: " + statusMsg,module);
+    result=ServiceUtil.returnSuccess();
+  }
+  return result;
+}
