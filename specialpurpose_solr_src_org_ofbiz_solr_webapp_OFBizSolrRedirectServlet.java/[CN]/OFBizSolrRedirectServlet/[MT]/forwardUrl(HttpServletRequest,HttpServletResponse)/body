@@ -5,7 +5,38 @@
   if (UtilValidate.isEmpty(userLogin)) {
     forwardToLogin=true;
   }
-  if (forwardToLogin || !request.getScheme().equals("https")) {
+ else {
+    Security security=(Security)request.getAttribute("security");
+    if (security == null) {
+      security=(Security)session.getAttribute("security");
+      if (security != null) {
+        request.setAttribute("security",security);
+      }
+    }
+    if (security == null) {
+      security=(Security)request.getServletContext().getAttribute("security");
+      if (security != null) {
+        request.setAttribute("security",security);
+      }
+    }
+    if (!LoginWorker.hasBasePermission(userLogin,request)) {
+      forwardToLogin=true;
+    }
+  }
+  if (forwardToLogin) {
+    String contextPath=request.getContextPath();
+    String uri=request.getRequestURI();
+    if (UtilValidate.isNotEmpty(contextPath) && uri.startsWith(contextPath)) {
+      uri=uri.replaceFirst(request.getContextPath(),"");
+    }
+    String servletPath=request.getServletPath();
+    if (UtilValidate.isNotEmpty(servletPath) && uri.startsWith(servletPath)) {
+      uri=uri.replaceFirst(servletPath,"");
+    }
+    response.sendRedirect(contextPath + "/control/checkLogin" + uri);
+    return true;
+  }
+  if (!request.getScheme().equals("https")) {
     StringBuilder newURL=new StringBuilder(250);
     try {
       OfbizUrlBuilder builder=OfbizUrlBuilder.from(request);
@@ -23,25 +54,7 @@ catch (    IOException e) {
       Debug.logError(e,"Exception thrown while writing to StringBuilder: ",module);
       return false;
     }
-    if (forwardToLogin) {
-      String contextPath=request.getContextPath();
-      if (UtilValidate.isNotEmpty(contextPath)) {
-        newURL.append(contextPath);
-      }
-      newURL.append("/control/checkLogin");
-      String uri=request.getRequestURI();
-      if (UtilValidate.isNotEmpty(contextPath) && uri.startsWith(contextPath)) {
-        uri=uri.replaceFirst(request.getContextPath(),"");
-      }
-      String servletPath=request.getServletPath();
-      if (UtilValidate.isNotEmpty(servletPath) && uri.startsWith(servletPath)) {
-        uri=uri.replaceFirst(servletPath,"");
-      }
-      newURL.append(uri);
-    }
- else {
-      newURL.append(request.getRequestURI());
-    }
+    newURL.append(request.getRequestURI());
     try {
       response.setStatus(HttpServletResponse.SC_MOVED_TEMPORARILY);
       response.setHeader("Location",newURL.toString());
