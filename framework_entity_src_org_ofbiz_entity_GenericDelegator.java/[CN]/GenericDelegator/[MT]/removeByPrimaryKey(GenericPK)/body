@@ -1,4 +1,37 @@
 {
-  int retVal=this.removeByPrimaryKey(primaryKey,true);
-  return retVal;
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    EntityEcaRuleRunner<?> ecaRunner=this.getEcaRuleRunner(primaryKey.getEntityName());
+    ecaRunner.evalRules(EntityEcaHandler.EV_VALIDATE,EntityEcaHandler.OP_REMOVE,primaryKey,false);
+    GenericHelper helper=getEntityHelper(primaryKey.getEntityName());
+    ecaRunner.evalRules(EntityEcaHandler.EV_RUN,EntityEcaHandler.OP_REMOVE,primaryKey,false);
+    if (primaryKey.getModelEntity().getHasFieldWithAuditLog()) {
+      createEntityAuditLogAll(this.findOne(primaryKey.getEntityName(),primaryKey,false),true,true);
+    }
+    GenericValue removedEntity=null;
+    if (testMode) {
+      removedEntity=this.findOne(primaryKey.getEntityName(),primaryKey,false);
+    }
+    int num=helper.removeByPrimaryKey(primaryKey);
+    ecaRunner.evalRules(EntityEcaHandler.EV_CACHE_CLEAR,EntityEcaHandler.OP_REMOVE,primaryKey,false);
+    this.clearCacheLine(primaryKey);
+    this.saveEntitySyncRemoveInfo(primaryKey);
+    if (testMode) {
+      if (removedEntity != null) {
+        storeForTestRollback(new TestOperation(OperationType.DELETE,removedEntity));
+      }
+    }
+    ecaRunner.evalRules(EntityEcaHandler.EV_RETURN,EntityEcaHandler.OP_REMOVE,primaryKey,false);
+    TransactionUtil.commit(beganTransaction);
+    return num;
+  }
+ catch (  Exception e) {
+    String errMsg="Failure in removeByPrimaryKey operation for entity [" + primaryKey.getEntityName() + "]: "+ e.toString()+ ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    TransactionUtil.rollback(beganTransaction,errMsg,e);
+    throw new GenericEntityException(e);
+  }
 }
