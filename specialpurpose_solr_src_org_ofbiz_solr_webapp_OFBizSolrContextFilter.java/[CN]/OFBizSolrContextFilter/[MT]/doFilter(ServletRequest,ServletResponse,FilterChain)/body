@@ -46,7 +46,7 @@
     chain.doFilter(request,response);
   }
  else {
-    if (UtilValidate.isNotEmpty(servletPath) && (servletPath.startsWith("/admin/") || servletPath.endsWith("/update") || servletPath.endsWith("/update/json")|| servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract"))) {
+    if (UtilValidate.isNotEmpty(servletPath) && (servletPath.startsWith("/admin/") || servletPath.endsWith("/update") || servletPath.endsWith("/update/json")|| servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract")|| servletPath.endsWith("/replication")|| servletPath.endsWith("/file")|| servletPath.endsWith("/file/"))) {
       HttpSession session=httpRequest.getSession();
       GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
       Security security=(Security)request.getAttribute("security");
@@ -66,9 +66,10 @@
         response.setContentType("application/json");
         MapToJSON mapToJson=new MapToJSON();
         JSON json;
+        OutputStream os=null;
         try {
           json=mapToJson.convert(UtilMisc.toMap("ofbizLogin",(Object)"true"));
-          OutputStream os=response.getOutputStream();
+          os=response.getOutputStream();
           os.write(json.toString().getBytes());
           os.flush();
           String message="";
@@ -83,6 +84,11 @@
  catch (        ConversionException e) {
           Debug.logError("Error while converting Solr ofbizLogin map to JSON.",module);
         }
+ finally {
+          if (os != null) {
+            os.close();
+          }
+        }
         return;
       }
  else       if (servletPath.endsWith("/update") || servletPath.endsWith("/update/json") || servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract")) {
@@ -92,8 +98,9 @@
           Map<String,Object> responseHeader=new HashMap<String,Object>();
           JSON json;
           String message="";
+          OutputStream os=null;
           try {
-            OutputStream os=httpResponse.getOutputStream();
+            os=httpResponse.getOutputStream();
             if (UtilValidate.isEmpty(userLogin)) {
               httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
               responseHeader.put("status",HttpServletResponse.SC_UNAUTHORIZED);
@@ -113,6 +120,87 @@
           }
  catch (          ConversionException e) {
             Debug.logError("Error while converting responseHeader map to JSON.",module);
+          }
+ finally {
+            if (os != null) {
+              os.close();
+            }
+          }
+          return;
+        }
+      }
+ else       if (servletPath.endsWith("/replication")) {
+        if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
+          httpResponse.setContentType("application/json");
+          MapToJSON mapToJson=new MapToJSON();
+          Map<String,Object> responseHeader=new HashMap<String,Object>();
+          JSON json;
+          String message="";
+          OutputStream os=null;
+          try {
+            os=httpResponse.getOutputStream();
+            if (UtilValidate.isEmpty(userLogin)) {
+              httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+              responseHeader.put("status",HttpServletResponse.SC_UNAUTHORIZED);
+              message="To enable/disable replication of a Solr index in OFBiz, you have to login first and have the permission to do so.";
+              responseHeader.put("message",message);
+            }
+ else {
+              httpResponse.setStatus(HttpServletResponse.SC_FORBIDDEN);
+              responseHeader.put("status",HttpServletResponse.SC_FORBIDDEN);
+              message="To enable/disable replication of a Solr index in OFBiz, you have to have the permission to do so.";
+              responseHeader.put("message",message);
+            }
+            json=mapToJson.convert(UtilMisc.toMap("responseHeader",(Object)responseHeader));
+            os.write(json.toString().getBytes());
+            os.flush();
+            Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
+          }
+ catch (          ConversionException e) {
+            Debug.logError("Error while converting responseHeader map to JSON.",module);
+          }
+ finally {
+            if (os != null) {
+              os.close();
+            }
+          }
+          return;
+        }
+      }
+ else       if (servletPath.endsWith("/file") || servletPath.endsWith("/file/")) {
+        if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
+          httpResponse.setContentType("application/json");
+          MapToJSON mapToJson=new MapToJSON();
+          Map<String,Object> responseHeader=new HashMap<String,Object>();
+          JSON json;
+          String message="";
+          OutputStream os=null;
+          try {
+            os=httpResponse.getOutputStream();
+            if (UtilValidate.isEmpty(userLogin)) {
+              httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+              responseHeader.put("status",HttpServletResponse.SC_UNAUTHORIZED);
+              message="To view files of a Solr index in OFBiz, you have to login first and have the permission to do so.";
+              responseHeader.put("message",message);
+            }
+ else {
+              httpResponse.setStatus(HttpServletResponse.SC_FORBIDDEN);
+              responseHeader.put("status",HttpServletResponse.SC_FORBIDDEN);
+              message="To view files of a Solr index in OFBiz, you have to have the permission to do so.";
+              responseHeader.put("message",message);
+            }
+            json=mapToJson.convert(UtilMisc.toMap("responseHeader",(Object)responseHeader));
+            os.write(json.toString().getBytes());
+            os.flush();
+            Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
+          }
+ catch (          ConversionException e) {
+            Debug.logError("Error while converting responseHeader map to JSON.",module);
+          }
+ finally {
+            if (os != null) {
+              os.close();
+            }
           }
           return;
         }

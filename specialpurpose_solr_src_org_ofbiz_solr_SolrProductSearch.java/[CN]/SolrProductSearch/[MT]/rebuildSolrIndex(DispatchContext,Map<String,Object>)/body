@@ -1,5 +1,5 @@
 {
-  HttpSolrServer server=null;
+  HttpSolrClient client=null;
   Map<String,Object> result;
   GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
   LocalDispatcher dispatcher=dctx.getDispatcher();
@@ -7,7 +7,7 @@
   Locale locale=new Locale("de_DE");
   Boolean treatConnectErrorNonFatal=(Boolean)context.get("treatConnectErrorNonFatal");
   try {
-    server=new HttpSolrServer(SolrUtil.solrUrl);
+    client=new HttpSolrClient(SolrUtil.solrUrl);
     List<Map<String,Object>> solrDocs=FastList.newInstance();
     List<GenericValue> products=delegator.findList("Product",null,null,null,null,true);
     int numDocs=0;
@@ -21,8 +21,8 @@
       Map<String,Object> dispatchContext=ProductUtil.getProductContent(product,dctx,context);
       solrDocs.add(dispatchContext);
     }
-    server.deleteByQuery("*:*");
-    server.commit();
+    client.deleteByQuery("*:*");
+    client.commit();
     Map<String,Object> runResult=dispatcher.runSync("addListToSolrIndex",UtilMisc.toMap("fieldList",solrDocs,"userLogin",userLogin,"locale",locale,"treatConnectErrorNonFatal",treatConnectErrorNonFatal));
     String runMsg=ServiceUtil.getErrorMessage(runResult);
     if (UtilValidate.isEmpty(runMsg)) {
@@ -79,6 +79,15 @@ catch (  GenericServiceException e) {
 catch (  Exception e) {
     Debug.logError(e,e.getMessage(),module);
     result=ServiceUtil.returnError(e.toString());
+  }
+ finally {
+    if (client != null) {
+      try {
+        client.close();
+      }
+ catch (      IOException e) {
+      }
+    }
   }
   return result;
 }
