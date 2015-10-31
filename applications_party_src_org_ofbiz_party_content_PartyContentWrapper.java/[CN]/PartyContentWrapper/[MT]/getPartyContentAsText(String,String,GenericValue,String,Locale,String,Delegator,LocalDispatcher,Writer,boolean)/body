@@ -1,0 +1,56 @@
+{
+  if (partyId == null && party != null) {
+    partyId=party.getString("partyId");
+  }
+  if (delegator == null && party != null) {
+    delegator=party.getDelegator();
+  }
+  if (UtilValidate.isEmpty(mimeTypeId)) {
+    mimeTypeId="text/html";
+  }
+  if (delegator == null) {
+    throw new GeneralRuntimeException("Unable to find a delegator to use!");
+  }
+  if (partyContentTypeId != null) {
+    String candidateFieldName=ModelUtil.dbNameToVarName(partyContentTypeId);
+    ModelEntity partyPersonModel=delegator.getModelEntity("PartyAndPerson");
+    if (partyPersonModel != null && partyPersonModel.isField(candidateFieldName)) {
+      if (party == null) {
+        party=EntityQuery.use(delegator).from("PartyAndPerson").where("partyId",partyId).cache().queryOne();
+      }
+      if (party != null) {
+        String candidateValue=party.getString(candidateFieldName);
+        if (UtilValidate.isNotEmpty(candidateValue)) {
+          outWriter.write(candidateValue);
+          return;
+        }
+      }
+    }
+    ModelEntity partyGroupModel=delegator.getModelEntity("PartyAndGroup");
+    if (partyGroupModel != null && partyGroupModel.isField(candidateFieldName)) {
+      if (party == null) {
+        party=EntityQuery.use(delegator).from("PartyAndGroup").where("partyId",partyId).cache().queryOne();
+      }
+      if (party != null) {
+        String candidateValue=party.getString(candidateFieldName);
+        if (UtilValidate.isNotEmpty(candidateValue)) {
+          outWriter.write(candidateValue);
+          return;
+        }
+      }
+    }
+  }
+  GenericValue partyContent;
+  if (contentId != null) {
+    partyContent=EntityQuery.use(delegator).from("PartyContent").where("partyId",partyId,"contentId",contentId).cache(cache).queryOne();
+  }
+ else {
+    partyContent=getFirstPartyContentByType(partyId,party,partyContentTypeId,delegator);
+  }
+  if (partyContent != null) {
+    Map<String,Object> inContext=new HashMap<String,Object>();
+    inContext.put("party",party);
+    inContext.put("partyContent",partyContent);
+    ContentWorker.renderContentAsText(dispatcher,delegator,partyContent.getString("contentId"),outWriter,inContext,locale,mimeTypeId,null,null,cache);
+  }
+}
