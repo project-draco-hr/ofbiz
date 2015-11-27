@@ -1,6 +1,7 @@
 {
   Map<String,Object> result=new LinkedHashMap<String,Object>();
   Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
   Security security=ctx.getSecurity();
   GenericValue loggedInUserLogin=(GenericValue)context.get("userLogin");
   List<String> errorMessageList=new LinkedList<String>();
@@ -15,6 +16,8 @@
   String requirePasswordChange=(String)context.get("requirePasswordChange");
   String externalAuthId=(String)context.get("externalAuthId");
   String errMsg=null;
+  String questionEnumId=(String)context.get("securityQuestion");
+  String securityAnswer=(String)context.get("securityAnswer");
   if (UtilValidate.isNotEmpty(partyId)) {
     GenericValue party=null;
     try {
@@ -77,6 +80,21 @@
     Map<String,String> messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
     errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_write_failure",messageMap,locale);
     return ServiceUtil.returnError(errMsg);
+  }
+  try {
+    if (UtilValidate.isNotEmpty(securityAnswer)) {
+      Map<String,Object> resultMap=new HashMap<String,Object>();
+      resultMap=dispatcher.runSync("createUserLoginSecurityQuestion",UtilMisc.toMap("userLogin",loggedInUserLogin,"userLoginId",userLoginId,"questionEnumId",questionEnumId,"securityAnswer",securityAnswer));
+      if (ServiceUtil.isError(resultMap)) {
+        errMsg=ServiceUtil.getErrorMessage(resultMap);
+        errorMessageList.add(errMsg);
+        Debug.logError(errMsg,module);
+      }
+    }
+  }
+ catch (  GenericServiceException e1) {
+    errMsg=UtilProperties.getMessage(resource,"loginservices.error_setting_security_question",locale);
+    Debug.logError(e1,errMsg,module);
   }
   result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
   return result;

@@ -16,6 +16,7 @@
   }
   GenericValue supposedUserLogin=null;
   String passwordToSend=null;
+  String autoPassword=null;
   try {
     supposedUserLogin=EntityQuery.use(delegator).from("UserLogin").where("userLoginId",userLoginId).queryOne();
     if (supposedUserLogin == null) {
@@ -28,7 +29,15 @@
       if ("true".equals(EntityUtilProperties.getPropertyValue("security","password.lowercase",delegator))) {
         passwordToSend=passwordToSend.toLowerCase();
       }
-      supposedUserLogin.set("currentPassword",HashCrypt.cryptUTF8(LoginServices.getHashType(),null,passwordToSend));
+      autoPassword=RandomStringUtils.randomAlphanumeric(Integer.parseInt(EntityUtilProperties.getPropertyValue("security","password.length.min","5",delegator)));
+      EntityCrypto entityCrypto=new EntityCrypto(delegator,null);
+      try {
+        passwordToSend=entityCrypto.encrypt(keyValue,(Object)autoPassword);
+      }
+ catch (      GeneralException e) {
+        Debug.logWarning(e,"Problem in encryption",module);
+      }
+      supposedUserLogin.set("currentPassword",HashCrypt.cryptUTF8(LoginServices.getHashType(),null,autoPassword));
       supposedUserLogin.set("passwordHint","Auto-Generated Password");
       if ("true".equals(EntityUtilProperties.getPropertyValue("security","password.email_password.require_password_change",delegator))) {
         supposedUserLogin.set("requirePasswordChange","Y");
