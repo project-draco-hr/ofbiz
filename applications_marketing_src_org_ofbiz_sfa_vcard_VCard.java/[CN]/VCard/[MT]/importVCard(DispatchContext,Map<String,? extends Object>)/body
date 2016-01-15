@@ -15,7 +15,9 @@
   try {
     ContactIOFactory ciof=Pim.getContactIOFactory();
     ContactUnmarshaller unmarshaller=ciof.createContactUnmarshaller();
+    unmarshaller.setStrict(false);
     Contact[] contacts=unmarshaller.unmarshallContacts(in);
+    int contactsCount=1;
     for (    Contact contact : contacts) {
       PersonalIdentity pid=contact.getPersonalIdentity();
       if (!isGroup) {
@@ -64,6 +66,15 @@
             }
           }
           if (UtilValidate.isNotEmpty(email)) {
+            InternetAddress emailAddr;
+            try {
+              emailAddr=new InternetAddress(email);
+              emailAddr.validate();
+            }
+ catch (            AddressException e) {
+              String emailFOrmatErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVCardEmailFormatError",locale);
+              return ServiceUtil.returnError(pid.getFirstname() + " " + pid.getLastname()+ " has "+ emailFOrmatErrMsg);
+            }
             serviceCtx.put("emailAddress",email);
           }
           for (Iterator<?> iter=communications.getPhoneNumbers(); iter.hasNext(); ) {
@@ -94,13 +105,17 @@
         }
       }
       OrganizationalIdentity oid=contact.getOrganizationalIdentity();
-      if (!isGroup) {
-        serviceCtx.put("personalTitle",oid.getTitle());
+      if (!isGroup && oid != null && oid.getTitle() != null) {
+        String personalTitle=oid.getTitle().replace("\\","").replaceAll("\uFFFD"," ");
+        if (personalTitle.length() > 100) {
+          personalTitle=oid.getTitle().replace("\\","").replaceAll("\uFFFD"," ").substring(0,100);
+        }
+        serviceCtx.put("personalTitle",personalTitle);
       }
       if (isGroup) {
         if (oid.hasOrganization()) {
           Organization org=oid.getOrganization();
-          serviceCtx.put("groupName",org.getName());
+          serviceCtx.put("groupName",org.getName().replace("\\",""));
         }
       }
       GenericValue userLogin=(GenericValue)context.get("userLogin");
@@ -112,8 +127,30 @@
           serviceCtx.put(entry.getKey(),entry.getValue());
         }
       }
-      Map<String,Object> resp=dispatcher.runSync(serviceName,serviceCtx);
-      result.put("partyId",resp.get("partyId"));
+      List<GenericValue> persons=EntityQuery.use(delegator).from("Person").where("firstName",serviceCtx.get("firstName"),"lastName",serviceCtx.get("lastName")).queryList();
+      boolean blockPerson=false;
+      for (      GenericValue person : persons) {
+        GenericValue partyStatus=EntityQuery.use(delegator).from("PartyStatus").where("partyId",person.get("partyId")).orderBy("-statusDate").queryFirst();
+        if (!partyStatus.get("statusId").equals("PARTY_DISABLED")) {
+          blockPerson=true;
+        }
+      }
+      if (!blockPerson) {
+        String nameMissingErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVcardNameMissingError",locale);
+        if (!isGroup && serviceCtx.get("lastName") == null) {
+          return ServiceUtil.returnError(serviceCtx.get("firstName") + " " + nameMissingErrMsg);
+        }
+        if (!isGroup && serviceCtx.get("firstName") == null) {
+          return ServiceUtil.returnError(serviceCtx.get("lastName") + " " + nameMissingErrMsg);
+        }
+        Map<String,Object> resp=dispatcher.runSync(serviceName,serviceCtx);
+        result.put("partyId",resp.get("partyId"));
+      }
+      if (result.get("partyId") == null && contactsCount == contacts.length) {
+        String duplicatedErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVcardDuplicatedVcardError",locale);
+        return ServiceUtil.returnError(duplicatedErrMsg);
+      }
+      contactsCount++;
     }
   }
  catch (  GenericEntityException e) {
