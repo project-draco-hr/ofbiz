@@ -31,34 +31,28 @@
   String returnURI=oauth2GitHub.getString(PassportUtil.COMMON_RETURN_RUL);
   String accessToken=null;
   String tokenType=null;
-  HttpClient jsonClient=new HttpClient();
-  PostMethod postMethod=new PostMethod(TokenEndpoint + TokenServiceUri);
   try {
-    HttpMethodParams params=new HttpMethodParams();
-    String queryString="client_id=" + clientId + "&client_secret="+ secret+ "&code="+ authorizationCode+ "&redirect_uri="+ URLEncoder.encode(returnURI,"UTF-8");
-    postMethod.setQueryString(queryString);
-    params.setCookiePolicy(CookiePolicy.BROWSER_COMPATIBILITY);
-    postMethod.setParams(params);
-    postMethod.setRequestHeader(PassportUtil.ACCEPT_HEADER,"application/json");
-    jsonClient.executeMethod(postMethod);
-    if (postMethod.getStatusCode() == HttpStatus.SC_OK) {
-      JSON jsonObject=JSON.from(postMethod.getResponseBodyAsString(1024));
+    URI uri=new URIBuilder().setHost(TokenEndpoint).setPath(TokenServiceUri).setParameter("client_id",clientId).setParameter("client_secret",secret).setParameter("code",authorizationCode).setParameter("redirect_uri",URLEncoder.encode(returnURI,"UTF-8")).build();
+    HttpPost postMethod=new HttpPost(uri);
+    CloseableHttpClient jsonClient=HttpClients.custom().build();
+    postMethod.setConfig(PassportUtil.StandardRequestConfig);
+    postMethod.setHeader(PassportUtil.ACCEPT_HEADER,"application/json");
+    CloseableHttpResponse postResponse=jsonClient.execute(postMethod);
+    String responseString=new BasicResponseHandler().handleResponse(postResponse);
+    if (postResponse.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+      JSON jsonObject=JSON.from(responseString);
       JSONToMap jsonMap=new JSONToMap();
       Map<String,Object> userMap=jsonMap.convert(jsonObject);
       accessToken=(String)userMap.get("access_token");
       tokenType=(String)userMap.get("token_type");
     }
  else {
-      String errMsg=UtilProperties.getMessage(resource,"GetOAuth2GitHubAccessTokenError",UtilMisc.toMap("error",postMethod.getResponseBodyAsString()),UtilHttp.getLocale(request));
+      String errMsg=UtilProperties.getMessage(resource,"GetOAuth2GitHubAccessTokenError",UtilMisc.toMap("error",responseString),UtilHttp.getLocale(request));
       request.setAttribute("_ERROR_MESSAGE_",errMsg);
       return "error";
     }
   }
  catch (  UnsupportedEncodingException e) {
-    request.setAttribute("_ERROR_MESSAGE_",e.toString());
-    return "error";
-  }
-catch (  HttpException e) {
     request.setAttribute("_ERROR_MESSAGE_",e.toString());
     return "error";
   }
@@ -70,23 +64,16 @@ catch (  ConversionException e) {
     request.setAttribute("_ERROR_MESSAGE_",e.toString());
     return "error";
   }
- finally {
-    postMethod.releaseConnection();
+catch (  URISyntaxException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    return "error";
   }
-  GetMethod getMethod=new GetMethod(ApiEndpoint + UserApiUri);
+  HttpGet getMethod=new HttpGet(ApiEndpoint + UserApiUri);
   Map<String,Object> userInfo=null;
   try {
     userInfo=GitHubAuthenticator.getUserInfo(getMethod,accessToken,tokenType,UtilHttp.getLocale(request));
   }
- catch (  HttpException e) {
-    request.setAttribute("_ERROR_MESSAGE_",e.toString());
-    return "error";
-  }
-catch (  IOException e) {
-    request.setAttribute("_ERROR_MESSAGE_",e.toString());
-    return "error";
-  }
-catch (  AuthenticatorException e) {
+ catch (  AuthenticatorException e) {
     request.setAttribute("_ERROR_MESSAGE_",e.toString());
     return "error";
   }
