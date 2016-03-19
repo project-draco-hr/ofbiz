@@ -1,0 +1,45 @@
+{
+  Locale locale=(Locale)parameters.get("locale");
+  LinkedList<String> fieldThruDates=new LinkedList<String>();
+  boolean thruDatePresent=false;
+  String fieldDateNameIn=null;
+  if (!allPksInOnly) {
+    throw new GenericServiceException("In Service [" + modelService.name + "] which uses the entity-auto engine with the update invoke option not all pk fields have the mode IN");
+  }
+  GenericValue lookedUpValue=PrimaryKeyFinder.runFind(modelEntity,parameters,dctx.getDelegator(),false,true,null,null);
+  if (lookedUpValue == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ServiceValueNotFound",locale));
+  }
+  for (  String fieldDateName : modelEntity.getNoPkFieldNames()) {
+    if ("thruDate".equals(fieldDateName)) {
+      thruDatePresent=true;
+    }
+ else     if (fieldDateName.endsWith("ThruDate")) {
+      fieldThruDates.add(fieldDateName);
+    }
+ else     if (fieldDateName.startsWith("thru") && fieldDateName.endsWith("Date")) {
+      fieldThruDates.add(fieldDateName);
+    }
+ else     if (fieldDateNameIn == null && modelService.getParam(fieldDateName) != null && modelEntity.getField(fieldDateName).getType().contains("date")) {
+      fieldDateNameIn=fieldDateName;
+    }
+  }
+  if (Debug.infoOn())   Debug.logInfo(" FIELD FOUND : " + fieldDateNameIn + " ## # "+ fieldThruDates+ " ### "+ thruDatePresent,module);
+  if (Debug.infoOn())   Debug.logInfo(" parameters IN  : " + parameters,module);
+  if (fieldDateNameIn != null) {
+    if (parameters.get(fieldDateNameIn) == null)     parameters.put(fieldDateNameIn,UtilDateTime.nowTimestamp());
+  }
+ else   if (thruDatePresent && UtilValidate.isEmpty(lookedUpValue.getTimestamp("thruDate"))) {
+    if (UtilValidate.isEmpty(parameters.get("thruDate")))     parameters.put("thruDate",UtilDateTime.nowTimestamp());
+  }
+ else {
+    for (    String fieldDateName : fieldThruDates) {
+      if (UtilValidate.isEmpty(lookedUpValue.getTimestamp(fieldDateName))) {
+        if (UtilValidate.isEmpty(parameters.get(fieldDateName)))         parameters.put(fieldDateName,UtilDateTime.nowTimestamp());
+        break;
+      }
+    }
+  }
+  if (Debug.infoOn())   Debug.logInfo(" parameters OUT  : " + parameters,module);
+  return ServiceUtil.returnSuccess();
+}

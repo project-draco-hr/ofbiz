@@ -1,0 +1,52 @@
+{
+  Locale locale=(Locale)parameters.get("locale");
+  Map<String,Object> localContext=new HashMap<String,Object>();
+  localContext.put("parameters",parameters);
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  if (!allPksInOnly) {
+    throw new GenericServiceException("In Service [" + modelService.name + "] which uses the entity-auto engine with the update invoke option not all pk fields have the mode IN");
+  }
+  GenericValue lookedUpValue=PrimaryKeyFinder.runFind(modelEntity,parameters,dctx.getDelegator(),false,true,null,null);
+  if (lookedUpValue == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ServiceValueNotFound",locale));
+  }
+  ModelParam statusIdParam=modelService.getParam("statusId");
+  ModelField statusIdField=modelEntity.getField("statusId");
+  ModelParam oldStatusIdParam=modelService.getParam("oldStatusId");
+  if (statusIdParam != null && statusIdParam.isIn() && oldStatusIdParam != null && oldStatusIdParam.isOut() && statusIdField != null) {
+    result.put("oldStatusId",lookedUpValue.get("statusId"));
+  }
+  String parameterStatusId=(String)parameters.get("statusId");
+  if (statusIdParam != null && statusIdParam.isIn() && UtilValidate.isNotEmpty(parameterStatusId) && statusIdField != null) {
+    String lookedUpStatusId=(String)lookedUpValue.get("statusId");
+    if (UtilValidate.isNotEmpty(lookedUpStatusId) && !parameterStatusId.equals(lookedUpStatusId)) {
+      GenericValue statusValidChange=dctx.getDelegator().findOne("StatusValidChange",true,"statusId",lookedUpStatusId,"statusIdTo",parameterStatusId);
+      if (statusValidChange == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage("CommonUiLabels","CommonErrorNoStatusValidChange",localContext,locale));
+      }
+    }
+  }
+  lookedUpValue.setNonPKFields(parameters,true);
+  if (modelEntity.getField("lastModifiedDate") != null || modelEntity.getField("changedDate") != null) {
+    if (modelEntity.getField("lastModifiedDate") != null) {
+      lookedUpValue.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+    }
+ else {
+      lookedUpValue.set("changedDate",UtilDateTime.nowTimestamp());
+    }
+    if (modelEntity.getField("lastModifiedByUserLogin") != null || modelEntity.getField("changedByUserLogin") != null) {
+      GenericValue userLogin=(GenericValue)parameters.get("userLogin");
+      if (userLogin != null) {
+        if (modelEntity.getField("lastModifiedByUserLogin") != null) {
+          lookedUpValue.set("lastModifiedByUserLogin",userLogin.get("userLoginId"));
+        }
+ else {
+          lookedUpValue.set("changedByUserLogin",userLogin.get("userLoginId"));
+        }
+      }
+    }
+  }
+  lookedUpValue.store();
+  result.put("crudValue",lookedUpValue);
+  return result;
+}
