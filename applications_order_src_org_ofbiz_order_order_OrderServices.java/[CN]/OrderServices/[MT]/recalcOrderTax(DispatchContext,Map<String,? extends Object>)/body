@@ -34,6 +34,13 @@
       totalExistingOrderTax=totalExistingOrderTax.add(orderTaxAdjustment.getBigDecimal("amount").setScale(taxDecimals,taxRounding));
     }
   }
+  BigDecimal totalManuallyAddedOrderTax=ZERO;
+  for (  GenericValue orderTaxAdjustment : orderTaxAdjustments) {
+    String comment=orderTaxAdjustment.getString("comments");
+    if (orderTaxAdjustment.get("amount") != null && comment != null && comment.startsWith("Added manually by")) {
+      totalManuallyAddedOrderTax=totalManuallyAddedOrderTax.add(orderTaxAdjustment.getBigDecimal("amount").setScale(taxDecimals,taxRounding));
+    }
+  }
   BigDecimal totalNewOrderTax=ZERO;
   OrderReadHelper orh=new OrderReadHelper(orderHeader);
   List<GenericValue> shipGroups=orh.getOrderItemShipGroups();
@@ -128,6 +135,9 @@
           }
         }
       }
+    }
+    if (totalManuallyAddedOrderTax.compareTo(BigDecimal.ZERO) > 0) {
+      totalNewOrderTax=totalNewOrderTax.add(totalManuallyAddedOrderTax).setScale(taxDecimals,taxRounding);
     }
     BigDecimal orderTaxDifference=totalNewOrderTax.subtract(totalExistingOrderTax).setScale(taxDecimals,taxRounding);
     if (orderTaxDifference.signum() != 0) {
