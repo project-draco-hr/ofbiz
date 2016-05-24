@@ -1,0 +1,34 @@
+{
+  List<String> loaderArgs=StartupCommandUtil.adaptStartupCommandsToLoaderArgs(ofbizCommands);
+  ArrayList<StartupLoader> loaders=new ArrayList<StartupLoader>();
+  Thread adminPortThread=null;
+  File logDir=new File(config.logDir);
+  if (!logDir.exists()) {
+    if (logDir.mkdir()) {
+      System.out.println("Created OFBiz log dir [" + logDir.getAbsolutePath() + "]");
+    }
+  }
+  if (config.adminPort > 0) {
+    adminPortThread=new AdminPortThread(loaders,serverState,config);
+    adminPortThread.start();
+  }
+ else {
+    System.out.println("Admin socket not configured; set to port 0");
+  }
+  if (config.useShutdownHook) {
+    Runtime.getRuntime().addShutdownHook(new Thread(){
+      @Override public void run(){
+        StartupControlPanel.shutdownServer(loaders,serverState,this);
+      }
+    }
+);
+  }
+ else {
+    System.out.println("Shutdown hook disabled");
+  }
+  loadStartupLoaders(config,loaderArgs,loaders,serverState);
+  startStartupLoaders(loaders,serverState);
+  if (config.shutdownAfterLoad) {
+    StartupControlPanel.stopServer(loaders,serverState,adminPortThread);
+  }
+}
