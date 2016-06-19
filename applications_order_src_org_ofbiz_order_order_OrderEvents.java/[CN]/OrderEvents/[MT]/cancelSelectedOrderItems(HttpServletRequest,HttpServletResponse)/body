@@ -6,39 +6,32 @@
   Locale locale=UtilHttp.getLocale(request);
   Map<String,Object> resultMap=new HashMap<String,Object>();
   String orderId=request.getParameter("orderId");
-  String[] orderItemSeqIds=request.getParameterValues("selectedItem");
-  if (orderItemSeqIds != null) {
-    for (    String orderItemSeqId : orderItemSeqIds) {
+  String[] selectedItems=request.getParameterValues("selectedItem");
+  if (selectedItems != null) {
+    for (    String selectedItem : selectedItems) {
+      String[] orderItemSeqIdAndOrderItemShipGrpId=selectedItem.split(":");
+      String orderItemSeqId=orderItemSeqIdAndOrderItemShipGrpId[0];
+      String shipGroupSeqId=orderItemSeqIdAndOrderItemShipGrpId[1];
+      BigDecimal cancelQuantity=new BigDecimal(request.getParameter("iqm_" + orderItemSeqId + ":"+ shipGroupSeqId));
+      Map<String,Object> contextMap=new HashMap<String,Object>();
+      contextMap.put("orderId",orderId);
+      contextMap.put("orderItemSeqId",orderItemSeqId);
+      contextMap.put("shipGroupSeqId",shipGroupSeqId);
+      contextMap.put("cancelQuantity",cancelQuantity);
+      contextMap.put("userLogin",userLogin);
+      contextMap.put("locale",locale);
       try {
-        GenericValue orderItem=EntityQuery.use(delegator).from("OrderItem").where("orderId",orderId,"orderItemSeqId",orderItemSeqId).queryOne();
-        List<GenericValue> orderItemShipGroupAssocs=orderItem.getRelated("OrderItemShipGroupAssoc",null,null,false);
-        for (        GenericValue orderItemShipGroupAssoc : orderItemShipGroupAssocs) {
-          GenericValue orderItemShipGroup=orderItemShipGroupAssoc.getRelatedOne("OrderItemShipGroup",false);
-          String shipGroupSeqId=orderItemShipGroup.getString("shipGroupSeqId");
-          Map<String,Object> contextMap=new HashMap<String,Object>();
-          contextMap.put("orderId",orderId);
-          contextMap.put("orderItemSeqId",orderItemSeqId);
-          contextMap.put("shipGroupSeqId",shipGroupSeqId);
-          contextMap.put("userLogin",userLogin);
-          contextMap.put("locale",locale);
-          try {
-            resultMap=dispatcher.runSync("cancelOrderItem",contextMap);
-            if (ServiceUtil.isError(resultMap)) {
-              String errorMessage=(String)resultMap.get("errorMessage");
-              Debug.logError(errorMessage,module);
-              request.setAttribute("_ERROR_MESSAGE_",errorMessage);
-              return "error";
-            }
-          }
- catch (          GenericServiceException e) {
-            Debug.logError(e,module);
-            request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
-            return "error";
-          }
+        resultMap=dispatcher.runSync("cancelOrderItem",contextMap);
+        if (ServiceUtil.isError(resultMap)) {
+          String errorMessage=(String)resultMap.get("errorMessage");
+          Debug.logError(errorMessage,module);
+          request.setAttribute("_ERROR_MESSAGE_",errorMessage);
+          return "error";
         }
       }
- catch (      GenericEntityException e) {
+ catch (      GenericServiceException e) {
         Debug.logError(e,module);
+        request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
         return "error";
       }
     }
