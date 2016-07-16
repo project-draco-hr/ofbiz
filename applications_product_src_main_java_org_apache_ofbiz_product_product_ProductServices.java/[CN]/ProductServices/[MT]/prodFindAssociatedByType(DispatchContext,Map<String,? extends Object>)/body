@@ -1,0 +1,90 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Map<String,Object> result=new HashMap<String,Object>();
+  String productId=(String)context.get("productId");
+  String productIdTo=(String)context.get("productIdTo");
+  String type=(String)context.get("type");
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  Boolean cvaBool=(Boolean)context.get("checkViewAllow");
+  boolean checkViewAllow=(cvaBool == null ? false : cvaBool);
+  String prodCatalogId=(String)context.get("prodCatalogId");
+  Boolean bidirectional=(Boolean)context.get("bidirectional");
+  bidirectional=bidirectional == null ? false : bidirectional;
+  Boolean sortDescending=(Boolean)context.get("sortDescending");
+  sortDescending=sortDescending == null ? false : sortDescending;
+  if (productId == null && productIdTo == null) {
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.both_productId_and_productIdTo_cannot_be_null",locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+    return result;
+  }
+  if (productId != null && productIdTo != null) {
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.both_productId_and_productIdTo_cannot_be_defined",locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+    return result;
+  }
+  productId=productId == null ? productIdTo : productId;
+  GenericValue product=null;
+  try {
+    product=EntityQuery.use(delegator).from("Product").where("productId",productId).cache().queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Map<String,String> messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.problems_reading_product_entity",messageMap,locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+    return result;
+  }
+  if (product == null) {
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.problems_getting_product_entity",locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+    return result;
+  }
+  try {
+    List<GenericValue> productAssocs=null;
+    List<String> orderBy=new LinkedList<String>();
+    if (sortDescending) {
+      orderBy.add("sequenceNum DESC");
+    }
+ else {
+      orderBy.add("sequenceNum");
+    }
+    if (bidirectional) {
+      EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productId",productId),EntityCondition.makeCondition("productIdTo",productId)),EntityJoinOperator.OR);
+      productAssocs=EntityQuery.use(delegator).from("ProductAssoc").where(EntityCondition.makeCondition(cond,EntityCondition.makeCondition("productAssocTypeId",type))).orderBy(orderBy).cache(true).queryList();
+    }
+ else {
+      if (productIdTo == null) {
+        productAssocs=product.getRelated("MainProductAssoc",UtilMisc.toMap("productAssocTypeId",type),orderBy,true);
+      }
+ else {
+        productAssocs=product.getRelated("AssocProductAssoc",UtilMisc.toMap("productAssocTypeId",type),orderBy,true);
+      }
+    }
+    productAssocs=EntityUtil.filterByDate(productAssocs);
+    if (checkViewAllow && prodCatalogId != null && UtilValidate.isNotEmpty(productAssocs)) {
+      String viewProductCategoryId=CatalogWorker.getCatalogViewAllowCategoryId(delegator,prodCatalogId);
+      if (viewProductCategoryId != null) {
+        if (productIdTo == null) {
+          productAssocs=CategoryWorker.filterProductsInCategory(delegator,productAssocs,viewProductCategoryId,"productIdTo");
+        }
+ else {
+          productAssocs=CategoryWorker.filterProductsInCategory(delegator,productAssocs,viewProductCategoryId,"productId");
+        }
+      }
+    }
+    result.put("assocProducts",productAssocs);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  }
+ catch (  GenericEntityException e) {
+    Map<String,String> messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.problems_product_association_relation_error",messageMap,locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+    return result;
+  }
+  return result;
+}

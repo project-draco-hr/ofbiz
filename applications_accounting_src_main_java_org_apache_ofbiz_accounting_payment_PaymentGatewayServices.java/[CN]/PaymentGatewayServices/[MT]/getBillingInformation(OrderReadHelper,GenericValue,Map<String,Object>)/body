@@ -1,0 +1,44 @@
+{
+  String paymentMethodTypeId=paymentPreference.getString("paymentMethodTypeId");
+  GenericValue paymentMethod=paymentPreference.getRelatedOne("PaymentMethod",false);
+  if (paymentMethod != null && "CREDIT_CARD".equals(paymentMethodTypeId)) {
+    GenericValue creditCard=paymentMethod.getRelatedOne("CreditCard",false);
+    GenericValue billingAddress=creditCard.getRelatedOne("PostalAddress",false);
+    toContext.put("creditCard",creditCard);
+    toContext.put("billingAddress",billingAddress);
+  }
+ else   if (paymentMethod != null && "EFT_ACCOUNT".equals(paymentMethodTypeId)) {
+    GenericValue eftAccount=paymentMethod.getRelatedOne("EftAccount",false);
+    GenericValue billingAddress=eftAccount.getRelatedOne("PostalAddress",false);
+    toContext.put("eftAccount",eftAccount);
+    toContext.put("billingAddress",billingAddress);
+  }
+ else   if (paymentMethod != null && "GIFT_CARD".equals(paymentMethodTypeId)) {
+    GenericValue giftCard=paymentMethod.getRelatedOne("GiftCard",false);
+    toContext.put("giftCard",giftCard);
+    GenericValue orderHeader=paymentPreference.getRelatedOne("OrderHeader",false);
+    List<GenericValue> orderItems=orderHeader.getRelated("OrderItem",null,null,false);
+    toContext.put("orderId",orderHeader.getString("orderId"));
+    toContext.put("orderItems",orderItems);
+  }
+ else   if ("FIN_ACCOUNT".equals(paymentMethodTypeId)) {
+    toContext.put("finAccountId",paymentPreference.getString("finAccountId"));
+  }
+ else   if ("EXT_PAYPAL".equals(paymentMethodTypeId)) {
+    GenericValue payPalPaymentMethod=paymentMethod.getRelatedOne("PayPalPaymentMethod",false);
+    toContext.put("payPalPaymentMethod",payPalPaymentMethod);
+  }
+ else {
+    Debug.logError("ERROR: Unsupported PaymentMethodType passed for authorization",module);
+    return null;
+  }
+  GenericValue billToPersonOrGroup=orh.getBillToParty();
+  GenericValue billToEmail=null;
+  Collection<GenericValue> emails=ContactHelper.getContactMech(billToPersonOrGroup.getRelatedOne("Party",false),"PRIMARY_EMAIL","EMAIL_ADDRESS",false);
+  if (UtilValidate.isNotEmpty(emails)) {
+    billToEmail=emails.iterator().next();
+  }
+  toContext.put("billToParty",billToPersonOrGroup);
+  toContext.put("billToEmail",billToEmail);
+  return billToPersonOrGroup.getString("partyId");
+}

@@ -1,0 +1,52 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Security security=dctx.getSecurity();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (!security.hasPermission("ENTITY_MAINT",userLogin)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"EntityExtServicePermissionNotGranted",locale));
+  }
+  String oldKey=(String)context.get("oldKey");
+  String newKey=(String)context.get("newKey");
+  AesCipherService cipherService=new AesCipherService();
+  try {
+    List<GenericValue> rows=EntityQuery.use(delegator).from("EntityKeyStore").queryList();
+    for (    GenericValue row : rows) {
+      byte[] keyBytes=Base64.decodeBase64(row.getString("keyText"));
+      Debug.logInfo("Processing entry " + row.getString("keyName") + " with key: "+ row.getString("keyText"),module);
+      if (oldKey != null) {
+        Debug.logInfo("Decrypting with old key: " + oldKey,module);
+        try {
+          keyBytes=cipherService.decrypt(keyBytes,Base64.decodeBase64(oldKey)).getBytes();
+        }
+ catch (        Exception e) {
+          Debug.logInfo("Failed to decrypt with Shiro cipher; trying with old cipher",module);
+          try {
+            keyBytes=DesCrypt.decrypt(DesCrypt.getDesKey(Base64.decodeBase64(oldKey)),keyBytes);
+          }
+ catch (          Exception e1) {
+            Debug.logError(e1,module);
+            return ServiceUtil.returnError(e1.getMessage());
+          }
+        }
+      }
+      String newKeyText;
+      if (newKey != null) {
+        Debug.logInfo("Encrypting with new key: " + oldKey,module);
+        newKeyText=cipherService.encrypt(keyBytes,Base64.decodeBase64(newKey)).toBase64();
+      }
+ else {
+        newKeyText=Base64.encodeBase64String(keyBytes);
+      }
+      Debug.logInfo("Storing new encrypted value: " + newKeyText,module);
+      row.setString("keyText",newKeyText);
+      row.store();
+    }
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logError(gee,module);
+    return ServiceUtil.returnError(gee.getMessage());
+  }
+  delegator.clearAllCaches();
+  return ServiceUtil.returnSuccess();
+}

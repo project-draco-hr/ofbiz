@@ -1,0 +1,46 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  String repositoryRoot=(String)context.get("repositoryRoot");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  try {
+    List<EntityCondition> exprsAnd=new LinkedList<EntityCondition>();
+    String revisionLink=repositoryRoot.substring(repositoryRoot.lastIndexOf("svn/") + 4,repositoryRoot.length()) + "&revision=";
+    exprsAnd.add(EntityCondition.makeCondition("workEffortContentTypeId",EntityOperator.EQUALS,"TASK_SUB_INFO"));
+    exprsAnd.add(EntityCondition.makeCondition("contentTypeId",EntityOperator.EQUALS,"DOCUMENT"));
+    exprsAnd.add(EntityCondition.makeCondition("drObjectInfo",EntityOperator.LIKE,revisionLink + "%"));
+    List<GenericValue> workEffortDataResourceList=EntityQuery.use(delegator).from("WorkEffortAndContentDataResource").where(exprsAnd).queryList();
+    if (UtilValidate.isNotEmpty(workEffortDataResourceList)) {
+      Debug.logInfo("Total Content Size ============== >>>>>>>>>>> " + workEffortDataResourceList.size(),module);
+      Set<String> keys=new HashSet<String>();
+      Set<GenericValue> exclusions=new HashSet<GenericValue>();
+      for (      GenericValue workEffort : workEffortDataResourceList) {
+        String drObjectInfo=workEffort.getString("drObjectInfo");
+        if (keys.contains(drObjectInfo)) {
+          exclusions.add(workEffort);
+        }
+ else {
+          keys.add(drObjectInfo);
+        }
+      }
+      Debug.logInfo("Remove size ============== >>>>>>>>>>> " + exclusions.size(),module);
+      if (UtilValidate.isNotEmpty(exclusions)) {
+        for (        GenericValue contentResourceMap : exclusions) {
+          Debug.logInfo("Remove contentId ============== >>>>>>>>>>> " + contentResourceMap.getString("contentId"),module);
+          GenericValue dataResourceMap=EntityQuery.use(delegator).from("DataResource").where("dataResourceId",contentResourceMap.getString("dataResourceId")).queryOne();
+          GenericValue contentMap=EntityQuery.use(delegator).from("Content").where("contentId",contentResourceMap.getString("contentId")).queryOne();
+          contentMap.removeRelated("WorkEffortContent");
+          contentMap.removeRelated("ContentRole");
+          contentMap.remove();
+          dataResourceMap.removeRelated("DataResourceRole");
+          dataResourceMap.remove();
+        }
+      }
+    }
+  }
+ catch (  GenericEntityException entityEx) {
+    entityEx.printStackTrace();
+    return ServiceUtil.returnError(entityEx.getMessage());
+  }
+  return result;
+}

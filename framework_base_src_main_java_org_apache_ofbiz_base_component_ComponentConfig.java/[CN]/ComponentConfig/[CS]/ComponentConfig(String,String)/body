@@ -1,0 +1,131 @@
+{
+  if (!rootLocation.endsWith("/")) {
+    rootLocation=rootLocation + "/";
+  }
+  this.rootLocation=rootLocation.replace('\\','/');
+  File rootLocationDir=new File(rootLocation);
+  if (!rootLocationDir.exists()) {
+    throw new ComponentException("The component root location does not exist: " + rootLocation);
+  }
+  if (!rootLocationDir.isDirectory()) {
+    throw new ComponentException("The component root location is not a directory: " + rootLocation);
+  }
+  String xmlFilename=rootLocation + "/" + OFBIZ_COMPONENT_XML_FILENAME;
+  URL xmlUrl=UtilURL.fromFilename(xmlFilename);
+  if (xmlUrl == null) {
+    throw new ComponentException("Could not find the " + OFBIZ_COMPONENT_XML_FILENAME + " configuration file in the component root location: "+ rootLocation);
+  }
+  Document ofbizComponentDocument=null;
+  try {
+    ofbizComponentDocument=UtilXml.readXmlDocument(xmlUrl,true);
+  }
+ catch (  Exception e) {
+    throw new ComponentException("Error reading the component config file: " + xmlUrl,e);
+  }
+  Element ofbizComponentElement=ofbizComponentDocument.getDocumentElement();
+  this.componentName=ofbizComponentElement.getAttribute("name");
+  this.enabled="true".equalsIgnoreCase(ofbizComponentElement.getAttribute("enabled"));
+  if (UtilValidate.isEmpty(globalName)) {
+    this.globalName=this.componentName;
+  }
+ else {
+    this.globalName=globalName;
+  }
+  List<? extends Element> childElements=UtilXml.childElementList(ofbizComponentElement,"resource-loader");
+  if (!childElements.isEmpty()) {
+    Map<String,ResourceLoaderInfo> resourceLoaderInfos=new LinkedHashMap<String,ResourceLoaderInfo>();
+    for (    Element curElement : childElements) {
+      ResourceLoaderInfo resourceLoaderInfo=new ResourceLoaderInfo(curElement);
+      resourceLoaderInfos.put(resourceLoaderInfo.name,resourceLoaderInfo);
+    }
+    this.resourceLoaderInfos=Collections.unmodifiableMap(resourceLoaderInfos);
+  }
+ else {
+    this.resourceLoaderInfos=Collections.emptyMap();
+  }
+  childElements=UtilXml.childElementList(ofbizComponentElement,"classpath");
+  if (!childElements.isEmpty()) {
+    List<ClasspathInfo> classpathInfos=new ArrayList<ClasspathInfo>(childElements.size());
+    for (    Element curElement : childElements) {
+      ClasspathInfo classpathInfo=new ClasspathInfo(this,curElement);
+      classpathInfos.add(classpathInfo);
+    }
+    this.classpathInfos=Collections.unmodifiableList(classpathInfos);
+  }
+ else {
+    this.classpathInfos=Collections.emptyList();
+  }
+  childElements=UtilXml.childElementList(ofbizComponentElement,"entity-resource");
+  if (!childElements.isEmpty()) {
+    List<EntityResourceInfo> entityResourceInfos=new ArrayList<EntityResourceInfo>(childElements.size());
+    for (    Element curElement : childElements) {
+      EntityResourceInfo entityResourceInfo=new EntityResourceInfo(this,curElement);
+      entityResourceInfos.add(entityResourceInfo);
+    }
+    this.entityResourceInfos=Collections.unmodifiableList(entityResourceInfos);
+  }
+ else {
+    this.entityResourceInfos=Collections.emptyList();
+  }
+  childElements=UtilXml.childElementList(ofbizComponentElement,"service-resource");
+  if (!childElements.isEmpty()) {
+    List<ServiceResourceInfo> serviceResourceInfos=new ArrayList<ServiceResourceInfo>(childElements.size());
+    for (    Element curElement : childElements) {
+      ServiceResourceInfo serviceResourceInfo=new ServiceResourceInfo(this,curElement);
+      serviceResourceInfos.add(serviceResourceInfo);
+    }
+    this.serviceResourceInfos=Collections.unmodifiableList(serviceResourceInfos);
+  }
+ else {
+    this.serviceResourceInfos=Collections.emptyList();
+  }
+  childElements=UtilXml.childElementList(ofbizComponentElement,"test-suite");
+  if (!childElements.isEmpty()) {
+    List<TestSuiteInfo> testSuiteInfos=new ArrayList<TestSuiteInfo>(childElements.size());
+    for (    Element curElement : childElements) {
+      TestSuiteInfo testSuiteInfo=new TestSuiteInfo(this,curElement);
+      testSuiteInfos.add(testSuiteInfo);
+    }
+    this.testSuiteInfos=Collections.unmodifiableList(testSuiteInfos);
+  }
+ else {
+    this.testSuiteInfos=Collections.emptyList();
+  }
+  childElements=UtilXml.childElementList(ofbizComponentElement,"keystore");
+  if (!childElements.isEmpty()) {
+    List<KeystoreInfo> keystoreInfos=new ArrayList<KeystoreInfo>(childElements.size());
+    for (    Element curElement : childElements) {
+      KeystoreInfo keystoreInfo=new KeystoreInfo(this,curElement);
+      keystoreInfos.add(keystoreInfo);
+    }
+    this.keystoreInfos=Collections.unmodifiableList(keystoreInfos);
+  }
+ else {
+    this.keystoreInfos=Collections.emptyList();
+  }
+  childElements=UtilXml.childElementList(ofbizComponentElement,"webapp");
+  if (!childElements.isEmpty()) {
+    List<WebappInfo> webappInfos=new ArrayList<WebappInfo>(childElements.size());
+    for (    Element curElement : childElements) {
+      WebappInfo webappInfo=new WebappInfo(this,curElement);
+      webappInfos.add(webappInfo);
+    }
+    this.webappInfos=Collections.unmodifiableList(webappInfos);
+  }
+ else {
+    this.webappInfos=Collections.emptyList();
+  }
+  try {
+    Collection<Container> containers=ContainerConfig.getContainers(xmlUrl);
+    if (!containers.isEmpty()) {
+      this.containers=Collections.unmodifiableList(new ArrayList<ContainerConfig.Container>(containers));
+    }
+ else {
+      this.containers=Collections.emptyList();
+    }
+  }
+ catch (  ContainerException ce) {
+    throw new ComponentException("Error reading containers for component: " + this.globalName,ce);
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Read component config : [" + rootLocation + "]",module);
+}

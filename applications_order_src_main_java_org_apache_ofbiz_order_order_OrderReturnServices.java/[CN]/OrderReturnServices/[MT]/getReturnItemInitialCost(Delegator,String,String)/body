@@ -1,0 +1,53 @@
+{
+  if (delegator == null || returnId == null || returnItemSeqId == null) {
+    throw new IllegalArgumentException("Method parameters cannot contain nulls");
+  }
+  Debug.logInfo("Finding the initial item cost for return item : " + returnId + " / "+ returnItemSeqId,module);
+  BigDecimal itemCost=BigDecimal.ZERO;
+  GenericValue returnItem=null;
+  try {
+    returnItem=EntityQuery.use(delegator).from("ReturnItem").where("returnId",returnId,"returnItemSeqId",returnItemSeqId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralRuntimeException(e.getMessage());
+  }
+  Debug.logInfo("Return item value object - " + returnItem,module);
+  if (returnItem != null) {
+    String orderId=returnItem.getString("orderId");
+    String orderItemSeqId=returnItem.getString("orderItemSeqId");
+    if (orderItemSeqId != null && orderId != null) {
+      Debug.logInfo("Found order item reference",module);
+      GenericValue issue=null;
+      try {
+        issue=EntityQuery.use(delegator).from("ItemIssuance").where("orderId",orderId,"orderItemSeqId",orderItemSeqId).queryFirst();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        throw new GeneralRuntimeException(e.getMessage());
+      }
+      if (UtilValidate.isNotEmpty(issue)) {
+        Debug.logInfo("Found item issuance reference",module);
+        GenericValue inventoryItem=null;
+        try {
+          inventoryItem=issue.getRelatedOne("InventoryItem",false);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,module);
+          throw new GeneralRuntimeException(e.getMessage());
+        }
+        if (inventoryItem != null) {
+          Debug.logInfo("Located inventory item - " + inventoryItem.getString("inventoryItemId"),module);
+          if (inventoryItem.get("unitCost") != null) {
+            itemCost=inventoryItem.getBigDecimal("unitCost");
+          }
+ else {
+            Debug.logInfo("Found item cost; but cost was null. Returning default amount (0.00)",module);
+          }
+        }
+      }
+    }
+  }
+  Debug.logInfo("Initial item cost - " + itemCost,module);
+  return itemCost;
+}

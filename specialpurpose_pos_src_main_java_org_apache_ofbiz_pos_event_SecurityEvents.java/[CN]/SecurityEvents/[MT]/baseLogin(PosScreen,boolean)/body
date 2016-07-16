@@ -1,0 +1,67 @@
+{
+  XuiSession session=pos.getSession();
+  Output output=pos.getOutput();
+  InputWithPassword input=pos.getInput();
+  String loginFunc=mgr ? "MGRLOGIN" : "LOGIN";
+  String[] func=input.getLastFunction();
+  String text=input.value();
+  if (func != null && func[0].equals(loginFunc)) {
+    if (UtilValidate.isEmpty(func[1]) && UtilValidate.isEmpty(text)) {
+      output.print(UtilProperties.getMessage(PosTransaction.resource,"PosULogin",Locale.getDefault()));
+      input.setFunction(loginFunc);
+      input.setPasswordInput(false);
+    }
+ else     if (UtilValidate.isEmpty(func[1])) {
+      output.print(UtilProperties.getMessage(PosTransaction.resource,"PosUPassw",Locale.getDefault()));
+      input.setFunction(loginFunc);
+      input.setPasswordInput(true);
+    }
+ else {
+      input.setPasswordInput(false);
+      String username=func[1];
+      String password=text;
+      if (!mgr) {
+        boolean passed=false;
+        try {
+          session.login(username,password);
+          passed=true;
+        }
+ catch (        XuiSession.UserLoginFailure e) {
+          input.clear();
+          input.setFunction(loginFunc);
+          output.print(e.getMessage() + " " + UtilProperties.getMessage(PosTransaction.resource,"PosULogin",Locale.getDefault()));
+        }
+        if (passed) {
+          input.clear();
+          pos.setLock(false);
+          pos.refresh();
+          return;
+        }
+      }
+ else {
+        GenericValue mgrUl=null;
+        try {
+          mgrUl=session.checkLogin(username,password);
+        }
+ catch (        XuiSession.UserLoginFailure e) {
+          output.print(e.getMessage());
+          input.clear();
+        }
+        if (mgrUl != null) {
+          boolean isMgr=session.hasRole(mgrUl,"MANAGER");
+          if (!isMgr) {
+            output.print(UtilProperties.getMessage(PosTransaction.resource,"PosUserNotManager",Locale.getDefault()));
+            input.clear();
+          }
+ else {
+            ManagerEvents.mgrLoggedIn=true;
+            pos.showPage("mgrpanel");
+          }
+        }
+      }
+    }
+  }
+ else {
+    Debug.logInfo("Login function called but not prepared as a function!",module);
+  }
+}

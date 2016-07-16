@@ -1,0 +1,73 @@
+{
+  final StringBuilder buf=new StringBuilder();
+  final boolean fullPath=checkArg(args,"fullPath",false);
+  final boolean secure=checkArg(args,"secure",false);
+  return new Writer(out){
+    @Override public void write(    char[] cbuf,    int off,    int len) throws IOException {
+      buf.append(cbuf,off,len);
+    }
+    @Override public void flush() throws IOException {
+      out.flush();
+    }
+    @Override public void close() throws IOException {
+      try {
+        Environment env=Environment.getCurrentEnvironment();
+        BeanModel req=(BeanModel)env.getVariable("request");
+        String previousCategoryId=getStringArg(args,"previousCategoryId");
+        String productCategoryId=getStringArg(args,"productCategoryId");
+        String productId=getStringArg(args,"productId");
+        String url="";
+        Object prefix=env.getVariable("urlPrefix");
+        String viewSize=getStringArg(args,"viewSize");
+        String viewIndex=getStringArg(args,"viewIndex");
+        String viewSort=getStringArg(args,"viewSort");
+        String searchString=getStringArg(args,"searchString");
+        if (req != null) {
+          HttpServletRequest request=(HttpServletRequest)req.getWrappedObject();
+          StringBuilder newURL=new StringBuilder();
+          if (UtilValidate.isNotEmpty(productId)) {
+            url=CatalogUrlFilter.makeProductUrl(request,previousCategoryId,productCategoryId,productId);
+          }
+ else {
+            url=CatalogUrlFilter.makeCategoryUrl(request,previousCategoryId,productCategoryId,productId,viewSize,viewIndex,viewSort,searchString);
+          }
+          if (fullPath) {
+            OfbizUrlBuilder builder=OfbizUrlBuilder.from(request);
+            builder.buildHostPart(newURL,url,secure);
+          }
+          newURL.append(url);
+          out.write(newURL.toString());
+        }
+ else         if (prefix != null) {
+          Delegator delegator=FreeMarkerWorker.getWrappedObject("delegator",env);
+          LocalDispatcher dispatcher=FreeMarkerWorker.getWrappedObject("dispatcher",env);
+          Locale locale=(Locale)args.get("locale");
+          if (UtilValidate.isNotEmpty(productId)) {
+            GenericValue product=EntityQuery.use(delegator).from("Product").where("productId",productId).queryOne();
+            ProductContentWrapper wrapper=new ProductContentWrapper(dispatcher,product,locale,EntityUtilProperties.getPropertyValue("content","defaultMimeType","text/html; charset=utf-8",delegator));
+            url=CatalogUrlFilter.makeProductUrl(delegator,wrapper,null,((StringModel)prefix).getAsString(),previousCategoryId,productCategoryId,productId);
+          }
+ else {
+            GenericValue productCategory=EntityQuery.use(delegator).from("ProductCategory").where("productCategoryId",productCategoryId).queryOne();
+            CategoryContentWrapper wrapper=new CategoryContentWrapper(dispatcher,productCategory,locale,EntityUtilProperties.getPropertyValue("content","defaultMimeType","text/html; charset=utf-8",delegator));
+            url=CatalogUrlFilter.makeCategoryUrl(delegator,wrapper,null,((StringModel)prefix).getAsString(),previousCategoryId,productCategoryId,productId,viewSize,viewIndex,viewSort,searchString);
+          }
+          out.write(url.toString());
+        }
+ else {
+          out.write(buf.toString());
+        }
+      }
+ catch (      TemplateModelException e) {
+        throw new IOException(e.getMessage());
+      }
+catch (      GenericEntityException e) {
+        throw new IOException(e.getMessage());
+      }
+catch (      WebAppConfigurationException e) {
+        throw new IOException(e.getMessage());
+      }
+    }
+  }
+;
+}

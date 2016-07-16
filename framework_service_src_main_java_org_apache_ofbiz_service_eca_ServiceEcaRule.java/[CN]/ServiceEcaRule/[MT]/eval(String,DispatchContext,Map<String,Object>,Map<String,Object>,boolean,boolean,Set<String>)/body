@@ -1,0 +1,46 @@
+{
+  if (!enabled) {
+    Debug.logInfo("Service ECA [" + this.serviceName + "] on ["+ this.eventName+ "] is disabled; not running.",module);
+    return;
+  }
+  if (isFailure && !this.runOnFailure) {
+    return;
+  }
+  if (isError && !this.runOnError) {
+    return;
+  }
+  boolean allCondTrue=true;
+  for (  ServiceEcaCondition ec : conditions) {
+    if (!ec.eval(serviceName,dctx,context)) {
+      if (Debug.infoOn()) {
+        Debug.logInfo("For Service ECA [" + this.serviceName + "] on ["+ this.eventName+ "] got false for condition: "+ ec,module);
+      }
+      allCondTrue=false;
+      break;
+    }
+ else {
+      if (Debug.verboseOn()) {
+        Debug.logVerbose("For Service ECA [" + this.serviceName + "] on ["+ this.eventName+ "] got true for condition: "+ ec,module);
+      }
+    }
+  }
+  if (allCondTrue) {
+    for (    Object setOrAction : actionsAndSets) {
+      if (setOrAction instanceof ServiceEcaAction) {
+        ServiceEcaAction ea=(ServiceEcaAction)setOrAction;
+        if (!actionsRun.contains(ea.serviceName)) {
+          if (Debug.infoOn()) {
+            Debug.logInfo("Running Service ECA Service: " + ea.serviceName + ", triggered by rule on Service: "+ serviceName,module);
+          }
+          if (ea.runAction(serviceName,dctx,context,result)) {
+            actionsRun.add(ea.serviceName);
+          }
+        }
+      }
+ else {
+        ServiceEcaSetField sf=(ServiceEcaSetField)setOrAction;
+        sf.eval(context);
+      }
+    }
+  }
+}

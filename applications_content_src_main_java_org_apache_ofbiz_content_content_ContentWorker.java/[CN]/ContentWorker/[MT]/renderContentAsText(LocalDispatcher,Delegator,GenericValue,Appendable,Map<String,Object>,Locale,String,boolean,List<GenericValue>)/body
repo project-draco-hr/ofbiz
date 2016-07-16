@@ -1,0 +1,125 @@
+{
+  String serviceName=content.getString("serviceName");
+  GenericValue custMethod=null;
+  if (UtilValidate.isNotEmpty(content.getString("customMethodId"))) {
+    custMethod=EntityQuery.use(delegator).from("CustomMethod").where("customMethodId",content.get("customMethodId")).cache().queryOne();
+  }
+  if (custMethod != null)   serviceName=custMethod.getString("customMethodName");
+  if (dispatcher != null && UtilValidate.isNotEmpty(serviceName)) {
+    DispatchContext dctx=dispatcher.getDispatchContext();
+    ModelService service=dctx.getModelService(serviceName);
+    if (service != null) {
+      Map<String,Object> tempTemplateContext=new HashMap<String,Object>();
+      tempTemplateContext.putAll(UtilGenerics.<String,Object>checkMap(templateContext.get("requestParameters")));
+      tempTemplateContext.putAll(templateContext);
+      Map<String,Object> serviceCtx=service.makeValid(tempTemplateContext,ModelService.IN_PARAM);
+      Map<String,Object> serviceRes;
+      try {
+        serviceRes=dispatcher.runSync(serviceName,serviceCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        throw e;
+      }
+      if (ServiceUtil.isError(serviceRes)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(serviceRes));
+      }
+ else {
+        templateContext.putAll(serviceRes);
+      }
+    }
+  }
+  String contentId=content.getString("contentId");
+  if (templateContext == null) {
+    templateContext=new HashMap<String,Object>();
+  }
+  ContentMapFacade facade=new ContentMapFacade(dispatcher,content,templateContext,locale,mimeTypeId,cache);
+  ContentMapFacade decoratedContent=(ContentMapFacade)templateContext.get("decoratedContent");
+  if (decoratedContent != null) {
+    facade.setDecoratedContent(decoratedContent);
+  }
+  String contentDecoratorId=content.getString("decoratorContentId");
+  if (contentId.equals(contentDecoratorId)) {
+    Debug.logError("[" + contentId + "] decoratorContentId is the same as contentId, ignoring.",module);
+    contentDecoratorId=null;
+  }
+  boolean isDecorated=Boolean.TRUE.equals(templateContext.get("_IS_DECORATED_"));
+  if (!isDecorated && UtilValidate.isNotEmpty(contentDecoratorId)) {
+    GenericValue decorator=EntityQuery.use(delegator).from("Content").where("contentId",contentDecoratorId).cache(cache).queryOne();
+    if (decorator == null) {
+      throw new GeneralException("No decorator content found for decorator contentId [" + contentDecoratorId + "]");
+    }
+    ContentMapFacade decFacade=new ContentMapFacade(dispatcher,decorator,templateContext,locale,mimeTypeId,cache);
+    decFacade.setDecoratedContent(facade);
+    facade.setIsDecorated(true);
+    templateContext.put("decoratedContent",facade);
+    templateContext.put("thisContent",decFacade);
+    ContentWorker.renderContentAsText(dispatcher,delegator,contentDecoratorId,out,templateContext,locale,mimeTypeId,null,null,cache);
+  }
+ else {
+    String templateDataResourceId=content.getString("templateDataResourceId");
+    String dataResourceId=content.getString("dataResourceId");
+    if (UtilValidate.isEmpty(dataResourceId)) {
+      Debug.logError("No dataResourceId found for contentId: " + content.getString("contentId"),module);
+      return;
+    }
+    templateContext.put("thisContent",facade);
+    templateContext.put("contentId",contentId);
+    if (UtilValidate.isEmpty(templateDataResourceId) || templateContext.containsKey("ignoreTemplate")) {
+      if (UtilValidate.isEmpty(contentId)) {
+        Debug.logError("No content ID found.",module);
+        return;
+      }
+      if (UtilValidate.isNotEmpty(webAnalytics)) {
+        DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,out,templateContext,locale,mimeTypeId,cache,webAnalytics);
+      }
+ else {
+        DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,out,templateContext,locale,mimeTypeId,cache);
+      }
+    }
+ else {
+      Writer dataWriter=new StringWriter();
+      DataResourceWorker.renderDataResourceAsText(delegator,dataResourceId,dataWriter,templateContext,locale,mimeTypeId,cache);
+      String textData=dataWriter.toString();
+      if (textData != null) {
+        textData=textData.trim();
+      }
+      String mimeType;
+      try {
+        mimeType=DataResourceWorker.getDataResourceMimeType(delegator,dataResourceId,null);
+      }
+ catch (      GenericEntityException e) {
+        throw new GeneralException(e.getMessage());
+      }
+      if (UtilValidate.isNotEmpty(mimeType)) {
+        if (mimeType.toLowerCase().indexOf("xml") >= 0) {
+          GenericValue dataResource=EntityQuery.use(delegator).from("DataResource").where("dataResourceId",dataResourceId).cache().queryOne();
+          GenericValue templateDataResource=EntityQuery.use(delegator).from("DataResource").where("dataResourceId",templateDataResourceId).cache().queryOne();
+          if ("FTL".equals(templateDataResource.getString("dataTemplateTypeId"))) {
+            StringReader sr=new StringReader(textData);
+            try {
+              NodeModel nodeModel=NodeModel.parse(new InputSource(sr));
+              templateContext.put("doc",nodeModel);
+            }
+ catch (            SAXException e) {
+              throw new GeneralException(e.getMessage());
+            }
+catch (            ParserConfigurationException e2) {
+              throw new GeneralException(e2.getMessage());
+            }
+          }
+ else {
+            templateContext.put("docFile",DataResourceWorker.getContentFile(dataResource.getString("dataResourceTypeId"),dataResource.getString("objectInfo"),(String)templateContext.get("contextRoot")).getAbsoluteFile().toString());
+          }
+        }
+ else {
+          templateContext.put("textData",textData);
+        }
+      }
+ else {
+        templateContext.put("textData",textData);
+      }
+      DataResourceWorker.renderDataResourceAsText(delegator,templateDataResourceId,out,templateContext,locale,mimeTypeId,cache);
+    }
+  }
+}

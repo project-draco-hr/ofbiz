@@ -1,0 +1,32 @@
+{
+  String productPromoId=productPromo.getString("productPromoId");
+  Long candidateUseLimit=null;
+  Long useLimitPerOrder=productPromo.getLong("useLimitPerOrder");
+  if (useLimitPerOrder != null) {
+    if (candidateUseLimit == null || candidateUseLimit.longValue() > useLimitPerOrder.longValue()) {
+      candidateUseLimit=useLimitPerOrder;
+    }
+  }
+  Long useLimitPerCustomer=productPromo.getLong("useLimitPerCustomer");
+  if (useLimitPerCustomer != null) {
+    long productPromoCustomerUseSize=0;
+    if (UtilValidate.isNotEmpty(partyId)) {
+      EntityCondition checkCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productPromoId",EntityOperator.EQUALS,productPromoId),EntityCondition.makeCondition("partyId",EntityOperator.EQUALS,partyId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED")),EntityOperator.AND);
+      productPromoCustomerUseSize=EntityQuery.use(delegator).from("ProductPromoUseCheck").where(checkCondition).queryCount();
+    }
+    long perCustomerThisOrder=useLimitPerCustomer.longValue() - productPromoCustomerUseSize;
+    if (candidateUseLimit == null || candidateUseLimit.longValue() > perCustomerThisOrder) {
+      candidateUseLimit=Long.valueOf(perCustomerThisOrder);
+    }
+  }
+  Long useLimitPerPromotion=productPromo.getLong("useLimitPerPromotion");
+  if (useLimitPerPromotion != null) {
+    EntityCondition checkCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productPromoId",EntityOperator.EQUALS,productPromoId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_REJECTED"),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"ORDER_CANCELLED")),EntityOperator.AND);
+    long productPromoUseSize=EntityQuery.use(delegator).from("ProductPromoUseCheck").where(checkCondition).queryCount();
+    long perPromotionThisOrder=useLimitPerPromotion.longValue() - productPromoUseSize;
+    if (candidateUseLimit == null || candidateUseLimit.longValue() > perPromotionThisOrder) {
+      candidateUseLimit=Long.valueOf(perPromotionThisOrder);
+    }
+  }
+  return candidateUseLimit;
+}

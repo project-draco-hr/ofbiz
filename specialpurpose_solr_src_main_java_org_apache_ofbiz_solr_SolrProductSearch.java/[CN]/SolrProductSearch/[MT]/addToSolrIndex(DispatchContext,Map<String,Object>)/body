@@ -1,0 +1,61 @@
+{
+  HttpSolrClient client=null;
+  Map<String,Object> result;
+  String productId=(String)context.get("productId");
+  String solrIndexName=(String)context.get("indexName");
+  Boolean treatConnectErrorNonFatal=(Boolean)context.get("treatConnectErrorNonFatal");
+  try {
+    Debug.logInfo("Solr: Generating and indexing document for productId '" + productId + "'",module);
+    client=SolrUtil.getInstance().getHttpSolrClient(solrIndexName);
+    SolrInputDocument doc1=SolrUtil.generateSolrDocument(context);
+    Collection<SolrInputDocument> docs=new ArrayList<SolrInputDocument>();
+    if (Debug.verboseOn()) {
+      Debug.logVerbose("Solr: Indexing document: " + doc1.toString(),module);
+    }
+    docs.add(doc1);
+    client.add(docs);
+    client.commit();
+    final String statusStr="Document for productId " + productId + " added to solr index";
+    Debug.logInfo("Solr: " + statusStr,module);
+    result=ServiceUtil.returnSuccess(statusStr);
+  }
+ catch (  MalformedURLException e) {
+    Debug.logError(e,e.getMessage(),module);
+    result=ServiceUtil.returnError(e.toString());
+    result.put("errorType","urlError");
+  }
+catch (  SolrServerException e) {
+    if (e.getCause() != null && e.getCause() instanceof ConnectException) {
+      final String statusStr="Failure connecting to solr server to commit productId " + context.get("productId") + "; product not updated";
+      if (Boolean.TRUE.equals(treatConnectErrorNonFatal)) {
+        Debug.logWarning(e,"Solr: " + statusStr,module);
+        result=ServiceUtil.returnFailure(statusStr);
+      }
+ else {
+        Debug.logError(e,"Solr: " + statusStr,module);
+        result=ServiceUtil.returnError(statusStr);
+      }
+      result.put("errorType","connectError");
+    }
+ else {
+      Debug.logError(e,e.getMessage(),module);
+      result=ServiceUtil.returnError(e.toString());
+      result.put("errorType","solrServerError");
+    }
+  }
+catch (  IOException e) {
+    Debug.logError(e,e.getMessage(),module);
+    result=ServiceUtil.returnError(e.toString());
+    result.put("errorType","ioError");
+  }
+ finally {
+    if (client != null) {
+      try {
+        client.close();
+      }
+ catch (      IOException e) {
+      }
+    }
+  }
+  return result;
+}

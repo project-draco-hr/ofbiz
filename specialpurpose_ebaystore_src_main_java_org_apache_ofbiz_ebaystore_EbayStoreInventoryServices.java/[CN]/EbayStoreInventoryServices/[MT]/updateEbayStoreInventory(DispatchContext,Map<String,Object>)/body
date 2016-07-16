@@ -1,0 +1,69 @@
+{
+  Map<String,Object> result=new HashMap<String,Object>();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Delegator delegator=dctx.getDelegator();
+  GetSellingManagerInventoryRequestType invenReq=null;
+  GetSellingManagerInventoryResponseType invenResp=null;
+  boolean checkProd=false;
+  boolean status=false;
+  try {
+    if (context.get("productStoreId") == null || context.get("productId") == null || context.get("folderId") == null) {
+      result=ServiceUtil.returnError(UtilProperties.getMessage(resource,"EbayStoreInventoryFolderIdRequired",locale));
+      result.put("productStoreId",context.get("productStoreId"));
+      result.put("facilityId",context.get("facilityId"));
+      result.put("folderId",context.get("folderId"));
+      return result;
+    }
+    String productId=(String)context.get("productId");
+    String folderId=(String)context.get("folderId");
+    if (folderId != null) {
+      GetSellingManagerInventoryCall invenCall=new GetSellingManagerInventoryCall(EbayStoreHelper.getApiContext((String)context.get("productStoreId"),locale,delegator));
+      invenReq=new GetSellingManagerInventoryRequestType();
+      invenResp=(GetSellingManagerInventoryResponseType)invenCall.execute(invenReq);
+      if (invenResp != null && "SUCCESS".equals(invenResp.getAck().toString())) {
+        GenericValue ebayProductStoreInventory=EntityQuery.use(delegator).from("EbayProductStoreInventory").where("productId",productId,"facilityId",context.get("facilityId"),"productStoreId",context.get("productStoreId")).queryOne();
+        SellingManagerProductType[] sellingManagerProductTypeList=invenResp.getSellingManagerProduct();
+        for (        SellingManagerProductType sellingManagerProductType : sellingManagerProductTypeList) {
+          SellingManagerProductDetailsType sellingManagerProductDetailsType=sellingManagerProductType.getSellingManagerProductDetails();
+          if (String.valueOf(sellingManagerProductDetailsType.getFolderID()).equals(folderId) && String.valueOf(sellingManagerProductDetailsType.getProductID()).equals(String.valueOf(ebayProductStoreInventory.getLong("ebayProductId"))) && String.valueOf(sellingManagerProductDetailsType.getCustomLabel()).equals(productId)) {
+            checkProd=true;
+            break;
+          }
+        }
+      }
+ else {
+        EbayStoreHelper.createErrorLogMessage(userLogin,dctx.getDispatcher(),context.get("productStoreId").toString(),invenResp.getAck().toString(),"GetSellingManagerInventoryCall : updateEbayStoreInventory",invenResp.getErrors(0).getLongMessage());
+      }
+      if (checkProd) {
+        status=updateProductInEbayInventoryFolder(dctx,context);
+      }
+ else {
+        status=createNewProductInEbayInventoryFolder(dctx,context);
+      }
+      if (status) {
+        Debug.logInfo("Done to updated product ".concat(context.get("productId").toString()),module);
+        result=ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"EbayStoreInventoryFolderIdUpdated",UtilMisc.toMap("folderId",context.get("folderId")),locale));
+      }
+ else {
+        result=ServiceUtil.returnError(UtilProperties.getMessage(resource,"EbayStoreInventoryFolderIdUpdatedFailed",locale));
+      }
+    }
+  }
+ catch (  ApiException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkSoapException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  GenericEntityException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+  result.put("productStoreId",context.get("productStoreId"));
+  result.put("facilityId",context.get("facilityId"));
+  result.put("folderId",context.get("folderId"));
+  return result;
+}

@@ -1,0 +1,48 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String productId=(String)context.get("productId");
+  Integer qty=(Integer)context.get("quantity");
+  Locale locale=(Locale)context.get("locale");
+  if (qty == null) {
+    qty=Integer.valueOf(1);
+  }
+  Timestamp orderCreatedDate=(Timestamp)context.get("orderCreatedDate");
+  if (orderCreatedDate == null) {
+    orderCreatedDate=UtilDateTime.nowTimestamp();
+  }
+  try {
+    List<GenericValue> productSubscriptionResourceList=EntityQuery.use(delegator).from("ProductSubscriptionResource").where("productId",productId).cache(true).filterByDate(orderCreatedDate,"fromDate","thruDate","purchaseFromDate","purchaseThruDate").queryList();
+    if (productSubscriptionResourceList.size() == 0) {
+      Debug.logError("No ProductSubscriptionResource found for productId: " + productId,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductSubscriptionResourceNotFound",UtilMisc.toMap("productId",productId),locale));
+    }
+    for (    GenericValue productSubscriptionResource : productSubscriptionResourceList) {
+      Long useTime=productSubscriptionResource.getLong("useTime");
+      Integer newUseTime=Integer.valueOf(0);
+      if (useTime != null) {
+        newUseTime=Integer.valueOf(useTime.intValue() * qty.intValue());
+      }
+      Map<String,Object> subContext=UtilMisc.makeMapWritable(context);
+      subContext.put("useTime",newUseTime);
+      subContext.put("useTimeUomId",productSubscriptionResource.get("useTimeUomId"));
+      subContext.put("useRoleTypeId",productSubscriptionResource.get("useRoleTypeId"));
+      subContext.put("subscriptionResourceId",productSubscriptionResource.get("subscriptionResourceId"));
+      subContext.put("automaticExtend",productSubscriptionResource.get("automaticExtend"));
+      subContext.put("canclAutmExtTime",productSubscriptionResource.get("canclAutmExtTime"));
+      subContext.put("canclAutmExtTimeUomId",productSubscriptionResource.get("canclAutmExtTimeUomId"));
+      subContext.put("gracePeriodOnExpiry",productSubscriptionResource.get("gracePeriodOnExpiry"));
+      subContext.put("gracePeriodOnExpiryUomId",productSubscriptionResource.get("gracePeriodOnExpiryUomId"));
+      Map<String,Object> ctx=dctx.getModelService("processExtendSubscription").makeValid(subContext,ModelService.IN_PARAM);
+      Map<String,Object> processExtendSubscriptionResult=dispatcher.runSync("processExtendSubscription",ctx);
+      if (ServiceUtil.isError(processExtendSubscriptionResult)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductSubscriptionByProductError",UtilMisc.toMap("productId",productId),locale),null,null,processExtendSubscriptionResult);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,e.toString(),module);
+    return ServiceUtil.returnError(e.toString());
+  }
+  return ServiceUtil.returnSuccess();
+}

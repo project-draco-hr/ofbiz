@@ -1,0 +1,108 @@
+{
+  String variantProductId=null;
+  try {
+    for (    String paramValue : selectedFeatures) {
+      List<GenericValue> incompatibilityVariants=EntityQuery.use(delegator).from("ProductFeatureIactn").where("productId",productId,"productFeatureIactnTypeId","FEATURE_IACTN_INCOMP").cache(true).queryList();
+      for (      GenericValue incompatibilityVariant : incompatibilityVariants) {
+        String featur=incompatibilityVariant.getString("productFeatureId");
+        if (paramValue.equals(featur)) {
+          String featurTo=incompatibilityVariant.getString("productFeatureIdTo");
+          for (          String paramValueTo : selectedFeatures) {
+            if (featurTo.equals(paramValueTo)) {
+              Debug.logWarning("Incompatible features",module);
+              return null;
+            }
+          }
+        }
+      }
+      List<GenericValue> dependenciesVariants=EntityQuery.use(delegator).from("ProductFeatureIactn").where("productId",productId,"productFeatureIactnTypeId","FEATURE_IACTN_DEPEND").cache(true).queryList();
+      for (      GenericValue dpVariant : dependenciesVariants) {
+        String featur=dpVariant.getString("productFeatureId");
+        if (paramValue.equals(featur)) {
+          String featurTo=dpVariant.getString("productFeatureIdTo");
+          boolean found=false;
+          for (          String paramValueTo : selectedFeatures) {
+            if (featurTo.equals(paramValueTo)) {
+              found=true;
+              break;
+            }
+          }
+          if (!found) {
+            Debug.logWarning("Dependency features",module);
+            return null;
+          }
+        }
+      }
+    }
+    List<GenericValue> productAssocs=EntityQuery.use(delegator).from("ProductAssoc").where("productId",productId,"productAssocTypeId","PRODUCT_VARIANT").filterByDate().queryList();
+    boolean productFound=false;
+    nextProd:     for (    GenericValue productAssoc : productAssocs) {
+      for (      String featureId : selectedFeatures) {
+        List<GenericValue> pAppls=EntityQuery.use(delegator).from("ProductFeatureAppl").where("productId",productAssoc.getString("productIdTo"),"productFeatureId",featureId,"productFeatureApplTypeId","STANDARD_FEATURE").cache(true).queryList();
+        if (UtilValidate.isEmpty(pAppls)) {
+          continue nextProd;
+        }
+      }
+      productFound=true;
+      variantProductId=productAssoc.getString("productIdTo");
+      break;
+    }
+    if (!productFound) {
+      GenericValue product=EntityQuery.use(delegator).from("Product").where("productId",productId).queryOne();
+      product.put("isVariant","Y");
+      product.put("isVirtual","N");
+      product.put("productId",delegator.getNextSeqId("Product"));
+      product.remove("virtualVariantMethodEnum");
+      product.create();
+      GenericValue productFeatureAppl=delegator.makeValue("ProductFeatureAppl",UtilMisc.toMap("productId",product.getString("productId"),"productFeatureApplTypeId","STANDARD_FEATURE"));
+      productFeatureAppl.put("fromDate",UtilDateTime.nowTimestamp());
+      for (      String productFeatureId : selectedFeatures) {
+        productFeatureAppl.put("productFeatureId",productFeatureId);
+        productFeatureAppl.create();
+      }
+      List<GenericValue> stdFeaturesAppls=EntityQuery.use(delegator).from("ProductFeatureAppl").where("productId",productId,"productFeatureApplTypeId","STANDARD_FEATURE").filterByDate().queryList();
+      for (      GenericValue stdFeaturesAppl : stdFeaturesAppls) {
+        stdFeaturesAppl.put("productId",product.getString("productId"));
+        stdFeaturesAppl.create();
+      }
+      List<GenericValue> productPrices=EntityQuery.use(delegator).from("ProductPrice").where("productId",productId).filterByDate().queryList();
+      for (      GenericValue productPrice : productPrices) {
+        for (        String selectedFeaturedId : selectedFeatures) {
+          List<GenericValue> productFeaturePrices=EntityQuery.use(delegator).from("ProductFeaturePrice").where("productFeatureId",selectedFeaturedId,"productPriceTypeId",productPrice.getString("productPriceTypeId")).filterByDate().queryList();
+          if (UtilValidate.isNotEmpty(productFeaturePrices)) {
+            GenericValue productFeaturePrice=productFeaturePrices.get(0);
+            if (UtilValidate.isNotEmpty(productFeaturePrice)) {
+              productPrice.put("price",productPrice.getBigDecimal("price").add(productFeaturePrice.getBigDecimal("price")));
+            }
+          }
+        }
+        if (productPrice.get("price") == null) {
+          productPrice.put("price",productPrice.getBigDecimal("price"));
+        }
+        productPrice.put("productId",product.getString("productId"));
+        productPrice.create();
+      }
+      GenericValue productAssoc=delegator.makeValue("ProductAssoc",UtilMisc.toMap("productId",productId,"productIdTo",product.getString("productId"),"productAssocTypeId","PRODUCT_VARIANT"));
+      productAssoc.put("fromDate",UtilDateTime.nowTimestamp());
+      productAssoc.create();
+      Debug.logInfo("set the productId to: " + product.getString("productId"),module);
+      List<GenericValue> supplierProducts=EntityQuery.use(delegator).from("SupplierProduct").where("productId",productId).cache(true).queryList();
+      for (      GenericValue supplierProduct : supplierProducts) {
+        supplierProduct=(GenericValue)supplierProduct.clone();
+        supplierProduct.set("productId",product.getString("productId"));
+        supplierProduct.create();
+      }
+      List<GenericValue> productContents=EntityQuery.use(delegator).from("ProductContent").where("productId",productId).cache(true).queryList();
+      for (      GenericValue productContent : productContents) {
+        productContent=(GenericValue)productContent.clone();
+        productContent.set("productId",product.getString("productId"));
+        productContent.create();
+      }
+      variantProductId=product.getString("productId");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  return variantProductId;
+}

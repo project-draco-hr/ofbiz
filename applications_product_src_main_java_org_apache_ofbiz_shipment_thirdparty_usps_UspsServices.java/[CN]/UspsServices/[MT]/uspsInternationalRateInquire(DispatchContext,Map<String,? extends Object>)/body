@@ -1,0 +1,117 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String resource=(String)context.get("configProps");
+  Locale locale=(Locale)context.get("locale");
+  BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
+  if (shippableWeight.compareTo(BigDecimal.ZERO) == 0) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsShippableWeightMustGreaterThanZero",locale));
+  }
+  String destinationCountry=null;
+  String shippingContactMechId=(String)context.get("shippingContactMechId");
+  if (UtilValidate.isNotEmpty(shippingContactMechId)) {
+    try {
+      GenericValue shipToAddress=EntityQuery.use(delegator).from("PostalAddress").where("contactMechId",shippingContactMechId).queryOne();
+      if (domesticCountries.contains(shipToAddress.get("countryGeoId"))) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateInternationCannotBeUsedForUsDestinations",locale));
+      }
+      if (shipToAddress != null && UtilValidate.isNotEmpty(shipToAddress.getString("countryGeoId"))) {
+        GenericValue countryGeo=shipToAddress.getRelatedOne("CountryGeo",false);
+        destinationCountry=countryGeo.getString("geoName");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (UtilValidate.isEmpty(destinationCountry)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineDestinationCountry",locale));
+  }
+  String serviceCode=null;
+  try {
+    GenericValue carrierShipmentMethod=EntityQuery.use(delegator).from("CarrierShipmentMethod").where("shipmentMethodTypeId",(String)context.get("shipmentMethodTypeId"),"partyId",(String)context.get("carrierPartyId"),"roleTypeId",(String)context.get("carrierRoleTypeId")).queryOne();
+    if (carrierShipmentMethod != null) {
+      serviceCode=carrierShipmentMethod.getString("carrierServiceCode");
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (UtilValidate.isEmpty(serviceCode)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsUnableDetermineServiceCode",locale));
+  }
+  BigDecimal maxWeight=new BigDecimal("70");
+  String maxWeightStr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"maxEstimateWeight",resource,"shipment.usps.max.estimate.weight","70");
+  try {
+    maxWeight=new BigDecimal(maxWeightStr);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logWarning("Error parsing max estimate weight string [" + maxWeightStr + "], using default instead",module);
+    maxWeight=new BigDecimal("70");
+  }
+  List<Map<String,Object>> shippableItemInfo=UtilGenerics.checkList(context.get("shippableItemInfo"));
+  List<Map<String,BigDecimal>> packages=ShipmentWorker.getPackageSplit(dctx,shippableItemInfo,maxWeight);
+  boolean isOnePackage=packages.size() == 1;
+  Document requestDocument=createUspsRequestDocument("IntlRateRequest",false,delegator,shipmentGatewayConfigId,resource);
+  for (ListIterator<Map<String,BigDecimal>> li=packages.listIterator(); li.hasNext(); ) {
+    Map<String,BigDecimal> packageMap=li.next();
+    Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
+    packageElement.setAttribute("ID",String.valueOf(li.nextIndex() - 1));
+    BigDecimal packageWeight=isOnePackage ? shippableWeight : ShipmentWorker.calcPackageWeight(dctx,packageMap,shippableItemInfo,BigDecimal.ZERO);
+    if (packageWeight.compareTo(BigDecimal.ZERO) == 0) {
+      continue;
+    }
+    Integer[] weightPoundsOunces=convertPoundsToPoundsOunces(packageWeight);
+    if ("PARCEL".equals(serviceCode.toUpperCase()) && (weightPoundsOunces[0] < 1)) {
+      weightPoundsOunces[0]=1;
+      weightPoundsOunces[1]=0;
+    }
+    UtilXml.addChildElementValue(packageElement,"Pounds",weightPoundsOunces[0].toString(),requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Ounces",weightPoundsOunces[1].toString(),requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"MailType","Package",requestDocument);
+    UtilXml.addChildElementValue(packageElement,"Country",destinationCountry,requestDocument);
+  }
+  Document responseDocument=null;
+  try {
+    responseDocument=sendUspsRequest("IntlRate",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
+  }
+ catch (  UspsRequestException e) {
+    Debug.logInfo(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateInternationalSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+  if (responseDocument == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
+  }
+  List<? extends Element> packageElements=UtilXml.childElementList(responseDocument.getDocumentElement(),"Package");
+  if (UtilValidate.isEmpty(packageElements)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
+  }
+  BigDecimal estimateAmount=BigDecimal.ZERO;
+  for (  Element packageElement : packageElements) {
+    Element errorElement=UtilXml.firstChildElement(packageElement,"Error");
+    if (errorElement != null) {
+      String errorDescription=UtilXml.childElementValue(errorElement,"Description");
+      Debug.logInfo("USPS International Rate Calculation returned a package error: " + errorDescription,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
+    }
+    List<? extends Element> serviceElements=UtilXml.childElementList(packageElement,"Service");
+    for (    Element serviceElement : serviceElements) {
+      String respServiceCode=serviceElement.getAttribute("ID");
+      if (!serviceCode.equalsIgnoreCase(respServiceCode)) {
+        continue;
+      }
+      try {
+        BigDecimal packageAmount=new BigDecimal(UtilXml.childElementValue(serviceElement,"Postage"));
+        estimateAmount=estimateAmount.add(packageAmount);
+      }
+ catch (      NumberFormatException e) {
+        Debug.logInfo("USPS International Rate Calculation returned an unparsable postage amount: " + UtilXml.childElementValue(serviceElement,"Postage"),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRateNotAvailable",locale));
+      }
+    }
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("shippingEstimateAmount",estimateAmount);
+  return result;
+}

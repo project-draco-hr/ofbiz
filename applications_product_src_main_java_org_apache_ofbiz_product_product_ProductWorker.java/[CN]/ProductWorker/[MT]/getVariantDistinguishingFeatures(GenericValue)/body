@@ -1,0 +1,31 @@
+{
+  if (variantProduct == null) {
+    return new HashSet<GenericValue>();
+  }
+  if (!"Y".equals(variantProduct.getString("isVariant"))) {
+    throw new IllegalArgumentException("Cannot get distinguishing features for a product that is not a variant (ie isVariant!=Y).");
+  }
+  Delegator delegator=variantProduct.getDelegator();
+  String virtualProductId=getVariantVirtualId(variantProduct);
+  Set<GenericValue> distFeatures=new HashSet<GenericValue>();
+  List<GenericValue> variantDistinguishingFeatures=EntityQuery.use(delegator).from("ProductFeatureAndAppl").where("productId",variantProduct.get("productId"),"productFeatureApplTypeId","DISTINGUISHING_FEAT").cache(true).queryList();
+  for (  GenericValue variantDistinguishingFeature : EntityUtil.filterByDate(variantDistinguishingFeatures)) {
+    GenericValue dummyFeature=delegator.makeValue("ProductFeature");
+    dummyFeature.setAllFields(variantDistinguishingFeature,true,null,null);
+    distFeatures.add(dummyFeature);
+  }
+  List<GenericValue> virtualSelectableFeatures=EntityQuery.use(delegator).from("ProductFeatureAndAppl").where("productId",virtualProductId,"productFeatureApplTypeId","SELECTABLE_FEATURE").cache(true).queryList();
+  Set<String> virtualSelectableFeatureIds=new HashSet<String>();
+  for (  GenericValue virtualSelectableFeature : EntityUtil.filterByDate(virtualSelectableFeatures)) {
+    virtualSelectableFeatureIds.add(virtualSelectableFeature.getString("productFeatureId"));
+  }
+  List<GenericValue> variantStandardFeatures=EntityQuery.use(delegator).from("ProductFeatureAndAppl").where("productId",variantProduct.get("productId"),"productFeatureApplTypeId","STANDARD_FEATURE").cache(true).queryList();
+  for (  GenericValue variantStandardFeature : EntityUtil.filterByDate(variantStandardFeatures)) {
+    if (virtualSelectableFeatureIds.contains(variantStandardFeature.get("productFeatureId"))) {
+      GenericValue dummyFeature=delegator.makeValue("ProductFeature");
+      dummyFeature.setAllFields(variantStandardFeature,true,null,null);
+      distFeatures.add(dummyFeature);
+    }
+  }
+  return distFeatures;
+}

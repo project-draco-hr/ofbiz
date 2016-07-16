@@ -1,0 +1,46 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue returnItem=null;
+  GenericValue returnAdjustment=null;
+  String returnAdjustmentTypeId=null;
+  BigDecimal amount;
+  try {
+    returnAdjustment=EntityQuery.use(delegator).from("ReturnAdjustment").where("returnAdjustmentId",context.get("returnAdjustmentId")).queryOne();
+    if (returnAdjustment != null) {
+      returnItem=EntityQuery.use(delegator).from("ReturnItem").where("returnId",returnAdjustment.get("returnId"),"returnItemSeqId",returnAdjustment.get("returnItemSeqId")).queryOne();
+      returnAdjustmentTypeId=returnAdjustment.getString("returnAdjustmentTypeId");
+    }
+    if (returnItem != null) {
+      BigDecimal originalReturnPrice=(context.get("originalReturnPrice") != null) ? ((BigDecimal)context.get("originalReturnPrice")) : returnItem.getBigDecimal("returnPrice");
+      BigDecimal originalReturnQuantity=(context.get("originalReturnQuantity") != null) ? ((BigDecimal)context.get("originalReturnQuantity")) : returnItem.getBigDecimal("returnQuantity");
+      if (needRecalculate(returnAdjustmentTypeId)) {
+        BigDecimal returnTotal=returnItem.getBigDecimal("returnPrice").multiply(returnItem.getBigDecimal("returnQuantity"));
+        BigDecimal originalReturnTotal=originalReturnPrice.multiply(originalReturnQuantity);
+        amount=getAdjustmentAmount("RET_SALES_TAX_ADJ".equals(returnAdjustmentTypeId),returnTotal,originalReturnTotal,returnAdjustment.getBigDecimal("amount"));
+      }
+ else {
+        amount=(BigDecimal)context.get("amount");
+      }
+    }
+ else {
+      amount=(BigDecimal)context.get("amount");
+    }
+    Map<String,Object> result=null;
+    if (UtilValidate.isNotEmpty(amount)) {
+      returnAdjustment.setNonPKFields(context);
+      returnAdjustment.set("amount",amount);
+      delegator.store(returnAdjustment);
+      Debug.logInfo("Update ReturnAdjustment with Id:" + context.get("returnAdjustmentId") + " to amount "+ amount+ " successfully.",module);
+      result=ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OrderUpdateReturnAdjustment",UtilMisc.toMap("returnAdjustmentId",context.get("returnAdjustmentId"),"amount",amount),locale));
+    }
+ else {
+      result=ServiceUtil.returnSuccess();
+    }
+    return result;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Failed to store returnAdjustment",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderCreateReturnAdjustmentFailed",locale));
+  }
+}

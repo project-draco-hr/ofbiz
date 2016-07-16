@@ -1,0 +1,52 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  String facilityId=(String)context.get("facilityId");
+  String productId=(String)context.get("productId");
+  String locationSeqId=(String)context.get("locationSeqId");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  if (UtilValidate.isEmpty(productId) || UtilValidate.isEmpty(facilityId)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductIdOrFacilityIdNotFound",locale));
+  }
+  if (UtilValidate.isEmpty(locationSeqId)) {
+    locationSeqId="nullField";
+  }
+  Map<String,Object> contextInput=UtilMisc.toMap("productId",(Object)productId,"facilityId",facilityId,"locationSeqId",locationSeqId);
+  Map<String,Object> invAvailability=null;
+  try {
+    invAvailability=dispatcher.runSync("getInventoryAvailableByLocation",contextInput);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"updateProductStocktake failed getting inventory counts",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductErrorUpdateProductStockTake",locale));
+  }
+  int qoh=((BigDecimal)invAvailability.get("quantityOnHandTotal")).intValue();
+  if (quantity.intValue() == qoh) {
+    Debug.logInfo("updateProductStocktake No change required quantity(" + quantity + ") = qoh("+ qoh+ ")",module);
+    return ServiceUtil.returnSuccess();
+  }
+  List<GenericValue> invItemList=null;
+  try {
+    invItemList=EntityQuery.use(delegator).from("InventoryItem").where("productId",productId,"facilityId",facilityId,"locationSeqId",locationSeqId).queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"updateProductStocktake failed getting inventory items",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductErrorFailedProductStockTake",locale));
+  }
+  for (  GenericValue invItem : invItemList) {
+    String locationFound=invItem.getString("locationSeqId");
+    Debug.logInfo("updateProductStocktake: InvItemId(" + invItem.getString("inventoryItemId") + ")",module);
+    if (locationFound == null) {
+      locationFound="nullField";
+    }
+  }
+  try {
+    dispatcher.runSync("getInventoryAvailableByFacility",UtilMisc.toMap("productId",productId,"facilityId",facilityId));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductInventoryItemLookupProblem",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

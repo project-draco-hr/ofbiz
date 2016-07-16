@@ -1,0 +1,154 @@
+{
+  if (tableNames.size() == 0) {
+    return new HashMap<String,Map<String,ColumnCheckInfo>>();
+  }
+  Connection connection=null;
+  try {
+    connection=getConnectionLogged(messages);
+    if (connection == null) {
+      return null;
+    }
+    DatabaseMetaData dbData=null;
+    try {
+      dbData=connection.getMetaData();
+    }
+ catch (    SQLException e) {
+      String message="Unable to get database meta data... Error was:" + e.toString();
+      Debug.logError(message,module);
+      if (messages != null)       messages.add(message);
+      try {
+        connection.close();
+      }
+ catch (      SQLException e2) {
+        String message2="Unable to close database connection, continuing anyway... Error was:" + e2.toString();
+        Debug.logError(message2,module);
+        if (messages != null)         messages.add(message2);
+      }
+      return null;
+    }
+    if (Debug.infoOn())     Debug.logInfo("Getting Column Info From Database",module);
+    Map<String,Map<String,ColumnCheckInfo>> colInfo=new HashMap<String,Map<String,ColumnCheckInfo>>();
+    try {
+      String lookupSchemaName=getSchemaName(dbData);
+      boolean needsUpperCase=false;
+      try {
+        needsUpperCase=dbData.storesLowerCaseIdentifiers() || dbData.storesMixedCaseIdentifiers();
+      }
+ catch (      SQLException e) {
+        String message="Error getting identifier case information... Error was:" + e.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+      }
+      boolean foundCols=false;
+      ResultSet rsCols=dbData.getColumns(null,lookupSchemaName,null,null);
+      if (!rsCols.next()) {
+        try {
+          rsCols.close();
+        }
+ catch (        SQLException e) {
+          String message="Unable to close ResultSet for column list, continuing anyway... Error was:" + e.toString();
+          Debug.logError(message,module);
+          if (messages != null)           messages.add(message);
+        }
+        rsCols=dbData.getColumns(null,lookupSchemaName,"%","%");
+        if (!rsCols.next()) {
+        }
+ else {
+          foundCols=true;
+        }
+      }
+ else {
+        foundCols=true;
+      }
+      if (foundCols) {
+        do {
+          try {
+            ColumnCheckInfo ccInfo=new ColumnCheckInfo();
+            ccInfo.tableName=ColumnCheckInfo.fixupTableName(rsCols.getString("TABLE_NAME"),lookupSchemaName,needsUpperCase);
+            if (!tableNames.contains(ccInfo.tableName)) {
+              continue;
+            }
+            ccInfo.columnName=rsCols.getString("COLUMN_NAME");
+            if (needsUpperCase && ccInfo.columnName != null) {
+              ccInfo.columnName=ccInfo.columnName.toUpperCase();
+            }
+            ccInfo.typeName=rsCols.getString("TYPE_NAME");
+            ccInfo.columnSize=rsCols.getInt("COLUMN_SIZE");
+            ccInfo.decimalDigits=rsCols.getInt("DECIMAL_DIGITS");
+            ccInfo.isNullable=rsCols.getString("IS_NULLABLE");
+            Map<String,ColumnCheckInfo> tableColInfo=colInfo.get(ccInfo.tableName);
+            if (tableColInfo == null) {
+              tableColInfo=new HashMap<String,ColumnCheckInfo>();
+              colInfo.put(ccInfo.tableName,tableColInfo);
+            }
+            tableColInfo.put(ccInfo.columnName,ccInfo);
+          }
+ catch (          SQLException e) {
+            String message="Error getting column info for column. Error was:" + e.toString();
+            Debug.logError(message,module);
+            if (messages != null)             messages.add(message);
+            continue;
+          }
+        }
+ while (rsCols.next());
+      }
+      try {
+        rsCols.close();
+      }
+ catch (      SQLException e) {
+        String message="Unable to close ResultSet for column list, continuing anyway... Error was:" + e.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+      }
+      if (getPks) {
+        int pkCount=0;
+        try {
+          ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,null);
+          pkCount+=checkPrimaryKeyInfo(rsPks,lookupSchemaName,needsUpperCase,colInfo,messages);
+        }
+ catch (        Exception e1) {
+          Debug.logInfo("Error getting primary key info from database with null tableName, will try other means: " + e1.toString(),module);
+        }
+        if (pkCount == 0) {
+          try {
+            ResultSet rsPks=dbData.getPrimaryKeys(null,lookupSchemaName,"%");
+            pkCount+=checkPrimaryKeyInfo(rsPks,lookupSchemaName,needsUpperCase,colInfo,messages);
+          }
+ catch (          Exception e1) {
+            Debug.logInfo("Error getting primary key info from database with % tableName, will try other means: " + e1.toString(),module);
+          }
+        }
+        if (pkCount == 0) {
+          Debug.logInfo("Searching in " + tableNames.size() + " tables for primary key fields ...",module);
+          List<Future<AbstractCountingCallable>> pkFetcherFutures=new LinkedList<Future<AbstractCountingCallable>>();
+          for (          String curTable : tableNames) {
+            curTable=curTable.substring(curTable.indexOf('.') + 1);
+            pkFetcherFutures.add(executor.submit(createPrimaryKeyFetcher(dbData,lookupSchemaName,needsUpperCase,colInfo,messages,curTable)));
+          }
+          for (          AbstractCountingCallable pkFetcherCallable : ExecutionPool.getAllFutures(pkFetcherFutures)) {
+            pkCount+=pkFetcherCallable.updateData(messages);
+          }
+        }
+        Debug.logInfo("Reviewed " + pkCount + " primary key fields from database.",module);
+      }
+    }
+ catch (    SQLException e) {
+      String message="Error getting column meta data for Error was: [" + e.toString() + "]. Not checking columns.";
+      Debug.logError(e,message,module);
+      if (messages != null)       messages.add(message);
+    }
+    return colInfo;
+  }
+  finally {
+    if (connection != null) {
+      try {
+        connection.close();
+      }
+ catch (      SQLException e) {
+        String message="Unable to close database connection, continuing anyway... Error was:" + e.toString();
+        Debug.logError(message,module);
+        if (messages != null)         messages.add(message);
+      }
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  String cookieDomain=null;
+  cookieDomain=EntityUtilProperties.getPropertyValue("url","cookie.domain","",delegator);
+  if (UtilValidate.isEmpty(cookieDomain)) {
+    String serverName=request.getServerName();
+    String[] domainArray=serverName.split("\\.");
+    if (domainArray.length == 4) {
+      boolean isIpAddress=true;
+      for (      String domainSection : domainArray) {
+        if (!UtilValidate.isIntegerInRange(domainSection,0,255)) {
+          isIpAddress=false;
+          break;
+        }
+      }
+      if (isIpAddress)       return;
+    }
+    if (domainArray.length > 2) {
+      cookieDomain="." + domainArray[domainArray.length - 2] + "."+ domainArray[domainArray.length - 1];
+    }
+  }
+  if (UtilValidate.isNotEmpty(cookieDomain)) {
+    Cookie newCookie=new Cookie(cookie.getName(),cookie.getValue());
+    if (cookie.getPath() != null) {
+      newCookie.setPath(cookie.getPath());
+    }
+    newCookie.setDomain(cookieDomain);
+    newCookie.setMaxAge(cookie.getMaxAge());
+    newCookie.setVersion(cookie.getVersion());
+    if (cookie.getComment() != null) {
+      newCookie.setComment(cookie.getComment());
+    }
+    newCookie.setSecure(cookie.getSecure());
+    if (response.isCommitted()) {
+      Debug.logError("CrossSubdomainSessionValve: response was already committed!",module);
+    }
+    MimeHeaders mimeHeaders=request.getCoyoteRequest().getMimeHeaders();
+    for (int i=0, size=mimeHeaders.size(); i < size; i++) {
+      if (mimeHeaders.getName(i).equals("Set-Cookie")) {
+        MessageBytes value=mimeHeaders.getValue(i);
+        if (value.indexOf(cookie.getName()) >= 0) {
+          String newCookieValue=request.getContext().getCookieProcessor().generateHeader(newCookie);
+          Debug.logVerbose("CrossSubdomainSessionValve: old Set-Cookie value: " + value.toString(),module);
+          Debug.logVerbose("CrossSubdomainSessionValve: new Set-Cookie value: " + newCookieValue,module);
+          value.setString(newCookieValue);
+        }
+      }
+    }
+  }
+}

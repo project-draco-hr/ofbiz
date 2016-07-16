@@ -1,0 +1,49 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  orderImportSuccessMessageList.clear();
+  orderImportFailureMessageList.clear();
+  getSellerTransactionsContainingOrderList.clear();
+  orderList.clear();
+  Map<String,Object> result=new HashMap<String,Object>();
+  try {
+    Map<String,Object> eBayConfigResult=EbayHelper.buildEbayConfig(context,delegator);
+    if (UtilValidate.isEmpty(eBayConfigResult)) {
+      String eBayConfigErrorMsg="Configuration settings are missing for connecting to eBay server.";
+      return ServiceUtil.returnError(eBayConfigErrorMsg);
+    }
+    StringBuffer sellerTransactionsItemsXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildGetSellerTransactionsRequest(context,sellerTransactionsItemsXml,eBayConfigResult.get("token").toString()))) {
+      result=EbayHelper.postItem(eBayConfigResult.get("xmlGatewayUri").toString(),sellerTransactionsItemsXml,eBayConfigResult.get("devID").toString(),eBayConfigResult.get("appID").toString(),eBayConfigResult.get("certID").toString(),"GetSellerTransactions",eBayConfigResult.get("compatibilityLevel").toString(),eBayConfigResult.get("siteID").toString());
+      String getSellerTransactionSuccessMsg=(String)result.get(ModelService.SUCCESS_MESSAGE);
+      if (getSellerTransactionSuccessMsg != null) {
+        isGetSellerTransactionsCall=true;
+        result=checkOrders(delegator,dispatcher,locale,context,getSellerTransactionSuccessMsg);
+      }
+    }
+    StringBuffer getOrdersXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildGetOrdersRequest(context,getOrdersXml,eBayConfigResult.get("token").toString()))) {
+      result=EbayHelper.postItem(eBayConfigResult.get("xmlGatewayUri").toString(),getOrdersXml,eBayConfigResult.get("devID").toString(),eBayConfigResult.get("appID").toString(),eBayConfigResult.get("certID").toString(),"GetOrders",eBayConfigResult.get("compatibilityLevel").toString(),eBayConfigResult.get("siteID").toString());
+      String getOrdersSuccessMsg=(String)result.get(ModelService.SUCCESS_MESSAGE);
+      if (getOrdersSuccessMsg != null) {
+        isGetOrdersCall=true;
+        result=checkOrders(delegator,dispatcher,locale,context,getOrdersSuccessMsg);
+      }
+    }
+    StringBuffer getMyeBaySellingXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildGetMyeBaySellingRequest(context,getMyeBaySellingXml,eBayConfigResult.get("token").toString()))) {
+      result=EbayHelper.postItem(eBayConfigResult.get("xmlGatewayUri").toString(),getMyeBaySellingXml,eBayConfigResult.get("devID").toString(),eBayConfigResult.get("appID").toString(),eBayConfigResult.get("certID").toString(),"GetMyeBaySelling",eBayConfigResult.get("compatibilityLevel").toString(),eBayConfigResult.get("siteID").toString());
+      String getMyeBaySellingSuccessMsg=(String)result.get(ModelService.SUCCESS_MESSAGE);
+      if (getMyeBaySellingSuccessMsg != null) {
+        isGetMyeBaySellingCall=true;
+        result=checkOrders(delegator,dispatcher,locale,context,getMyeBaySellingSuccessMsg);
+      }
+    }
+  }
+ catch (  Exception e) {
+    String errMsg=UtilProperties.getMessage(resource,"buildEbayConfig.exceptionInGetOrdersFromEbay" + e.getMessage(),locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return result;
+}

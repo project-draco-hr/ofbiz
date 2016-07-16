@@ -1,0 +1,47 @@
+{
+  GenericDelegator delegator=(GenericDelegator)dctx.getDelegator();
+  List<List<String>> trailElements=new ArrayList<List<String>>();
+  String parentProductCategoryId=productCategoryId;
+  while (UtilValidate.isNotEmpty(parentProductCategoryId)) {
+    try {
+      List<EntityCondition> rolllupConds=new ArrayList<EntityCondition>();
+      rolllupConds.add(EntityCondition.makeCondition("productCategoryId",parentProductCategoryId));
+      rolllupConds.add(EntityUtil.getFilterByDateExpr());
+      List<GenericValue> productCategoryRollups=delegator.findList("ProductCategoryRollup",EntityCondition.makeCondition(rolllupConds),null,UtilMisc.toList("-fromDate"),null,true);
+      if (UtilValidate.isNotEmpty(productCategoryRollups)) {
+        List<List<String>> trailElementsAux=new ArrayList<List<String>>();
+        trailElementsAux.addAll(trailElements);
+        for (        GenericValue productCategoryRollup : productCategoryRollups) {
+          String trailCategoryId=productCategoryRollup.getString("parentProductCategoryId");
+          parentProductCategoryId=trailCategoryId;
+          List<String> trailElement=new ArrayList<String>();
+          if (!trailElements.isEmpty()) {
+            for (            List<String> trailList : trailElementsAux) {
+              trailElement.add(trailCategoryId);
+              trailElement.addAll(trailList);
+              trailElements.remove(trailList);
+              trailElements.add(trailElement);
+            }
+          }
+ else {
+            trailElement.add(trailCategoryId);
+            trailElement.add(productCategoryId);
+            trailElements.add(trailElement);
+          }
+        }
+      }
+ else {
+        parentProductCategoryId=null;
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Cannot generate trail from product category",module);
+    }
+  }
+  if (trailElements.size() == 0) {
+    List<String> trailElement=new ArrayList<String>();
+    trailElement.add(productCategoryId);
+    trailElements.add(trailElement);
+  }
+  return trailElements;
+}

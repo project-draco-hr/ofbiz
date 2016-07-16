@@ -1,0 +1,72 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  String productStoreId=ProductStoreWorker.getProductStoreId(request);
+  String gitHubUserId=(String)userInfo.get("login");
+  GenericValue gitHubUser=null;
+  try {
+    gitHubUser=delegator.findOne("GitHubUser",UtilMisc.toMap("gitHubUserId",gitHubUserId),false);
+  }
+ catch (  GenericEntityException e) {
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    return "error";
+  }
+  if (UtilValidate.isNotEmpty(gitHubUser)) {
+    boolean dataChanged=false;
+    if (!accessToken.equals(gitHubUser.getString("accessToken"))) {
+      gitHubUser.set("accessToken",accessToken);
+      dataChanged=true;
+    }
+    if (!envPrefix.equals(gitHubUser.getString("envPrefix"))) {
+      gitHubUser.set("envPrefix",envPrefix);
+      dataChanged=true;
+    }
+    if (!productStoreId.equals(gitHubUser.getString("productStoreId"))) {
+      gitHubUser.set("productStoreId",productStoreId);
+      dataChanged=true;
+    }
+    if (dataChanged) {
+      try {
+        gitHubUser.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e.getMessage(),module);
+      }
+    }
+  }
+ else {
+    gitHubUser=delegator.makeValue("GitHubUser",UtilMisc.toMap("accessToken",accessToken,"productStoreId",productStoreId,"envPrefix",envPrefix,"gitHubUserId",gitHubUserId));
+    try {
+      gitHubUser.create();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e.getMessage(),module);
+    }
+  }
+  try {
+    GenericValue userLogin=EntityUtil.getFirst(delegator.findByAnd("UserLogin",UtilMisc.toMap("externalAuthId",gitHubUserId),null,false));
+    GitHubAuthenticator authn=new GitHubAuthenticator();
+    authn.initialize(dispatcher);
+    if (UtilValidate.isEmpty(userLogin)) {
+      String userLoginId=authn.createUser(userInfo);
+      userLogin=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId",userLoginId),false);
+    }
+    String autoPassword=RandomStringUtils.randomAlphanumeric(EntityUtilProperties.getPropertyAsInteger("security","password.length.min",5).intValue());
+    boolean useEncryption="true".equals(UtilProperties.getPropertyValue("security","password.encrypt"));
+    userLogin.set("currentPassword",useEncryption ? HashCrypt.digestHash(LoginServices.getHashType(),null,autoPassword) : autoPassword);
+    userLogin.store();
+    request.setAttribute("USERNAME",userLogin.getString("userLoginId"));
+    request.setAttribute("PASSWORD",autoPassword);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e.getMessage(),module);
+    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    return "error";
+  }
+catch (  AuthenticatorException e) {
+    Debug.logError(e.getMessage(),module);
+    request.setAttribute("_ERROR_MESSAGE_",e.toString());
+    return "error";
+  }
+  return "success";
+}

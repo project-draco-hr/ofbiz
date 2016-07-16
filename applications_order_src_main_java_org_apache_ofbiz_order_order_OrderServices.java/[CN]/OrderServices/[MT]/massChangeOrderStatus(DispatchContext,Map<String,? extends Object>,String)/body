@@ -1,0 +1,40 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  List<String> orderIds=UtilGenerics.checkList(context.get("orderIdList"));
+  Locale locale=(Locale)context.get("locale");
+  for (  String orderId : orderIds) {
+    if (UtilValidate.isEmpty(orderId)) {
+      continue;
+    }
+    GenericValue orderHeader=null;
+    try {
+      orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (orderHeader == null) {
+      return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"OrderOrderNotFound",UtilMisc.toMap("orderId",orderId),locale));
+    }
+    Map<String,Object> ctx=new HashMap<String,Object>();
+    ctx.put("statusId",statusId);
+    ctx.put("orderId",orderId);
+    ctx.put("setItemStatus","Y");
+    ctx.put("userLogin",userLogin);
+    Map<String,Object> resp=null;
+    try {
+      resp=dispatcher.runSync("changeOrderStatus",ctx);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (ServiceUtil.isError(resp)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotChangeOrderStatus",locale),null,null,resp);
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

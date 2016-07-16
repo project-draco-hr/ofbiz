@@ -1,0 +1,64 @@
+{
+  List<Object[]> subNodeValues=getChildren(context);
+  boolean hasChildren=false;
+  Long nodeCount=null;
+  String countFieldName="childBranchCount";
+  Object obj=null;
+  if (!this.entryName.isEmpty()) {
+    Map<String,Object> map=UtilGenerics.cast(context.get(this.entryName));
+    if (map instanceof GenericValue) {
+      ModelEntity modelEntity=((GenericValue)map).getModelEntity();
+      if (modelEntity.isField(countFieldName)) {
+        obj=map.get(countFieldName);
+      }
+    }
+  }
+ else {
+    obj=context.get(countFieldName);
+  }
+  if (obj != null) {
+    nodeCount=(Long)obj;
+  }
+  String entName=this.getEntityName();
+  Delegator delegator=WidgetWorker.getDelegator(context);
+  ModelEntity modelEntity=delegator.getModelEntity(entName);
+  ModelField modelField=null;
+  if (modelEntity.isField(countFieldName)) {
+    modelField=modelEntity.getField(countFieldName);
+  }
+  if (nodeCount == null && modelField != null || this.modelTree.forceChildCheck) {
+    getChildren(context);
+    nodeCount=Long.valueOf(subNodeValues.size());
+    String pkName=this.getPkName(context);
+    String id=null;
+    if (!this.entryName.isEmpty()) {
+      id=UtilGenerics.<Map<String,String>>cast(context.get(this.entryName)).get(pkName);
+    }
+ else {
+      id=(String)context.get(pkName);
+    }
+    try {
+      if (id != null && modelEntity.getPksSize() == 1) {
+        GenericValue entity=EntityQuery.use(delegator).from(entName).where(pkName,id).queryOne();
+        if (modelEntity.isField("childBranchCount")) {
+          entity.put("childBranchCount",nodeCount);
+          entity.store();
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      throw new RuntimeException(e.getMessage());
+    }
+  }
+ else   if (nodeCount == null) {
+    getChildren(context);
+    if (subNodeValues != null) {
+      nodeCount=Long.valueOf(subNodeValues.size());
+    }
+  }
+  if (nodeCount != null && nodeCount.intValue() > 0) {
+    hasChildren=true;
+  }
+  return hasChildren;
+}

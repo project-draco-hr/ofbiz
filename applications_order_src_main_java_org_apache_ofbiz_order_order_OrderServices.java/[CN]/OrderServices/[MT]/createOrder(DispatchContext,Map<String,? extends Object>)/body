@@ -1,0 +1,734 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Security security=ctx.getSecurity();
+  List<GenericValue> toBeStored=new LinkedList<GenericValue>();
+  Locale locale=(Locale)context.get("locale");
+  Map<String,Object> successResult=ServiceUtil.returnSuccess();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String orderTypeId=(String)context.get("orderTypeId");
+  String partyId=(String)context.get("partyId");
+  String billFromVendorPartyId=(String)context.get("billFromVendorPartyId");
+  Map<String,Object> resultSecurity=new HashMap<String,Object>();
+  boolean hasPermission=OrderServices.hasPermission(orderTypeId,partyId,userLogin,"CREATE",security);
+  if (!hasPermission) {
+    partyId=ServiceUtil.getPartyIdCheckSecurity(userLogin,security,context,resultSecurity,"ORDERMGR","_CREATE");
+    if (resultSecurity.size() > 0) {
+      return resultSecurity;
+    }
+  }
+  String productStoreId=(String)context.get("productStoreId");
+  GenericValue productStore=null;
+  if ((orderTypeId.equals("SALES_ORDER")) && (UtilValidate.isNotEmpty(productStoreId))) {
+    try {
+      productStore=EntityQuery.use(delegator).from("ProductStore").where("productStoreId",productStoreId).cache().queryOne();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotFindProductStoreWithID",UtilMisc.toMap("productStoreId",productStoreId),locale) + e.toString());
+    }
+  }
+  boolean isImmediatelyFulfilled=false;
+  if (productStore != null) {
+    isImmediatelyFulfilled="Y".equals(productStore.getString("isImmediatelyFulfilled"));
+  }
+  successResult.put("orderTypeId",orderTypeId);
+  GenericValue orderType=null;
+  try {
+    orderType=EntityQuery.use(delegator).from("OrderType").where("orderTypeId",orderTypeId).cache().queryOne();
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorOrderTypeLookupFailed",locale) + e.toString());
+  }
+  if (orderType == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorInvalidOrderTypeWithID",UtilMisc.toMap("orderTypeId",orderTypeId),locale));
+  }
+  List<GenericValue> orderItems=UtilGenerics.checkList(context.get("orderItems"));
+  if (orderItems.size() < 1) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"items.none",locale));
+  }
+  List<GenericValue> orderAdjustments=UtilGenerics.checkList(context.get("orderAdjustments"));
+  List<GenericValue> orderItemShipGroupInfo=UtilGenerics.checkList(context.get("orderItemShipGroupInfo"));
+  List<GenericValue> orderItemPriceInfo=UtilGenerics.checkList(context.get("orderItemPriceInfos"));
+  List<String> errorMessages=new LinkedList<String>();
+  Map<String,BigDecimal> normalizedItemQuantities=new HashMap<String,BigDecimal>();
+  Map<String,String> normalizedItemNames=new HashMap<String,String>();
+  Map<String,GenericValue> itemValuesBySeqId=new HashMap<String,GenericValue>();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  for (  GenericValue orderItem : orderItems) {
+    itemValuesBySeqId.put(orderItem.getString("orderItemSeqId"),orderItem);
+    String currentProductId=orderItem.getString("productId");
+    if (currentProductId != null) {
+      if (normalizedItemQuantities.get(currentProductId) == null) {
+        normalizedItemQuantities.put(currentProductId,orderItem.getBigDecimal("quantity"));
+        normalizedItemNames.put(currentProductId,orderItem.getString("itemDescription"));
+      }
+ else {
+        BigDecimal currentQuantity=normalizedItemQuantities.get(currentProductId);
+        normalizedItemQuantities.put(currentProductId,currentQuantity.add(orderItem.getBigDecimal("quantity")));
+      }
+      try {
+        dispatcher.runSync("countProductQuantityOrdered",UtilMisc.<String,Object>toMap("productId",currentProductId,"quantity",orderItem.getBigDecimal("quantity"),"userLogin",userLogin));
+      }
+ catch (      GenericServiceException e1) {
+        Debug.logError(e1,"Error calling countProductQuantityOrdered service",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCallingCountProductQuantityOrderedService",locale) + e1.toString());
+      }
+    }
+  }
+  if (!"PURCHASE_ORDER".equals(orderTypeId) && productStoreId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorTheProductStoreIdCanOnlyBeNullForPurchaseOrders",locale));
+  }
+  Timestamp orderDate=(Timestamp)context.get("orderDate");
+  for (  String currentProductId : normalizedItemQuantities.keySet()) {
+    BigDecimal currentQuantity=normalizedItemQuantities.get(currentProductId);
+    String itemName=normalizedItemNames.get(currentProductId);
+    GenericValue product=null;
+    try {
+      product=EntityQuery.use(delegator).from("Product").where("productId",currentProductId).cache().queryOne();
+    }
+ catch (    GenericEntityException e) {
+      String errMsg=UtilProperties.getMessage(resource_error,"product.not_found",new Object[]{currentProductId},locale);
+      Debug.logError(e,errMsg,module);
+      errorMessages.add(errMsg);
+      continue;
+    }
+    if (product == null) {
+      String errMsg=UtilProperties.getMessage(resource_error,"product.not_found",new Object[]{currentProductId},locale);
+      Debug.logError(errMsg,module);
+      errorMessages.add(errMsg);
+      continue;
+    }
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      if (product.get("introductionDate") != null && nowTimestamp.before(product.getTimestamp("introductionDate"))) {
+        String excMsg=UtilProperties.getMessage(resource_error,"product.not_yet_for_sale",new Object[]{getProductName(product,itemName),product.getString("productId")},locale);
+        Debug.logWarning(excMsg,module);
+        errorMessages.add(excMsg);
+        continue;
+      }
+    }
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      boolean salesDiscontinuationFlag=false;
+      if (orderDate != null && product.get("salesDiscontinuationDate") != null) {
+        salesDiscontinuationFlag=orderDate.after(product.getTimestamp("salesDiscontinuationDate")) && nowTimestamp.after(product.getTimestamp("salesDiscontinuationDate"));
+      }
+ else       if (product.get("salesDiscontinuationDate") != null) {
+        salesDiscontinuationFlag=nowTimestamp.after(product.getTimestamp("salesDiscontinuationDate"));
+      }
+      if (salesDiscontinuationFlag) {
+        String excMsg=UtilProperties.getMessage(resource_error,"product.no_longer_for_sale",new Object[]{getProductName(product,itemName),product.getString("productId")},locale);
+        Debug.logWarning(excMsg,module);
+        errorMessages.add(excMsg);
+        continue;
+      }
+    }
+    if ("SALES_ORDER".equals(orderTypeId)) {
+      try {
+        Map<String,Object> invReqResult=dispatcher.runSync("isStoreInventoryAvailableOrNotRequired",UtilMisc.toMap("productStoreId",productStoreId,"productId",product.get("productId"),"product",product,"quantity",currentQuantity));
+        if (ServiceUtil.isError(invReqResult)) {
+          errorMessages.add((String)invReqResult.get(ModelService.ERROR_MESSAGE));
+          List<String> errMsgList=UtilGenerics.checkList(invReqResult.get(ModelService.ERROR_MESSAGE_LIST));
+          errorMessages.addAll(errMsgList);
+        }
+ else         if (!"Y".equals(invReqResult.get("availableOrNotRequired"))) {
+          String invErrMsg=UtilProperties.getMessage(resource_error,"product.out_of_stock",new Object[]{getProductName(product,itemName),currentProductId},locale);
+          Debug.logWarning(invErrMsg,module);
+          errorMessages.add(invErrMsg);
+          continue;
+        }
+      }
+ catch (      GenericServiceException e) {
+        String errMsg="Fatal error calling inventory checking services: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        errorMessages.add(errMsg);
+      }
+    }
+  }
+  List<GenericValue> workEfforts=UtilGenerics.checkList(context.get("workEfforts"));
+  for (  GenericValue orderItem : orderItems) {
+    if ("RENTAL_ORDER_ITEM".equals(orderItem.getString("orderItemTypeId"))) {
+      if (UtilValidate.isEmpty(workEfforts)) {
+        String errMsg="Work Efforts missing for ordertype RENTAL_ORDER_ITEM " + "Product: " + orderItem.getString("productId");
+        Debug.logError(errMsg,module);
+        errorMessages.add(errMsg);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderRentalOrderItems",locale));
+      }
+      for (      GenericValue workEffort : workEfforts) {
+        if (workEffort.getString("workEffortId").equals(orderItem.getString("orderItemSeqId"))) {
+          List<GenericValue> selFixedAssetProduct=null;
+          try {
+            selFixedAssetProduct=EntityQuery.use(delegator).from("FixedAssetProduct").where("productId",orderItem.getString("productId"),"fixedAssetProductTypeId","FAPT_USE").filterByDate(nowTimestamp,"fromDate","thruDate").queryList();
+          }
+ catch (          GenericEntityException e) {
+            String excMsg="Could not find related Fixed Asset for the product: " + orderItem.getString("productId");
+            Debug.logError(excMsg,module);
+            errorMessages.add(excMsg);
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderCouldNotFindRelatedFixedAssetForTheProduct",UtilMisc.toMap("productId",orderItem.getString("productId")),locale));
+          }
+          if (UtilValidate.isNotEmpty(selFixedAssetProduct)) {
+            Iterator<GenericValue> firstOne=selFixedAssetProduct.iterator();
+            if (firstOne.hasNext()) {
+              GenericValue fixedAssetProduct=delegator.makeValue("FixedAssetProduct");
+              fixedAssetProduct=firstOne.next();
+              workEffort.set("fixedAssetId",fixedAssetProduct.get("fixedAssetId"));
+              workEffort.set("quantityToProduce",orderItem.get("quantity"));
+              workEffort.set("createdByUserLogin",userLogin.get("userLoginId"));
+            }
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (errorMessages.size() > 0) {
+    return ServiceUtil.returnError(errorMessages);
+  }
+  String initialStatus="ORDER_CREATED";
+  successResult.put("statusId",initialStatus);
+  String orderId=(String)context.get("orderId");
+  String orgPartyId=null;
+  if (productStore != null) {
+    orgPartyId=productStore.getString("payToPartyId");
+  }
+ else   if (billFromVendorPartyId != null) {
+    orgPartyId=billFromVendorPartyId;
+  }
+  if (UtilValidate.isNotEmpty(orgPartyId)) {
+    Map<String,Object> getNextOrderIdContext=new HashMap<String,Object>();
+    getNextOrderIdContext.putAll(context);
+    getNextOrderIdContext.put("partyId",orgPartyId);
+    getNextOrderIdContext.put("userLogin",userLogin);
+    if ((orderTypeId.equals("SALES_ORDER")) || (productStoreId != null)) {
+      getNextOrderIdContext.put("productStoreId",productStoreId);
+    }
+    if (UtilValidate.isEmpty(orderId)) {
+      try {
+        getNextOrderIdContext=ctx.makeValidContext("getNextOrderId","IN",getNextOrderIdContext);
+        Map<String,Object> getNextOrderIdResult=dispatcher.runSync("getNextOrderId",getNextOrderIdContext);
+        if (ServiceUtil.isError(getNextOrderIdResult)) {
+          String errMsg=UtilProperties.getMessage(resource_error,"OrderErrorGettingNextOrderIdWhileCreatingOrder",locale);
+          return ServiceUtil.returnError(errMsg,null,null,getNextOrderIdResult);
+        }
+        orderId=(String)getNextOrderIdResult.get("orderId");
+      }
+ catch (      GenericServiceException e) {
+        String errMsg=UtilProperties.getMessage(resource_error,"OrderCaughtGenericServiceExceptionWhileGettingOrderId",locale);
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+  }
+  if (UtilValidate.isEmpty(orderId)) {
+    orderId=delegator.getNextSeqId("OrderHeader");
+  }
+  String billingAccountId=(String)context.get("billingAccountId");
+  if (orderDate == null) {
+    orderDate=nowTimestamp;
+  }
+  Map<String,Object> orderHeaderMap=UtilMisc.<String,Object>toMap("orderId",orderId,"orderTypeId",orderTypeId,"orderDate",orderDate,"entryDate",nowTimestamp,"statusId",initialStatus,"billingAccountId",billingAccountId);
+  orderHeaderMap.put("orderName",context.get("orderName"));
+  if (isImmediatelyFulfilled) {
+    orderHeaderMap.put("needsInventoryIssuance","Y");
+  }
+  GenericValue orderHeader=delegator.makeValue("OrderHeader",orderHeaderMap);
+  String salesChannelEnumId=(String)context.get("salesChannelEnumId");
+  if ((salesChannelEnumId == null) || salesChannelEnumId.equals("UNKNWN_SALES_CHANNEL")) {
+    if (orderTypeId.equals("SALES_ORDER") && (productStore != null)) {
+      salesChannelEnumId=productStore.getString("defaultSalesChannelEnumId");
+    }
+    if (salesChannelEnumId == null) {
+      salesChannelEnumId="UNKNWN_SALES_CHANNEL";
+    }
+  }
+  orderHeader.set("salesChannelEnumId",salesChannelEnumId);
+  if (context.get("currencyUom") != null) {
+    orderHeader.set("currencyUom",context.get("currencyUom"));
+  }
+  if (context.get("firstAttemptOrderId") != null) {
+    orderHeader.set("firstAttemptOrderId",context.get("firstAttemptOrderId"));
+  }
+  if (context.get("grandTotal") != null) {
+    orderHeader.set("grandTotal",context.get("grandTotal"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("visitId"))) {
+    orderHeader.set("visitId",context.get("visitId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("internalCode"))) {
+    orderHeader.set("internalCode",context.get("internalCode"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("externalId"))) {
+    orderHeader.set("externalId",context.get("externalId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("originFacilityId"))) {
+    orderHeader.set("originFacilityId",context.get("originFacilityId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("productStoreId"))) {
+    orderHeader.set("productStoreId",context.get("productStoreId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("transactionId"))) {
+    orderHeader.set("transactionId",context.get("transactionId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("terminalId"))) {
+    orderHeader.set("terminalId",context.get("terminalId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("autoOrderShoppingListId"))) {
+    orderHeader.set("autoOrderShoppingListId",context.get("autoOrderShoppingListId"));
+  }
+  if (UtilValidate.isNotEmpty(context.get("webSiteId"))) {
+    orderHeader.set("webSiteId",context.get("webSiteId"));
+  }
+  if (userLogin != null && userLogin.get("userLoginId") != null) {
+    orderHeader.set("createdBy",userLogin.getString("userLoginId"));
+  }
+  String invoicePerShipment=EntityUtilProperties.getPropertyValue("accounting","create.invoice.per.shipment",delegator);
+  if (UtilValidate.isNotEmpty(invoicePerShipment)) {
+    orderHeader.set("invoicePerShipment",invoicePerShipment);
+  }
+  try {
+    delegator.create(orderHeader);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Cannot create OrderHeader entity; problems with insert",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderOrderCreationFailedPleaseNotifyCustomerService",locale));
+  }
+  String orderStatusSeqId=delegator.getNextSeqId("OrderStatus");
+  GenericValue orderStatus=delegator.makeValue("OrderStatus",UtilMisc.toMap("orderStatusId",orderStatusSeqId));
+  orderStatus.set("orderId",orderId);
+  orderStatus.set("statusId",orderHeader.getString("statusId"));
+  orderStatus.set("statusDatetime",nowTimestamp);
+  orderStatus.set("statusUserLogin",userLogin.getString("userLoginId"));
+  toBeStored.add(orderStatus);
+  List<GenericValue> orderItemGroups=UtilGenerics.checkList(context.get("orderItemGroups"));
+  if (UtilValidate.isNotEmpty(orderItemGroups)) {
+    for (    GenericValue orderItemGroup : orderItemGroups) {
+      orderItemGroup.set("orderId",orderId);
+      toBeStored.add(orderItemGroup);
+    }
+  }
+  for (  GenericValue orderItem : orderItems) {
+    orderItem.set("orderId",orderId);
+    toBeStored.add(orderItem);
+    String itemStatusId=delegator.getNextSeqId("OrderStatus");
+    GenericValue itemStatus=delegator.makeValue("OrderStatus",UtilMisc.toMap("orderStatusId",itemStatusId));
+    itemStatus.put("statusId",orderItem.get("statusId"));
+    itemStatus.put("orderId",orderId);
+    itemStatus.put("orderItemSeqId",orderItem.get("orderItemSeqId"));
+    itemStatus.put("statusDatetime",nowTimestamp);
+    itemStatus.set("statusUserLogin",userLogin.getString("userLoginId"));
+    toBeStored.add(itemStatus);
+  }
+  List<GenericValue> orderAttributes=UtilGenerics.checkList(context.get("orderAttributes"));
+  if (UtilValidate.isNotEmpty(orderAttributes)) {
+    for (    GenericValue oatt : orderAttributes) {
+      oatt.set("orderId",orderId);
+      toBeStored.add(oatt);
+    }
+  }
+  List<GenericValue> orderItemAttributes=UtilGenerics.checkList(context.get("orderItemAttributes"));
+  if (UtilValidate.isNotEmpty(orderItemAttributes)) {
+    for (    GenericValue oiatt : orderItemAttributes) {
+      oiatt.set("orderId",orderId);
+      toBeStored.add(oiatt);
+    }
+  }
+  List<String> orderInternalNotes=UtilGenerics.checkList(context.get("orderInternalNotes"));
+  if (UtilValidate.isNotEmpty(orderInternalNotes)) {
+    for (    String orderInternalNote : orderInternalNotes) {
+      try {
+        Map<String,Object> noteOutputMap=dispatcher.runSync("createOrderNote",UtilMisc.<String,Object>toMap("orderId",orderId,"internalNote","Y","note",orderInternalNote,"userLogin",userLogin));
+        if (ServiceUtil.isError(noteOutputMap)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderNoteCannotBeCreated",UtilMisc.toMap("errorString",""),locale),null,null,noteOutputMap);
+        }
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Error creating internal notes while creating order: " + e.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderNoteCannotBeCreated",UtilMisc.toMap("errorString",e.toString()),locale));
+      }
+    }
+  }
+  List<String> orderNotes=UtilGenerics.checkList(context.get("orderNotes"));
+  if (UtilValidate.isNotEmpty(orderNotes)) {
+    for (    String orderNote : orderNotes) {
+      try {
+        Map<String,Object> noteOutputMap=dispatcher.runSync("createOrderNote",UtilMisc.<String,Object>toMap("orderId",orderId,"internalNote","N","note",orderNote,"userLogin",userLogin));
+        if (ServiceUtil.isError(noteOutputMap)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderNoteCannotBeCreated",UtilMisc.toMap("errorString",""),locale),null,null,noteOutputMap);
+        }
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Error creating notes while creating order: " + e.toString(),module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderOrderNoteCannotBeCreated",UtilMisc.toMap("errorString",e.toString()),locale));
+      }
+    }
+  }
+  if (UtilValidate.isNotEmpty(workEfforts)) {
+    List<GenericValue> tempList=new LinkedList<GenericValue>();
+    for (    GenericValue workEffort : workEfforts) {
+      GenericValue workOrderItemFulfillment=delegator.makeValue("WorkOrderItemFulfillment");
+      GenericValue fixedAsset=null;
+      Debug.logInfo("find the fixedAsset",module);
+      try {
+        fixedAsset=EntityQuery.use(delegator).from("FixedAsset").where("fixedAssetId",workEffort.get("fixedAssetId")).queryOne();
+      }
+ catch (      GenericEntityException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderFixedAssetNotFoundFixedAssetId",UtilMisc.toMap("fixedAssetId",workEffort.get("fixedAssetId")),locale));
+      }
+      if (fixedAsset == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderFixedAssetNotFoundFixedAssetId",UtilMisc.toMap("fixedAssetId",workEffort.get("fixedAssetId")),locale));
+      }
+      Debug.logInfo("find the techdatacalendar",module);
+      GenericValue techDataCalendar=null;
+      try {
+        techDataCalendar=fixedAsset.getRelatedOne("TechDataCalendar",false);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logInfo("TechData calendar does not exist yet so create for fixedAsset: " + fixedAsset.get("fixedAssetId"),module);
+      }
+      if (techDataCalendar == null) {
+        for (        GenericValue currentValue : tempList) {
+          if ("FixedAsset".equals(currentValue.getEntityName()) && currentValue.getString("fixedAssetId").equals(workEffort.getString("fixedAssetId"))) {
+            fixedAsset=currentValue;
+            break;
+          }
+        }
+        for (        GenericValue currentValue : tempList) {
+          if ("TechDataCalendar".equals(currentValue.getEntityName()) && currentValue.getString("calendarId").equals(fixedAsset.getString("calendarId"))) {
+            techDataCalendar=currentValue;
+            break;
+          }
+        }
+      }
+      if (techDataCalendar == null) {
+        techDataCalendar=delegator.makeValue("TechDataCalendar");
+        Debug.logInfo("create techdata calendar because it does not exist",module);
+        String calendarId=delegator.getNextSeqId("TechDataCalendar");
+        techDataCalendar.set("calendarId",calendarId);
+        tempList.add(techDataCalendar);
+        Debug.logInfo("update fixed Asset",module);
+        fixedAsset.set("calendarId",calendarId);
+        tempList.add(fixedAsset);
+      }
+      workOrderItemFulfillment.set("orderItemSeqId",workEffort.get("workEffortId").toString());
+      String workEffortId=delegator.getNextSeqId("WorkEffort");
+      workEffort.set("workEffortId",workEffortId);
+      workEffort.set("workEffortTypeId","ASSET_USAGE");
+      workEffort.set("currentStatusId","_NA_");
+      toBeStored.add(workEffort);
+      workOrderItemFulfillment.set("workEffortId",workEffortId);
+      workOrderItemFulfillment.set("orderId",orderId);
+      toBeStored.add(workOrderItemFulfillment);
+      Timestamp estimatedStartDate=workEffort.getTimestamp("estimatedStartDate");
+      Timestamp estimatedCompletionDate=workEffort.getTimestamp("estimatedCompletionDate");
+      long dayCount=(estimatedCompletionDate.getTime() - estimatedStartDate.getTime()) / 86400000;
+      while (--dayCount >= 0) {
+        GenericValue techDataCalendarExcDay=null;
+        Timestamp exceptionDateStartTime=UtilDateTime.getDayStart(new Timestamp(estimatedStartDate.getTime()),(int)dayCount);
+        try {
+          techDataCalendarExcDay=EntityQuery.use(delegator).from("TechDataCalendarExcDay").where("calendarId",fixedAsset.get("calendarId"),"exceptionDateStartTime",exceptionDateStartTime).queryOne();
+        }
+ catch (        GenericEntityException e) {
+          Debug.logInfo(" techData excday record not found so creating........",module);
+        }
+        if (techDataCalendarExcDay == null) {
+          for (          GenericValue currentValue : tempList) {
+            if ("TechDataCalendarExcDay".equals(currentValue.getEntityName()) && currentValue.getString("calendarId").equals(fixedAsset.getString("calendarId")) && currentValue.getTimestamp("exceptionDateStartTime").equals(exceptionDateStartTime)) {
+              techDataCalendarExcDay=currentValue;
+              break;
+            }
+          }
+        }
+        if (techDataCalendarExcDay == null) {
+          techDataCalendarExcDay=delegator.makeValue("TechDataCalendarExcDay");
+          techDataCalendarExcDay.set("calendarId",fixedAsset.get("calendarId"));
+          techDataCalendarExcDay.set("exceptionDateStartTime",exceptionDateStartTime);
+          techDataCalendarExcDay.set("usedCapacity",BigDecimal.ZERO);
+          techDataCalendarExcDay.set("exceptionCapacity",fixedAsset.getBigDecimal("productionCapacity"));
+        }
+        BigDecimal newUsedCapacity=techDataCalendarExcDay.getBigDecimal("usedCapacity").add(workEffort.getBigDecimal("quantityToProduce"));
+        if (fixedAsset.get("productionCapacity") != null) {
+          if (newUsedCapacity.compareTo(techDataCalendarExcDay.getBigDecimal("exceptionCapacity")) > 0) {
+            String errMsg="ERROR: fixed_Asset_sold_out AssetId: " + workEffort.get("fixedAssetId") + " on date: "+ techDataCalendarExcDay.getString("exceptionDateStartTime");
+            Debug.logError(errMsg,module);
+            errorMessages.add(errMsg);
+            continue;
+          }
+        }
+        techDataCalendarExcDay.set("usedCapacity",newUsedCapacity);
+        tempList.add(techDataCalendarExcDay);
+      }
+    }
+    if (tempList.size() > 0) {
+      toBeStored.addAll(tempList);
+    }
+  }
+  if (errorMessages.size() > 0) {
+    return ServiceUtil.returnError(errorMessages);
+  }
+  if (UtilValidate.isNotEmpty(orderAdjustments)) {
+    for (    GenericValue orderAdjustment : orderAdjustments) {
+      try {
+        orderAdjustment.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+      }
+ catch (      IllegalArgumentException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotGetNextSequenceIdForOrderAdjustmentCannotCreateOrder",locale));
+      }
+      orderAdjustment.set("orderId",orderId);
+      orderAdjustment.set("createdDate",UtilDateTime.nowTimestamp());
+      orderAdjustment.set("createdByUserLogin",userLogin.getString("userLoginId"));
+      if (UtilValidate.isEmpty(orderAdjustment.get("orderItemSeqId"))) {
+        orderAdjustment.set("orderItemSeqId",DataModelConstants.SEQ_ID_NA);
+      }
+      if (UtilValidate.isEmpty(orderAdjustment.get("shipGroupSeqId"))) {
+        orderAdjustment.set("shipGroupSeqId",DataModelConstants.SEQ_ID_NA);
+      }
+      toBeStored.add(orderAdjustment);
+    }
+  }
+  List<GenericValue> orderContactMechs=UtilGenerics.checkList(context.get("orderContactMechs"));
+  if (UtilValidate.isNotEmpty(orderContactMechs)) {
+    for (    GenericValue ocm : orderContactMechs) {
+      ocm.set("orderId",orderId);
+      toBeStored.add(ocm);
+    }
+  }
+  List<GenericValue> orderItemContactMechs=UtilGenerics.checkList(context.get("orderItemContactMechs"));
+  if (UtilValidate.isNotEmpty(orderItemContactMechs)) {
+    for (    GenericValue oicm : orderItemContactMechs) {
+      oicm.set("orderId",orderId);
+      toBeStored.add(oicm);
+    }
+  }
+  List<String> dropShipGroupIds=new LinkedList<String>();
+  if (UtilValidate.isNotEmpty(orderItemShipGroupInfo)) {
+    for (    GenericValue valueObj : orderItemShipGroupInfo) {
+      valueObj.set("orderId",orderId);
+      if ("OrderItemShipGroup".equals(valueObj.getEntityName())) {
+        if (valueObj.get("carrierRoleTypeId") == null) {
+          valueObj.set("carrierRoleTypeId","CARRIER");
+        }
+        if (!UtilValidate.isEmpty(valueObj.getString("supplierPartyId"))) {
+          dropShipGroupIds.add(valueObj.getString("shipGroupSeqId"));
+        }
+      }
+ else       if ("OrderAdjustment".equals(valueObj.getEntityName())) {
+        if (UtilValidate.isEmpty(valueObj.get("orderItemSeqId"))) {
+          valueObj.set("orderItemSeqId",DataModelConstants.SEQ_ID_NA);
+        }
+        valueObj.set("orderAdjustmentId",delegator.getNextSeqId("OrderAdjustment"));
+        valueObj.set("createdDate",UtilDateTime.nowTimestamp());
+        valueObj.set("createdByUserLogin",userLogin.getString("userLoginId"));
+      }
+      toBeStored.add(valueObj);
+    }
+  }
+  Map<String,List<String>> additionalPartyRole=UtilGenerics.checkMap(context.get("orderAdditionalPartyRoleMap"));
+  if (additionalPartyRole != null) {
+    for (    Map.Entry<String,List<String>> entry : additionalPartyRole.entrySet()) {
+      String additionalRoleTypeId=entry.getKey();
+      List<String> parties=entry.getValue();
+      if (parties != null) {
+        for (        String additionalPartyId : parties) {
+          toBeStored.add(delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",additionalPartyId,"roleTypeId",additionalRoleTypeId)));
+          toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",additionalPartyId,"roleTypeId",additionalRoleTypeId)));
+        }
+      }
+    }
+  }
+  List<GenericValue> surveyResponses=UtilGenerics.checkList(context.get("orderItemSurveyResponses"));
+  if (UtilValidate.isNotEmpty(surveyResponses)) {
+    for (    GenericValue surveyResponse : surveyResponses) {
+      surveyResponse.set("orderId",orderId);
+      toBeStored.add(surveyResponse);
+    }
+  }
+  if (UtilValidate.isNotEmpty(orderItemPriceInfo)) {
+    for (    GenericValue oipi : orderItemPriceInfo) {
+      try {
+        oipi.set("orderItemPriceInfoId",delegator.getNextSeqId("OrderItemPriceInfo"));
+      }
+ catch (      IllegalArgumentException e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotGetNextSequenceIdForOrderItemPriceInfoCannotCreateOrder",locale));
+      }
+      oipi.set("orderId",orderId);
+      toBeStored.add(oipi);
+    }
+  }
+  List<GenericValue> orderItemAssociations=UtilGenerics.checkList(context.get("orderItemAssociations"));
+  if (UtilValidate.isNotEmpty(orderItemAssociations)) {
+    for (    GenericValue orderItemAssociation : orderItemAssociations) {
+      if (orderItemAssociation.get("toOrderId") == null) {
+        orderItemAssociation.set("toOrderId",orderId);
+      }
+ else       if (orderItemAssociation.get("orderId") == null) {
+        orderItemAssociation.set("orderId",orderId);
+      }
+      toBeStored.add(orderItemAssociation);
+    }
+  }
+  List<GenericValue> orderProductPromoUses=UtilGenerics.checkList(context.get("orderProductPromoUses"));
+  if (UtilValidate.isNotEmpty(orderProductPromoUses)) {
+    for (    GenericValue productPromoUse : orderProductPromoUses) {
+      productPromoUse.set("orderId",orderId);
+      toBeStored.add(productPromoUse);
+    }
+  }
+  Set<String> orderProductPromoCodes=UtilGenerics.checkSet(context.get("orderProductPromoCodes"));
+  if (UtilValidate.isNotEmpty(orderProductPromoCodes)) {
+    for (    String productPromoCodeId : orderProductPromoCodes) {
+      GenericValue orderProductPromoCode=delegator.makeValue("OrderProductPromoCode");
+      orderProductPromoCode.set("orderId",orderId);
+      orderProductPromoCode.set("productPromoCodeId",productPromoCodeId);
+      toBeStored.add(orderProductPromoCode);
+    }
+  }
+  Map<String,String> attributeRoleMap=salesAttributeRoleMap;
+  if ("PURCHASE_ORDER".equals(orderTypeId)) {
+    attributeRoleMap=purchaseAttributeRoleMap;
+  }
+  for (  Map.Entry<String,String> attributeRoleEntry : attributeRoleMap.entrySet()) {
+    if (UtilValidate.isNotEmpty(context.get(attributeRoleEntry.getKey()))) {
+      toBeStored.add(delegator.makeValue("PartyRole",UtilMisc.toMap("partyId",context.get(attributeRoleEntry.getKey()),"roleTypeId",attributeRoleEntry.getValue())));
+      toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",context.get(attributeRoleEntry.getKey()),"roleTypeId",attributeRoleEntry.getValue())));
+    }
+  }
+  String affiliateId=(String)context.get("affiliateId");
+  if (UtilValidate.isNotEmpty(affiliateId)) {
+    toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",affiliateId,"roleTypeId","AFFILIATE")));
+  }
+  String distributorId=(String)context.get("distributorId");
+  if (UtilValidate.isNotEmpty(distributorId)) {
+    toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",distributorId,"roleTypeId","DISTRIBUTOR")));
+  }
+  if (UtilValidate.isNotEmpty(context.get("productStoreId"))) {
+    try {
+      GenericValue productStoreRole=EntityQuery.use(delegator).from("ProductStoreRole").where("roleTypeId","VENDOR","productStoreId",context.get("productStoreId")).orderBy("-fromDate").filterByDate().queryFirst();
+      if (productStoreRole != null) {
+        toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",productStoreRole.get("partyId"),"roleTypeId","VENDOR")));
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error looking up Vendor for the current Product Store",module);
+    }
+  }
+  if (UtilValidate.isNotEmpty(context.get("webSiteId"))) {
+    try {
+      GenericValue webSiteRole=EntityQuery.use(delegator).from("WebSiteRole").where("roleTypeId","VENDOR","webSiteId",context.get("webSiteId")).orderBy("-fromDate").filterByDate().queryFirst();
+      if (webSiteRole != null) {
+        toBeStored.add(delegator.makeValue("OrderRole",UtilMisc.toMap("orderId",orderId,"partyId",webSiteRole.get("partyId"),"roleTypeId","VENDOR")));
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error looking up Vendor for the current Web Site",module);
+    }
+  }
+  List<GenericValue> orderPaymentInfos=UtilGenerics.checkList(context.get("orderPaymentInfo"));
+  if (UtilValidate.isNotEmpty(orderPaymentInfos)) {
+    for (    GenericValue valueObj : orderPaymentInfos) {
+      valueObj.set("orderId",orderId);
+      if ("OrderPaymentPreference".equals(valueObj.getEntityName())) {
+        if (valueObj.get("orderPaymentPreferenceId") == null) {
+          valueObj.set("orderPaymentPreferenceId",delegator.getNextSeqId("OrderPaymentPreference"));
+          valueObj.set("createdDate",UtilDateTime.nowTimestamp());
+          valueObj.set("createdByUserLogin",userLogin.getString("userLoginId"));
+        }
+        if (valueObj.get("statusId") == null) {
+          valueObj.set("statusId","PAYMENT_NOT_RECEIVED");
+        }
+      }
+      toBeStored.add(valueObj);
+    }
+  }
+  List<GenericValue> trackingCodeOrders=UtilGenerics.checkList(context.get("trackingCodeOrders"));
+  if (UtilValidate.isNotEmpty(trackingCodeOrders)) {
+    for (    GenericValue trackingCodeOrder : trackingCodeOrders) {
+      trackingCodeOrder.set("orderId",orderId);
+      toBeStored.add(trackingCodeOrder);
+    }
+  }
+  List<GenericValue> orderTerms=UtilGenerics.checkList(context.get("orderTerms"));
+  if (UtilValidate.isNotEmpty(orderTerms)) {
+    for (    GenericValue orderTerm : orderTerms) {
+      orderTerm.set("orderId",orderId);
+      if (orderTerm.get("orderItemSeqId") == null) {
+        orderTerm.set("orderItemSeqId","_NA_");
+      }
+      toBeStored.add(orderTerm);
+    }
+  }
+  String workEffortId=(String)context.get("workEffortId");
+  if (UtilValidate.isNotEmpty(workEffortId)) {
+    GenericValue orderHeaderWorkEffort=delegator.makeValue("OrderHeaderWorkEffort");
+    orderHeaderWorkEffort.set("orderId",orderId);
+    orderHeaderWorkEffort.set("workEffortId",workEffortId);
+    toBeStored.add(orderHeaderWorkEffort);
+  }
+  try {
+    delegator.storeAll(toBeStored);
+    List<String> resErrorMessages=new LinkedList<String>();
+    if (UtilValidate.isNotEmpty(orderItems)) {
+      for (      GenericValue orderItem : orderItems) {
+        String productId=(String)orderItem.get("productId");
+        GenericValue product=delegator.getRelatedOne("Product",orderItem,false);
+        if (product != null && ("SERVICE_PRODUCT".equals(product.get("productTypeId")) || "AGGREGATEDSERV_CONF".equals(product.get("productTypeId")))) {
+          String inventoryFacilityId=null;
+          if ("Y".equals(productStore.getString("oneInventoryFacility"))) {
+            inventoryFacilityId=productStore.getString("inventoryFacilityId");
+            if (UtilValidate.isEmpty(inventoryFacilityId)) {
+              Debug.logWarning("ProductStore with id " + productStoreId + " has Y for oneInventoryFacility but inventoryFacilityId is empty, returning false for inventory check",module);
+            }
+          }
+ else {
+            List<GenericValue> productFacilities=null;
+            GenericValue productFacility=null;
+            try {
+              productFacilities=product.getRelated("ProductFacility",null,null,true);
+            }
+ catch (            GenericEntityException e) {
+              Debug.logWarning(e,"Error invoking getRelated in isCatalogInventoryAvailable",module);
+            }
+            if (UtilValidate.isNotEmpty(productFacilities)) {
+              productFacility=EntityUtil.getFirst(productFacilities);
+              inventoryFacilityId=(String)productFacility.get("facilityId");
+            }
+          }
+          Map<String,Object> ripCtx=new HashMap<String,Object>();
+          if (UtilValidate.isNotEmpty(inventoryFacilityId) && UtilValidate.isNotEmpty(productId) && orderItem.getBigDecimal("quantity").compareTo(BigDecimal.ZERO) > 0) {
+            GenericValue permUserLogin=EntityQuery.use(delegator).from("UserLogin").where("userLoginId","system").cache().queryOne();
+            ripCtx.put("productId",productId);
+            ripCtx.put("facilityId",inventoryFacilityId);
+            ripCtx.put("inventoryItemTypeId","SERIALIZED_INV_ITEM");
+            ripCtx.put("statusId","INV_AVAILABLE");
+            ripCtx.put("quantityAccepted",orderItem.getBigDecimal("quantity"));
+            ripCtx.put("quantityRejected",0.0);
+            ripCtx.put("userLogin",permUserLogin);
+            try {
+              Map<String,Object> ripResult=dispatcher.runSync("receiveInventoryProduct",ripCtx);
+              if (ServiceUtil.isError(ripResult)) {
+                String errMsg=ServiceUtil.getErrorMessage(ripResult);
+                @SuppressWarnings("unchecked") Collection<? extends String> map=(Collection<? extends String>)UtilMisc.<String,String>toMap("reasonCode","ReceiveInventoryServiceError","description",errMsg);
+                resErrorMessages.addAll(map);
+              }
+            }
+ catch (            GenericServiceException e) {
+              Debug.logWarning(e,"Error invoking receiveInventoryProduct service in createOrder",module);
+            }
+          }
+        }
+      }
+    }
+    try {
+      reserveInventory(delegator,dispatcher,userLogin,locale,orderItemShipGroupInfo,dropShipGroupIds,itemValuesBySeqId,orderTypeId,productStoreId,resErrorMessages);
+    }
+ catch (    GeneralException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (resErrorMessages.size() > 0) {
+      return ServiceUtil.returnError(resErrorMessages);
+    }
+    successResult.put("orderId",orderId);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem with order storage or reservations",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCouldNotCreateOrderWriteError",locale) + e.getMessage() + ").");
+  }
+  return successResult;
+}

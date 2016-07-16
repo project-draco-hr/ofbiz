@@ -1,0 +1,24 @@
+{
+  if (delegator == null) {
+    throw new IllegalArgumentException("Null delegator is not allowed in this method");
+  }
+  BigDecimal invoiceApplied=ZERO;
+  List<GenericValue> paymentApplications=null;
+  EntityConditionList<EntityExpr> dateCondition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("effectiveDate",EntityOperator.EQUALS,null),EntityCondition.makeCondition("effectiveDate",EntityOperator.LESS_THAN_EQUAL_TO,asOfDateTime)),EntityOperator.OR);
+  EntityConditionList<EntityCondition> conditions=EntityCondition.makeCondition(UtilMisc.toList(dateCondition,EntityCondition.makeCondition("invoiceId",EntityOperator.EQUALS,invoiceId)),EntityOperator.AND);
+  try {
+    paymentApplications=EntityQuery.use(delegator).from("PaymentAndApplication").where(conditions).orderBy("effectiveDate").queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Trouble getting paymentApplicationlist",module);
+  }
+  if (paymentApplications != null) {
+    for (    GenericValue paymentApplication : paymentApplications) {
+      invoiceApplied=invoiceApplied.add(paymentApplication.getBigDecimal("amountApplied")).setScale(decimals,rounding);
+    }
+  }
+  if (UtilValidate.isNotEmpty(invoiceApplied) && !actualCurrency) {
+    invoiceApplied=invoiceApplied.multiply(getInvoiceCurrencyConversionRate(delegator,invoiceId)).setScale(decimals,rounding);
+  }
+  return invoiceApplied;
+}

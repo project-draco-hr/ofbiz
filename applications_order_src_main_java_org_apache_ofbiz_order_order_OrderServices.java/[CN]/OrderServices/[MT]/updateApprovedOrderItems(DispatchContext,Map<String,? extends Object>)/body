@@ -1,0 +1,228 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  String orderId=(String)context.get("orderId");
+  Map<String,String> overridePriceMap=UtilGenerics.checkMap(context.get("overridePriceMap"));
+  Map<String,String> itemDescriptionMap=UtilGenerics.checkMap(context.get("itemDescriptionMap"));
+  Map<String,String> itemPriceMap=UtilGenerics.checkMap(context.get("itemPriceMap"));
+  Map<String,String> itemQtyMap=UtilGenerics.checkMap(context.get("itemQtyMap"));
+  Map<String,String> itemReasonMap=UtilGenerics.checkMap(context.get("itemReasonMap"));
+  Map<String,String> itemCommentMap=UtilGenerics.checkMap(context.get("itemCommentMap"));
+  Map<String,String> itemAttributesMap=UtilGenerics.checkMap(context.get("itemAttributesMap"));
+  Map<String,String> itemEstimatedShipDateMap=UtilGenerics.checkMap(context.get("itemShipDateMap"));
+  Map<String,String> itemEstimatedDeliveryDateMap=UtilGenerics.checkMap(context.get("itemDeliveryDateMap"));
+  Boolean calcTax=(Boolean)context.get("calcTax");
+  if (calcTax == null) {
+    calcTax=Boolean.TRUE;
+  }
+  ShoppingCart cart=null;
+  try {
+    cart=loadCartForUpdate(dispatcher,delegator,userLogin,orderId);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (cart == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderShoppingCartEmpty",locale));
+  }
+  Map<String,BigDecimal> itemTotals=new HashMap<String,BigDecimal>();
+  for (  String key : itemQtyMap.keySet()) {
+    String quantityStr=itemQtyMap.get(key);
+    BigDecimal groupQty=BigDecimal.ZERO;
+    try {
+      groupQty=(BigDecimal)ObjectType.simpleTypeConvert(quantityStr,"BigDecimal",null,locale);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    if (groupQty.compareTo(BigDecimal.ZERO) < 0) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderItemQtyMustBePositive",locale));
+    }
+    String[] itemInfo=key.split(":");
+    BigDecimal tally=itemTotals.get(itemInfo[0]);
+    if (tally == null) {
+      tally=groupQty;
+    }
+ else {
+      tally=tally.add(groupQty);
+    }
+    itemTotals.put(itemInfo[0],tally);
+  }
+  for (  String itemSeqId : itemTotals.keySet()) {
+    ShoppingCartItem cartItem=cart.findCartItem(itemSeqId);
+    if (cartItem != null) {
+      BigDecimal qty=itemTotals.get(itemSeqId);
+      BigDecimal priceSave=cartItem.getBasePrice();
+      try {
+        if (!ProductWorker.isDecimalQuantityOrderAllowed(delegator,cartItem.getProductId(),cart.getProductStoreId())) {
+          BigDecimal remainder=qty.remainder(BigDecimal.ONE);
+          if (remainder.compareTo(BigDecimal.ZERO) != 0) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"cart.addToCart.quantityInDecimalNotAllowed",locale));
+          }
+          qty=qty.setScale(0,UtilNumber.getBigDecimalRoundingMode("order.rounding"));
+        }
+ else {
+          qty=qty.setScale(UtilNumber.getBigDecimalScale("order.decimals"),UtilNumber.getBigDecimalRoundingMode("order.rounding"));
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e.getMessage(),module);
+        qty=BigDecimal.ONE;
+      }
+      try {
+        cartItem.setQuantity(qty,dispatcher,cart,false,false);
+      }
+ catch (      CartItemModifyException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      Debug.logInfo("Set item quantity: [" + itemSeqId + "] "+ qty,module);
+      if (cartItem.getIsModifiedPrice())       cartItem.setBasePrice(priceSave);
+      if (overridePriceMap.containsKey(itemSeqId)) {
+        String priceStr=itemPriceMap.get(itemSeqId);
+        if (UtilValidate.isNotEmpty(priceStr)) {
+          BigDecimal price=null;
+          try {
+            price=(BigDecimal)ObjectType.simpleTypeConvert(priceStr,"BigDecimal",null,locale);
+          }
+ catch (          GeneralException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+          price=price.setScale(orderDecimals,orderRounding);
+          cartItem.setBasePrice(price);
+          cartItem.setIsModifiedPrice(true);
+          Debug.logInfo("Set item price: [" + itemSeqId + "] "+ price,module);
+        }
+      }
+      if (itemDescriptionMap != null && itemDescriptionMap.containsKey(itemSeqId)) {
+        String description=itemDescriptionMap.get(itemSeqId);
+        if (UtilValidate.isNotEmpty(description)) {
+          cartItem.setName(description);
+          Debug.logInfo("Set item description: [" + itemSeqId + "] "+ description,module);
+        }
+ else {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OrderItemDescriptionCannotBeEmpty",locale));
+        }
+      }
+      if (itemCommentMap != null && itemCommentMap.containsKey(itemSeqId)) {
+        String comments=itemCommentMap.get(itemSeqId);
+        if (UtilValidate.isNotEmpty(comments)) {
+          cartItem.setItemComment(comments);
+          Debug.logInfo("Set item comment: [" + itemSeqId + "] "+ comments,module);
+        }
+      }
+      if (itemAttributesMap != null) {
+        Set<String> attributeNames=new HashSet<String>();
+        Set<String> keys=itemAttributesMap.keySet();
+        for (        String key : keys) {
+          String[] attributeInfo=key.split(":");
+          attributeNames.add(attributeInfo[0]);
+        }
+        String attrValue=null;
+        for (        String attrName : attributeNames) {
+          attrValue=itemAttributesMap.get(attrName + ":" + itemSeqId);
+          if (UtilValidate.isNotEmpty(attrName)) {
+            cartItem.setOrderItemAttribute(attrName,attrValue);
+            Debug.logInfo("Set item attribute Name: [" + itemSeqId + "] "+ attrName+ " , Value:"+ attrValue,module);
+          }
+        }
+      }
+    }
+ else {
+      Debug.logInfo("Unable to locate shopping cart item for seqId #" + itemSeqId,module);
+    }
+  }
+  if (null != itemEstimatedDeliveryDateMap) {
+    for (    Map.Entry<String,String> entry : itemEstimatedDeliveryDateMap.entrySet()) {
+      String itemSeqId=entry.getKey();
+      if (!itemSeqId.endsWith("_i18n")) {
+        String estimatedDeliveryDate=entry.getValue();
+        if (UtilValidate.isNotEmpty(estimatedDeliveryDate)) {
+          Timestamp deliveryDate=Timestamp.valueOf(estimatedDeliveryDate);
+          ShoppingCartItem cartItem=cart.findCartItem(itemSeqId);
+          cartItem.setDesiredDeliveryDate(deliveryDate);
+        }
+      }
+    }
+  }
+  if (null != itemEstimatedShipDateMap) {
+    for (    Map.Entry<String,String> entry : itemEstimatedShipDateMap.entrySet()) {
+      String itemSeqId=entry.getKey();
+      if (!itemSeqId.endsWith("_i18n")) {
+        String estimatedShipDate=entry.getValue();
+        if (UtilValidate.isNotEmpty(estimatedShipDate)) {
+          Timestamp shipDate=Timestamp.valueOf(estimatedShipDate);
+          ShoppingCartItem cartItem=cart.findCartItem(itemSeqId);
+          cartItem.setEstimatedShipDate(shipDate);
+        }
+      }
+    }
+  }
+  for (  String key : itemQtyMap.keySet()) {
+    String quantityStr=itemQtyMap.get(key);
+    BigDecimal groupQty=BigDecimal.ZERO;
+    try {
+      groupQty=(BigDecimal)ObjectType.simpleTypeConvert(quantityStr,"BigDecimal",null,locale);
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    String[] itemInfo=key.split(":");
+    int groupIdx=-1;
+    try {
+      groupIdx=Integer.parseInt(itemInfo[1]);
+    }
+ catch (    NumberFormatException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+    ShoppingCartItem cartItem=cart.findCartItem(itemInfo[0]);
+    if (cartItem != null) {
+      try {
+        if (!ProductWorker.isDecimalQuantityOrderAllowed(delegator,cartItem.getProductId(),cart.getProductStoreId())) {
+          BigDecimal remainder=groupQty.remainder(BigDecimal.ONE);
+          if (remainder.compareTo(BigDecimal.ZERO) != 0) {
+            return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"cart.addToCart.quantityInDecimalNotAllowed",locale));
+          }
+          groupQty=groupQty.setScale(0,UtilNumber.getBigDecimalRoundingMode("order.rounding"));
+        }
+ else {
+          groupQty=groupQty.setScale(UtilNumber.getBigDecimalScale("order.decimals"),UtilNumber.getBigDecimalRoundingMode("order.rounding"));
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e.getMessage(),module);
+        groupQty=BigDecimal.ONE;
+      }
+      int shipGroupIndex=cart.getShipInfoIndex(itemInfo[1]);
+      if (Debug.infoOn())       Debug.logInfo("Shipping info (before) for group #" + (shipGroupIndex) + " ["+ cart.getShipmentMethodTypeId(shipGroupIndex)+ " / "+ cart.getCarrierPartyId(shipGroupIndex)+ "]",module);
+      cart.setItemShipGroupQty(cartItem,groupQty,shipGroupIndex);
+      if (Debug.infoOn()) {
+        Debug.logInfo("Set ship group qty: [" + itemInfo[0] + " / "+ itemInfo[1]+ " ("+ (shipGroupIndex)+ ")] "+ groupQty,module);
+        Debug.logInfo("Shipping info (after) for group #" + (shipGroupIndex) + " ["+ cart.getShipmentMethodTypeId(shipGroupIndex)+ " / "+ cart.getCarrierPartyId(shipGroupIndex)+ "]",module);
+      }
+    }
+  }
+  try {
+    saveUpdatedCartToOrder(dispatcher,delegator,cart,locale,userLogin,orderId,UtilMisc.<String,Object>toMap("itemReasonMap",itemReasonMap,"itemCommentMap",itemCommentMap),calcTax,false);
+  }
+ catch (  GeneralException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  ProductPromoWorker.doPromotions(cart,dispatcher);
+  try {
+    dispatcher.runSync("createOrderNote",UtilMisc.<String,Object>toMap("orderId",orderId,"note","Updated order.","internalNote","Y","userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+  }
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  result.put("shoppingCart",cart);
+  result.put("orderId",orderId);
+  return result;
+}

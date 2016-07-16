@@ -1,0 +1,50 @@
+{
+  Map<String,Object> result=new HashMap<String,Object>();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  Delegator delegator=dctx.getDelegator();
+  GetSellingManagerInventoryFolderRequestType req=null;
+  GetSellingManagerInventoryFolderResponseType resp=null;
+  boolean flag=false;
+  try {
+    if (context.get("productStoreId") != null) {
+      GetSellingManagerInventoryFolderCall call=new GetSellingManagerInventoryFolderCall(EbayStoreHelper.getApiContext((String)context.get("productStoreId"),locale,delegator));
+      req=new GetSellingManagerInventoryFolderRequestType();
+      resp=(GetSellingManagerInventoryFolderResponseType)call.execute(req);
+      if (resp != null && "SUCCESS".equals(resp.getAck().toString())) {
+        SellingManagerFolderDetailsType sellingManagerFolderDetailsType=resp.getFolder();
+        if (sellingManagerFolderDetailsType != null) {
+          SellingManagerFolderDetailsType[] SellingManagerFolderDetailsTypeList=sellingManagerFolderDetailsType.getChildFolder();
+          for (          SellingManagerFolderDetailsType sellingManagerFolderDetails : SellingManagerFolderDetailsTypeList) {
+            Debug.logInfo("ebay inventory folders name ".concat(sellingManagerFolderDetails.getFolderName()),module);
+            if (sellingManagerFolderDetails.getFolderName().equals(defaultFolderName)) {
+              folderId=String.valueOf(sellingManagerFolderDetails.getFolderID());
+              flag=true;
+              break;
+            }
+          }
+        }
+        if (!flag) {
+          folderId=createNewFolderInEbayStoreInventory(dctx,context);
+        }
+      }
+ else {
+        EbayStoreHelper.createErrorLogMessage(userLogin,dctx.getDispatcher(),context.get("productStoreId").toString(),resp.getAck().toString(),"GetSellingManagerInventoryFolderCall : getFolderInEbayStoreInventory",resp.getErrors(0).getLongMessage());
+      }
+      result=ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"EbayStoreInventoryFolderIdLoaded",UtilMisc.toMap("folderId",folderId),locale));
+    }
+  }
+ catch (  ApiException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkSoapException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+catch (  SdkException e) {
+    result=ServiceUtil.returnFailure(e.getMessage());
+  }
+  if (result.get("responseMessage") != null && result.get("responseMessage").equals("fail"))   folderId=null;
+  result.put("folderId",folderId);
+  Debug.logInfo("service return result " + result,module);
+  return result;
+}

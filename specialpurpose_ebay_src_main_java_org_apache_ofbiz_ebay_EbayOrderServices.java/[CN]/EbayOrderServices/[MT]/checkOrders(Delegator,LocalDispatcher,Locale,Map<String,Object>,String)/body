@@ -1,0 +1,42 @@
+{
+  StringBuffer errorMessage=new StringBuffer();
+  Map<String,Object> result=new HashMap<String,Object>();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  if (isGetSellerTransactionsCall) {
+    List<Map<String,Object>> getSellerTransactionList=readGetSellerTransactionResponse(responseMsg,locale,(String)context.get("productStoreId"),delegator,dispatcher,errorMessage,userLogin);
+    if (UtilValidate.isNotEmpty(getSellerTransactionList)) {
+      orderList.addAll(getSellerTransactionList);
+    }
+    isGetSellerTransactionsCall=false;
+    return ServiceUtil.returnSuccess();
+  }
+ else   if (isGetOrdersCall) {
+    List<Map<String,Object>> getOrdersList=readGetOrdersResponse(responseMsg,locale,(String)context.get("productStoreId"),delegator,dispatcher,errorMessage,userLogin);
+    if (UtilValidate.isNotEmpty(getOrdersList)) {
+      orderList.addAll(getOrdersList);
+    }
+    isGetOrdersCall=false;
+    return ServiceUtil.returnSuccess();
+  }
+ else   if (isGetMyeBaySellingCall) {
+    List<String> eBayDeletedOrdersAndTransactionList=readGetMyeBaySellingResponse(responseMsg,locale,(String)context.get("productStoreId"),delegator,dispatcher,errorMessage,userLogin);
+    if (UtilValidate.isNotEmpty(eBayDeletedOrdersAndTransactionList)) {
+      Debug.logInfo("The value of getMyeBaySellingList" + eBayDeletedOrdersAndTransactionList,module);
+      Iterator<Map<String,Object>> orderListIter=orderList.iterator();
+      while (orderListIter.hasNext()) {
+        Map<String,Object> orderCtx=orderListIter.next();
+        if (eBayDeletedOrdersAndTransactionList.contains(orderCtx.get("externalId"))) {
+          orderList.remove(orderCtx);
+        }
+      }
+    }
+  }
+  if (UtilValidate.isEmpty(orderList)) {
+    Debug.logError("No orders found",module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"ordersImportFromEbay.noOrdersFound",locale));
+  }
+  if (UtilValidate.isNotEmpty(orderList)) {
+    result.put("orderList",orderList);
+  }
+  return result;
+}

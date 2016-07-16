@@ -1,0 +1,50 @@
+{
+  boolean transactionStarted=false;
+  long startTime=System.currentTimeMillis();
+  int totalNumberOfRows=0;
+  int numberOfQueries=500;
+  boolean noErrors=true;
+  try {
+    transactionStarted=TransactionUtil.begin();
+    for (int i=1; i <= numberOfQueries; i++) {
+      List rows=EntityQuery.use(delegator).from("SequenceValueItem").queryList();
+      totalNumberOfRows=totalNumberOfRows + rows.size();
+    }
+    TransactionUtil.commit(transactionStarted);
+  }
+ catch (  Exception e) {
+    try {
+      TransactionUtil.rollback(transactionStarted,"",e);
+    }
+ catch (    Exception e2) {
+    }
+    noErrors=false;
+  }
+  long endTime=System.currentTimeMillis();
+  long totalTimeOneTransaction=endTime - startTime;
+  Debug.logInfo("Selected " + totalNumberOfRows + " rows with "+ numberOfQueries+ " queries (all contained in one big transaction) in "+ totalTimeOneTransaction+ " ms",module);
+  assertTrue("Errors detected executing the big transaction",noErrors);
+  totalNumberOfRows=0;
+  noErrors=true;
+  try {
+    for (int i=1; i <= numberOfQueries; i++) {
+      transactionStarted=TransactionUtil.begin();
+      List rows=EntityQuery.use(delegator).from("SequenceValueItem").queryList();
+      totalNumberOfRows=totalNumberOfRows + rows.size();
+      TransactionUtil.commit(transactionStarted);
+    }
+  }
+ catch (  Exception e) {
+    try {
+      TransactionUtil.rollback(transactionStarted,"",e);
+    }
+ catch (    Exception e2) {
+    }
+    noErrors=false;
+  }
+  endTime=System.currentTimeMillis();
+  long totalTimeSeveralSmallTransactions=endTime - startTime;
+  Debug.logInfo("Selected " + totalNumberOfRows + " rows with "+ numberOfQueries+ " queries (each in its own transaction) in "+ totalTimeSeveralSmallTransactions+ " ms",module);
+  assertTrue("Errors detected executing the small transactions",noErrors);
+  assertTrue("One big transaction was not faster than several small ones",totalTimeOneTransaction < totalTimeSeveralSmallTransactions);
+}

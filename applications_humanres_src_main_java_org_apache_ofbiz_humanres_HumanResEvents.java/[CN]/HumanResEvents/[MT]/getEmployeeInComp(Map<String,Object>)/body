@@ -1,0 +1,44 @@
+{
+  List<GenericValue> isEmpls=null;
+  Delegator delegator=(Delegator)params.get("delegator");
+  String partyId=(String)params.get("partyId");
+  List<Map<String,Object>> resultList=new ArrayList<Map<String,Object>>();
+  try {
+    isEmpls=EntityQuery.use(delegator).from("EmplPosition").where(EntityCondition.makeCondition("partyId",EntityOperator.EQUALS,partyId),EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"EMPL_POS_INACTIVE")).filterByDate("actualFromDate","actualThruDate").queryList();
+    if (UtilValidate.isNotEmpty(isEmpls)) {
+      for (      GenericValue childOfEmpl : isEmpls) {
+        Map<String,Object> emplMap=new HashMap<String,Object>();
+        Map<String,Object> emplAttrMap=new HashMap<String,Object>();
+        Map<String,Object> empldataMap=new HashMap<String,Object>();
+        Map<String,Object> emplDataAttrMap=new HashMap<String,Object>();
+        String emplId=(String)childOfEmpl.get("emplPositionId");
+        String typeId=(String)childOfEmpl.get("emplPositionTypeId");
+        List<GenericValue> emlpfCtxs=EntityQuery.use(delegator).from("EmplPositionFulfillment").where("emplPositionId",emplId).filterByDate().queryList();
+        if (UtilValidate.isNotEmpty(emlpfCtxs)) {
+          emplMap.put("state","closed");
+        }
+        GenericValue emplContext=EntityQuery.use(delegator).from("EmplPositionType").where("emplPositionTypeId",typeId).queryOne();
+        String title=null;
+        if (UtilValidate.isNotEmpty(emplContext)) {
+          title=(String)emplContext.get("description") + " " + "["+ emplId+ "]";
+        }
+        String hrefStr="emplPositionView?emplPositionId=" + emplId;
+        emplAttrMap.put("href",hrefStr);
+        emplAttrMap.put("onClick","callEmplDocument" + "('" + emplId + "')");
+        empldataMap.put("title",title);
+        empldataMap.put("attr",emplAttrMap);
+        emplDataAttrMap.put("id",emplId);
+        emplDataAttrMap.put("rel","N");
+        emplMap.put("data",empldataMap);
+        emplMap.put("attr",emplDataAttrMap);
+        emplMap.put("title",title);
+        resultList.add(emplMap);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GenericEntityException(e);
+  }
+  return resultList;
+}

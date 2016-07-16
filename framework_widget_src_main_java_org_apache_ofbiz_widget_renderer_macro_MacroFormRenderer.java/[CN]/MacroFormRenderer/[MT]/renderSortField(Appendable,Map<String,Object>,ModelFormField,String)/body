@@ -1,0 +1,78 @@
+{
+  boolean ajaxEnabled=false;
+  ModelForm modelForm=modelFormField.getModelForm();
+  List<ModelForm.UpdateArea> updateAreas=modelForm.getOnSortColumnUpdateAreas();
+  if (updateAreas == null) {
+    updateAreas=modelForm.getOnPaginateUpdateAreas();
+  }
+  if (this.javaScriptEnabled) {
+    if (UtilValidate.isNotEmpty(updateAreas)) {
+      ajaxEnabled=true;
+    }
+  }
+  String paginateTarget=modelForm.getPaginateTarget(context);
+  if (paginateTarget.isEmpty() && updateAreas == null) {
+    Debug.logWarning("Cannot sort because the paginate target URL is empty for the form: " + modelForm.getName(),module);
+    return;
+  }
+  String oldSortField=modelForm.getSortField(context);
+  String sortFieldStyle=modelFormField.getSortFieldStyle();
+  String columnField=modelFormField.getEntryName();
+  if (UtilValidate.isEmpty(columnField)) {
+    columnField=modelFormField.getFieldName();
+  }
+  String newSortField=columnField;
+  if (UtilValidate.isNotEmpty(oldSortField)) {
+    if (oldSortField.equals(columnField)) {
+      newSortField="-" + columnField;
+      sortFieldStyle=modelFormField.getSortFieldStyleDesc();
+    }
+ else     if (oldSortField.equals("-" + columnField)) {
+      newSortField=columnField;
+      sortFieldStyle=modelFormField.getSortFieldStyleAsc();
+    }
+  }
+  String queryString=UtilHttp.getQueryStringFromTarget(paginateTarget).replace("?","");
+  Map<String,Object> paramMap=UtilHttp.getQueryStringOnlyParameterMap(queryString);
+  String qbeString=(String)context.get("_QBESTRING_");
+  if (qbeString != null) {
+    qbeString=qbeString.replaceAll("&amp;","&");
+    paramMap.putAll(UtilHttp.getQueryStringOnlyParameterMap(qbeString));
+  }
+  paramMap.put(modelForm.getSortFieldParameterName(),newSortField);
+  UtilHttp.canonicalizeParameterMap(paramMap);
+  String linkUrl=null;
+  if (ajaxEnabled) {
+    linkUrl=createAjaxParamsFromUpdateAreas(updateAreas,paramMap,null,context);
+  }
+ else {
+    StringBuilder sb=new StringBuilder("?");
+    Iterator<Map.Entry<String,Object>> iter=paramMap.entrySet().iterator();
+    while (iter.hasNext()) {
+      Map.Entry<String,Object> entry=iter.next();
+      sb.append(entry.getKey()).append("=").append(entry.getValue());
+      if (iter.hasNext()) {
+        sb.append("&amp;");
+      }
+    }
+    String newQueryString=sb.toString();
+    String urlPath=UtilHttp.removeQueryStringFromTarget(paginateTarget);
+    linkUrl=rh.makeLink(this.request,this.response,urlPath.concat(newQueryString));
+  }
+  StringWriter sr=new StringWriter();
+  sr.append("<@renderSortField ");
+  sr.append(" style=\"");
+  sr.append(sortFieldStyle);
+  sr.append("\" title=\"");
+  sr.append(titleText);
+  sr.append("\" linkUrl=\"");
+  sr.append(linkUrl);
+  sr.append("\" ajaxEnabled=");
+  sr.append(Boolean.toString(ajaxEnabled));
+  String tooltip=modelFormField.getSortFieldHelpText(context);
+  if (!tooltip.isEmpty()) {
+    sr.append(" tooltip=\"").append(tooltip).append("\"");
+  }
+  sr.append(" />");
+  executeMacro(writer,sr.toString());
+}

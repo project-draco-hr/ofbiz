@@ -1,0 +1,39 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String categoryCode=(String)context.get("categoryCode");
+  Map<String,Object> result=null;
+  try {
+    Map<String,Object> eBayConfigResult=EbayHelper.buildEbayConfig(context,delegator);
+    String categoryParent="";
+    String levelLimit="";
+    if (categoryCode != null) {
+      String[] params=categoryCode.split("_");
+      if (params == null || params.length != 3) {
+        ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.parametersNotCorrectInGetEbayCategories",locale));
+      }
+ else {
+        categoryParent=params[1];
+        levelLimit=params[2];
+        Integer level=Integer.valueOf(levelLimit);
+        levelLimit=(level.intValue() + 1) + "";
+      }
+    }
+    StringBuffer dataItemsXml=new StringBuffer();
+    if (!ServiceUtil.isFailure(buildCategoriesXml(context,dataItemsXml,eBayConfigResult.get("token").toString(),eBayConfigResult.get("siteID").toString(),categoryParent,levelLimit))) {
+      Map<String,Object> resultCat=postItem(eBayConfigResult.get("xmlGatewayUri").toString(),dataItemsXml,eBayConfigResult.get("devID").toString(),eBayConfigResult.get("appID").toString(),eBayConfigResult.get("certID").toString(),"GetCategories",eBayConfigResult.get("compatibilityLevel").toString(),eBayConfigResult.get("siteID").toString());
+      String successMessage=(String)resultCat.get("successMessage");
+      if (successMessage != null) {
+        result=readEbayCategoriesResponse(successMessage,locale);
+      }
+ else {
+        ServiceUtil.returnFailure(ServiceUtil.getErrorMessage(resultCat));
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception in GetEbayCategories " + e,module);
+    return ServiceUtil.returnFailure(UtilProperties.getMessage(resource,"productsExportToEbay.exceptionInGetEbayCategories",locale));
+  }
+  return result;
+}

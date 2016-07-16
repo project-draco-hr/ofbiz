@@ -1,0 +1,54 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  try {
+    EntityCondition conditionOne=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("isVariant",EntityOperator.EQUALS,"Y"),EntityCondition.makeCondition("salesDiscontinuationDate",EntityOperator.NOT_EQUAL,null),EntityCondition.makeCondition("salesDiscontinuationDate",EntityOperator.LESS_THAN_EQUAL_TO,nowTimestamp)),EntityOperator.AND);
+    EntityListIterator eliOne=EntityQuery.use(delegator).from("Product").where(conditionOne).queryIterator();
+    GenericValue productOne=null;
+    int numSoFarOne=0;
+    while ((productOne=eliOne.next()) != null) {
+      String virtualProductId=ProductWorker.getVariantVirtualId(productOne);
+      GenericValue virtualProduct=EntityQuery.use(delegator).from("Product").where("productId",virtualProductId).queryOne();
+      if (virtualProduct == null) {
+        continue;
+      }
+      List<GenericValue> passocList=EntityQuery.use(delegator).from("ProductAssoc").where("productId",virtualProductId,"productIdTo",productOne.get("productId"),"productAssocTypeId","PRODUCT_VARIANT").filterByDate().queryList();
+      if (passocList.size() > 0) {
+        for (        GenericValue passoc : passocList) {
+          passoc.set("thruDate",nowTimestamp);
+          passoc.store();
+        }
+        numSoFarOne++;
+        if (numSoFarOne % 500 == 0) {
+          Debug.logInfo("Expired variant ProductAssocs for " + numSoFarOne + " sales discontinued variant products.",module);
+        }
+      }
+    }
+    eliOne.close();
+    EntityCondition condition=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("isVirtual",EntityOperator.EQUALS,"Y"),EntityCondition.makeCondition(EntityCondition.makeCondition("salesDiscontinuationDate",EntityOperator.EQUALS,null),EntityOperator.OR,EntityCondition.makeCondition("salesDiscontinuationDate",EntityOperator.GREATER_THAN_EQUAL_TO,nowTimestamp))),EntityOperator.AND);
+    EntityListIterator eli=EntityQuery.use(delegator).from("Product").where(condition).queryIterator();
+    GenericValue product=null;
+    int numSoFar=0;
+    while ((product=eli.next()) != null) {
+      List<GenericValue> passocList=EntityQuery.use(delegator).from("ProductAssoc").where("productId",product.get("productId"),"productAssocTypeId","PRODUCT_VARIANT").filterByDate().queryList();
+      if (passocList.size() == 0) {
+        product.set("salesDiscontinuationDate",nowTimestamp);
+        delegator.store(product);
+        numSoFar++;
+        if (numSoFar % 500 == 0) {
+          Debug.logInfo("Sales discontinued " + numSoFar + " virtual products that have no valid variants.",module);
+        }
+      }
+    }
+    eli.close();
+  }
+ catch (  GenericEntityException e) {
+    Map<String,String> messageMap=UtilMisc.toMap("errMessage",e.toString());
+    errMsg=UtilProperties.getMessage(resourceError,"productutilservices.entity_error_running_discVirtualsWithDiscVariants",messageMap,locale);
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,73 @@
+{
+  List<GenericValue> productPromos=new LinkedList<GenericValue>();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  HttpServletRequest req=null;
+  ShoppingCart cart=null;
+  try {
+    req=(HttpServletRequest)request;
+    cart=ShoppingCartEvents.getCartObject(req);
+  }
+ catch (  ClassCastException cce) {
+    Debug.logError("Not a HttpServletRequest, no shopping cart found.",module);
+    return null;
+  }
+catch (  IllegalArgumentException e) {
+    Debug.logError(e,module);
+    return null;
+  }
+  boolean condResult=true;
+  try {
+    String productStoreId=cart.getProductStoreId();
+    GenericValue productStore=null;
+    try {
+      productStore=EntityQuery.use(delegator).from("ProductStore").where("productStoreId",productStoreId).cache().queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Error looking up store with id " + productStoreId,module);
+    }
+    if (productStore == null) {
+      Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderNoStoreFoundWithIdNotDoingPromotions",UtilMisc.toMap("productStoreId",productStoreId),cart.getLocale()),module);
+      return productPromos;
+    }
+    if (productStore != null) {
+      Iterator<GenericValue> productStorePromoAppls=UtilMisc.toIterator(EntityUtil.filterByDate(productStore.getRelated("ProductStorePromoAppl",UtilMisc.toMap("productStoreId",productStoreId),UtilMisc.toList("sequenceNum"),true),true));
+      while (productStorePromoAppls != null && productStorePromoAppls.hasNext()) {
+        GenericValue productStorePromoAppl=productStorePromoAppls.next();
+        if (UtilValidate.isNotEmpty(productStorePromoAppl.getString("manualOnly")) && "Y".equals(productStorePromoAppl.getString("manualOnly"))) {
+          if (Debug.verboseOn())           Debug.logVerbose("Skipping promotion with id [" + productStorePromoAppl.getString("productPromoId") + "] because it is applied to the store with ID "+ productStoreId+ " as a manual only promotion.",module);
+          continue;
+        }
+        GenericValue productPromo=productStorePromoAppl.getRelatedOne("ProductPromo",true);
+        List<GenericValue> productPromoRules=productPromo.getRelated("ProductPromoRule",null,null,true);
+        if (productPromoRules != null) {
+          Iterator<GenericValue> promoRulesItr=productPromoRules.iterator();
+          while (condResult && promoRulesItr != null && promoRulesItr.hasNext()) {
+            GenericValue promoRule=promoRulesItr.next();
+            Iterator<GenericValue> productPromoConds=UtilMisc.toIterator(promoRule.getRelated("ProductPromoCond",null,UtilMisc.toList("productPromoCondSeqId"),true));
+            while (condResult && productPromoConds != null && productPromoConds.hasNext()) {
+              GenericValue productPromoCond=productPromoConds.next();
+              if ("PPIP_PARTY_ID".equals(productPromoCond.getString("inputParamEnumId"))) {
+                condResult=checkCondition(productPromoCond,cart,delegator,dispatcher,nowTimestamp);
+              }
+ else               if ("PPIP_PARTY_GRP_MEM".equals(productPromoCond.getString("inputParamEnumId"))) {
+                condResult=checkCondition(productPromoCond,cart,delegator,dispatcher,nowTimestamp);
+              }
+ else               if ("PPIP_PARTY_CLASS".equals(productPromoCond.getString("inputParamEnumId"))) {
+                condResult=checkCondition(productPromoCond,cart,delegator,dispatcher,nowTimestamp);
+              }
+ else               if ("PPIP_ROLE_TYPE".equals(productPromoCond.getString("inputParamEnumId"))) {
+                condResult=checkCondition(productPromoCond,cart,delegator,dispatcher,nowTimestamp);
+              }
+            }
+          }
+          if (!condResult)           productPromo=null;
+        }
+        if (productPromo != null)         productPromos.add(productPromo);
+      }
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  return productPromos;
+}

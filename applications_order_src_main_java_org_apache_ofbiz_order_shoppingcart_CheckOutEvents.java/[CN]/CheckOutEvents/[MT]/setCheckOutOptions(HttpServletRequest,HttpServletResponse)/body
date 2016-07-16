@@ -1,0 +1,68 @@
+{
+  ShoppingCart cart=(ShoppingCart)request.getSession().getAttribute("shoppingCart");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  Map<String,Map<String,Object>> selectedPaymentMethods=getSelectedPaymentMethods(request);
+  CheckOutHelper checkOutHelper=new CheckOutHelper(dispatcher,delegator,cart);
+  String billingAccountId=request.getParameter("billingAccountId");
+  if (UtilValidate.isNotEmpty(billingAccountId)) {
+    BigDecimal billingAccountAmt=null;
+    billingAccountAmt=determineBillingAccountAmount(billingAccountId,request.getParameter("billingAccountAmount"),dispatcher);
+    if (billingAccountAmt == null) {
+      request.setAttribute("_ERROR_MESSAGE_",UtilProperties.getMessage(resource_error,"OrderInvalidAmountSetForBillingAccount",UtilMisc.toMap("billingAccountId",billingAccountId),(cart != null ? cart.getLocale() : Locale.getDefault())));
+      return "error";
+    }
+    selectedPaymentMethods.put("EXT_BILLACT",UtilMisc.<String,Object>toMap("amount",billingAccountAmt,"securityCode",null));
+  }
+  if (selectedPaymentMethods == null) {
+    return "error";
+  }
+  String shippingMethod=request.getParameter("shipping_method");
+  String shippingContactMechId=request.getParameter("shipping_contact_mech_id");
+  String taxAuthPartyGeoIds=request.getParameter("taxAuthPartyGeoIds");
+  String partyTaxId=request.getParameter("partyTaxId");
+  String isExempt=request.getParameter("isExempt");
+  String shippingInstructions=request.getParameter("shipping_instructions");
+  String orderAdditionalEmails=request.getParameter("order_additional_emails");
+  String maySplit=request.getParameter("may_split");
+  String giftMessage=request.getParameter("gift_message");
+  String isGift=request.getParameter("is_gift");
+  String internalCode=request.getParameter("internalCode");
+  String shipBeforeDate=request.getParameter("shipBeforeDate");
+  String shipAfterDate=request.getParameter("shipAfterDate");
+  List<String> singleUsePayments=new ArrayList<String>();
+  Map<String,Object> params=UtilHttp.getParameterMap(request);
+  if (UtilValidate.isNotEmpty(taxAuthPartyGeoIds)) {
+    try {
+      Map<String,Object> createCustomerTaxAuthInfoResult=dispatcher.runSync("createCustomerTaxAuthInfo",UtilMisc.toMap("partyId",cart.getPartyId(),"taxAuthPartyGeoIds",taxAuthPartyGeoIds,"partyTaxId",partyTaxId,"isExempt",isExempt));
+      ServiceUtil.getMessages(request,createCustomerTaxAuthInfoResult,null);
+      if (ServiceUtil.isError(createCustomerTaxAuthInfoResult)) {
+        return "error";
+      }
+    }
+ catch (    GenericServiceException e) {
+      String errMsg="Error setting customer tax info: " + e.toString();
+      request.setAttribute("_ERROR_MESSAGE_",errMsg);
+      return "error";
+    }
+  }
+  Map<String,Object> gcResult=checkOutHelper.checkGiftCard(params,selectedPaymentMethods);
+  ServiceUtil.getMessages(request,gcResult,null);
+  if (ServiceUtil.isError(gcResult)) {
+    return "error";
+  }
+  String gcPaymentMethodId=(String)gcResult.get("paymentMethodId");
+  BigDecimal gcAmount=(BigDecimal)gcResult.get("amount");
+  if (gcPaymentMethodId != null) {
+    selectedPaymentMethods.put(gcPaymentMethodId,UtilMisc.<String,Object>toMap("amount",gcAmount,"securityCode",null));
+    if ("Y".equalsIgnoreCase(request.getParameter("singleUseGiftCard"))) {
+      singleUsePayments.add(gcPaymentMethodId);
+    }
+  }
+  Map<String,Object> optResult=checkOutHelper.setCheckOutOptions(shippingMethod,shippingContactMechId,selectedPaymentMethods,singleUsePayments,billingAccountId,shippingInstructions,orderAdditionalEmails,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate);
+  ServiceUtil.getMessages(request,optResult,null);
+  if (ServiceUtil.isError(optResult)) {
+    return "error";
+  }
+  return "success";
+}

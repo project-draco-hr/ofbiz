@@ -1,0 +1,102 @@
+{
+  final Environment env=Environment.getCurrentEnvironment();
+  final Delegator delegator=FreeMarkerWorker.getWrappedObject("delegator",env);
+  final HttpServletRequest request=FreeMarkerWorker.getWrappedObject("request",env);
+  final HttpServletResponse response=FreeMarkerWorker.getWrappedObject("response",env);
+  final HttpSession session=FreeMarkerWorker.getWrappedObject("session",env);
+  final GenericValue userLogin=FreeMarkerWorker.getWrappedObject("userLogin",env);
+  final Map<String,Object> templateCtx=FreeMarkerWorker.getWrappedObject("context",env);
+  FreeMarkerWorker.getSiteParameters(request,templateCtx);
+  final Map<String,Object> savedValuesUp=new HashMap<String,Object>();
+  FreeMarkerWorker.saveContextValues(templateCtx,upSaveKeyNames,savedValuesUp);
+  Map<String,Object> checkedArgs=UtilGenerics.checkMap(args);
+  FreeMarkerWorker.overrideWithArgs(templateCtx,checkedArgs);
+  List<Map<String,? extends Object>> trail=UtilGenerics.checkList(templateCtx.get("globalNodeTrail"));
+  String contentAssocPredicateId=(String)templateCtx.get("contentAssocPredicateId");
+  String strNullThruDatesOnly=(String)templateCtx.get("nullThruDatesOnly");
+  Boolean nullThruDatesOnly=(strNullThruDatesOnly != null && strNullThruDatesOnly.equalsIgnoreCase("true")) ? Boolean.TRUE : Boolean.FALSE;
+  GenericValue val=null;
+  try {
+    if (WidgetContentWorker.getContentWorker() != null) {
+      val=WidgetContentWorker.getContentWorker().getCurrentContentExt(delegator,trail,userLogin,templateCtx,nullThruDatesOnly,contentAssocPredicateId);
+    }
+ else {
+      Debug.logError("Not rendering content, not ContentWorker found.",module);
+    }
+  }
+ catch (  GeneralException e) {
+    throw new RuntimeException("Error getting current content. " + e.toString());
+  }
+  final GenericValue view=val;
+  String dataResourceId=null;
+  try {
+    dataResourceId=(String)view.get("drDataResourceId");
+  }
+ catch (  Exception e) {
+    dataResourceId=(String)view.get("dataResourceId");
+  }
+  String subContentIdSub=(String)view.get("contentId");
+  String subDataResourceTypeId=(String)templateCtx.get("subDataResourceTypeId");
+  if (UtilValidate.isEmpty(subDataResourceTypeId)) {
+    try {
+      subDataResourceTypeId=(String)view.get("drDataResourceTypeId");
+    }
+ catch (    Exception e) {
+    }
+  }
+  String mimeTypeId=null;
+  if (WidgetContentWorker.getContentWorker() != null) {
+    mimeTypeId=WidgetContentWorker.getContentWorker().getMimeTypeIdExt(delegator,view,templateCtx);
+  }
+ else {
+    Debug.logError("Not rendering content, not ContentWorker found.",module);
+  }
+  templateCtx.put("drDataResourceId",dataResourceId);
+  templateCtx.put("mimeTypeId",mimeTypeId);
+  templateCtx.put("dataResourceId",dataResourceId);
+  templateCtx.put("subContentIdSub",subContentIdSub);
+  templateCtx.put("subDataResourceTypeId",subDataResourceTypeId);
+  final Map<String,Object> savedValues=new HashMap<String,Object>();
+  FreeMarkerWorker.saveContextValues(templateCtx,saveKeyNames,savedValues);
+  final StringBuilder buf=new StringBuilder();
+  return new LoopWriter(out){
+    @Override public int onStart() throws TemplateModelException, IOException {
+      String renderOnStart=(String)templateCtx.get("renderOnStart");
+      if (renderOnStart != null && renderOnStart.equalsIgnoreCase("true")) {
+        renderMenu();
+      }
+      return TransformControl.EVALUATE_BODY;
+    }
+    @Override public void write(    char cbuf[],    int off,    int len){
+      buf.append(cbuf,off,len);
+    }
+    @Override public void flush() throws IOException {
+      out.flush();
+    }
+    @Override public void close() throws IOException {
+      FreeMarkerWorker.reloadValues(templateCtx,savedValues,env);
+      String wrappedContent=buf.toString();
+      out.write(wrappedContent);
+      String renderOnClose=(String)templateCtx.get("renderOnClose");
+      if (renderOnClose == null || !renderOnClose.equalsIgnoreCase("false")) {
+        renderMenu();
+      }
+      FreeMarkerWorker.reloadValues(templateCtx,savedValuesUp,env);
+    }
+    public void renderMenu() throws IOException {
+      String menuDefFile=(String)templateCtx.get("menuDefFile");
+      String menuName=(String)templateCtx.get("menuName");
+      String menuWrapperClassName=(String)templateCtx.get("menuWrapperClassName");
+      HtmlMenuWrapper menuWrapper=HtmlMenuWrapper.getMenuWrapper(request,response,session,menuDefFile,menuName,menuWrapperClassName);
+      if (menuWrapper == null) {
+        throw new IOException("HtmlMenuWrapper with def file:" + menuDefFile + " menuName:"+ menuName+ " and HtmlMenuWrapper class:"+ menuWrapperClassName+ " could not be instantiated.");
+      }
+      String associatedContentId=(String)templateCtx.get("associatedContentId");
+      menuWrapper.putInContext("defaultAssociatedContentId",associatedContentId);
+      menuWrapper.putInContext("currentValue",view);
+      String menuStr=menuWrapper.renderMenuString();
+      out.write(menuStr);
+    }
+  }
+;
+}

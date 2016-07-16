@@ -1,0 +1,55 @@
+{
+  Assert.notNull("serviceName",serviceName,"args",args);
+  boolean includeUserLogin=!"false".equals(args.get("includeUserLoginStr"));
+  String requireNewTransactionStr=(String)args.get("requireNewTransaction");
+  int transactionTimeout=-1;
+  if (UtilValidate.isNotEmpty(requireNewTransactionStr)) {
+    String timeoutStr=(String)args.get("transactionTimout");
+    if (!UtilValidate.isEmpty(timeoutStr)) {
+      try {
+        transactionTimeout=Integer.parseInt(timeoutStr);
+      }
+ catch (      NumberFormatException e) {
+        Debug.logWarning(e,"Setting timeout to 0 (default)",module);
+        transactionTimeout=0;
+      }
+    }
+  }
+  Map<String,Object> inMap=new HashMap<String,Object>(inputMap);
+  if (includeUserLogin && !inMap.containsKey("userLogin")) {
+    GenericValue userLogin=ctxHelper.getUserLogin();
+    if (userLogin != null) {
+      inMap.put("userLogin",userLogin);
+    }
+  }
+  if (!inMap.containsKey("locale") && ctxHelper.getLocale() != null) {
+    inMap.put("locale",ctxHelper.getLocale());
+  }
+  if (!inMap.containsKey("timeZone") && ctxHelper.getTimeZone() != null) {
+    inMap.put("timeZone",ctxHelper.getTimeZone());
+  }
+  Map<String,Object> result=null;
+  try {
+    if (UtilValidate.isEmpty(requireNewTransactionStr) && transactionTimeout < 0) {
+      result=ctxHelper.getDispatcher().runSync(serviceName,inMap);
+    }
+ else {
+      ModelService modelService=ctxHelper.getDispatcher().getDispatchContext().getModelService(serviceName);
+      boolean requireNewTransaction=modelService.requireNewTransaction;
+      int timeout=modelService.transactionTimeout;
+      if (UtilValidate.isNotEmpty(requireNewTransactionStr)) {
+        requireNewTransaction="true".equals(requireNewTransactionStr);
+      }
+      if (transactionTimeout >= 0) {
+        timeout=transactionTimeout;
+      }
+      result=ctxHelper.getDispatcher().runSync(serviceName,inMap,timeout,requireNewTransaction);
+    }
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error running script " + ctxHelper.getScriptName() + " [problem invoking the ["+ serviceName+ "] service: "+ e.getMessage();
+    Debug.logWarning(e,errMsg,module);
+    throw new ScriptException(errMsg);
+  }
+  return result;
+}

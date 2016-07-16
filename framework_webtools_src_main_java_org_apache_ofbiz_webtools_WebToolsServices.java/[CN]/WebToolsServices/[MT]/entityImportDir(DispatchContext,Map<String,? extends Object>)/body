@@ -1,0 +1,90 @@
+{
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  List<String> messages=new LinkedList<String>();
+  String path=(String)context.get("path");
+  String mostlyInserts=(String)context.get("mostlyInserts");
+  String maintainTimeStamps=(String)context.get("maintainTimeStamps");
+  String createDummyFks=(String)context.get("createDummyFks");
+  boolean deleteFiles=(String)context.get("deleteFiles") != null;
+  String checkDataOnly=(String)context.get("checkDataOnly");
+  Map<String,Object> placeholderValues=UtilGenerics.checkMap(context.get("placeholderValues"));
+  Integer txTimeout=(Integer)context.get("txTimeout");
+  Long filePause=(Long)context.get("filePause");
+  if (txTimeout == null) {
+    txTimeout=Integer.valueOf(7200);
+  }
+  if (filePause == null) {
+    filePause=Long.valueOf(0);
+  }
+  if (UtilValidate.isNotEmpty(path)) {
+    long pauseLong=filePause != null ? filePause.longValue() : 0;
+    File baseDir=new File(path);
+    if (baseDir.isDirectory() && baseDir.canRead()) {
+      File[] fileArray=baseDir.listFiles();
+      List<File> files=new LinkedList<File>();
+      for (      File file : fileArray) {
+        if (file.getName().toUpperCase().endsWith("XML")) {
+          files.add(file);
+        }
+      }
+      int passes=0;
+      int initialListSize=files.size();
+      int lastUnprocessedFilesCount=0;
+      List<File> unprocessedFiles=new LinkedList<File>();
+      while (files.size() > 0 && files.size() != lastUnprocessedFilesCount) {
+        lastUnprocessedFilesCount=files.size();
+        unprocessedFiles=new LinkedList<File>();
+        for (        File f : files) {
+          Map<String,Object> parseEntityXmlFileArgs=UtilMisc.toMap("mostlyInserts",mostlyInserts,"createDummyFks",createDummyFks,"checkDataOnly",checkDataOnly,"maintainTimeStamps",maintainTimeStamps,"txTimeout",txTimeout,"placeholderValues",placeholderValues,"userLogin",userLogin);
+          try {
+            URL furl=f.toURI().toURL();
+            parseEntityXmlFileArgs.put("url",furl);
+            Map<String,Object> outputMap=dispatcher.runSync("parseEntityXmlFile",parseEntityXmlFileArgs);
+            Long numberRead=(Long)outputMap.get("rowProcessed");
+            messages.add(UtilProperties.getMessage(resource,"EntityImportNumberOfEntityToBeProcessed",UtilMisc.toMap("numberRead",numberRead.toString(),"fileName",f.getName()),locale));
+            if (deleteFiles) {
+              messages.add(UtilProperties.getMessage(resource,"EntityImportDeletFile",UtilMisc.toMap("fileName",f.getName()),locale));
+              f.delete();
+            }
+          }
+ catch (          Exception e) {
+            unprocessedFiles.add(f);
+            messages.add(UtilProperties.getMessage(resource,"EntityImportFailedFile",UtilMisc.toMap("fileName",f.getName()),locale));
+          }
+          if (pauseLong > 0) {
+            Debug.logInfo("Pausing for [" + pauseLong + "] seconds - "+ UtilDateTime.nowTimestamp(),module);
+            try {
+              Thread.sleep((pauseLong * 1000));
+            }
+ catch (            InterruptedException ie) {
+              Debug.logInfo("Pause finished - " + UtilDateTime.nowTimestamp(),module);
+            }
+          }
+        }
+        files=unprocessedFiles;
+        passes++;
+        messages.add(UtilProperties.getMessage(resource,"EntityImportPassedFile",UtilMisc.toMap("passes",passes),locale));
+        Debug.logInfo("Pass " + passes + " complete",module);
+      }
+      lastUnprocessedFilesCount=unprocessedFiles.size();
+      messages.add("---------------------------------------");
+      messages.add(UtilProperties.getMessage(resource,"EntityImportSucceededNumberFile",UtilMisc.toMap("succeeded",(initialListSize - lastUnprocessedFilesCount),"total",initialListSize),locale));
+      messages.add(UtilProperties.getMessage(resource,"EntityImportFailedNumberFile",UtilMisc.toMap("failed",lastUnprocessedFilesCount,"total",initialListSize),locale));
+      messages.add("---------------------------------------");
+      messages.add(UtilProperties.getMessage(resource,"EntityImportFailedFileList",locale));
+      for (      File file : unprocessedFiles) {
+        messages.add(file.toString());
+      }
+    }
+ else {
+      messages.add(UtilProperties.getMessage(resource,"EntityImportPathNotFound",locale));
+    }
+  }
+ else {
+    messages.add(UtilProperties.getMessage(resource,"EntityImportPathNotSpecified",locale));
+  }
+  Map<String,Object> resp=UtilMisc.toMap("messages",(Object)messages);
+  return resp;
+}

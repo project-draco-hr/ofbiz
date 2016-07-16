@@ -1,0 +1,236 @@
+{
+  List<Map<String,Object>> fetchedOrders=new LinkedList<Map<String,Object>>();
+  try {
+    Document docResponse=UtilXml.readXmlDocument(responseMsg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    String ack=UtilXml.childElementValue(elemResponse,"Ack","Failure");
+    List<? extends Element> paginationList=UtilXml.childElementList(elemResponse,"PaginationResult");
+    int totalOrders=0;
+    Iterator<? extends Element> paginationElemIter=paginationList.iterator();
+    while (paginationElemIter.hasNext()) {
+      Element paginationElement=paginationElemIter.next();
+      String totalNumberOfEntries=UtilXml.childElementValue(paginationElement,"TotalNumberOfEntries","0");
+      totalOrders=Integer.valueOf(totalNumberOfEntries);
+    }
+    if (ack != null && "Success".equals(ack)) {
+      if (totalOrders > 0) {
+        List<? extends Element> transactions=UtilXml.childElementList(elemResponse,"TransactionArray");
+        Iterator<? extends Element> transactionsElemIter=transactions.iterator();
+        while (transactionsElemIter.hasNext()) {
+          Element transactionsElement=transactionsElemIter.next();
+          List<? extends Element> transaction=UtilXml.childElementList(transactionsElement,"Transaction");
+          Iterator<? extends Element> transactionElemIter=transaction.iterator();
+          while (transactionElemIter.hasNext()) {
+            Element transactionElement=transactionElemIter.next();
+            Map<String,Object> orderCtx=new HashMap<String,Object>();
+            orderCtx.put("amountPaid",UtilXml.childElementValue(transactionElement,"AmountPaid","0"));
+            String createdDate=UtilXml.childElementValue(transactionElement,"CreatedDate");
+            if (UtilValidate.isNotEmpty(createdDate)) {
+              createdDate=EbayHelper.convertDate(createdDate,"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'","yyyy-MM-dd HH:mm:ss.SSS");
+              orderCtx.put("createdDate",createdDate);
+            }
+            orderCtx.put("paidTime",UtilXml.childElementValue(transactionElement,"PaidTime"));
+            orderCtx.put("shippedTime",UtilXml.childElementValue(transactionElement,"ShippedTime"));
+            orderCtx.put("productStoreId",productStoreId);
+            List<? extends Element> containingOrders=UtilXml.childElementList(transactionElement,"ContainingOrder");
+            Iterator<? extends Element> containingOrdersIter=containingOrders.iterator();
+            while (containingOrdersIter.hasNext()) {
+              Element containingOrdersElement=containingOrdersIter.next();
+              String orderId=UtilXml.childElementValue(containingOrdersElement,"OrderID");
+              if (getSellerTransactionsContainingOrderList != null && !getSellerTransactionsContainingOrderList.contains(orderId)) {
+                getSellerTransactionsContainingOrderList.add(orderId);
+              }
+            }
+            if (UtilValidate.isNotEmpty(containingOrders)) {
+              continue;
+            }
+            Map<String,Object> shippingAddressCtx=new HashMap<String,Object>();
+            Map<String,Object> buyerCtx=new HashMap<String,Object>();
+            List<? extends Element> buyer=UtilXml.childElementList(transactionElement,"Buyer");
+            Iterator<? extends Element> buyerElemIter=buyer.iterator();
+            while (buyerElemIter.hasNext()) {
+              Element buyerElement=buyerElemIter.next();
+              buyerCtx.put("emailBuyer",UtilXml.childElementValue(buyerElement,"Email",""));
+              buyerCtx.put("eiasTokenBuyer",UtilXml.childElementValue(buyerElement,"EIASToken",""));
+              buyerCtx.put("ebayUserIdBuyer",UtilXml.childElementValue(buyerElement,"UserID",""));
+              List<? extends Element> buyerInfo=UtilXml.childElementList(buyerElement,"BuyerInfo");
+              Iterator<? extends Element> buyerInfoElemIter=buyerInfo.iterator();
+              while (buyerInfoElemIter.hasNext()) {
+                Element buyerInfoElement=buyerInfoElemIter.next();
+                List<? extends Element> shippingAddressInfo=UtilXml.childElementList(buyerInfoElement,"ShippingAddress");
+                Iterator<? extends Element> shippingAddressElemIter=shippingAddressInfo.iterator();
+                while (shippingAddressElemIter.hasNext()) {
+                  Element shippingAddressElement=shippingAddressElemIter.next();
+                  shippingAddressCtx.put("buyerName",UtilXml.childElementValue(shippingAddressElement,"Name",""));
+                  shippingAddressCtx.put("shippingAddressStreet",UtilXml.childElementValue(shippingAddressElement,"Street",""));
+                  shippingAddressCtx.put("shippingAddressStreet1",UtilXml.childElementValue(shippingAddressElement,"Street1",""));
+                  shippingAddressCtx.put("shippingAddressStreet2",UtilXml.childElementValue(shippingAddressElement,"Street2",""));
+                  shippingAddressCtx.put("shippingAddressCityName",UtilXml.childElementValue(shippingAddressElement,"CityName",""));
+                  shippingAddressCtx.put("shippingAddressStateOrProvince",UtilXml.childElementValue(shippingAddressElement,"StateOrProvince",""));
+                  shippingAddressCtx.put("shippingAddressCountry",UtilXml.childElementValue(shippingAddressElement,"Country",""));
+                  shippingAddressCtx.put("shippingAddressCountryName",UtilXml.childElementValue(shippingAddressElement,"CountryName",""));
+                  shippingAddressCtx.put("shippingAddressPhone",UtilXml.childElementValue(shippingAddressElement,"Phone",""));
+                  shippingAddressCtx.put("shippingAddressPostalCode",UtilXml.childElementValue(shippingAddressElement,"PostalCode",""));
+                }
+              }
+            }
+            orderCtx.put("buyerCtx",buyerCtx);
+            orderCtx.put("shippingAddressCtx",shippingAddressCtx);
+            Map<String,Object> shippingServiceSelectedCtx=new HashMap<String,Object>();
+            List<? extends Element> shippingServiceSelected=UtilXml.childElementList(transactionElement,"ShippingServiceSelected");
+            Iterator<? extends Element> shippingServiceSelectedElemIter=shippingServiceSelected.iterator();
+            while (shippingServiceSelectedElemIter.hasNext()) {
+              Element shippingServiceSelectedElement=shippingServiceSelectedElemIter.next();
+              shippingServiceSelectedCtx.put("shippingService",UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingService",""));
+              shippingServiceSelectedCtx.put("shippingServiceCost",UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingServiceCost","0"));
+              String incuranceCost=UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingInsuranceCost","0");
+              String additionalCost=UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingServiceAdditionalCost","0");
+              String surchargeCost=UtilXml.childElementValue(shippingServiceSelectedElement,"ShippingSurcharge","0");
+              double shippingInsuranceCost=0;
+              double shippingServiceAdditionalCost=0;
+              double shippingSurcharge=0;
+              if (UtilValidate.isNotEmpty(incuranceCost)) {
+                shippingInsuranceCost=new Double(incuranceCost).doubleValue();
+              }
+              if (UtilValidate.isNotEmpty(additionalCost)) {
+                shippingServiceAdditionalCost=new Double(additionalCost).doubleValue();
+              }
+              if (UtilValidate.isNotEmpty(surchargeCost)) {
+                shippingSurcharge=new Double(surchargeCost).doubleValue();
+              }
+              double shippingTotalAdditionalCost=shippingInsuranceCost + shippingServiceAdditionalCost + shippingSurcharge;
+              String totalAdditionalCost=new Double(shippingTotalAdditionalCost).toString();
+              shippingServiceSelectedCtx.put("shippingTotalAdditionalCost",totalAdditionalCost);
+            }
+            orderCtx.put("shippingServiceSelectedCtx",shippingServiceSelectedCtx);
+            Map<String,Object> shippingDetailsCtx=new HashMap<String,Object>();
+            List<? extends Element> shippingDetails=UtilXml.childElementList(transactionElement,"ShippingDetails");
+            Iterator<? extends Element> shippingDetailsElemIter=shippingDetails.iterator();
+            while (shippingDetailsElemIter.hasNext()) {
+              Element shippingDetailsElement=shippingDetailsElemIter.next();
+              shippingDetailsCtx.put("insuranceFee",UtilXml.childElementValue(shippingDetailsElement,"InsuranceFee","0"));
+              shippingDetailsCtx.put("insuranceOption",UtilXml.childElementValue(shippingDetailsElement,"InsuranceOption",""));
+              shippingDetailsCtx.put("insuranceWanted",UtilXml.childElementValue(shippingDetailsElement,"InsuranceWanted","false"));
+              List<? extends Element> salesTax=UtilXml.childElementList(shippingDetailsElement,"SalesTax");
+              Iterator<? extends Element> salesTaxElemIter=salesTax.iterator();
+              while (salesTaxElemIter.hasNext()) {
+                Element salesTaxElement=salesTaxElemIter.next();
+                shippingDetailsCtx.put("salesTaxAmount",UtilXml.childElementValue(salesTaxElement,"SalesTaxAmount","0"));
+                shippingDetailsCtx.put("salesTaxPercent",UtilXml.childElementValue(salesTaxElement,"SalesTaxPercent","0"));
+                shippingDetailsCtx.put("salesTaxState",UtilXml.childElementValue(salesTaxElement,"SalesTaxState","0"));
+                shippingDetailsCtx.put("shippingIncludedInTax",UtilXml.childElementValue(salesTaxElement,"ShippingIncludedInTax","false"));
+              }
+              List<? extends Element> taxTable=UtilXml.childElementList(shippingDetailsElement,"TaxTable");
+              Iterator<? extends Element> taxTableElemIter=taxTable.iterator();
+              while (taxTableElemIter.hasNext()) {
+                Element taxTableElement=taxTableElemIter.next();
+                List<? extends Element> taxJurisdiction=UtilXml.childElementList(taxTableElement,"TaxJurisdiction");
+                Iterator<? extends Element> taxJurisdictionElemIter=taxJurisdiction.iterator();
+                while (taxJurisdictionElemIter.hasNext()) {
+                  Element taxJurisdictionElement=taxJurisdictionElemIter.next();
+                  shippingDetailsCtx.put("jurisdictionID",UtilXml.childElementValue(taxJurisdictionElement,"JurisdictionID",""));
+                  shippingDetailsCtx.put("jurisdictionSalesTaxPercent",UtilXml.childElementValue(taxJurisdictionElement,"SalesTaxPercent","0"));
+                  shippingDetailsCtx.put("jurisdictionShippingIncludedInTax",UtilXml.childElementValue(taxJurisdictionElement,"ShippingIncludedInTax","0"));
+                }
+              }
+            }
+            orderCtx.put("shippingDetailsCtx",shippingDetailsCtx);
+            Map<String,Object> checkoutStatusCtx=new HashMap<String,Object>();
+            List<? extends Element> status=UtilXml.childElementList(transactionElement,"Status");
+            Iterator<? extends Element> statusElemIter=status.iterator();
+            while (statusElemIter.hasNext()) {
+              Element statusElement=statusElemIter.next();
+              checkoutStatusCtx.put("eBayPaymentStatus",UtilXml.childElementValue(statusElement,"eBayPaymentStatus",""));
+              checkoutStatusCtx.put("checkoutStatus",UtilXml.childElementValue(statusElement,"CheckoutStatus",""));
+              checkoutStatusCtx.put("paymentMethodUsed",UtilXml.childElementValue(statusElement,"PaymentMethodUsed",""));
+              checkoutStatusCtx.put("completeStatus",UtilXml.childElementValue(statusElement,"CompleteStatus",""));
+              checkoutStatusCtx.put("buyerSelectedShipping",UtilXml.childElementValue(statusElement,"BuyerSelectedShipping",""));
+            }
+            orderCtx.put("checkoutStatusCtx",checkoutStatusCtx);
+            Map<String,Object> externalTransactionCtx=new HashMap<String,Object>();
+            List<? extends Element> externalTransaction=UtilXml.childElementList(transactionElement,"ExternalTransaction");
+            Iterator<? extends Element> externalTransactionElemIter=externalTransaction.iterator();
+            while (externalTransactionElemIter.hasNext()) {
+              Element externalTransactionElement=externalTransactionElemIter.next();
+              externalTransactionCtx.put("externalTransactionID",UtilXml.childElementValue(externalTransactionElement,"ExternalTransactionID",""));
+              externalTransactionCtx.put("externalTransactionTime",UtilXml.childElementValue(externalTransactionElement,"ExternalTransactionTime",""));
+              externalTransactionCtx.put("feeOrCreditAmount",UtilXml.childElementValue(externalTransactionElement,"FeeOrCreditAmount","0"));
+              externalTransactionCtx.put("paymentOrRefundAmount",UtilXml.childElementValue(externalTransactionElement,"PaymentOrRefundAmount","0"));
+            }
+            orderCtx.put("externalTransactionCtx",externalTransactionCtx);
+            String quantityPurchased=UtilXml.childElementValue(transactionElement,"QuantityPurchased","");
+            List<Map<String,Object>> orderItemList=new LinkedList<Map<String,Object>>();
+            String itemId="";
+            List<? extends Element> item=UtilXml.childElementList(transactionElement,"Item");
+            Iterator<? extends Element> itemElemIter=item.iterator();
+            while (itemElemIter.hasNext()) {
+              Map<String,Object> orderItemCtx=new HashMap<String,Object>();
+              Element itemElement=itemElemIter.next();
+              itemId=UtilXml.childElementValue(itemElement,"ItemID","");
+              orderItemCtx.put("paymentMethods",UtilXml.childElementValue(itemElement,"PaymentMethods",""));
+              orderItemCtx.put("quantity",quantityPurchased);
+              orderItemCtx.put("startPrice",UtilXml.childElementValue(itemElement,"StartPrice","0"));
+              orderItemCtx.put("title",UtilXml.childElementValue(itemElement,"Title",""));
+              String productId=UtilXml.childElementValue(itemElement,"SKU","");
+              if (UtilValidate.isEmpty(productId)) {
+                productId=UtilXml.childElementValue(itemElement,"ApplicationData","");
+                if (UtilValidate.isEmpty(productId)) {
+                  productId=EbayHelper.retrieveProductIdFromTitle(delegator,(String)orderItemCtx.get("title"));
+                }
+              }
+              orderItemCtx.put("productId",productId);
+              List<? extends Element> sellingStatus=UtilXml.childElementList(itemElement,"SellingStatus");
+              Iterator<? extends Element> sellingStatusitemElemIter=sellingStatus.iterator();
+              while (sellingStatusitemElemIter.hasNext()) {
+                Element sellingStatusElement=sellingStatusitemElemIter.next();
+                orderItemCtx.put("amount",UtilXml.childElementValue(sellingStatusElement,"CurrentPrice","0"));
+                orderItemCtx.put("quantitySold",UtilXml.childElementValue(sellingStatusElement,"QuantitySold","0"));
+                orderItemCtx.put("listingStatus",UtilXml.childElementValue(sellingStatusElement,"ListingStatus",""));
+              }
+              orderItemList.add(orderItemCtx);
+            }
+            orderCtx.put("orderItemList",orderItemList);
+            String transactionId=UtilXml.childElementValue(transactionElement,"TransactionID","");
+            if ("0".equals(transactionId)) {
+              orderCtx.put("externalId","EBI_" + itemId);
+            }
+ else {
+              orderCtx.put("externalId","EBT_" + transactionId);
+            }
+            orderCtx.put("transactionId","EBI_" + itemId);
+            GenericValue orderExist=externalOrderExists(delegator,(String)orderCtx.get("externalId"));
+            if (orderExist != null) {
+              orderCtx.put("orderId",orderExist.get("orderId"));
+            }
+ else {
+              orderCtx.put("orderId","");
+            }
+            orderCtx.put("transactionPrice",UtilXml.childElementValue(transactionElement,"TransactionPrice","0"));
+            if (UtilValidate.isEmpty(shippingServiceSelectedCtx.get("shippingService").toString())) {
+              String shippingServiceMissingMsg="Shipping Method is missing for eBay Order ID (" + orderCtx.get("externalId").toString() + ")";
+              orderImportFailureMessageList.add(shippingServiceMissingMsg);
+            }
+            orderCtx.put("emailBuyer",buyerCtx.get("emailBuyer").toString());
+            orderCtx.put("ebayUserIdBuyer",buyerCtx.get("ebayUserIdBuyer").toString());
+            orderCtx.put("userLogin",userLogin);
+            orderCtx.put("isEbayTransaction","Y");
+            orderCtx.put("isEbayOrder","");
+            fetchedOrders.add(orderCtx);
+          }
+        }
+      }
+    }
+ else {
+      List<? extends Element> errorList=UtilXml.childElementList(elemResponse,"Errors");
+      Iterator<? extends Element> errorElemIter=errorList.iterator();
+      while (errorElemIter.hasNext()) {
+        Element errorElement=errorElemIter.next();
+        errorMessage.append(UtilXml.childElementValue(errorElement,"ShortMessage",""));
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception during read response from Ebay",module);
+  }
+  return fetchedOrders;
+}

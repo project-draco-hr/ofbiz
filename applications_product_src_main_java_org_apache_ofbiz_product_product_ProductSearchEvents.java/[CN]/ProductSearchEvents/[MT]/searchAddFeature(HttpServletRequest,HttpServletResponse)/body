@@ -1,0 +1,81 @@
+{
+  Delegator delegator=(Delegator)request.getAttribute("delegator");
+  Locale locale=UtilHttp.getLocale(request);
+  String productFeatureId=request.getParameter("productFeatureId");
+  String fromDateStr=request.getParameter("fromDate");
+  String thruDateStr=request.getParameter("thruDate");
+  String amountStr=request.getParameter("amount");
+  String sequenceNumStr=request.getParameter("sequenceNum");
+  String productFeatureApplTypeId=request.getParameter("productFeatureApplTypeId");
+  Timestamp thruDate=null;
+  Timestamp fromDate=null;
+  BigDecimal amount=null;
+  Long sequenceNum=null;
+  try {
+    if (UtilValidate.isNotEmpty(fromDateStr)) {
+      fromDate=Timestamp.valueOf(fromDateStr);
+    }
+    if (UtilValidate.isNotEmpty(thruDateStr)) {
+      thruDate=Timestamp.valueOf(thruDateStr);
+    }
+    if (UtilValidate.isNotEmpty(amountStr)) {
+      amount=new BigDecimal(amountStr);
+    }
+    if (UtilValidate.isNotEmpty(sequenceNumStr)) {
+      sequenceNum=Long.valueOf(sequenceNumStr);
+    }
+  }
+ catch (  RuntimeException e) {
+    String errorMsg=UtilProperties.getMessage(resource,"productSearchEvents.error_casting_types",locale) + " : " + e.toString();
+    request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+    Debug.logError(e,errorMsg,module);
+    return "error";
+  }
+  try {
+    boolean beganTransaction=TransactionUtil.begin(DEFAULT_TX_TIMEOUT);
+    try {
+      EntityListIterator eli=getProductSearchResults(request);
+      if (eli == null) {
+        String errMsg=UtilProperties.getMessage(resource,"productsearchevents.no_results_found_probably_error_constraints",UtilHttp.getLocale(request));
+        request.setAttribute("_ERROR_MESSAGE_",errMsg);
+        return "error";
+      }
+      GenericValue searchResultView=null;
+      int numAdded=0;
+      while ((searchResultView=eli.next()) != null) {
+        String productId=searchResultView.getString("mainProductId");
+        GenericValue pfa=delegator.makeValue("ProductFeatureAppl");
+        pfa.set("productId",productId);
+        pfa.set("productFeatureId",productFeatureId);
+        pfa.set("fromDate",fromDate);
+        pfa.set("thruDate",thruDate);
+        pfa.set("productFeatureApplTypeId",productFeatureApplTypeId);
+        pfa.set("amount",amount);
+        pfa.set("sequenceNum",sequenceNum);
+        pfa.create();
+        numAdded++;
+      }
+      Map<String,Object> messageMap=UtilMisc.toMap("numAdded",Integer.valueOf(numAdded),"productFeatureId",productFeatureId);
+      String eventMsg=UtilProperties.getMessage(resource,"productSearchEvents.added_param_features",messageMap,locale) + ".";
+      request.setAttribute("_EVENT_MESSAGE_",eventMsg);
+      eli.close();
+    }
+ catch (    GenericEntityException e) {
+      String errorMsg=UtilProperties.getMessage(resource,"productSearchEvents.error_getting_results",locale) + " : " + e.toString();
+      request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+      Debug.logError(e,errorMsg,module);
+      TransactionUtil.rollback(beganTransaction,errorMsg,e);
+      return "error";
+    }
+ finally {
+      TransactionUtil.commit(beganTransaction);
+    }
+  }
+ catch (  GenericTransactionException e) {
+    String errorMsg=UtilProperties.getMessage(resource,"productSearchEvents.error_getting_results",locale) + " : " + e.toString();
+    request.setAttribute("_ERROR_MESSAGE_",errorMsg);
+    Debug.logError(e,errorMsg,module);
+    return "error";
+  }
+  return "success";
+}

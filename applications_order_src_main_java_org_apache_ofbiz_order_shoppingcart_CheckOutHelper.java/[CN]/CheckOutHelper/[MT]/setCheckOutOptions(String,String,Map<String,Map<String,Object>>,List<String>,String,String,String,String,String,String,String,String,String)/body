@@ -1,0 +1,37 @@
+{
+  List<String> errorMessages=new ArrayList<String>();
+  Map<String,Object> result=null;
+  String errMsg=null;
+  if (UtilValidate.isNotEmpty(this.cart)) {
+    errorMessages.addAll(setCheckOutShippingOptionsInternal(shippingMethod,shippingInstructions,orderAdditionalEmails,maySplit,giftMessage,isGift,internalCode,shipBeforeDate,shipAfterDate));
+    errorMessages.addAll(setCheckOutShippingAddressInternal(shippingContactMechId));
+    Map<String,Object> shipEstimateMap=ShippingEvents.getShipGroupEstimate(dispatcher,delegator,cart,0);
+    BigDecimal shippingTotal=(BigDecimal)shipEstimateMap.get("shippingTotal");
+    if (shippingTotal == null) {
+      shippingTotal=BigDecimal.ZERO;
+    }
+    cart.setItemShipGroupEstimate(shippingTotal,0);
+    ProductPromoWorker.doPromotions(cart,dispatcher);
+    try {
+      this.calcAndAddTax();
+    }
+ catch (    GeneralException e) {
+      Debug.logError(e,module);
+    }
+    errorMessages.addAll(setCheckOutPaymentInternal(selectedPaymentMethods,singleUsePayments,billingAccountId));
+  }
+ else {
+    errMsg=UtilProperties.getMessage(resource_error,"checkhelper.no_items_in_cart",(cart != null ? cart.getLocale() : Locale.getDefault()));
+    errorMessages.add(errMsg);
+  }
+  if (errorMessages.size() == 1) {
+    result=ServiceUtil.returnError(errorMessages.get(0).toString());
+  }
+ else   if (errorMessages.size() > 0) {
+    result=ServiceUtil.returnError(errorMessages);
+  }
+ else {
+    result=ServiceUtil.returnSuccess();
+  }
+  return result;
+}

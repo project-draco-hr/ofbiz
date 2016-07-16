@@ -1,0 +1,25 @@
+{
+  GenericValue thisContent=EntityQuery.use(delegator).from("Content").where("contentId",contentId).queryOne();
+  if (thisContent == null)   throw new RuntimeException("No entity found for id=" + contentId);
+  List<GenericValue> contentAssocs=EntityQuery.use(delegator).from("ContentAssoc").where(EntityCondition.makeCondition("contentAssocTypeId",EntityOperator.IN,typeList),EntityCondition.makeCondition("contentId",EntityOperator.EQUALS,contentId)).cache().filterByDate().queryList();
+  for (  GenericValue contentAssoc : contentAssocs) {
+    String contentIdTo=contentAssoc.getString("contentIdTo");
+    GenericValue contentTo=EntityQuery.use(delegator).from("Content").where("contentId",contentIdTo).queryOne();
+    int intLeafCount=0;
+    Long leafCount=(Long)contentTo.get("childLeafCount");
+    if (leafCount != null) {
+      intLeafCount=leafCount.intValue();
+    }
+    contentTo.set("childLeafCount",Long.valueOf(intLeafCount + leafChangeAmount));
+    if (branchChangeAmount != 0) {
+      int intBranchCount=0;
+      Long branchCount=(Long)contentTo.get("childBranchCount");
+      if (branchCount != null) {
+        intBranchCount=branchCount.intValue();
+      }
+      contentTo.set("childBranchCount",Long.valueOf(intBranchCount + branchChangeAmount));
+    }
+    contentTo.store();
+    updateStatsBottomUp(delegator,contentIdTo,typeList,0,leafChangeAmount);
+  }
+}

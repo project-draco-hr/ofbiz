@@ -1,0 +1,53 @@
+{
+  List<GenericValue> returnedItemsBase=getOrderReturnItems();
+  List<GenericValue> returnedItems=new ArrayList<GenericValue>(returnedItemsBase.size());
+  returnedItems.addAll(EntityUtil.filterByAnd(returnedItemsBase,UtilMisc.toMap("statusId","RETURN_RECEIVED")));
+  returnedItems.addAll(EntityUtil.filterByAnd(returnedItemsBase,UtilMisc.toMap("statusId","RETURN_COMPLETED")));
+  Map<String,BigDecimal> itemReturnedQuantities=new HashMap<String,BigDecimal>();
+  for (  GenericValue returnedItem : returnedItems) {
+    String orderItemSeqId=returnedItem.getString("orderItemSeqId");
+    BigDecimal returnedQuantity=returnedItem.getBigDecimal("returnQuantity");
+    if (orderItemSeqId != null && returnedQuantity != null) {
+      BigDecimal existingQuantity=itemReturnedQuantities.get(orderItemSeqId);
+      if (existingQuantity == null) {
+        itemReturnedQuantities.put(orderItemSeqId,returnedQuantity);
+      }
+ else {
+        itemReturnedQuantities.put(orderItemSeqId,returnedQuantity.add(existingQuantity));
+      }
+    }
+  }
+  BigDecimal totalSubTotalNotReturned=ZERO;
+  BigDecimal totalTaxNotReturned=ZERO;
+  BigDecimal totalShippingNotReturned=ZERO;
+  for (  GenericValue orderItem : this.getValidOrderItems()) {
+    BigDecimal itemQuantityDbl=orderItem.getBigDecimal("quantity");
+    if (itemQuantityDbl == null || itemQuantityDbl.compareTo(ZERO) == 0) {
+      continue;
+    }
+    BigDecimal itemQuantity=itemQuantityDbl;
+    BigDecimal itemSubTotal=this.getOrderItemSubTotal(orderItem);
+    BigDecimal itemTaxes=this.getOrderItemTax(orderItem);
+    BigDecimal itemShipping=this.getOrderItemShipping(orderItem);
+    BigDecimal quantityReturned=itemReturnedQuantities.get(orderItem.get("orderItemSeqId"));
+    if (quantityReturned == null) {
+      quantityReturned=BigDecimal.ZERO;
+    }
+    BigDecimal quantityNotReturned=itemQuantity.subtract(quantityReturned);
+    BigDecimal factorNotReturned=quantityNotReturned.divide(itemQuantity,100,rounding);
+    BigDecimal subTotalNotReturned=itemSubTotal.multiply(factorNotReturned).setScale(scale,rounding);
+    BigDecimal itemTaxNotReturned=itemTaxes.multiply(factorNotReturned).setScale(scale,rounding);
+    BigDecimal itemShippingNotReturned=itemShipping.multiply(factorNotReturned).setScale(scale,rounding);
+    totalSubTotalNotReturned=totalSubTotalNotReturned.add(subTotalNotReturned);
+    totalTaxNotReturned=totalTaxNotReturned.add(itemTaxNotReturned);
+    totalShippingNotReturned=totalShippingNotReturned.add(itemShippingNotReturned);
+  }
+  BigDecimal orderItemsSubTotal=this.getOrderItemsSubTotal();
+  BigDecimal orderFactorNotReturned=ZERO;
+  if (orderItemsSubTotal.signum() != 0) {
+    orderFactorNotReturned=totalSubTotalNotReturned.divide(orderItemsSubTotal,100,rounding);
+  }
+  BigDecimal orderTaxNotReturned=this.getHeaderTaxTotal().multiply(orderFactorNotReturned).setScale(scale,rounding);
+  BigDecimal orderShippingNotReturned=this.getShippingTotal().multiply(orderFactorNotReturned).setScale(scale,rounding);
+  return totalTaxNotReturned.add(totalShippingNotReturned).add(orderTaxNotReturned).add(orderShippingNotReturned).setScale(scale,rounding);
+}

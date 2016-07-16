@@ -1,0 +1,90 @@
+{
+  if (this.loaded || this.unloading) {
+    return;
+  }
+  this.loadedContainers.clear();
+  this.configFile=config.containerConfig;
+  List<String> loaders=null;
+  for (  Map loaderMap : config.loaders) {
+    if (module.equals(loaderMap.get("class"))) {
+      loaders=StringUtil.split((String)loaderMap.get("profiles"),",");
+    }
+  }
+  Debug.logInfo("[Startup] Loading containers from " + configFile + " for loaders "+ loaders,module);
+  Collection<ContainerConfig.Container> containers=null;
+  try {
+    containers=ContainerConfig.getContainers(configFile);
+  }
+ catch (  ContainerException e) {
+    throw new StartupException(e);
+  }
+  for (  ContainerConfig.Container containerCfg : containers) {
+    if (this.unloading) {
+      return;
+    }
+    boolean matchingLoaderFound=false;
+    if (UtilValidate.isEmpty(containerCfg.loaders) && UtilValidate.isEmpty(loaders)) {
+      matchingLoaderFound=true;
+    }
+ else {
+      for (      String loader : loaders) {
+        if (UtilValidate.isEmpty(containerCfg.loaders) || containerCfg.loaders.contains(loader)) {
+          matchingLoaderFound=true;
+          break;
+        }
+      }
+    }
+    if (matchingLoaderFound) {
+      Debug.logInfo("Loading container: " + containerCfg.name,module);
+      Container tmpContainer=loadContainer(containerCfg,args);
+      this.loadedContainers.add(tmpContainer);
+      Debug.logInfo("Loaded container: " + containerCfg.name,module);
+    }
+  }
+  if (this.unloading) {
+    return;
+  }
+  List<ContainerConfig.Container> containersDefinedInComponents=ComponentConfig.getAllContainers();
+  for (  ContainerConfig.Container containerCfg : containersDefinedInComponents) {
+    boolean matchingLoaderFound=false;
+    if (UtilValidate.isEmpty(containerCfg.loaders) && UtilValidate.isEmpty(loaders)) {
+      matchingLoaderFound=true;
+    }
+ else {
+      for (      String loader : loaders) {
+        if (UtilValidate.isEmpty(containerCfg.loaders) || containerCfg.loaders.contains(loader)) {
+          matchingLoaderFound=true;
+          break;
+        }
+      }
+    }
+    if (matchingLoaderFound) {
+      Debug.logInfo("Loading component's container: " + containerCfg.name,module);
+      Container tmpContainer=loadContainer(containerCfg,args);
+      this.loadedContainers.add(tmpContainer);
+      Debug.logInfo("Loaded component's container: " + containerCfg.name,module);
+    }
+  }
+  ClassLoader loader=Thread.currentThread().getContextClassLoader();
+  Enumeration<URL> resources;
+  try {
+    resources=loader.getResources("hot-deploy-containers.xml");
+    while (resources.hasMoreElements() && !this.unloading) {
+      URL xmlUrl=resources.nextElement();
+      Debug.logInfo("Loading hot-deploy containers from " + xmlUrl,module);
+      Collection<ContainerConfig.Container> hotDeployContainers=ContainerConfig.getContainers(xmlUrl);
+      for (      ContainerConfig.Container containerCfg : hotDeployContainers) {
+        if (this.unloading) {
+          return;
+        }
+        Container tmpContainer=loadContainer(containerCfg,args);
+        this.loadedContainers.add(tmpContainer);
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Could not load hot-deploy-containers.xml",module);
+    throw new StartupException(e);
+  }
+  loaded=true;
+}

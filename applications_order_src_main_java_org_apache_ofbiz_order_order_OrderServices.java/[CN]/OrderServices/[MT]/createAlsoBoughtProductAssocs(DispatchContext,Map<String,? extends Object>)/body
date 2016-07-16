@@ -1,0 +1,76 @@
+{
+  final Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Timestamp orderEntryFromDateTime=(Timestamp)context.get("orderEntryFromDateTime");
+  boolean processAllOrders=context.get("processAllOrders") == null ? false : (Boolean)context.get("processAllOrders");
+  if (orderEntryFromDateTime == null && !processAllOrders) {
+    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toMap("statusId","SERVICE_FINISHED","serviceName","createAlsoBoughtProductAssocs"));
+    EntityFindOptions efo=new EntityFindOptions();
+    efo.setMaxRows(1);
+    try {
+      GenericValue lastRunJobSandbox=EntityUtil.getFirst(delegator.findList("JobSandbox",cond,null,UtilMisc.toList("startDateTime DESC"),efo,false));
+      if (lastRunJobSandbox != null) {
+        orderEntryFromDateTime=lastRunJobSandbox.getTimestamp("startDateTime");
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (orderEntryFromDateTime == null) {
+      processAllOrders=true;
+    }
+  }
+  if (processAllOrders) {
+    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition("productAssocTypeId","ALSO_BOUGHT"),EntityCondition.makeConditionDate("fromDate","thruDate")));
+    try {
+      delegator.storeByCondition("ProductAssoc",UtilMisc.toMap("thruDate",UtilDateTime.nowTimestamp()),cond);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  List<EntityExpr> orderCondList=UtilMisc.toList(EntityCondition.makeCondition("orderTypeId","SALES_ORDER"));
+  if (!processAllOrders && orderEntryFromDateTime != null) {
+    orderCondList.add(EntityCondition.makeCondition("entryDate",EntityOperator.GREATER_THAN,orderEntryFromDateTime));
+  }
+  final EntityCondition cond=EntityCondition.makeCondition(orderCondList);
+  List<String> orderIds;
+  try {
+    orderIds=TransactionUtil.doNewTransaction(new Callable<List<String>>(){
+      @Override public List<String> call() throws Exception {
+        List<String> orderIds=new LinkedList<String>();
+        EntityListIterator eli=null;
+        try {
+          eli=EntityQuery.use(delegator).select("orderId").from("OrderHeader").where(cond).orderBy("entryDate ASC").queryIterator();
+          GenericValue orderHeader;
+          while ((orderHeader=eli.next()) != null) {
+            orderIds.add(orderHeader.getString("orderId"));
+          }
+        }
+  finally {
+          if (eli != null) {
+            eli.close();
+          }
+        }
+        return orderIds;
+      }
+    }
+,"getSalesOrderIds",0,true);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  for (  String orderId : orderIds) {
+    Map<String,Object> svcIn=new HashMap<String,Object>();
+    svcIn.put("userLogin",context.get("userLogin"));
+    svcIn.put("orderId",orderId);
+    try {
+      dispatcher.runSync("createAlsoBoughtProductAssocsForOrder",svcIn);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

@@ -1,0 +1,38 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  Map<String,Object> parameters=UtilGenerics.checkMap(context.get("bodyParameters"));
+  GenericValue reminder=(GenericValue)context.get("reminder");
+  GenericValue contactMech=null;
+  try {
+    contactMech=reminder.getRelatedOne("ContactMech",false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+  }
+  if (contactMech != null && "EMAIL_ADDRESS".equals(contactMech.get("contactMechTypeId"))) {
+    String toAddress=contactMech.getString("infoString");
+    GenericValue emailTemplateSetting=null;
+    try {
+      emailTemplateSetting=EntityQuery.use(delegator).from("EmailTemplateSetting").where("emailTemplateSettingId","WEFF_EVENT_REMINDER").cache().queryOne();
+    }
+ catch (    GenericEntityException e1) {
+      Debug.logError(e1,module);
+    }
+    if (emailTemplateSetting != null) {
+      Map<String,Object> emailCtx=UtilMisc.toMap("emailTemplateSettingId","WEFF_EVENT_REMINDER","sendTo",toAddress,"bodyParameters",parameters);
+      try {
+        dispatcher.runAsync("sendMailFromTemplateSetting",emailCtx);
+      }
+ catch (      Exception e) {
+        Debug.logWarning("Error while emailing event reminder - workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId")+ ": "+ e,module);
+      }
+    }
+ else {
+      Debug.logError("No email template (WEFF_EVENT_REMINDER) has been configured, reminder cannot be send.",module);
+    }
+    return ServiceUtil.returnSuccess();
+  }
+  Debug.logWarning("Invalid event reminder contact mech, workEffortId = " + reminder.get("workEffortId") + ", contactMechId = "+ reminder.get("contactMechId"),module);
+  return ServiceUtil.returnSuccess();
+}

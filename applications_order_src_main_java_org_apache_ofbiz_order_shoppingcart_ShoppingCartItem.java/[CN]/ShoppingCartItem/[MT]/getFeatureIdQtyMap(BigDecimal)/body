@@ -1,0 +1,38 @@
+{
+  Map<String,BigDecimal> featureMap=new HashMap<String,BigDecimal>();
+  GenericValue product=this.getProduct();
+  if (product != null) {
+    List<GenericValue> featureAppls=null;
+    try {
+      featureAppls=product.getRelated("ProductFeatureAppl",null,null,false);
+      List<EntityExpr> filterExprs=UtilMisc.toList(EntityCondition.makeCondition("productFeatureApplTypeId",EntityOperator.EQUALS,"STANDARD_FEATURE"));
+      filterExprs.add(EntityCondition.makeCondition("productFeatureApplTypeId",EntityOperator.EQUALS,"REQUIRED_FEATURE"));
+      filterExprs.add(EntityCondition.makeCondition("productFeatureApplTypeId",EntityOperator.EQUALS,"DISTINGUISHING_FEAT"));
+      featureAppls=EntityUtil.filterByOr(featureAppls,filterExprs);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Unable to get features from product : " + product.get("productId"),module);
+    }
+    if (featureAppls != null) {
+      for (      GenericValue appl : featureAppls) {
+        BigDecimal lastQuantity=featureMap.get(appl.getString("productFeatureId"));
+        if (lastQuantity == null) {
+          lastQuantity=BigDecimal.ZERO;
+        }
+        BigDecimal newQuantity=lastQuantity.add(quantity);
+        featureMap.put(appl.getString("productFeatureId"),newQuantity);
+      }
+    }
+  }
+  if (this.additionalProductFeatureAndAppls != null) {
+    for (    GenericValue appl : this.additionalProductFeatureAndAppls.values()) {
+      BigDecimal lastQuantity=featureMap.get(appl.getString("productFeatureId"));
+      if (lastQuantity == null) {
+        lastQuantity=BigDecimal.ZERO;
+      }
+      BigDecimal newQuantity=lastQuantity.add(quantity);
+      featureMap.put(appl.getString("productFeatureId"),newQuantity);
+    }
+  }
+  return featureMap;
+}

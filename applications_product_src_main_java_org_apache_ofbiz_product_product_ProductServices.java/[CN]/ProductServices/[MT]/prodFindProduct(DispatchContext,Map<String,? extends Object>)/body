@@ -1,0 +1,35 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Map<String,Object> result=new HashMap<String,Object>();
+  String productId=(String)context.get("productId");
+  Locale locale=(Locale)context.get("locale");
+  String errMsg=null;
+  if (UtilValidate.isEmpty(productId)) {
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.invalid_productId_passed",locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+    return result;
+  }
+  try {
+    GenericValue product=EntityQuery.use(delegator).from("Product").where("productId",productId).cache().queryOne();
+    GenericValue mainProduct=product;
+    if (product.get("isVariant") != null && product.getString("isVariant").equalsIgnoreCase("Y")) {
+      List<GenericValue> c=product.getRelated("AssocProductAssoc",UtilMisc.toMap("productAssocTypeId","PRODUCT_VARIANT"),null,true);
+      c=EntityUtil.filterByDate(c);
+      if (c.size() > 0) {
+        GenericValue asV=c.iterator().next();
+        mainProduct=asV.getRelatedOne("MainProduct",true);
+      }
+    }
+    result.put("product",mainProduct);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  }
+ catch (  GenericEntityException e) {
+    e.printStackTrace();
+    Map<String,String> messageMap=UtilMisc.toMap("errMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resourceError,"productservices.problems_reading_product_entity",messageMap,locale);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,errMsg);
+  }
+  return result;
+}

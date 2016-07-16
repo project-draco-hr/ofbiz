@@ -1,0 +1,44 @@
+{
+  if (configUrl == null) {
+    throw new IllegalArgumentException("configUrl cannot be null");
+  }
+  Document document=null;
+  try {
+    document=UtilXml.readXmlDocument(configUrl,true);
+  }
+ catch (  SAXException e) {
+    throw new ComponentException("Error reading the component config file: " + configUrl,e);
+  }
+catch (  ParserConfigurationException e) {
+    throw new ComponentException("Error reading the component config file: " + configUrl,e);
+  }
+catch (  IOException e) {
+    throw new ComponentException("Error reading the component config file: " + configUrl,e);
+  }
+  Element root=document.getDocumentElement();
+  List<? extends Element> toLoad=UtilXml.childElementList(root);
+  List<ComponentDef> componentsFromConfig=null;
+  if (!toLoad.isEmpty()) {
+    componentsFromConfig=new ArrayList<ComponentDef>(toLoad.size());
+    Map<String,? extends Object> systemProps=UtilGenerics.<String,Object>checkMap(System.getProperties());
+    for (    Element element : toLoad) {
+      String nodeName=element.getNodeName();
+      String name=null;
+      String location=null;
+      int type=SINGLE_COMPONENT;
+      if ("load-component".equals(nodeName)) {
+        name=element.getAttribute("component-name");
+        location=FlexibleStringExpander.expandString(element.getAttribute("component-location"),systemProps);
+      }
+ else       if ("load-components".equals(nodeName)) {
+        location=FlexibleStringExpander.expandString(element.getAttribute("parent-directory"),systemProps);
+        type=COMPONENT_DIRECTORY;
+      }
+ else {
+        throw new ComponentException("Invalid element '" + nodeName + "' found in component config file "+ configUrl);
+      }
+      componentsFromConfig.add(new ComponentDef(name,location,type));
+    }
+  }
+  return Collections.unmodifiableList(componentsFromConfig);
+}

@@ -1,0 +1,129 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  String carrierPartyId=(String)context.get("carrierPartyId");
+  String shipmentMethodTypeId=(String)context.get("shipmentMethodTypeId");
+  String shippingContactMechId=(String)context.get("shippingContactMechId");
+  BigDecimal shippableWeight=(BigDecimal)context.get("shippableWeight");
+  if (shipmentMethodTypeId.equals("NO_SHIPPING")) {
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("shippingEstimateAmount",null);
+    return result;
+  }
+  String dhlShipmentDetailCode=null;
+  try {
+    GenericValue carrierShipmentMethod=EntityQuery.use(delegator).from("CarrierShipmentMethod").where("shipmentMethodTypeId",shipmentMethodTypeId,"partyId",carrierPartyId,"roleTypeId","CARRIER").queryOne();
+    if (carrierShipmentMethod == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlNoCarrierShipmentMethod",UtilMisc.toMap("carrierPartyId",carrierPartyId,"shipmentMethodTypeId",shipmentMethodTypeId),locale));
+    }
+    dhlShipmentDetailCode=carrierShipmentMethod.getString("carrierServiceCode");
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Failed to get rate estimate: " + e.getMessage(),module);
+  }
+  String resource=(String)context.get("serviceConfigProps");
+  String shipmentGatewayConfigId=(String)context.get("shipmentGatewayConfigId");
+  String userid=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessUserId",resource,"shipment.dhl.access.userid");
+  String password=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessPassword",resource,"shipment.dhl.access.password");
+  String shippingKey=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessShippingKey",resource,"shipment.dhl.access.shippingKey");
+  String accountNbr=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"accessAccountNbr",resource,"shipment.dhl.access.accountNbr");
+  if ((shippingKey == null) || (accountNbr == null) || (shippingKey.length() == 0)|| (accountNbr.length() == 0)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlGatewayNotAvailable",locale));
+  }
+  GenericValue shipToAddress=null;
+  if (shippingContactMechId != null) {
+    try {
+      shipToAddress=EntityQuery.use(delegator).from("PostalAddress").where("contactMechId",shippingContactMechId).queryOne();
+      if (shipToAddress == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUnableFoundShipToAddresss",locale));
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if ((shippableWeight == null) || (shippableWeight.compareTo(BigDecimal.ZERO) <= 0)) {
+    String tmpValue=EntityUtilProperties.getPropertyValue(shipmentPropertiesFile,"shipment.default.weight.value",delegator);
+    if (tmpValue != null) {
+      try {
+        shippableWeight=new BigDecimal(tmpValue);
+      }
+ catch (      Exception e) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlDefaultShippableWeightNotConfigured",locale));
+      }
+    }
+  }
+  if (shippableWeight.compareTo(BigDecimal.ONE) < 0) {
+    Debug.logWarning("DHL Estimate: Weight is less than 1 lb, submitting DHL minimum of 1 lb for estimate.",module);
+    shippableWeight=BigDecimal.ONE;
+  }
+  if ((dhlShipmentDetailCode.equals("G") && shippableWeight.compareTo(new BigDecimal("999")) > 0) || (shippableWeight.compareTo(new BigDecimal("150")) > 0)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlShippableWeightExceed",locale));
+  }
+  String weight=(Integer.valueOf((int)shippableWeight.longValue())).toString();
+  String templateName=getShipmentGatewayConfigValue(delegator,shipmentGatewayConfigId,"rateEstimateTemplate",resource,"shipment.dhl.template.rate.estimate");
+  if ((templateName == null) || (templateName.trim().length() == 0)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlShipmentTemplateLocationNotFound",locale));
+  }
+  StringWriter outWriter=new StringWriter();
+  Map<String,Object> inContext=new HashMap<String,Object>();
+  inContext.put("action","RateEstimate");
+  inContext.put("userid",userid);
+  inContext.put("password",password);
+  inContext.put("accountNbr",accountNbr);
+  inContext.put("shippingKey",shippingKey);
+  inContext.put("shipDate",UtilDateTime.nowTimestamp());
+  inContext.put("dhlShipmentDetailCode",dhlShipmentDetailCode);
+  inContext.put("weight",weight);
+  inContext.put("state",shipToAddress.getString("stateProvinceGeoId"));
+  if ((shipToAddress.getString("postalCode") != null) && (shipToAddress.getString("postalCode").length() > 5)) {
+    inContext.put("postalCode",shipToAddress.getString("postalCode").substring(0,5));
+  }
+ else {
+    inContext.put("postalCode",shipToAddress.getString("postalCode"));
+  }
+  try {
+    ContentWorker.renderContentAsText(dispatcher,delegator,templateName,outWriter,inContext,locale,"text/plain",null,null,false);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Cannot get DHL Estimate: Failed to render DHL XML Request.",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlShipmentTemplateError",locale));
+  }
+  String requestString=outWriter.toString();
+  if (Debug.verboseOn()) {
+    Debug.logVerbose(requestString,module);
+  }
+  String rateResponseString=null;
+  try {
+    rateResponseString=sendDhlRequest(requestString,delegator,shipmentGatewayConfigId,resource,locale);
+    if (Debug.verboseOn()) {
+      Debug.logVerbose(rateResponseString,module);
+    }
+  }
+ catch (  DhlConnectException e) {
+    String uceErrMsg="Error sending DHL request for DHL Service Rate: " + e.toString();
+    Debug.logError(e,uceErrMsg,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentDhlShipmentTemplateSendingError",UtilMisc.toMap("errorString",e.toString()),locale));
+  }
+  Document rateResponseDocument=null;
+  try {
+    rateResponseDocument=UtilXml.readXmlDocument(rateResponseString,false);
+    return handleDhlRateResponse(rateResponseDocument,locale);
+  }
+ catch (  SAXException e2) {
+    String excErrMsg="Error parsing the RatingServiceResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexShipmentTemplateParsingError",UtilMisc.toMap("errorString",e2.toString()),locale));
+  }
+catch (  ParserConfigurationException e2) {
+    String excErrMsg="Error parsing the RatingServiceResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexShipmentTemplateParsingError",UtilMisc.toMap("errorString",e2.toString()),locale));
+  }
+catch (  IOException e2) {
+    String excErrMsg="Error parsing the RatingServiceResponse: " + e2.toString();
+    Debug.logError(e2,excErrMsg,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentFedexShipmentTemplateParsingError",UtilMisc.toMap("errorString",e2.toString()),locale));
+  }
+}

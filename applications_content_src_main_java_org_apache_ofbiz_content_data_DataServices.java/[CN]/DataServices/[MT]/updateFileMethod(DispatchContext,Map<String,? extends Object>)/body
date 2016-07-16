@@ -1,0 +1,73 @@
+{
+  Map<String,Object> result=new HashMap<String,Object>();
+  Locale locale=(Locale)context.get("locale");
+  String dataResourceTypeId=(String)context.get("dataResourceTypeId");
+  String objectInfo=(String)context.get("objectInfo");
+  String textData=(String)context.get("textData");
+  ByteBuffer binData=(ByteBuffer)context.get("binData");
+  String prefix="";
+  File file=null;
+  String fileName="";
+  String sep="";
+  try {
+    if (UtilValidate.isEmpty(dataResourceTypeId) || dataResourceTypeId.startsWith("LOCAL_FILE")) {
+      fileName=prefix + sep + objectInfo;
+      file=new File(fileName);
+      if (!file.isAbsolute()) {
+        throw new GenericServiceException("File: " + fileName + " is not absolute.");
+      }
+    }
+ else     if (dataResourceTypeId.startsWith("OFBIZ_FILE")) {
+      prefix=System.getProperty("ofbiz.home");
+      if (objectInfo.indexOf("/") != 0 && prefix.lastIndexOf("/") != (prefix.length() - 1)) {
+        sep="/";
+      }
+      file=new File(prefix + sep + objectInfo);
+    }
+ else     if (dataResourceTypeId.startsWith("CONTEXT_FILE")) {
+      prefix=(String)context.get("rootDir");
+      if (objectInfo.indexOf("/") != 0 && prefix.lastIndexOf("/") != (prefix.length() - 1)) {
+        sep="/";
+      }
+      file=new File(prefix + sep + objectInfo);
+    }
+    if (file == null) {
+      throw new IOException("File: " + file + " is null");
+    }
+    if (UtilValidate.isNotEmpty(textData)) {
+      try {
+        FileWriter out=new FileWriter(file);
+        out.write(textData);
+        out.close();
+      }
+ catch (      IOException e) {
+        Debug.logWarning(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentUnableWriteCharacterDataToFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
+    }
+ else     if (binData != null) {
+      try {
+        RandomAccessFile out=new RandomAccessFile(file,"rw");
+        out.setLength(binData.array().length);
+        out.write(binData.array());
+        out.close();
+      }
+ catch (      FileNotFoundException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentUnableToOpenFileForWriting",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
+catch (      IOException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentUnableWriteBinaryDataToFile",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+      }
+    }
+ else {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentNoContentFilePassed",UtilMisc.toMap("fileName",file.getAbsolutePath()),locale));
+    }
+  }
+ catch (  IOException e) {
+    Debug.logWarning(e,module);
+    throw new GenericServiceException(e.getMessage());
+  }
+  return result;
+}

@@ -1,0 +1,147 @@
+{
+  PosTransaction trans=PosTransaction.getCurrentTx(pos.getSession());
+  Input input=pos.getInput();
+  String[] msrInfo=input.getFunction("MSRINFO");
+  String[] crtInfo=input.getFunction("CREDIT");
+  String[] track2Info=input.getFunction("TRACK2");
+  String[] securityCodeInfo=input.getFunction("SECURITYCODE");
+  String[] postalCodeInfo=input.getFunction("POSTALCODE");
+  String[] creditExpirationInfo=input.getFunction("CREDITEXP");
+  int paymentCheck=trans.checkPaymentMethodType("CREDIT_CARD");
+  if (paymentCheck == PosTransaction.NO_PAYMENT) {
+    processNoPayment(pos,"CREDIT_CARD");
+    return;
+  }
+ else   if (paymentCheck == PosTransaction.EXTERNAL_PAYMENT) {
+    if (crtInfo == null) {
+      input.setFunction("CREDIT");
+      pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosRefNum",Locale.getDefault()));
+      return;
+    }
+ else {
+      processExternalPayment(pos,"CREDIT_CARD",crtInfo[1]);
+      return;
+    }
+  }
+  if (crtInfo == null) {
+    input.clearLastFunction();
+    input.setFunction("TOTAL");
+    input.setFunction("CREDIT");
+    pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosCredNo",Locale.getDefault()));
+  }
+ else {
+    Debug.logInfo("Credit Func Info : " + crtInfo[1],module);
+    if (msrInfo == null && (creditExpirationInfo == null)) {
+      if (UtilValidate.isNotEmpty(input.value()) && UtilValidate.isCreditCard(input.value())) {
+        input.clearLastFunction();
+        input.setFunction("CREDIT");
+        input.setFunction("CREDITEXP");
+        pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosCredex",Locale.getDefault()));
+      }
+ else {
+        Debug.logInfo("Invalid card number - " + input.value(),module);
+        clearInputPaymentFunctions(pos);
+        input.clearInput();
+        pos.showDialog("dialog/error/invalidcardnumber");
+      }
+    }
+ else     if (msrInfo == null && (securityCodeInfo == null)) {
+      if (UtilValidate.isNotEmpty(input.value()) && (input.value().length() == 4)) {
+        input.clearLastFunction();
+        input.setFunction("CREDITEXP");
+        input.setFunction("SECURITYCODE");
+        pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosSecurityCode",Locale.getDefault()));
+      }
+ else {
+        Debug.logInfo("Invalid expiration date",module);
+        clearInputPaymentFunctions(pos);
+        input.clearInput();
+        pos.showDialog("dialog/error/invalidexpirationdate");
+      }
+    }
+ else     if (msrInfo == null && (postalCodeInfo == null)) {
+      if (UtilValidate.isEmpty(input.value()) || (UtilValidate.isNotEmpty(input.value()) && (input.value().length() <= 4))) {
+        input.clearLastFunction();
+        input.setFunction("SECURITYCODE");
+        input.setFunction("POSTALCODE");
+        pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosPostalCode",Locale.getDefault()));
+      }
+ else {
+        clearInputPaymentFunctions(pos);
+        input.clearInput();
+        pos.showDialog("dialog/error/invalidsecuritycode");
+      }
+    }
+ else {
+      String msrInfoStr=null;
+      if (msrInfo == null) {
+        input.clearLastFunction();
+        input.setFunction("POSTALCODE");
+        postalCodeInfo=input.getFunction("POSTALCODE");
+        if (UtilValidate.isNotEmpty(crtInfo[1])) {
+          if (UtilValidate.isNotEmpty(creditExpirationInfo[1])) {
+            msrInfoStr=crtInfo[1] + "|" + creditExpirationInfo[1];
+          }
+ else {
+            msrInfoStr=crtInfo[1];
+          }
+        }
+      }
+ else {
+        input.setFunction("TOTAL");
+        msrInfoStr=msrInfo[1];
+      }
+      input.clearFunction("MSRINFO");
+      input.setFunction("MSRINFO",msrInfoStr);
+      String[] msrInfoArr=msrInfoStr.split("\\|");
+      int allInfo=msrInfoArr.length;
+      String firstName=null;
+      String lastName=null;
+switch (allInfo) {
+case 4:
+        lastName=msrInfoArr[3];
+case 3:
+      firstName=msrInfoArr[2];
+case 2:
+    BigDecimal amount=BigDecimal.ZERO;
+  try {
+    String[] totalInfo=input.getFunction("TOTAL");
+    amount=processAmount(trans,pos,totalInfo[1]);
+    Debug.logInfo("Processing Credit Card Amount : " + amount,module);
+  }
+ catch (  GeneralException e) {
+    Debug.logError("Exception caught calling processAmount.",module);
+    Debug.logError(e.getMessage(),module);
+  }
+String cardNumber=msrInfoArr[0];
+String expDate=msrInfoArr[1];
+String pmId=trans.makeCreditCardVo(cardNumber,expDate,firstName,lastName);
+if (pmId != null) {
+trans.addPayment(pmId,amount);
+}
+if (track2Info != null && UtilValidate.isNotEmpty(track2Info[1])) {
+trans.setPaymentTrack2(pmId,null,track2Info[1]);
+}
+ else {
+if (securityCodeInfo != null && UtilValidate.isNotEmpty(securityCodeInfo[1])) {
+trans.setPaymentSecurityCode(pmId,null,securityCodeInfo[1]);
+}
+if (postalCodeInfo != null && UtilValidate.isNotEmpty(postalCodeInfo[1])) {
+trans.setPaymentPostalCode(pmId,null,postalCodeInfo[1]);
+}
+}
+clearInputPaymentFunctions(pos);
+pos.refresh();
+break;
+case 1:
+pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosCredex",Locale.getDefault()));
+break;
+default :
+Debug.logInfo("Hit the default switch case [" + allInfo + "] refreshing.",module);
+input.clearFunction("MSRINFO");
+pos.getOutput().print(UtilProperties.getMessage(PosTransaction.resource,"PosCredNo",Locale.getDefault()));
+break;
+}
+}
+}
+}

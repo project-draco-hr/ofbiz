@@ -1,0 +1,65 @@
+{
+  WebSiteProperties webSiteProps=null;
+  try {
+    webSiteProps=WebSiteProperties.from(request);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Exception thrown while getting web site properties: ",module);
+    return null;
+  }
+  String requestUri=RequestHandler.getRequestUri(url);
+  ConfigXMLReader.RequestMap requestMap=null;
+  if (requestUri != null) {
+    try {
+      requestMap=getControllerConfig().getRequestMapMap().get(requestUri);
+    }
+ catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      return null;
+    }
+  }
+  boolean didFullSecure=false;
+  boolean didFullStandard=false;
+  if (requestMap != null && (webSiteProps.getEnableHttps() || fullPath || secure)) {
+    if (Debug.verboseOn())     Debug.logVerbose("In makeLink requestUri=" + requestUri,module);
+    if (secure || (webSiteProps.getEnableHttps() && requestMap.securityHttps && !request.isSecure())) {
+      didFullSecure=true;
+    }
+ else     if (fullPath || (webSiteProps.getEnableHttps() && !requestMap.securityHttps && request.isSecure())) {
+      didFullStandard=true;
+    }
+  }
+  StringBuilder newURL=new StringBuilder(250);
+  if (didFullSecure || didFullStandard) {
+    try {
+      OfbizUrlBuilder builder=OfbizUrlBuilder.from(request);
+      builder.buildHostPart(newURL,url,didFullSecure);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,"Exception thrown while getting web site properties: ",module);
+      return null;
+    }
+catch (    WebAppConfigurationException e) {
+      Debug.logError(e,"Exception thrown while parsing controller.xml file: ",module);
+      return null;
+    }
+catch (    IOException e) {
+      Debug.logError(e,"Exception thrown while writing to StringBuilder: ",module);
+      return null;
+    }
+  }
+  String controlPath=(String)request.getAttribute("_CONTROL_PATH_");
+  newURL.append(controlPath);
+  if (!url.startsWith("/")) {
+    newURL.append("/");
+  }
+  newURL.append(url);
+  String encodedUrl;
+  if (encode) {
+    encodedUrl=response.encodeURL(newURL.toString());
+  }
+ else {
+    encodedUrl=newURL.toString();
+  }
+  return encodedUrl;
+}

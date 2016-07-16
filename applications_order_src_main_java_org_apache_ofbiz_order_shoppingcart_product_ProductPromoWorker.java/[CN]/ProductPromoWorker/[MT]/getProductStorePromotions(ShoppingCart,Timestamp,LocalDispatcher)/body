@@ -1,0 +1,37 @@
+{
+  List<GenericValue> productPromoList=new LinkedList<GenericValue>();
+  Delegator delegator=cart.getDelegator();
+  String productStoreId=cart.getProductStoreId();
+  GenericValue productStore=null;
+  try {
+    productStore=EntityQuery.use(delegator).from("ProductStore").where("productStoreId",productStoreId).cache().queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up store with id " + productStoreId,module);
+  }
+  if (productStore == null) {
+    Debug.logWarning(UtilProperties.getMessage(resource_error,"OrderNoStoreFoundWithIdNotDoingPromotions",UtilMisc.toMap("productStoreId",productStoreId),cart.getLocale()),module);
+    return productPromoList;
+  }
+  try {
+    List<GenericValue> productStorePromoApplsList=productStore.getRelated("ProductStorePromoAppl",null,UtilMisc.toList("sequenceNum"),true);
+    productStorePromoApplsList=EntityUtil.filterByDate(productStorePromoApplsList,nowTimestamp);
+    if (UtilValidate.isEmpty(productStorePromoApplsList)) {
+      if (Debug.verboseOn())       Debug.logVerbose("Not doing promotions, none applied to store with ID " + productStoreId,module);
+    }
+    Iterator<GenericValue> prodCatalogPromoAppls=UtilMisc.toIterator(productStorePromoApplsList);
+    while (prodCatalogPromoAppls != null && prodCatalogPromoAppls.hasNext()) {
+      GenericValue prodCatalogPromoAppl=prodCatalogPromoAppls.next();
+      if (UtilValidate.isNotEmpty(prodCatalogPromoAppl.getString("manualOnly")) && "Y".equals(prodCatalogPromoAppl.getString("manualOnly"))) {
+        if (Debug.verboseOn())         Debug.logVerbose("Skipping promotion with id [" + prodCatalogPromoAppl.getString("productPromoId") + "] because it is applied to the store with ID "+ productStoreId+ " as a manual only promotion.",module);
+        continue;
+      }
+      GenericValue productPromo=prodCatalogPromoAppl.getRelatedOne("ProductPromo",true);
+      productPromoList.add(productPromo);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error looking up promotion data while doing promotions",module);
+  }
+  return productPromoList;
+}

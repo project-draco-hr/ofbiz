@@ -1,0 +1,111 @@
+{
+  int viewIndex=0;
+  int viewSize=this.viewSize;
+  int lowIndex=-1;
+  int highIndex=-1;
+  int listSize=0;
+  int actualPageSize=0;
+  boolean isEntrySet=false;
+  MapStack<String> contextMs=MapStack.create(context);
+  String entryName=this.entryNameExdr.expandString(context);
+  String keyName=this.keyNameExdr.expandString(context);
+  Object obj=listNameExdr.get(context);
+  if (obj == null) {
+    Debug.logError("No object found for listName:" + listNameExdr.toString(),module);
+    return;
+  }
+  List<?> theList=null;
+  if (obj instanceof Map<?,?>) {
+    Set<Map.Entry<String,Object>> entrySet=UtilGenerics.<Map<String,Object>>cast(obj).entrySet();
+    Object[] a=entrySet.toArray();
+    theList=Arrays.asList(a);
+    isEntrySet=true;
+  }
+ else   if (obj instanceof List<?>) {
+    theList=(List<?>)obj;
+  }
+ else {
+    Debug.logError("Object not list or map type",module);
+    return;
+  }
+  listSize=theList.size();
+  WidgetWorker.incrementPaginatorNumber(context);
+  int startPageNumber=WidgetWorker.getPaginatorNumber(context);
+  if (getPaginate(context)) {
+    try {
+      Map<String,String> params=UtilGenerics.cast(context.get("parameters"));
+      String viewIndexString=params.get("VIEW_INDEX" + "_" + WidgetWorker.getPaginatorNumber(context));
+      String viewSizeString=params.get("VIEW_SIZE" + "_" + WidgetWorker.getPaginatorNumber(context));
+      viewIndex=Integer.parseInt(viewIndexString);
+      viewSize=Integer.parseInt(viewSizeString);
+    }
+ catch (    Exception e) {
+      try {
+        viewIndex=((Integer)context.get("viewIndex")).intValue();
+      }
+ catch (      Exception e2) {
+        viewIndex=0;
+      }
+    }
+    context.put("viewIndex",Integer.valueOf(viewIndex));
+    lowIndex=viewIndex * viewSize;
+    highIndex=(viewIndex + 1) * viewSize;
+  }
+ else {
+    viewIndex=0;
+    viewSize=MAX_PAGE_SIZE;
+    lowIndex=0;
+    highIndex=MAX_PAGE_SIZE;
+  }
+  Iterator<?> iter=theList.iterator();
+  int itemIndex=-1;
+  int iterateIndex=0;
+  while (iter.hasNext()) {
+    itemIndex++;
+    if (itemIndex >= highIndex) {
+      break;
+    }
+    Object item=iter.next();
+    if (itemIndex < lowIndex) {
+      continue;
+    }
+    if (isEntrySet) {
+      Map.Entry<String,?> entry=UtilGenerics.cast(item);
+      contextMs.put(entryName,entry.getValue());
+      contextMs.put(keyName,entry.getKey());
+    }
+ else {
+      contextMs.put(entryName,item);
+    }
+    contextMs.put("itemIndex",Integer.valueOf(itemIndex));
+    if (iterateIndex < listSize) {
+      contextMs.put("iterateId",String.valueOf(entryName + iterateIndex));
+      iterateIndex++;
+    }
+    for (    ModelScreenWidget.Section section : this.sectionList) {
+      section.renderWidgetString(writer,contextMs,screenStringRenderer);
+    }
+  }
+  if ((itemIndex + 1) < highIndex) {
+    highIndex=itemIndex + 1;
+  }
+  actualPageSize=highIndex - lowIndex;
+  if (getPaginate(context)) {
+    try {
+      Integer lastPageNumber=null;
+      Map<String,Object> globalCtx=UtilGenerics.checkMap(context.get("globalContext"));
+      if (globalCtx != null) {
+        lastPageNumber=(Integer)globalCtx.get("PAGINATOR_NUMBER");
+        globalCtx.put("PAGINATOR_NUMBER",Integer.valueOf(startPageNumber));
+      }
+      renderNextPrev(writer,context,listSize,actualPageSize);
+      if (globalCtx != null) {
+        globalCtx.put("PAGINATOR_NUMBER",lastPageNumber);
+      }
+    }
+ catch (    IOException e) {
+      Debug.logError(e,module);
+      throw new RuntimeException(e.getMessage());
+    }
+  }
+}

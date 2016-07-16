@@ -1,0 +1,32 @@
+{
+  if (product == null) {
+    throw new GenericEntityException("product is null");
+  }
+  if (inDate == null)   inDate=new Date();
+  bomTypeId=partBomTypeId;
+  List<GenericValue> rows=EntityQuery.use(delegator).from("ProductAssoc").where("productId",product.get("productId"),"productAssocTypeId",partBomTypeId).orderBy("sequenceNum","productIdTo").filterByDate(inDate).queryList();
+  if ((UtilValidate.isEmpty(rows)) && substitutedNode != null) {
+    rows=EntityQuery.use(delegator).from("ProductAssoc").where("productId",substitutedNode.getProduct().get("productId"),"productAssocTypeId",partBomTypeId).orderBy("sequenceNum").filterByDate(inDate).queryList();
+  }
+  children=new LinkedList<GenericValue>();
+  children.addAll(rows);
+  childrenNodes=new LinkedList<BOMNode>();
+  BOMNode oneChildNode=null;
+  for (  GenericValue oneChild : children) {
+    oneChildNode=configurator(oneChild,productFeatures,getRootNode().getProductForRules(),inDate);
+    if (oneChildNode != null) {
+      oneChildNode.setParentNode(this);
+switch (type) {
+case BOMTree.EXPLOSION:
+        oneChildNode.loadChildren(partBomTypeId,inDate,productFeatures,BOMTree.EXPLOSION);
+      break;
+case BOMTree.EXPLOSION_MANUFACTURING:
+    if (!oneChildNode.isWarehouseManaged(null)) {
+      oneChildNode.loadChildren(partBomTypeId,inDate,productFeatures,type);
+    }
+  break;
+}
+}
+childrenNodes.add(oneChildNode);
+}
+}

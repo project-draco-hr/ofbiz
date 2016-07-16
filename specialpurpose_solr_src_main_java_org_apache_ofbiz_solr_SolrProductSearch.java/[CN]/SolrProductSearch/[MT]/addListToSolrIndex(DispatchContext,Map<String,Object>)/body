@@ -1,0 +1,63 @@
+{
+  String solrIndexName=(String)context.get("indexName");
+  HttpSolrClient client=null;
+  Map<String,Object> result;
+  Boolean treatConnectErrorNonFatal=(Boolean)context.get("treatConnectErrorNonFatal");
+  try {
+    Collection<SolrInputDocument> docs=new ArrayList<SolrInputDocument>();
+    List<Map<String,Object>> fieldList=UtilGenerics.<Map<String,Object>>checkList(context.get("fieldList"));
+    Debug.logInfo("Solr: Generating and adding " + fieldList.size() + " documents to solr index",module);
+    for (Iterator<Map<String,Object>> fieldListIterator=fieldList.iterator(); fieldListIterator.hasNext(); ) {
+      SolrInputDocument doc1=SolrUtil.generateSolrDocument(fieldListIterator.next());
+      if (Debug.verboseOn()) {
+        Debug.logVerbose("Solr: Indexing document: " + doc1.toString(),module);
+      }
+      docs.add(doc1);
+    }
+    client=SolrUtil.getInstance().getHttpSolrClient(solrIndexName);
+    client.add(docs);
+    client.commit();
+    final String statusStr="Added " + fieldList.size() + " documents to solr index";
+    Debug.logInfo("Solr: " + statusStr,module);
+    result=ServiceUtil.returnSuccess(statusStr);
+  }
+ catch (  MalformedURLException e) {
+    Debug.logError(e,e.getMessage(),module);
+    result=ServiceUtil.returnError(e.toString());
+    result.put("errorType","urlError");
+  }
+catch (  SolrServerException e) {
+    if (e.getCause() != null && e.getCause() instanceof ConnectException) {
+      final String statusStr="Failure connecting to solr server to commit product list; products not updated";
+      if (Boolean.TRUE.equals(treatConnectErrorNonFatal)) {
+        Debug.logWarning(e,"Solr: " + statusStr,module);
+        result=ServiceUtil.returnFailure(statusStr);
+      }
+ else {
+        Debug.logError(e,"Solr: " + statusStr,module);
+        result=ServiceUtil.returnError(statusStr);
+      }
+      result.put("errorType","connectError");
+    }
+ else {
+      Debug.logError(e,e.getMessage(),module);
+      result=ServiceUtil.returnError(e.toString());
+      result.put("errorType","solrServerError");
+    }
+  }
+catch (  IOException e) {
+    Debug.logError(e,e.getMessage(),module);
+    result=ServiceUtil.returnError(e.toString());
+    result.put("errorType","ioError");
+  }
+ finally {
+    if (client != null) {
+      try {
+        client.close();
+      }
+ catch (      IOException e) {
+      }
+    }
+  }
+  return result;
+}

@@ -1,0 +1,43 @@
+{
+  Delegator delegator=this.getDelegator();
+  String orderId=line.getOrderId();
+  Map<String,Object> newShipment=new HashMap<String,Object>();
+  newShipment.put("originFacilityId",facilityId);
+  newShipment.put("primaryShipGroupSeqId",line.getShipGroupSeqId());
+  newShipment.put("primaryOrderId",orderId);
+  newShipment.put("shipmentTypeId","OUTGOING_SHIPMENT");
+  newShipment.put("statusId","SHIPMENT_SCHEDULED");
+  newShipment.put("userLogin",this.getUserLogin());
+  GenericValue orderRoleShipTo=EntityQuery.use(delegator).from("OrderRole").where("orderId",orderId,"roleTypeId","SHIP_TO_CUSTOMER").queryFirst();
+  if (UtilValidate.isNotEmpty(orderRoleShipTo)) {
+    newShipment.put("partyIdTo",orderRoleShipTo.getString("partyId"));
+  }
+  String partyIdFrom=null;
+  GenericValue orderItemShipGroup=EntityQuery.use(delegator).from("OrderItemShipGroup").where("orderId",orderId,"shipGroupSeqId",line.getShipGroupSeqId()).queryFirst();
+  if (UtilValidate.isNotEmpty(orderItemShipGroup.getString("vendorPartyId"))) {
+    partyIdFrom=orderItemShipGroup.getString("vendorPartyId");
+  }
+ else   if (UtilValidate.isNotEmpty(orderItemShipGroup.getString("facilityId"))) {
+    GenericValue facility=EntityQuery.use(delegator).from("Facility").where("facilityId",orderItemShipGroup.getString("facilityId")).queryOne();
+    if (UtilValidate.isNotEmpty(facility.getString("ownerPartyId"))) {
+      partyIdFrom=facility.getString("ownerPartyId");
+    }
+  }
+  if (UtilValidate.isEmpty(partyIdFrom)) {
+    GenericValue orderRoleShipFrom=EntityQuery.use(delegator).from("OrderRole").where("orderId",orderId,"roleTypeId","SHIP_FROM_VENDOR").queryFirst();
+    if (UtilValidate.isNotEmpty(orderRoleShipFrom)) {
+      partyIdFrom=orderRoleShipFrom.getString("partyId");
+    }
+ else {
+      orderRoleShipFrom=EntityQuery.use(delegator).from("OrderRole").where("orderId",orderId,"roleTypeId","BILL_FROM_VENDOR").queryFirst();
+      partyIdFrom=orderRoleShipFrom.getString("partyId");
+    }
+  }
+  newShipment.put("partyIdFrom",partyIdFrom);
+  Map<String,Object> newShipResp=this.getDispatcher().runSync("createShipment",newShipment);
+  if (ServiceUtil.isError(newShipResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(newShipResp));
+  }
+  String shipmentId=(String)newShipResp.get("shipmentId");
+  return shipmentId;
+}

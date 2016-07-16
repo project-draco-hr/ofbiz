@@ -1,0 +1,44 @@
+{
+  this.setDelegatorNames(delegatorFullName);
+  this.delegatorInfo=EntityConfig.getInstance().getDelegator(delegatorBaseName);
+  String kekText;
+  if (UtilValidate.isNotEmpty(this.delegatorTenantId)) {
+    Delegator baseDelegator=DelegatorFactory.getDelegator(this.delegatorBaseName);
+    GenericValue tenant=EntityQuery.use(baseDelegator).from("Tenant").where("tenantId",this.delegatorTenantId).cache(true).queryOne();
+    if (tenant == null) {
+      throw new GenericEntityException("No Tenant record found for delegator [" + this.delegatorFullName + "] with tenantId ["+ this.delegatorTenantId+ "]");
+    }
+ else     if ("Y".equals(tenant.getString("disabled"))) {
+      throw new GenericEntityException("No Tenant record found for delegator [" + this.delegatorFullName + "] with tenantId ["+ this.delegatorTenantId+ "]");
+    }
+    GenericValue kekValue=EntityQuery.use(baseDelegator).from("TenantKeyEncryptingKey").where("tenantId",getDelegatorTenantId()).cache(true).queryOne();
+    if (kekValue != null) {
+      kekText=kekValue.getString("kekText");
+    }
+ else {
+      kekText=this.delegatorInfo.getKeyEncryptingKey();
+    }
+  }
+ else {
+    kekText=this.delegatorInfo.getKeyEncryptingKey();
+  }
+  this.modelReader=ModelReader.getModelReader(delegatorBaseName);
+  this.modelGroupReader=ModelGroupReader.getModelGroupReader(delegatorBaseName);
+  cache=new Cache(delegatorFullName);
+  List<String> warningList=new LinkedList<String>();
+  Debug.logInfo("Doing entity definition check...",module);
+  ModelEntityChecker.checkEntities(this,warningList);
+  if (warningList.size() > 0) {
+    Debug.logWarning("=-=-=-=-= Found " + warningList.size() + " warnings when checking the entity definitions:",module);
+    for (    String warning : warningList) {
+      Debug.logWarning(warning,module);
+    }
+  }
+  Set<String> groupNames=getModelGroupReader().getGroupNames(delegatorBaseName);
+  List<Future<Void>> futures=new LinkedList<Future<Void>>();
+  for (  String groupName : groupNames) {
+    futures.add(ExecutionPool.GLOBAL_BATCH.submit(createHelperCallable(groupName)));
+  }
+  ExecutionPool.getAllFutures(futures);
+  this.crypto=new EntityCrypto(this,kekText);
+}

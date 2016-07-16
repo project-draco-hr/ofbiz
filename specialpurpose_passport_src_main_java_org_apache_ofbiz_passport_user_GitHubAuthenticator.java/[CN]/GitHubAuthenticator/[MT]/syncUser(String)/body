@@ -1,0 +1,58 @@
+{
+  Map<String,Object> userMap=getGitHubUserinfo(userLoginId);
+  GenericValue system;
+  try {
+    system=delegator.findOne("UserLogin",UtilMisc.toMap("userLoginId","system"),true);
+  }
+ catch (  GenericEntityException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  GenericValue userLogin;
+  try {
+    userLogin=EntityUtil.getFirst(delegator.findByAnd("UserLogin",UtilMisc.toMap("externalAuthId",(String)userMap.get("id")),null,false));
+  }
+ catch (  GenericEntityException e) {
+    throw new AuthenticatorException(e.getMessage(),e);
+  }
+  Transaction parentTx=null;
+  boolean beganTransaction=false;
+  try {
+    try {
+      parentTx=TransactionUtil.suspend();
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Could not suspend transaction: " + e.getMessage(),module);
+    }
+    try {
+      beganTransaction=TransactionUtil.begin();
+      if (userLogin == null) {
+        createUser(userMap,system);
+      }
+ else {
+        updateUser(userMap,system,userLogin);
+      }
+    }
+ catch (    GenericTransactionException e) {
+      Debug.logError(e,"Could not suspend transaction: " + e.getMessage(),module);
+    }
+ finally {
+      try {
+        TransactionUtil.commit(beganTransaction);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not commit nested transaction: " + e.getMessage(),module);
+      }
+    }
+  }
+  finally {
+    if (parentTx != null) {
+      try {
+        TransactionUtil.resume(parentTx);
+        Debug.logVerbose("Resumed the parent transaction.",module);
+      }
+ catch (      GenericTransactionException e) {
+        Debug.logError(e,"Could not resume parent nested transaction: " + e.getMessage(),module);
+      }
+    }
+  }
+}

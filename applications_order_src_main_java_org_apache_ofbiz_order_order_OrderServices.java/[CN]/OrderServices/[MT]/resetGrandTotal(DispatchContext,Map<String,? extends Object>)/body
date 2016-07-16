@@ -1,0 +1,53 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  String orderId=(String)context.get("orderId");
+  GenericValue orderHeader=null;
+  try {
+    orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="ERROR: Could not set grantTotal on OrderHeader entity: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  if (orderHeader != null) {
+    OrderReadHelper orh=new OrderReadHelper(orderHeader);
+    BigDecimal currentTotal=orderHeader.getBigDecimal("grandTotal");
+    BigDecimal currentSubTotal=orderHeader.getBigDecimal("remainingSubTotal");
+    BigDecimal updatedTotal=orh.getOrderGrandTotal();
+    String productStoreId=orderHeader.getString("productStoreId");
+    String showPricesWithVatTax=null;
+    if (UtilValidate.isNotEmpty(productStoreId)) {
+      GenericValue productStore=null;
+      try {
+        productStore=EntityQuery.use(delegator).from("ProductStore").where("productStoreId",productStoreId).cache().queryOne();
+      }
+ catch (      GenericEntityException e) {
+        String errorMessage=UtilProperties.getMessage(resource_error,"OrderErrorCouldNotFindProductStoreWithID",UtilMisc.toMap("productStoreId",productStoreId),(Locale)context.get("locale")) + e.toString();
+        Debug.logError(e,errorMessage,module);
+        return ServiceUtil.returnError(errorMessage + e.getMessage() + ").");
+      }
+      showPricesWithVatTax=productStore.getString("showPricesWithVatTax");
+    }
+    BigDecimal remainingSubTotal=ZERO;
+    if (UtilValidate.isNotEmpty(productStoreId) && "Y".equalsIgnoreCase(showPricesWithVatTax)) {
+      remainingSubTotal=updatedTotal.subtract(orh.getOrderReturnedTotal()).subtract(orh.getShippingTotal());
+    }
+ else {
+      remainingSubTotal=updatedTotal.subtract(orh.getOrderReturnedTotal()).subtract(orh.getOrderNonReturnedTaxAndShipping());
+    }
+    if (currentTotal == null || currentSubTotal == null || updatedTotal.compareTo(currentTotal) != 0 || remainingSubTotal.compareTo(currentSubTotal) != 0) {
+      orderHeader.set("grandTotal",updatedTotal);
+      orderHeader.set("remainingSubTotal",remainingSubTotal);
+      try {
+        orderHeader.store();
+      }
+ catch (      GenericEntityException e) {
+        String errMsg="ERROR: Could not set grandTotal on OrderHeader entity: " + e.toString();
+        Debug.logError(e,errMsg,module);
+        return ServiceUtil.returnError(errMsg);
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

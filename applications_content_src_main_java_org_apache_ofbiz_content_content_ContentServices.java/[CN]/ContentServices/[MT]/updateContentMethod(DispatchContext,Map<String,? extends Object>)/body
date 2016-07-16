@@ -1,0 +1,54 @@
+{
+  Map<String,Object> context=UtilMisc.makeMapWritable(rcontext);
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map<String,Object> result=new HashMap<String,Object>();
+  context.put("entityOperation","_UPDATE");
+  List<String> targetOperationList=ContentWorker.prepTargetOperationList(context,"_UPDATE");
+  List<String> contentPurposeList=ContentWorker.prepContentPurposeList(context);
+  context.put("targetOperationList",targetOperationList);
+  context.put("contentPurposeList",contentPurposeList);
+  GenericValue content=null;
+  Locale locale=(Locale)context.get("locale");
+  String contentId=(String)context.get("contentId");
+  try {
+    content=EntityQuery.use(delegator).from("Content").where("contentId",contentId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentNoContentFound",UtilMisc.toMap("contentId",contentId),locale));
+  }
+  context.put("currentContent",content);
+  Map<String,Object> permResults=ContentWorker.callContentPermissionCheckResult(delegator,dispatcher,context);
+  String permissionStatus=(String)permResults.get("permissionStatus");
+  if (permissionStatus != null && permissionStatus.equalsIgnoreCase("granted")) {
+    GenericValue userLogin=(GenericValue)context.get("userLogin");
+    String userLoginId=(String)userLogin.get("userLoginId");
+    String lastModifiedByUserLogin=userLoginId;
+    Timestamp lastModifiedDate=UtilDateTime.nowTimestamp();
+    if (UtilValidate.isNotEmpty(context.get("statusId"))) {
+      Map<String,Object> statusInMap=UtilMisc.<String,Object>toMap("contentId",context.get("contentId"),"statusId",context.get("statusId"),"userLogin",userLogin);
+      try {
+        dispatcher.runSync("setContentStatus",statusInMap);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem updating content Status","ContentServices");
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentStatusUpdateError",UtilMisc.toMap("errorString",e),locale));
+      }
+    }
+    content.setNonPKFields(context);
+    content.put("lastModifiedByUserLogin",lastModifiedByUserLogin);
+    content.put("lastModifiedDate",lastModifiedDate);
+    try {
+      content.store();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+ else {
+    String errorMsg=ContentWorker.prepPermissionErrorMsg(permResults);
+    return ServiceUtil.returnError(errorMsg);
+  }
+  return result;
+}

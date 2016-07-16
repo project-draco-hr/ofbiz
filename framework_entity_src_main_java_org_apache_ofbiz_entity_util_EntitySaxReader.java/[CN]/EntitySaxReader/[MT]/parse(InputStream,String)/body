@@ -1,0 +1,39 @@
+{
+  XMLReaderImpl parser=new XMLReaderImpl();
+  parser.setContentHandler(this);
+  parser.setErrorHandler(this);
+  numberRead=0;
+  try {
+    boolean beganTransaction=false;
+    if (transactionTimeout > -1) {
+      beganTransaction=TransactionUtil.begin(transactionTimeout);
+      Debug.logImportant("Transaction Timeout set to " + transactionTimeout / 3600 + " hours (" + transactionTimeout + " seconds)",module);
+    }
+    try {
+      parser.parse(is);
+      if (!valuesToWrite.isEmpty()) {
+        writeValues(valuesToWrite);
+        valuesToWrite.clear();
+      }
+      if (!valuesToDelete.isEmpty()) {
+        delegator.removeAll(valuesToDelete);
+        valuesToDelete.clear();
+      }
+      TransactionUtil.commit(beganTransaction);
+    }
+ catch (    Exception e) {
+      String errMsg="An error occurred saving the data, rolling back transaction (" + beganTransaction + ")";
+      Debug.logError(e,errMsg,module);
+      TransactionUtil.rollback(beganTransaction,errMsg,e);
+      throw new SAXException("A transaction error occurred reading data",e);
+    }
+  }
+ catch (  GenericTransactionException e) {
+    throw new SAXException("A transaction error occurred reading data",e);
+  }
+  Debug.logImportant("Finished " + numberRead + " values from "+ docDescription,module);
+  if (Debug.verboseOn()) {
+    Debug.logVerbose("  Detail created : " + numberCreated + ", skipped : "+ numberSkipped+ ", updated : "+ numberUpdated+ ", replaced : "+ numberReplaced+ ", deleted : "+ numberDeleted,module);
+  }
+  return numberRead;
+}

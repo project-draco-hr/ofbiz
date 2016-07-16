@@ -1,0 +1,76 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  if (DECIMALS == -1 || ROUNDING == -1) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingAritmeticPropertiesNotConfigured",locale));
+  }
+  String invoiceId=(String)context.get("invoiceId");
+  GenericValue invoice=null;
+  try {
+    invoice=EntityQuery.use(delegator).from("Invoice").where("invoiceId",invoiceId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting Invoice for Invoice ID" + invoiceId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingInvoiceNotFound",UtilMisc.toMap("invoiceId",invoiceId),locale));
+  }
+  if (!invoice.getString("statusId").equals("INVOICE_READY")) {
+    return ServiceUtil.returnSuccess();
+  }
+  List<GenericValue> paymentAppl=null;
+  try {
+    paymentAppl=EntityQuery.use(delegator).from("PaymentAndApplication").where("invoiceId",invoiceId).queryList();
+    for (Iterator<GenericValue> iter=paymentAppl.iterator(); iter.hasNext(); ) {
+      GenericValue payment=iter.next();
+      if ("PMNT_RECEIVED".equals(payment.get("statusId")) && UtilAccounting.isReceipt(payment)) {
+        continue;
+      }
+      if ("PMNT_SENT".equals(payment.get("statusId")) && UtilAccounting.isDisbursement(payment)) {
+        continue;
+      }
+      iter.remove();
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Problem getting PaymentApplication(s) for Invoice ID " + invoiceId,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemGettingPaymentApplication",UtilMisc.toMap("invoiceId",invoiceId),locale));
+  }
+  Map<String,BigDecimal> payments=new HashMap<String,BigDecimal>();
+  Timestamp paidDate=null;
+  for (  GenericValue payAppl : paymentAppl) {
+    payments.put(payAppl.getString("paymentId"),payAppl.getBigDecimal("amountApplied"));
+    Timestamp paymentDate=payAppl.getTimestamp("effectiveDate");
+    if (paymentDate != null) {
+      if ((paidDate == null) || (paidDate.before(paymentDate))) {
+        paidDate=paymentDate;
+      }
+    }
+  }
+  BigDecimal totalPayments=ZERO;
+  for (  BigDecimal amount : payments.values()) {
+    if (amount == null)     amount=ZERO;
+    totalPayments=totalPayments.add(amount).setScale(DECIMALS,ROUNDING);
+  }
+  if (totalPayments.signum() == 1) {
+    BigDecimal invoiceTotal=InvoiceWorker.getInvoiceTotal(delegator,invoiceId);
+    if (Debug.verboseOn()) {
+      Debug.logVerbose("Invoice #" + invoiceId + " total: "+ invoiceTotal,module);
+      Debug.logVerbose("Total payments : " + totalPayments,module);
+    }
+    if (totalPayments.compareTo(invoiceTotal) >= 0) {
+      Map<String,Object> svcCtx=UtilMisc.toMap("statusId","INVOICE_PAID","invoiceId",invoiceId,"paidDate",paidDate,"userLogin",userLogin);
+      try {
+        dispatcher.runSync("setInvoiceStatus",svcCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem changing invoice status to INVOICE_PAID" + svcCtx,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingProblemChangingInvoiceStatusTo",UtilMisc.toMap("newStatus","INVOICE_PAID"),locale));
+      }
+    }
+  }
+ else {
+    Debug.logInfo("No payments found for Invoice #" + invoiceId,module);
+  }
+  return ServiceUtil.returnSuccess();
+}

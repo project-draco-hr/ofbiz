@@ -1,0 +1,131 @@
+{
+  String productStoreId=(String)context.get("productStoreId");
+  Locale locale=(Locale)context.get("locale");
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Map<String,Object> result=new HashMap<String,Object>();
+  List<String> featureOrder=UtilMisc.makeListWritable(UtilGenerics.<String>checkCollection(context.get("featureOrder")));
+  if (UtilValidate.isEmpty(featureOrder)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductFeatureTreeCannotFindFeaturesList",locale));
+  }
+  List<GenericValue> variants=UtilGenerics.checkList(prodFindAllVariants(dctx,context).get("assocProducts"));
+  List<String> virtualVariant=new LinkedList<String>();
+  if (UtilValidate.isEmpty(variants)) {
+    return ServiceUtil.returnSuccess();
+  }
+  List<String> items=new LinkedList<String>();
+  List<GenericValue> outOfStockItems=new LinkedList<GenericValue>();
+  for (  GenericValue variant : variants) {
+    String productIdTo=variant.getString("productIdTo");
+    GenericValue productTo=null;
+    try {
+      productTo=EntityQuery.use(delegator).from("Product").where("productId",productIdTo).cache().queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      Map<String,String> messageMap=UtilMisc.toMap("productIdTo",productIdTo,"errMessage",e.toString());
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"productservices.error_finding_associated_variant_with_ID_error",messageMap,locale));
+    }
+    if (productTo == null) {
+      Debug.logWarning("Could not find associated variant with ID " + productIdTo + ", not showing in list",module);
+      continue;
+    }
+    java.sql.Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+    if (productTo.get("introductionDate") != null && nowTimestamp.before(productTo.getTimestamp("introductionDate"))) {
+      if (Debug.verboseOn()) {
+        String excMsg="Tried to view the Product " + productTo.getString("productName") + " (productId: "+ productTo.getString("productId")+ ") as a variant. This product has not yet been made available for sale, so not adding for view.";
+        Debug.logVerbose(excMsg,module);
+      }
+      continue;
+    }
+    if (productTo.get("salesDiscontinuationDate") != null && nowTimestamp.after(productTo.getTimestamp("salesDiscontinuationDate"))) {
+      if (Debug.verboseOn()) {
+        String excMsg="Tried to view the Product " + productTo.getString("productName") + " (productId: "+ productTo.getString("productId")+ ") as a variant. This product is no longer available for sale, so not adding for view.";
+        Debug.logVerbose(excMsg,module);
+      }
+      continue;
+    }
+    Boolean checkInventory=(Boolean)context.get("checkInventory");
+    try {
+      if (checkInventory) {
+        Map<String,Object> invReqResult=dispatcher.runSync("isStoreInventoryAvailableOrNotRequired",UtilMisc.<String,Object>toMap("productStoreId",productStoreId,"productId",productIdTo,"quantity",BigDecimal.ONE));
+        if (ServiceUtil.isError(invReqResult)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductFeatureTreeCannotCallIsStoreInventoryRequired",locale),null,null,invReqResult);
+        }
+ else         if ("Y".equals(invReqResult.get("availableOrNotRequired"))) {
+          items.add(productIdTo);
+          if (productTo.getString("isVirtual") != null && productTo.getString("isVirtual").equals("Y")) {
+            virtualVariant.add(productIdTo);
+          }
+        }
+ else {
+          outOfStockItems.add(productTo);
+        }
+      }
+ else {
+        items.add(productIdTo);
+        if (productTo.getString("isVirtual") != null && productTo.getString("isVirtual").equals("Y")) {
+          virtualVariant.add(productIdTo);
+        }
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Error calling the isStoreInventoryRequired when building the variant product tree: " + e.toString(),module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductFeatureTreeCannotCallIsStoreInventoryRequired",locale));
+    }
+  }
+  String productId=(String)context.get("productId");
+  List<GenericValue> selectableFeatures=null;
+  try {
+    selectableFeatures=EntityQuery.use(delegator).from("ProductFeatureAndAppl").where("productId",productId,"productFeatureApplTypeId","SELECTABLE_FEATURE").orderBy("sequenceNum").cache(true).filterByDate().queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"productservices.empty_list_of_selectable_features_found",locale));
+  }
+  Map<String,List<String>> features=new HashMap<String,List<String>>();
+  for (  GenericValue v : selectableFeatures) {
+    String featureType=v.getString("productFeatureTypeId");
+    String feature=v.getString("description");
+    if (!features.containsKey(featureType)) {
+      List<String> featureList=new LinkedList<String>();
+      featureList.add(feature);
+      features.put(featureType,featureList);
+    }
+ else {
+      List<String> featureList=features.get(featureType);
+      featureList.add(feature);
+      features.put(featureType,featureList);
+    }
+  }
+  Map<String,Object> tree=null;
+  try {
+    tree=makeGroup(delegator,features,items,featureOrder,0);
+  }
+ catch (  Exception e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (UtilValidate.isEmpty(tree)) {
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_ERROR);
+    result.put(ModelService.ERROR_MESSAGE,UtilProperties.getMessage(resourceError,"productservices.feature_grouping_came_back_empty",locale));
+  }
+ else {
+    result.put("variantTree",tree);
+    result.put("virtualVariant",virtualVariant);
+    result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  }
+  Map<String,GenericValue> sample=null;
+  try {
+    sample=makeVariantSample(dctx.getDelegator(),features,items,featureOrder.get(0));
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (outOfStockItems.size() > 0) {
+    result.put("unavailableVariants",outOfStockItems);
+  }
+  result.put("variantSample",sample);
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

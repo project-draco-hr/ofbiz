@@ -1,0 +1,29 @@
+{
+  GenericValue productStore=OrderReadHelper.getProductStoreFromOrder(dispatcher.getDelegator(),orderId);
+  if (productStore == null) {
+    throw new IllegalArgumentException("Could not find ProductStore for orderId [" + orderId + "], cannot approve order.");
+  }
+  String HEADER_STATUS="ORDER_PROCESSING";
+  String ITEM_STATUS="ITEM_CREATED";
+  String DIGITAL_ITEM_STATUS="ITEM_APPROVED";
+  if (!holdOrder) {
+    if (productStore.get("headerApprovedStatus") != null) {
+      HEADER_STATUS=productStore.getString("headerApprovedStatus");
+    }
+    if (productStore.get("itemApprovedStatus") != null) {
+      ITEM_STATUS=productStore.getString("itemApprovedStatus");
+    }
+    if (productStore.get("digitalItemApprovedStatus") != null) {
+      DIGITAL_ITEM_STATUS=productStore.getString("digitalItemApprovedStatus");
+    }
+  }
+  try {
+    OrderChangeHelper.orderStatusChanges(dispatcher,userLogin,orderId,HEADER_STATUS,"ITEM_CREATED",ITEM_STATUS,DIGITAL_ITEM_STATUS);
+    OrderChangeHelper.releaseInitialOrderHold(dispatcher,orderId);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Service invocation error, status changes were not updated for order #" + orderId,module);
+    return false;
+  }
+  return true;
+}

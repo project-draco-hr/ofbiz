@@ -1,0 +1,120 @@
+{
+  ModelFormField modelFormField=displayField.getModelFormField();
+  String idName=modelFormField.getCurrentContainerId(context);
+  String description=displayField.getDescription(context);
+  String type=displayField.getType();
+  String imageLocation=displayField.getImageLocation(context);
+  Integer size=Integer.valueOf("0");
+  String title="";
+  if (UtilValidate.isNotEmpty(displayField.getSize())) {
+    try {
+      size=Integer.parseInt(displayField.getSize());
+    }
+ catch (    NumberFormatException nfe) {
+      Debug.logError(nfe,"Error reading size of a field fieldName=" + displayField.getModelFormField().getFieldName() + " FormName= "+ displayField.getModelFormField().getModelForm().getName(),module);
+    }
+  }
+  ModelFormField.InPlaceEditor inPlaceEditor=displayField.getInPlaceEditor();
+  boolean ajaxEnabled=inPlaceEditor != null && this.javaScriptEnabled;
+  if (UtilValidate.isNotEmpty(description) && size > 0 && description.length() > size) {
+    title=description;
+    description=description.substring(0,size - 8) + "..." + description.substring(description.length() - 5);
+  }
+  StringWriter sr=new StringWriter();
+  sr.append("<@renderDisplayField ");
+  sr.append("type=\"");
+  sr.append(type);
+  sr.append("\" imageLocation=\"");
+  sr.append(imageLocation);
+  sr.append("\" idName=\"");
+  sr.append(idName);
+  sr.append("\" description=\"");
+  sr.append(FreeMarkerWorker.encodeDoubleQuotes(description));
+  sr.append("\" title=\"");
+  sr.append(title);
+  sr.append("\" class=\"");
+  sr.append(modelFormField.getWidgetStyle());
+  sr.append("\" alert=\"");
+  sr.append(modelFormField.shouldBeRed(context) ? "true" : "false");
+  if (ajaxEnabled) {
+    String url=inPlaceEditor.getUrl(context);
+    String extraParameter="{";
+    Map<String,Object> fieldMap=inPlaceEditor.getFieldMap(context);
+    if (fieldMap != null) {
+      Set<Entry<String,Object>> fieldSet=fieldMap.entrySet();
+      Iterator<Entry<String,Object>> fieldIterator=fieldSet.iterator();
+      int count=0;
+      while (fieldIterator.hasNext()) {
+        count++;
+        Entry<String,Object> field=fieldIterator.next();
+        extraParameter+=field.getKey() + ":'" + (String)field.getValue()+ "'";
+        if (count < fieldSet.size()) {
+          extraParameter+=',';
+        }
+      }
+    }
+    extraParameter+="}";
+    sr.append("\" inPlaceEditorUrl=\"");
+    sr.append(url);
+    sr.append("\" inPlaceEditorParams=\"");
+    StringWriter inPlaceEditorParams=new StringWriter();
+    inPlaceEditorParams.append("{name: '");
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getParamName())) {
+      inPlaceEditorParams.append(inPlaceEditor.getParamName());
+    }
+ else {
+      inPlaceEditorParams.append(modelFormField.getFieldName());
+    }
+    inPlaceEditorParams.append("'");
+    inPlaceEditorParams.append(", method: 'POST'");
+    inPlaceEditorParams.append(", submitdata: " + extraParameter);
+    inPlaceEditorParams.append(", type: 'textarea'");
+    inPlaceEditorParams.append(", select: 'true'");
+    inPlaceEditorParams.append(", onreset: function(){jQuery('#cc_" + idName + "').css('background-color', 'transparent');}");
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getCancelText())) {
+      inPlaceEditorParams.append(", cancel: '" + inPlaceEditor.getCancelText() + "'");
+    }
+ else {
+      inPlaceEditorParams.append(", cancel: 'Cancel'");
+    }
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getClickToEditText())) {
+      inPlaceEditorParams.append(", tooltip: '" + inPlaceEditor.getClickToEditText() + "'");
+    }
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getFormClassName())) {
+      inPlaceEditorParams.append(", cssclass: '" + inPlaceEditor.getFormClassName() + "'");
+    }
+ else {
+      inPlaceEditorParams.append(", cssclass: 'inplaceeditor-form'");
+    }
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getLoadingText())) {
+      inPlaceEditorParams.append(", indicator: '" + inPlaceEditor.getLoadingText() + "'");
+    }
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getOkControl())) {
+      inPlaceEditorParams.append(", submit: ");
+      if (!"false".equals(inPlaceEditor.getOkControl())) {
+        inPlaceEditorParams.append("'");
+      }
+      inPlaceEditorParams.append(inPlaceEditor.getOkControl());
+      if (!"false".equals(inPlaceEditor.getOkControl())) {
+        inPlaceEditorParams.append("'");
+      }
+    }
+ else {
+      inPlaceEditorParams.append(", submit: 'OK'");
+    }
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getRows())) {
+      inPlaceEditorParams.append(", rows: '" + inPlaceEditor.getRows() + "'");
+    }
+    if (UtilValidate.isNotEmpty(inPlaceEditor.getCols())) {
+      inPlaceEditorParams.append(", cols: '" + inPlaceEditor.getCols() + "'");
+    }
+    inPlaceEditorParams.append("}");
+    sr.append(inPlaceEditorParams.toString());
+  }
+  sr.append("\" />");
+  executeMacro(writer,sr.toString());
+  if (displayField instanceof DisplayEntityField) {
+    makeHyperlinkString(writer,((DisplayEntityField)displayField).getSubHyperlink(),context);
+  }
+  this.appendTooltip(writer,context,modelFormField);
+}

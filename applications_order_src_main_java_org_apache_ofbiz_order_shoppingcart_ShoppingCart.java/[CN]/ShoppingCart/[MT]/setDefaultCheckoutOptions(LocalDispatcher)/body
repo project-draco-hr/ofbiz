@@ -1,0 +1,43 @@
+{
+  this.setAttribute("addpty","Y");
+  if (getOrderType().equals("SALES_ORDER")) {
+    if (this.getPartyId() != null && !this.getPartyId().equals("_NA_")) {
+      try {
+        GenericValue orderParty=this.getDelegator().findOne("Party",UtilMisc.toMap("partyId",this.getPartyId()),false);
+        Collection<GenericValue> shippingContactMechList=ContactHelper.getContactMech(orderParty,"SHIPPING_LOCATION","POSTAL_ADDRESS",false);
+        if (UtilValidate.isNotEmpty(shippingContactMechList)) {
+          GenericValue shippingContactMech=(shippingContactMechList.iterator()).next();
+          this.setAllShippingContactMechId(shippingContactMech.getString("contactMechId"));
+        }
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Error setting shippingContactMechId in setDefaultCheckoutOptions() method.",module);
+      }
+    }
+    ShippingEstimateWrapper shipEstimateWrapper=org.apache.ofbiz.order.shoppingcart.shipping.ShippingEstimateWrapper.getWrapper(dispatcher,this,0);
+    GenericValue carrierShipmentMethod=EntityUtil.getFirst(shipEstimateWrapper.getShippingMethods());
+    if (carrierShipmentMethod != null) {
+      this.setAllShipmentMethodTypeId(carrierShipmentMethod.getString("shipmentMethodTypeId"));
+      this.setAllCarrierPartyId(carrierShipmentMethod.getString("partyId"));
+    }
+  }
+ else {
+    this.setOrderTermSet(true);
+    String companyId=this.getBillToCustomerPartyId();
+    if (companyId != null) {
+      String defaultFacilityId=getFacilityId();
+      if (defaultFacilityId != null) {
+        GenericValue facilityContactMech=ContactMechWorker.getFacilityContactMechByPurpose(this.getDelegator(),facilityId,UtilMisc.toList("SHIPPING_LOCATION","PRIMARY_LOCATION"));
+        if (facilityContactMech != null) {
+          this.setShippingContactMechId(0,facilityContactMech.getString("contactMechId"));
+        }
+      }
+    }
+    this.setAllShipmentMethodTypeId("NO_SHIPPING");
+    this.setAllCarrierPartyId("_NA_");
+    this.setAllShippingInstructions("");
+    this.setAllGiftMessage("");
+    this.setAllMaySplit(Boolean.TRUE);
+    this.setAllIsGift(Boolean.FALSE);
+  }
+}

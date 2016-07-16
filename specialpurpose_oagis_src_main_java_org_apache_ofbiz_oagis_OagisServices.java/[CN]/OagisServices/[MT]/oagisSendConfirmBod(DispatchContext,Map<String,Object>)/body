@@ -1,0 +1,121 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Locale locale=(Locale)context.get("locale");
+  String errorReferenceId=(String)context.get("referenceId");
+  List<Map<String,String>> errorMapList=UtilGenerics.checkList(context.get("errorMapList"));
+  String sendToUrl=(String)context.get("sendToUrl");
+  if (UtilValidate.isEmpty(sendToUrl)) {
+    sendToUrl=EntityUtilProperties.getPropertyValue("oagis","url.send.confirmBod",delegator);
+  }
+  String saveToFilename=(String)context.get("saveToFilename");
+  if (UtilValidate.isEmpty(saveToFilename)) {
+    String saveToFilenameBase=EntityUtilProperties.getPropertyValue("oagis","test.save.outgoing.filename.base","",delegator);
+    if (UtilValidate.isNotEmpty(saveToFilenameBase)) {
+      saveToFilename=saveToFilenameBase + "ConfirmBod" + errorReferenceId+ ".xml";
+    }
+  }
+  String saveToDirectory=(String)context.get("saveToDirectory");
+  if (UtilValidate.isEmpty(saveToDirectory)) {
+    saveToDirectory=EntityUtilProperties.getPropertyValue("oagis","test.save.outgoing.directory",delegator);
+  }
+  OutputStream out=(OutputStream)context.get("outputStream");
+  GenericValue userLogin=null;
+  try {
+    userLogin=EntityQuery.use(delegator).from("UserLogin").where("userLoginId","system").queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error getting userLogin",module);
+  }
+  String logicalId=EntityUtilProperties.getPropertyValue("oagis","CNTROLAREA.SENDER.LOGICALID",delegator);
+  String authId=EntityUtilProperties.getPropertyValue("oagis","CNTROLAREA.SENDER.AUTHID",delegator);
+  MapStack<String> bodyParameters=MapStack.create();
+  bodyParameters.put("logicalId",logicalId);
+  bodyParameters.put("authId",authId);
+  String referenceId=delegator.getNextSeqId("OagisMessageInfo");
+  bodyParameters.put("referenceId",referenceId);
+  Timestamp timestamp=UtilDateTime.nowTimestamp();
+  String sentDate=isoDateFormat.format(timestamp);
+  bodyParameters.put("sentDate",sentDate);
+  Map<String,Object> omiPkMap=new HashMap<String,Object>();
+  omiPkMap.put("logicalId",logicalId);
+  omiPkMap.put("component","EXCEPTION");
+  omiPkMap.put("task","RECIEPT");
+  omiPkMap.put("referenceId",referenceId);
+  Map<String,Object> oagisMsgInfoContext=new HashMap<String,Object>();
+  oagisMsgInfoContext.putAll(omiPkMap);
+  oagisMsgInfoContext.put("authId",authId);
+  oagisMsgInfoContext.put("sentDate",timestamp);
+  oagisMsgInfoContext.put("confirmation","0");
+  oagisMsgInfoContext.put("bsrVerb","CONFIRM");
+  oagisMsgInfoContext.put("bsrNoun","BOD");
+  oagisMsgInfoContext.put("bsrRevision","004");
+  oagisMsgInfoContext.put("outgoingMessage","Y");
+  oagisMsgInfoContext.put("processingStatusId","OAGMP_TRIGGERED");
+  oagisMsgInfoContext.put("userLogin",userLogin);
+  try {
+    dispatcher.runSync("createOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,"Saving message to database failed",module);
+  }
+  try {
+    Map<String,Object> saveErrorMapListCtx=new HashMap<String,Object>();
+    saveErrorMapListCtx.putAll(omiPkMap);
+    saveErrorMapListCtx.put("errorMapList",errorMapList);
+    saveErrorMapListCtx.put("userLogin",userLogin);
+    dispatcher.runSync("createOagisMsgErrInfosFromErrMapList",saveErrorMapListCtx,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg="Error updating OagisMessageInfo for the Incoming Message: " + e.toString();
+    Debug.logError(e,errMsg,module);
+  }
+  bodyParameters.put("errorLogicalId",context.get("logicalId"));
+  bodyParameters.put("errorComponent",context.get("component"));
+  bodyParameters.put("errorTask",context.get("task"));
+  bodyParameters.put("errorReferenceId",errorReferenceId);
+  bodyParameters.put("errorMapList",errorMapList);
+  bodyParameters.put("origRef",context.get("origRefId"));
+  String bodyScreenUri=EntityUtilProperties.getPropertyValue("oagis","Oagis.Template.ConfirmBod",delegator);
+  String outText=null;
+  try {
+    Writer writer=new StringWriter();
+    ScreenStringRenderer screenStringRenderer=new MacroScreenRenderer(EntityUtilProperties.getPropertyValue("widget","screen.name",delegator),EntityUtilProperties.getPropertyValue("widget","screen.screenrenderer",delegator));
+    ScreenRenderer screens=new ScreenRenderer(writer,bodyParameters,screenStringRenderer);
+    screens.render(bodyScreenUri);
+    writer.close();
+    outText=writer.toString();
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Error rendering message: " + e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"OagisErrorMessage",UtilMisc.toMap("errorString",e.toString()),locale));
+  }
+  if (Debug.infoOn()) {
+    Debug.logInfo("Finished rendering oagisSendConfirmBod message for errorReferenceId [" + errorReferenceId + "]",module);
+  }
+  try {
+    oagisMsgInfoContext.put("processingStatusId","OAGMP_OGEN_SUCCESS");
+    if (OagisServices.debugSaveXmlOut) {
+      oagisMsgInfoContext.put("fullMessageXml",outText);
+    }
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+    Debug.logError(e,errMsg,module);
+  }
+  Map<String,Object> sendMessageReturn=OagisServices.sendMessageText(outText,out,sendToUrl,saveToDirectory,saveToFilename,locale,delegator);
+  if (sendMessageReturn != null) {
+    return sendMessageReturn;
+  }
+  if (Debug.infoOn())   Debug.logInfo("Message send done for oagisSendConfirmBod for errorReferenceId [" + errorReferenceId + "], sendToUrl=["+ sendToUrl+ "], saveToDirectory=["+ saveToDirectory+ "], saveToFilename=["+ saveToFilename+ "]",module);
+  try {
+    oagisMsgInfoContext.put("processingStatusId","OAGMP_SENT");
+    dispatcher.runSync("updateOagisMessageInfo",oagisMsgInfoContext,60,true);
+  }
+ catch (  GenericServiceException e) {
+    String errMsg=UtilProperties.getMessage(ServiceUtil.resource,"OagisErrorInCreatingDataForOagisMessageInfoEntity",(Locale)context.get("locale"));
+    Debug.logError(e,errMsg,module);
+  }
+  return ServiceUtil.returnSuccess(UtilProperties.getMessage(resource,"OagisServiceCompletedSuccessfully",locale));
+}

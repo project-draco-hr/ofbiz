@@ -1,0 +1,71 @@
+{
+  Map<String,String> parameters=parseResponse(resp);
+  boolean isSale=!comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"preAuth",resource,"payment.verisign.preAuth","Y");
+  boolean avsCheckOkay=true;
+  String avsCode=null;
+  if (!isReAuth) {
+    boolean checkAvs=comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"checkAvs",resource,"payment.verisign.checkAvs","Y");
+    if (checkAvs && !isSale) {
+      String addAvs=(String)parameters.get("AVSADDR");
+      String zipAvs=(String)parameters.get("AVSZIP");
+      avsCode=addAvs + zipAvs;
+      if (addAvs == null || "N".equals(addAvs) || zipAvs == null || "N".equals(zipAvs)) {
+        avsCheckOkay=false;
+      }
+    }
+  }
+  boolean cvv2CheckOkay=true;
+  String cvvCode=null;
+  if (!isReAuth && !isPayPal) {
+    boolean checkCvv2=comparePaymentGatewayConfigValue(delegator,paymentGatewayConfigId,"checkCvv2",resource,"payment.verisign.checkCvv2","Y");
+    if (checkCvv2 && !isSale) {
+      cvvCode=(String)parameters.get("CVV2MATCH");
+      if (cvvCode == null || "N".equals(cvvCode)) {
+        cvv2CheckOkay=false;
+      }
+    }
+  }
+  String respCode=(String)parameters.get("RESULT");
+  int codeInt=-999;
+  try {
+    codeInt=Integer.parseInt(respCode);
+  }
+ catch (  NumberFormatException e) {
+    Debug.logError(e,"Unable to parse response code; not a number!",module);
+  }
+  result.put("authRefNum",parameters.get("PNREF"));
+  if (codeInt == 0 && avsCheckOkay && cvv2CheckOkay) {
+    result.put("authResult",Boolean.TRUE);
+    result.put("authCode",parameters.get("AUTHCODE"));
+  }
+ else   if (codeInt < 0) {
+    Debug.logWarning("In PayflowPro failing authorization; respCode/RESULT=" + respCode + ", avsCheckOkay="+ avsCheckOkay+ ", cvv2CheckOkay="+ cvv2CheckOkay+ "; AUTHCODE="+ parameters.get("AUTHCODE"),module);
+    result.put("authResult",Boolean.FALSE);
+    result.put("authRefNum",respCode);
+  }
+ else   if (codeInt == 0) {
+    Debug.logWarning("In PayflowPro approved, but invalid flags; respCode/RESULT=" + respCode + ", avsCheckOkay="+ avsCheckOkay+ ", cvv2CheckOkay="+ cvv2CheckOkay+ "; AUTHCODE="+ parameters.get("AUTHCODE"),module);
+    result.put("authResult",Boolean.TRUE);
+    result.put("authCode",parameters.get("AUTHCODE"));
+  }
+ else {
+    Debug.logWarning("In PayflowPro failing authorization; respCode/RESULT=" + respCode + ", avsCheckOkay="+ avsCheckOkay+ ", cvv2CheckOkay="+ cvv2CheckOkay+ "; AUTHCODE="+ parameters.get("AUTHCODE"),module);
+    result.put("authResult",Boolean.FALSE);
+    if ("12".equals(respCode)) {
+      result.put("resultDeclined",Boolean.TRUE);
+    }
+ else     if ("50".equals(respCode)) {
+      result.put("resultNsf",Boolean.TRUE);
+    }
+ else     if ("23".equals(respCode)) {
+      result.put("resultBadCardNumber",Boolean.TRUE);
+    }
+ else     if ("24".equals(respCode)) {
+      result.put("resultBadExpire",Boolean.TRUE);
+    }
+  }
+  result.put("cvCode",cvvCode);
+  result.put("avsCode",avsCode);
+  result.put("authFlag",parameters.get("RESULT"));
+  result.put("authMessage",parameters.get("RESPMSG"));
+}

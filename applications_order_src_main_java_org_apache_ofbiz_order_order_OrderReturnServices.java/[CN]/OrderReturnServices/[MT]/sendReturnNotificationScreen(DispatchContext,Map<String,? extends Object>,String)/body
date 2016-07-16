@@ -1,0 +1,86 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String returnId=(String)context.get("returnId");
+  Locale locale=(Locale)context.get("locale");
+  GenericValue returnHeader=null;
+  try {
+    returnHeader=EntityQuery.use(delegator).from("ReturnHeader").where("returnId",returnId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnHeaderForID",UtilMisc.toMap("returnId",returnId),locale));
+  }
+  List<GenericValue> returnItems=null;
+  List<GenericValue> returnAdjustments=new LinkedList<GenericValue>();
+  try {
+    returnItems=returnHeader.getRelated("ReturnItem",null,null,false);
+    returnAdjustments=EntityQuery.use(delegator).from("ReturnAdjustment").where("returnId",returnId,"returnItemSeqId","_NA_").orderBy("returnAdjustmentTypeId").cache(true).queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetReturnItemRecordsFromReturnHeader",locale));
+  }
+  String productStoreId=null;
+  String emailAddress=null;
+  if (UtilValidate.isNotEmpty(returnItems)) {
+    GenericValue firstItem=EntityUtil.getFirst(returnItems);
+    GenericValue orderHeader=null;
+    try {
+      orderHeader=firstItem.getRelatedOne("OrderHeader",false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorUnableToGetOrderHeaderFromReturnItem",locale));
+    }
+    if (orderHeader != null && UtilValidate.isNotEmpty(orderHeader.getString("productStoreId"))) {
+      OrderReadHelper orh=new OrderReadHelper(orderHeader);
+      productStoreId=orh.getProductStoreId();
+      emailAddress=orh.getOrderEmailString();
+    }
+  }
+  if (UtilValidate.isNotEmpty(productStoreId)) {
+    Map<String,Object> sendMap=new HashMap<String,Object>();
+    GenericValue productStoreEmail=null;
+    try {
+      productStoreEmail=EntityQuery.use(delegator).from("ProductStoreEmailSetting").where("productStoreId",productStoreId,"emailType",emailType).queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (productStoreEmail != null && emailAddress != null) {
+      String bodyScreenLocation=productStoreEmail.getString("bodyScreenLocation");
+      if (UtilValidate.isEmpty(bodyScreenLocation)) {
+        bodyScreenLocation=ProductStoreWorker.getDefaultProductStoreEmailScreenLocation(emailType);
+      }
+      sendMap.put("bodyScreenUri",bodyScreenLocation);
+      String xslfoAttachScreenLocation=productStoreEmail.getString("xslfoAttachScreenLocation");
+      sendMap.put("xslfoAttachScreenLocation",xslfoAttachScreenLocation);
+      Map<String,Object> bodyParameters=UtilMisc.<String,Object>toMap("returnHeader",returnHeader,"returnItems",returnItems,"returnAdjustments",returnAdjustments,"locale",locale,"userLogin",userLogin);
+      sendMap.put("bodyParameters",bodyParameters);
+      sendMap.put("subject",productStoreEmail.getString("subject"));
+      sendMap.put("contentType",productStoreEmail.get("contentType"));
+      sendMap.put("sendFrom",productStoreEmail.get("fromAddress"));
+      sendMap.put("sendCc",productStoreEmail.get("ccAddress"));
+      sendMap.put("sendBcc",productStoreEmail.get("bccAddress"));
+      sendMap.put("sendTo",emailAddress);
+      sendMap.put("partyId",returnHeader.getString("fromPartyId"));
+      sendMap.put("userLogin",userLogin);
+      Map<String,Object> sendResp=null;
+      try {
+        sendResp=dispatcher.runSync("sendMailFromScreen",sendMap);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,"Problem sending mail",module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemSendingEmail",locale));
+      }
+      if (sendResp != null && ServiceUtil.isError(sendResp)) {
+        sendResp.put("emailType",emailType);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderProblemSendingEmail",locale),null,null,sendResp);
+      }
+      return ServiceUtil.returnSuccess();
+    }
+  }
+  return ServiceUtil.returnFailure(UtilProperties.getMessage(resourceProduct,"ProductProductStoreEmailSettingsNotValid",UtilMisc.toMap("productStoreId",productStoreId,"emailType",emailType),locale));
+}

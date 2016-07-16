@@ -1,0 +1,155 @@
+{
+  Map<String,Object> loadCartResp=null;
+  try {
+    loadCartResp=dispatcher.runSync("loadCartFromOrder",UtilMisc.<String,Object>toMap("orderId",orderId,"skipInventoryChecks",Boolean.TRUE,"skipProductChecks",Boolean.TRUE,"userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (ServiceUtil.isError(loadCartResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(loadCartResp));
+  }
+  ShoppingCart cart=(ShoppingCart)loadCartResp.get("shoppingCart");
+  if (cart == null) {
+    throw new GeneralException("Error loading shopping cart from order [" + orderId + "]");
+  }
+ else {
+    cart.setOrderId(orderId);
+  }
+  List<GenericValue> shipGroupAssocs=null;
+  try {
+    shipGroupAssocs=EntityQuery.use(delegator).from("OrderItemShipGroupAssoc").where("orderId",orderId).queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (shipGroupAssocs != null) {
+    for (    GenericValue shipGroupAssoc : shipGroupAssocs) {
+      String orderItemSeqId=shipGroupAssoc.getString("orderItemSeqId");
+      String shipGroupSeqId=shipGroupAssoc.getString("shipGroupSeqId");
+      Map<String,Object> cancelCtx=UtilMisc.<String,Object>toMap("userLogin",userLogin,"orderId",orderId);
+      cancelCtx.put("orderItemSeqId",orderItemSeqId);
+      cancelCtx.put("shipGroupSeqId",shipGroupSeqId);
+      Map<String,Object> cancelResp=null;
+      try {
+        cancelResp=dispatcher.runSync("cancelOrderInventoryReservation",cancelCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+      if (ServiceUtil.isError(cancelResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(cancelResp));
+      }
+    }
+  }
+  List<GenericValue> promoItems=null;
+  try {
+    promoItems=EntityQuery.use(delegator).from("OrderItem").where("orderId",orderId,"isPromo","Y").queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (promoItems != null) {
+    for (    GenericValue promoItem : promoItems) {
+      if ("ITEM_CANCELLED".equals(promoItem.get("statusId"))) {
+        continue;
+      }
+      Map<String,Object> cancelPromoCtx=UtilMisc.<String,Object>toMap("orderId",orderId);
+      cancelPromoCtx.put("orderItemSeqId",promoItem.getString("orderItemSeqId"));
+      cancelPromoCtx.put("userLogin",userLogin);
+      Map<String,Object> cancelResp=null;
+      try {
+        cancelResp=dispatcher.runSync("cancelOrderItemNoActions",cancelPromoCtx);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+      if (ServiceUtil.isError(cancelResp)) {
+        throw new GeneralException(ServiceUtil.getErrorMessage(cancelResp));
+      }
+    }
+  }
+  Map<String,Object> releaseResp=null;
+  try {
+    releaseResp=dispatcher.runSync("releaseOrderPayments",UtilMisc.<String,Object>toMap("orderId",orderId,"userLogin",userLogin));
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (ServiceUtil.isError(releaseResp)) {
+    throw new GeneralException(ServiceUtil.getErrorMessage(releaseResp));
+  }
+  List<GenericValue> paymentPrefsToCancel=null;
+  try {
+    List<EntityExpr> exprs=UtilMisc.toList(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId));
+    exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_RECEIVED"));
+    exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_CANCELLED"));
+    exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_DECLINED"));
+    exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_SETTLED"));
+    exprs.add(EntityCondition.makeCondition("statusId",EntityOperator.NOT_EQUAL,"PAYMENT_REFUNDED"));
+    paymentPrefsToCancel=EntityQuery.use(delegator).from("OrderPaymentPreference").where(exprs).queryList();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  if (paymentPrefsToCancel != null) {
+    for (    GenericValue opp : paymentPrefsToCancel) {
+      try {
+        opp.set("statusId","PAYMENT_CANCELLED");
+        opp.store();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+        throw new GeneralException(e.getMessage());
+      }
+    }
+  }
+  try {
+    List<EntityCondition> adjExprs=new LinkedList<EntityCondition>();
+    adjExprs.add(EntityCondition.makeCondition("orderId",EntityOperator.EQUALS,orderId));
+    List<EntityCondition> exprs=new LinkedList<EntityCondition>();
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"PROMOTION_ADJUSTMENT"));
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"SHIPPING_CHARGES"));
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"SALES_TAX"));
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"VAT_TAX"));
+    exprs.add(EntityCondition.makeCondition("orderAdjustmentTypeId",EntityOperator.EQUALS,"VAT_PRICE_CORRECT"));
+    adjExprs.add(EntityCondition.makeCondition(exprs,EntityOperator.OR));
+    EntityCondition cond=EntityCondition.makeCondition(adjExprs,EntityOperator.AND);
+    List<GenericValue> orderAdjustmentsToDelete=EntityQuery.use(delegator).from("OrderAdjustment").where(cond).queryList();
+    List<GenericValue> orderAdjustmentsToStore=new LinkedList<GenericValue>();
+    List<GenericValue> orderAdjustmentsToRemove=new LinkedList<GenericValue>();
+    if (UtilValidate.isNotEmpty(orderAdjustmentsToDelete)) {
+      for (      GenericValue orderAdjustment : orderAdjustmentsToDelete) {
+        List<GenericValue> oaBilling=orderAdjustment.getRelated("OrderAdjustmentBilling",null,null,false);
+        if (UtilValidate.isNotEmpty(oaBilling)) {
+          orderAdjustmentsToRemove.add(orderAdjustment);
+          if ("SALES_TAX".equals(orderAdjustment.get("orderAdjustmentTypeId"))) {
+            orderAdjustmentsToStore.add(orderAdjustment);
+          }
+        }
+      }
+    }
+    if (UtilValidate.isNotEmpty(orderAdjustmentsToDelete)) {
+      orderAdjustmentsToDelete.removeAll(orderAdjustmentsToRemove);
+      delegator.removeAll(orderAdjustmentsToDelete);
+    }
+    if (UtilValidate.isNotEmpty(orderAdjustmentsToStore)) {
+      for (      GenericValue orderAdjustment : orderAdjustmentsToStore) {
+        orderAdjustment.set("amount",BigDecimal.ZERO);
+      }
+      delegator.storeAll(orderAdjustmentsToStore);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    throw new GeneralException(e.getMessage());
+  }
+  return cart;
+}

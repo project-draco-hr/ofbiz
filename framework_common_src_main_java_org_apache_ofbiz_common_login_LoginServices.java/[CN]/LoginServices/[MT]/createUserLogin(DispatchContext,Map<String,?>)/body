@@ -1,0 +1,101 @@
+{
+  Map<String,Object> result=new LinkedHashMap<String,Object>();
+  Delegator delegator=ctx.getDelegator();
+  LocalDispatcher dispatcher=ctx.getDispatcher();
+  Security security=ctx.getSecurity();
+  GenericValue loggedInUserLogin=(GenericValue)context.get("userLogin");
+  List<String> errorMessageList=new LinkedList<String>();
+  Locale locale=(Locale)context.get("locale");
+  boolean useEncryption="true".equals(EntityUtilProperties.getPropertyValue("security","password.encrypt",delegator));
+  String userLoginId=(String)context.get("userLoginId");
+  String partyId=(String)context.get("partyId");
+  String currentPassword=(String)context.get("currentPassword");
+  String currentPasswordVerify=(String)context.get("currentPasswordVerify");
+  String enabled=(String)context.get("enabled");
+  String passwordHint=(String)context.get("passwordHint");
+  String requirePasswordChange=(String)context.get("requirePasswordChange");
+  String externalAuthId=(String)context.get("externalAuthId");
+  String errMsg=null;
+  String questionEnumId=(String)context.get("securityQuestion");
+  String securityAnswer=(String)context.get("securityAnswer");
+  if (UtilValidate.isNotEmpty(partyId)) {
+    GenericValue party=null;
+    try {
+      party=EntityQuery.use(delegator).from("Party").where("partyId",partyId).queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logWarning(e,"",module);
+    }
+    if (party != null) {
+      if (loggedInUserLogin != null) {
+        if (!partyId.equals(loggedInUserLogin.getString("partyId"))) {
+          if (!security.hasEntityPermission("PARTYMGR","_CREATE",loggedInUserLogin)) {
+            errMsg=UtilProperties.getMessage(resource,"loginservices.party_with_specified_party_ID_exists_not_have_permission",locale);
+            errorMessageList.add(errMsg);
+          }
+        }
+      }
+ else {
+        errMsg=UtilProperties.getMessage(resource,"loginservices.must_be_logged_in_and_permission_create_login_party_ID_exists",locale);
+        errorMessageList.add(errMsg);
+      }
+    }
+  }
+  GenericValue userLoginToCreate=delegator.makeValue("UserLogin",UtilMisc.toMap("userLoginId",userLoginId));
+  checkNewPassword(userLoginToCreate,null,currentPassword,currentPasswordVerify,passwordHint,errorMessageList,true,locale);
+  userLoginToCreate.set("externalAuthId",externalAuthId);
+  userLoginToCreate.set("passwordHint",passwordHint);
+  userLoginToCreate.set("enabled",enabled);
+  userLoginToCreate.set("requirePasswordChange",requirePasswordChange);
+  userLoginToCreate.set("currentPassword",useEncryption ? HashCrypt.cryptUTF8(getHashType(),null,currentPassword) : currentPassword);
+  try {
+    userLoginToCreate.set("partyId",partyId);
+  }
+ catch (  Exception e) {
+    Debug.logInfo(e,"Exception thrown while setting UserLogin partyId field: ",module);
+  }
+  try {
+    EntityCondition condition=EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("userLoginId"),EntityOperator.EQUALS,EntityFunction.UPPER(userLoginId));
+    if (UtilValidate.isNotEmpty(EntityQuery.use(delegator).from("UserLogin").where(condition).queryList())) {
+      Map<String,String> messageMap=UtilMisc.toMap("userLoginId",userLoginId);
+      errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_with_ID_exists",messageMap,locale);
+      errorMessageList.add(errMsg);
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"",module);
+    Map<String,String> messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_read_failure",messageMap,locale);
+    errorMessageList.add(errMsg);
+  }
+  if (errorMessageList.size() > 0) {
+    return ServiceUtil.returnError(errorMessageList);
+  }
+  try {
+    userLoginToCreate.create();
+    createUserLoginPasswordHistory(delegator,userLoginId,currentPassword);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e,"",module);
+    Map<String,String> messageMap=UtilMisc.toMap("errorMessage",e.getMessage());
+    errMsg=UtilProperties.getMessage(resource,"loginservices.could_not_create_login_user_write_failure",messageMap,locale);
+    return ServiceUtil.returnError(errMsg);
+  }
+  try {
+    if (UtilValidate.isNotEmpty(securityAnswer)) {
+      Map<String,Object> resultMap=new HashMap<String,Object>();
+      resultMap=dispatcher.runSync("createUserLoginSecurityQuestion",UtilMisc.toMap("userLogin",loggedInUserLogin,"userLoginId",userLoginId,"questionEnumId",questionEnumId,"securityAnswer",securityAnswer));
+      if (ServiceUtil.isError(resultMap)) {
+        errMsg=ServiceUtil.getErrorMessage(resultMap);
+        errorMessageList.add(errMsg);
+        Debug.logError(errMsg,module);
+      }
+    }
+  }
+ catch (  GenericServiceException e1) {
+    errMsg=UtilProperties.getMessage(resource,"loginservices.error_setting_security_question",locale);
+    Debug.logError(e1,errMsg,module);
+  }
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

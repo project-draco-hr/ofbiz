@@ -1,0 +1,58 @@
+{
+  List<GenericValue> allPublishPointList=getAllPublishPoints(delegator,rootPubId);
+  List<String[]> publishPointList=getPermittedPublishPoints(delegator,allPublishPointList,userLogin,security,permittedAction,permittedOperations,passedRoles);
+  Map<String,Object> publishPointMap=new HashMap<String,Object>();
+  Map<String,Object> publishPointMapAll=new HashMap<String,Object>();
+  for (  String[] arr : publishPointList) {
+    String contentId=arr[0];
+    String description=arr[1];
+    List<Object[]> subPointList=new LinkedList<Object[]>();
+    Object nullObj=null;
+    Object[] subArr={contentId,subPointList,description,nullObj};
+    publishPointMap.put(contentId,subArr);
+    publishPointMapAll.put(contentId,contentId);
+    List<GenericValue> subPublishPointList=getAllPublishPoints(delegator,contentId);
+    for (    GenericValue webSitePublishPoint2 : subPublishPointList) {
+      String contentId2=(String)webSitePublishPoint2.get("contentId");
+      String description2=(String)webSitePublishPoint2.get("templateTitle");
+      publishPointMapAll.put(contentId2,contentId);
+      Timestamp obj=null;
+      Object[] subArr2={contentId2,description2,obj};
+      subPointList.add(subArr2);
+    }
+  }
+  List<GenericValue> assocValueList=null;
+  try {
+    assocValueList=EntityQuery.use(delegator).from("ContentAssoc").where("contentId",targContentId,"contentAssocTypeId","PUBLISH_LINK").filterByDate().cache().queryList();
+  }
+ catch (  GenericEntityException e) {
+    throw new GeneralException(e.getMessage());
+  }
+  for (  GenericValue contentAssoc : assocValueList) {
+    String contentIdTo=contentAssoc.getString("contentIdTo");
+    String topContentId=(String)publishPointMapAll.get(contentIdTo);
+    Object[] subArr=(Object[])publishPointMap.get(topContentId);
+    if (contentIdTo.equals(topContentId)) {
+      subArr[3]=contentAssoc.get("fromDate");
+    }
+ else {
+      if (subArr != null) {
+        List<Object[]> subPointList=UtilGenerics.checkList(subArr[1]);
+        Iterator<Object[]> it5=subPointList.iterator();
+        Object[] subArr2=null;
+        while (it5.hasNext()) {
+          subArr2=it5.next();
+          String contentId5=(String)subArr2[0];
+          if (contentId5.equals(contentIdTo))           break;
+        }
+        subArr2[2]=contentAssoc.get("fromDate");
+      }
+    }
+  }
+  List<Object[]> publishedLinkList=new LinkedList<Object[]>();
+  for (  String contentId : publishPointMap.keySet()) {
+    Object[] subPointArr=(Object[])publishPointMap.get(contentId);
+    publishedLinkList.add(subPointArr);
+  }
+  return publishedLinkList;
+}

@@ -1,0 +1,70 @@
+{
+  if (workEffort == null)   return;
+  Delegator delegator=workEffort.getDelegator();
+  if (delegator == null)   return;
+  String workEffortId=workEffort.getString("workEffortId");
+  String separators=KeywordSearchUtil.getSeparators();
+  String stopWordBagOr=KeywordSearchUtil.getStopWordBagOr();
+  String stopWordBagAnd=KeywordSearchUtil.getStopWordBagAnd();
+  boolean removeStems=KeywordSearchUtil.getRemoveStems();
+  Set<String> stemSet=KeywordSearchUtil.getStemSet();
+  Map<String,Long> keywords=new TreeMap<String,Long>();
+  List<String> strings=new LinkedList<String>();
+  int widWeight=1;
+  try {
+    widWeight=EntityUtilProperties.getPropertyAsInteger("workeffort","index.weight.WorkEffort.workEffortId",1).intValue();
+  }
+ catch (  Exception e) {
+    Debug.logWarning("Could not parse weight number: " + e.toString(),module);
+  }
+  keywords.put(workEffort.getString("workEffortId").toLowerCase(),Long.valueOf(widWeight));
+  addWeightedKeywordSourceString(workEffort,"workEffortName",strings);
+  addWeightedKeywordSourceString(workEffort,"workEffortTypeId",strings);
+  addWeightedKeywordSourceString(workEffort,"currentStatusId",strings);
+  if (!"0".equals(EntityUtilProperties.getPropertyValue("workeffort","index.weight.WorkEffortNoteAndData.noteInfo","1",delegator))) {
+    List<GenericValue> workEffortNotes=EntityQuery.use(delegator).from("WorkEffortNoteAndData").where("workEffortId",workEffortId).queryList();
+    for (    GenericValue workEffortNote : workEffortNotes) {
+      addWeightedKeywordSourceString(workEffortNote,"noteInfo",strings);
+    }
+  }
+  if (!"0".equals(EntityUtilProperties.getPropertyValue("workeffort","index.weight.WorkEffortAttribute.attrName","1",delegator)) || !"0".equals(EntityUtilProperties.getPropertyValue("workeffort","index.weight.WorkEffortAttribute.attrValue","1",delegator))) {
+    List<GenericValue> workEffortAttributes=EntityQuery.use(delegator).from("WorkEffortAttribute").where("workEffortId",workEffortId).queryList();
+    for (    GenericValue workEffortAttribute : workEffortAttributes) {
+      addWeightedKeywordSourceString(workEffortAttribute,"attrName",strings);
+      addWeightedKeywordSourceString(workEffortAttribute,"attrValue",strings);
+    }
+  }
+  String workEffortContentTypes=EntityUtilProperties.getPropertyValue("workeffort","index.include.WorkEffortContentTypes",delegator);
+  for (  String workEffortContentTypeId : workEffortContentTypes.split(",")) {
+    int weight=1;
+    try {
+      weight=EntityUtilProperties.getPropertyAsInteger("workeffort","index.weight.WorkEffortContent." + workEffortContentTypeId,1).intValue();
+    }
+ catch (    Exception e) {
+      Debug.logWarning("Could not parse weight number: " + e.toString(),module);
+    }
+    List<GenericValue> workEffortContentAndInfos=EntityQuery.use(delegator).from("WorkEffortContentAndInfo").where("workEffortId",workEffortId,"workEffortContentTypeId",workEffortContentTypeId).queryList();
+    for (    GenericValue workEffortContentAndInfo : workEffortContentAndInfos) {
+      addWeightedDataResourceString(workEffortContentAndInfo,weight,strings,delegator,workEffort);
+      List<GenericValue> alternateViews=workEffortContentAndInfo.getRelated("ContentAssocDataResourceViewTo",UtilMisc.toMap("caContentAssocTypeId","ALTERNATE_LOCALE"),UtilMisc.toList("-caFromDate"),false);
+      alternateViews=EntityUtil.filterByDate(alternateViews,UtilDateTime.nowTimestamp(),"caFromDate","caThruDate",true);
+      for (      GenericValue thisView : alternateViews) {
+        addWeightedDataResourceString(thisView,weight,strings,delegator,workEffort);
+      }
+    }
+  }
+  for (  String str : strings) {
+    KeywordSearchUtil.processKeywordsForIndex(str,keywords,separators,stopWordBagAnd,stopWordBagOr,removeStems,stemSet);
+  }
+  List<GenericValue> toBeStored=new LinkedList<GenericValue>();
+  for (  Map.Entry<String,Long> entry : keywords.entrySet()) {
+    if (entry.getKey().length() < 60) {
+      GenericValue workEffortKeyword=delegator.makeValue("WorkEffortKeyword",UtilMisc.toMap("workEffortId",workEffort.getString("workEffortId"),"keyword",entry.getKey(),"relevancyWeight",entry.getValue()));
+      toBeStored.add(workEffortKeyword);
+    }
+  }
+  if (toBeStored.size() > 0) {
+    if (Debug.verboseOn())     Debug.logVerbose("WorkEffortKeywordIndex indexKeywords Storing " + toBeStored.size() + " keywords for workEffortId "+ workEffort.getString("workEffortId"),module);
+    delegator.storeAll(toBeStored);
+  }
+}

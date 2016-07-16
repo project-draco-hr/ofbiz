@@ -1,0 +1,60 @@
+{
+  List<String> fetchDeletedOrdersAndTransactions=new LinkedList<String>();
+  try {
+    Document docResponse=UtilXml.readXmlDocument(responseMsg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    String ack=UtilXml.childElementValue(elemResponse,"Ack","Failure");
+    if (ack != null && "Success".equals(ack)) {
+      List<? extends Element> deletedFromSoldList=UtilXml.childElementList(elemResponse,"DeletedFromSoldList");
+      Iterator<? extends Element> deletedFromSoldElemIter=deletedFromSoldList.iterator();
+      while (deletedFromSoldElemIter.hasNext()) {
+        Element deletedFromSoldElement=deletedFromSoldElemIter.next();
+        List<? extends Element> orderTransactionArrayList=UtilXml.childElementList(deletedFromSoldElement,"OrderTransactionArray");
+        Iterator<? extends Element> orderTransactionArrayElemIter=orderTransactionArrayList.iterator();
+        while (orderTransactionArrayElemIter.hasNext()) {
+          Element orderTransactionArrayElement=orderTransactionArrayElemIter.next();
+          List<? extends Element> orderTransactionList=UtilXml.childElementList(orderTransactionArrayElement,"OrderTransaction");
+          Iterator<? extends Element> orderTransactionElemIter=orderTransactionList.iterator();
+          while (orderTransactionElemIter.hasNext()) {
+            Element orderTransactionElement=orderTransactionElemIter.next();
+            List<? extends Element> sellerOrderList=UtilXml.childElementList(orderTransactionElement,"Order");
+            Iterator<? extends Element> sellerOrderElemIter=sellerOrderList.iterator();
+            while (sellerOrderElemIter.hasNext()) {
+              Element sellerOrderElement=sellerOrderElemIter.next();
+              String orderId=UtilXml.childElementValue(sellerOrderElement,"OrderID");
+              if (UtilValidate.isNotEmpty(orderId)) {
+                fetchDeletedOrdersAndTransactions.add(orderId);
+              }
+            }
+            List<? extends Element> transactionList=UtilXml.childElementList(orderTransactionElement,"Transaction");
+            Iterator<? extends Element> transactionElemIter=transactionList.iterator();
+            while (transactionElemIter.hasNext()) {
+              Element transactionElement=transactionElemIter.next();
+              List<? extends Element> itemList=UtilXml.childElementList(transactionElement,"Item");
+              Iterator<? extends Element> itemElemIter=itemList.iterator();
+              while (itemElemIter.hasNext()) {
+                Element itemElement=itemElemIter.next();
+                String itemId=UtilXml.childElementValue(itemElement,"ItemID");
+                if (UtilValidate.isNotEmpty(itemId)) {
+                  fetchDeletedOrdersAndTransactions.add(itemId);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+ else {
+      List<? extends Element> errorList=UtilXml.childElementList(elemResponse,"Errors");
+      Iterator<? extends Element> errorElemIter=errorList.iterator();
+      while (errorElemIter.hasNext()) {
+        Element errorElement=errorElemIter.next();
+        errorMessage.append(UtilXml.childElementValue(errorElement,"ShortMessage",""));
+      }
+    }
+  }
+ catch (  Exception e) {
+    Debug.logError("Exception during read response from Ebay",module);
+  }
+  return fetchDeletedOrdersAndTransactions;
+}

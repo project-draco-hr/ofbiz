@@ -1,0 +1,172 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String shipmentId=(String)context.get("shipmentId");
+  String shipmentRouteSegmentId=(String)context.get("shipmentRouteSegmentId");
+  Locale locale=(Locale)context.get("locale");
+  Map<String,Object> shipmentGatewayConfig=ShipmentServices.getShipmentGatewayConfigFromShipment(delegator,shipmentId,locale);
+  String shipmentGatewayConfigId=(String)shipmentGatewayConfig.get("shipmentGatewayConfigId");
+  String resource=(String)shipmentGatewayConfig.get("configProps");
+  if (UtilValidate.isEmpty(shipmentGatewayConfigId) && UtilValidate.isEmpty(resource)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsGatewayNotAvailable",locale));
+  }
+  try {
+    GenericValue shipmentRouteSegment=EntityQuery.use(delegator).from("ShipmentRouteSegment").where("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId).queryOne();
+    if (shipmentRouteSegment == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"ProductShipmentRouteSegmentNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
+    }
+    if (!"USPS".equals(shipmentRouteSegment.getString("carrierPartyId"))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsNotRouteSegmentCarrier",UtilMisc.toMap("shipmentRouteSegmentId",shipmentRouteSegmentId,"shipmentId",shipmentId),locale));
+    }
+    GenericValue originAddress=shipmentRouteSegment.getRelatedOne("OriginPostalAddress",false);
+    if (originAddress == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentOriginPostalAddressNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
+    }
+    if (!"USA".equals(originAddress.getString("countryGeoId"))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRouteSegmentOriginCountryGeoNotInUsa",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
+    }
+    String originZip=originAddress.getString("postalCode");
+    if (UtilValidate.isEmpty(originZip)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRouteSegmentOriginZipCodeMissing",UtilMisc.toMap("contactMechId",originAddress.getString("contactMechId")),locale));
+    }
+    GenericValue destinationAddress=shipmentRouteSegment.getRelatedOne("DestPostalAddress",false);
+    if (destinationAddress == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentRouteSegmentDestPostalAddressNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
+    }
+    if (!"USA".equals(destinationAddress.getString("countryGeoId"))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRouteSegmentOriginCountryGeoNotInUsa",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
+    }
+    String destinationZip=destinationAddress.getString("postalCode");
+    if (UtilValidate.isEmpty(destinationZip)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRouteSegmentDestinationZipCodeMissing",UtilMisc.toMap("contactMechId",destinationAddress.getString("contactMechId")),locale));
+    }
+    String shipmentMethodTypeId=shipmentRouteSegment.getString("shipmentMethodTypeId");
+    String partyId=shipmentRouteSegment.getString("carrierPartyId");
+    GenericValue carrierShipmentMethod=EntityQuery.use(delegator).from("CarrierShipmentMethod").where("partyId",partyId,"roleTypeId","CARRIER","shipmentMethodTypeId",shipmentMethodTypeId).queryOne();
+    if (carrierShipmentMethod == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsNoCarrierShipmentMethod",UtilMisc.toMap("carrierPartyId",partyId,"shipmentMethodTypeId",shipmentMethodTypeId),locale));
+    }
+    String serviceType=carrierShipmentMethod.getString("carrierServiceCode");
+    if (UtilValidate.isEmpty(serviceType)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsNoCarrierServiceCodeFound",UtilMisc.toMap("carrierPartyId",partyId,"shipmentMethodTypeId",shipmentMethodTypeId),locale));
+    }
+    List<GenericValue> shipmentPackageRouteSegList=shipmentRouteSegment.getRelated("ShipmentPackageRouteSeg",null,UtilMisc.toList("+shipmentPackageSeqId"),false);
+    if (UtilValidate.isEmpty(shipmentPackageRouteSegList)) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentPackageRouteSegsNotFound",UtilMisc.toMap("shipmentId",shipmentId,"shipmentRouteSegmentId",shipmentRouteSegmentId),locale));
+    }
+    BigDecimal actualTransportCost=BigDecimal.ZERO;
+    String carrierDeliveryZone=null;
+    String carrierRestrictionCodes=null;
+    String carrierRestrictionDesc=null;
+    for (Iterator<GenericValue> i=shipmentPackageRouteSegList.iterator(); i.hasNext(); ) {
+      GenericValue shipmentPackageRouteSeg=i.next();
+      Document requestDocument=createUspsRequestDocument("RateRequest",true,delegator,shipmentGatewayConfigId,resource);
+      Element packageElement=UtilXml.addChildElement(requestDocument.getDocumentElement(),"Package",requestDocument);
+      packageElement.setAttribute("ID","0");
+      UtilXml.addChildElementValue(packageElement,"Service",serviceType,requestDocument);
+      UtilXml.addChildElementValue(packageElement,"ZipOrigination",originZip,requestDocument);
+      UtilXml.addChildElementValue(packageElement,"ZipDestination",destinationZip,requestDocument);
+      GenericValue shipmentPackage=null;
+      shipmentPackage=shipmentPackageRouteSeg.getRelatedOne("ShipmentPackage",false);
+      String weightStr=shipmentPackage.getString("weight");
+      if (UtilValidate.isEmpty(weightStr)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsWeightNotFound",UtilMisc.toMap("shipmentId",shipmentPackage.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackage.getString("shipmentPackageSeqId")),locale));
+      }
+      BigDecimal weight=BigDecimal.ZERO;
+      try {
+        weight=new BigDecimal(weightStr);
+      }
+ catch (      NumberFormatException nfe) {
+        nfe.printStackTrace();
+      }
+      String weightUomId=shipmentPackage.getString("weightUomId");
+      if (UtilValidate.isEmpty(weightUomId)) {
+        weightUomId="WT_lb";
+      }
+      if (!"WT_lb".equals(weightUomId)) {
+        Map<String,Object> result=new HashMap<String,Object>();
+        try {
+          result=dispatcher.runSync("convertUom",UtilMisc.<String,Object>toMap("uomId",weightUomId,"uomIdTo","WT_lb","originalValue",weight));
+        }
+ catch (        GenericServiceException ex) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsWeightConversionError",UtilMisc.toMap("errorString",ex.getMessage()),locale));
+        }
+        if (result.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_SUCCESS) && result.get("convertedValue") != null) {
+          weight=weight.multiply((BigDecimal)result.get("convertedValue"));
+        }
+ else {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsWeightUnsupported",UtilMisc.toMap("weightUomId",weightUomId,"shipmentId",shipmentPackage.getString("shipmentId"),"shipmentPackageSeqId",shipmentPackage.getString("shipmentPackageSeqId"),"weightUom","WT_lb"),locale));
+        }
+      }
+      BigDecimal weightPounds=weight.setScale(0,BigDecimal.ROUND_FLOOR);
+      BigDecimal weightOunces=weight.multiply(new BigDecimal("16")).remainder(new BigDecimal("16")).setScale(0,BigDecimal.ROUND_CEILING);
+      DecimalFormat df=new DecimalFormat("#");
+      UtilXml.addChildElementValue(packageElement,"Pounds",df.format(weightPounds),requestDocument);
+      UtilXml.addChildElementValue(packageElement,"Ounces",df.format(weightOunces),requestDocument);
+      GenericValue carrierShipmentBoxType=null;
+      List<GenericValue> carrierShipmentBoxTypes=null;
+      carrierShipmentBoxTypes=shipmentPackage.getRelated("CarrierShipmentBoxType",UtilMisc.toMap("partyId","USPS"),null,false);
+      if (carrierShipmentBoxTypes.size() > 0) {
+        carrierShipmentBoxType=carrierShipmentBoxTypes.get(0);
+      }
+      if (carrierShipmentBoxType != null && UtilValidate.isNotEmpty(carrierShipmentBoxType.getString("packagingTypeCode"))) {
+        UtilXml.addChildElementValue(packageElement,"Container",carrierShipmentBoxType.getString("packagingTypeCode"),requestDocument);
+      }
+ else {
+        UtilXml.addChildElementValue(packageElement,"Container","None",requestDocument);
+      }
+      if (carrierShipmentBoxType != null && UtilValidate.isNotEmpty("oversizeCode")) {
+        UtilXml.addChildElementValue(packageElement,"Size",carrierShipmentBoxType.getString("oversizeCode"),requestDocument);
+      }
+ else {
+        UtilXml.addChildElementValue(packageElement,"Size","Regular",requestDocument);
+      }
+      UtilXml.addChildElementValue(packageElement,"Machinable","False",requestDocument);
+      Document responseDocument=null;
+      try {
+        responseDocument=sendUspsRequest("Rate",requestDocument,delegator,shipmentGatewayConfigId,resource,locale);
+      }
+ catch (      UspsRequestException e) {
+        Debug.logInfo(e,module);
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticSendingError",UtilMisc.toMap("errorString",e.getMessage()),locale));
+      }
+      Element respPackageElement=UtilXml.firstChildElement(responseDocument.getDocumentElement(),"Package");
+      if (respPackageElement == null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseIncompleteElementPackage",locale));
+      }
+      Element respErrorElement=UtilXml.firstChildElement(respPackageElement,"Error");
+      if (respErrorElement != null) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseError",UtilMisc.toMap("errorString",UtilXml.childElementValue(respErrorElement,"Description")),locale));
+      }
+      String postageString=UtilXml.childElementValue(respPackageElement,"Postage");
+      if (UtilValidate.isEmpty(postageString)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticResponseIncompleteElementPostage",locale));
+      }
+      BigDecimal postage=BigDecimal.ZERO;
+      try {
+        postage=new BigDecimal(postageString);
+      }
+ catch (      NumberFormatException nfe) {
+        nfe.printStackTrace();
+      }
+      actualTransportCost=actualTransportCost.add(postage);
+      shipmentPackageRouteSeg.setString("packageTransportCost",postageString);
+      shipmentPackageRouteSeg.store();
+      if (!i.hasNext()) {
+        carrierDeliveryZone=UtilXml.childElementValue(respPackageElement,"Zone");
+        carrierRestrictionCodes=UtilXml.childElementValue(respPackageElement,"RestrictionCodes");
+        carrierRestrictionDesc=UtilXml.childElementValue(respPackageElement,"RestrictionDescription");
+      }
+    }
+    shipmentRouteSegment.set("carrierDeliveryZone",carrierDeliveryZone);
+    shipmentRouteSegment.set("carrierRestrictionCodes",carrierRestrictionCodes);
+    shipmentRouteSegment.set("carrierRestrictionDesc",carrierRestrictionDesc);
+    shipmentRouteSegment.setString("actualTransportCost",String.valueOf(actualTransportCost));
+    shipmentRouteSegment.store();
+  }
+ catch (  GenericEntityException gee) {
+    Debug.logInfo(gee,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUspsRateDomesticReadingError",UtilMisc.toMap("errorString",gee.getMessage()),locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

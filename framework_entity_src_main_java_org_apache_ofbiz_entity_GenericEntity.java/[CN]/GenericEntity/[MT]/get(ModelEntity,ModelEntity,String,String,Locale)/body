@@ -1,0 +1,70 @@
+{
+  if (UtilValidate.isEmpty(resource)) {
+    resource=modelEntityToUse.getDefaultResourceName();
+    if (UtilValidate.isEmpty(resource)) {
+      return null;
+    }
+  }
+  if (UtilProperties.isPropertiesResourceNotFound(resource,locale,false)) {
+    return null;
+  }
+  ResourceBundle bundle=null;
+  try {
+    bundle=UtilProperties.getResourceBundle(resource,locale);
+  }
+ catch (  IllegalArgumentException e) {
+    bundle=null;
+  }
+  if (bundle == null) {
+    return null;
+  }
+  StringBuilder keyBuffer=new StringBuilder();
+  keyBuffer.append(modelEntityToUse.getEntityName());
+  keyBuffer.append('.');
+  keyBuffer.append(name);
+  if (modelEntity instanceof ModelViewEntity) {
+    ModelViewEntity modelViewEntity=(ModelViewEntity)modelEntity;
+    List<String> pkNamesToUse=new LinkedList<String>();
+    Iterator<ModelField> iter=modelEntityToUse.getPksIterator();
+    while (iter != null && iter.hasNext()) {
+      ModelField curField=iter.next();
+      String pkName=null;
+      Iterator<ModelAlias> iterAlias=modelViewEntity.getAliasesIterator();
+      while (iterAlias != null && iterAlias.hasNext()) {
+        ModelAlias aliasField=iterAlias.next();
+        if (aliasField.getField().equals(curField.getName())) {
+          ModelEntity memberModelEntity=modelViewEntity.getMemberModelEntity(aliasField.getEntityAlias());
+          if (memberModelEntity.getEntityName().equals(modelEntityToUse.getEntityName())) {
+            pkName=aliasField.getName();
+            break;
+          }
+        }
+      }
+      if (pkName == null)       pkName=curField.getName();
+      pkNamesToUse.add(pkName);
+    }
+    for (    String pkName : pkNamesToUse) {
+      if (this.containsKey(pkName)) {
+        keyBuffer.append('.');
+        keyBuffer.append(this.get(pkName));
+      }
+    }
+  }
+ else {
+    Iterator<ModelField> iter=modelEntity.getPksIterator();
+    while (iter != null && iter.hasNext()) {
+      ModelField curField=iter.next();
+      keyBuffer.append('.');
+      keyBuffer.append(this.get(curField.getName()));
+    }
+  }
+  String bundleKey=keyBuffer.toString();
+  Object resourceValue=null;
+  try {
+    resourceValue=bundle.getObject(bundleKey);
+  }
+ catch (  MissingResourceException e) {
+    return null;
+  }
+  return resourceValue;
+}

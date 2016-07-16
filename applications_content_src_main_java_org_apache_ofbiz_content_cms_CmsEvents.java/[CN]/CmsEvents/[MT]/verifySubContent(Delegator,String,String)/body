@@ -1,0 +1,28 @@
+{
+  List<GenericValue> contentAssoc=EntityQuery.use(delegator).from("ContentAssoc").where("contentId",contentIdFrom,"contentIdTo",contentId,"contentAssocTypeId","SUB_CONTENT").cache().queryList();
+  boolean hadContent=false;
+  if (UtilValidate.isNotEmpty(contentAssoc)) {
+    hadContent=true;
+  }
+  contentAssoc=EntityUtil.filterByDate(contentAssoc);
+  if (UtilValidate.isEmpty(contentAssoc)) {
+    List<GenericValue> assocs=EntityQuery.use(delegator).from("ContentAssoc").where("contentId",contentIdFrom).cache().filterByDate().queryList();
+    if (assocs != null) {
+      for (      GenericValue assoc : assocs) {
+        int subContentStatusCode=verifySubContent(delegator,contentId,assoc.getString("contentIdTo"));
+        if (subContentStatusCode == HttpServletResponse.SC_OK) {
+          return HttpServletResponse.SC_OK;
+        }
+ else         if (subContentStatusCode == HttpServletResponse.SC_GONE) {
+          hadContent=true;
+        }
+      }
+    }
+  }
+ else {
+    if (Debug.verboseOn())     Debug.logVerbose("Found assocs: " + contentAssoc,module);
+    return HttpServletResponse.SC_OK;
+  }
+  if (hadContent)   return HttpServletResponse.SC_GONE;
+  return HttpServletResponse.SC_NOT_FOUND;
+}

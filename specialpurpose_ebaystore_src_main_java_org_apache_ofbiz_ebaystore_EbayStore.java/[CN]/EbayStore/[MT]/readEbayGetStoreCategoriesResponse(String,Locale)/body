@@ -1,0 +1,47 @@
+{
+  Map<String,Object> results=null;
+  List<Map<Object,Object>> categories=new LinkedList<Map<Object,Object>>();
+  try {
+    Document docResponse=UtilXml.readXmlDocument(msg,true);
+    Element elemResponse=docResponse.getDocumentElement();
+    String ack=UtilXml.childElementValue(elemResponse,"Ack","Failure");
+    if (ack != null && "Failure".equals(ack)) {
+      String errorMessage="";
+      List<Element> errorList=UtilGenerics.checkList(UtilXml.childElementList(elemResponse,"Errors"));
+      Iterator<Element> errorElemIter=errorList.iterator();
+      while (errorElemIter.hasNext()) {
+        Element errorElement=errorElemIter.next();
+        errorMessage=UtilXml.childElementValue(errorElement,"ShortMessage","");
+      }
+      return ServiceUtil.returnFailure(errorMessage);
+    }
+ else {
+      List<Element> Store=UtilGenerics.checkList(UtilXml.childElementList(elemResponse,"Store"));
+      Iterator<Element> StoreElemIter=Store.iterator();
+      while (StoreElemIter.hasNext()) {
+        Element StoreElemIterElemIterElement=StoreElemIter.next();
+        List<Element> customCategories=UtilGenerics.checkList(UtilXml.childElementList(StoreElemIterElemIterElement,"CustomCategories"));
+        Iterator<Element> customCategoriesElemIter=customCategories.iterator();
+        while (customCategoriesElemIter.hasNext()) {
+          Element customCategoriesElemIterElement=customCategoriesElemIter.next();
+          List<Element> customCategory=UtilGenerics.checkList(UtilXml.childElementList(customCategoriesElemIterElement,"CustomCategory"));
+          Iterator<Element> customCategoryElemIter=customCategory.iterator();
+          while (customCategoryElemIter.hasNext()) {
+            Map<Object,Object> categ=new HashMap<Object,Object>();
+            Element categoryElement=customCategoryElemIter.next();
+            categ.put("CategoryID",UtilXml.childElementValue(categoryElement,"CategoryID"));
+            categ.put("CategoryName",UtilXml.childElementValue(categoryElement,"Name"));
+            categ.put("CategorySeq",UtilXml.childElementValue(categoryElement,"Order"));
+            categories.add(categ);
+          }
+        }
+      }
+      categories=UtilMisc.sortMaps(categories,UtilMisc.toList("CategoryName"));
+      results=UtilMisc.<String,Object>toMap("categories",categories);
+    }
+  }
+ catch (  Exception e) {
+    return ServiceUtil.returnFailure();
+  }
+  return results;
+}

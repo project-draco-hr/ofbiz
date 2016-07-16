@@ -1,0 +1,37 @@
+{
+  Delegator delegator=(Delegator)context.get("delegator");
+  GenericValue publishProperties=EntityQuery.use(delegator).from("WorkEffort").where("workEffortId",workEffortId).queryOne();
+  if (!isCalendarPublished(publishProperties)) {
+    Debug.logInfo("WorkEffort calendar is not published: " + workEffortId,module);
+    return ICalWorker.createNotFoundResponse(null);
+  }
+  if (!"WES_PUBLIC".equals(publishProperties.get("scopeEnumId"))) {
+    if (context.get("userLogin") == null) {
+      return ICalWorker.createNotAuthorizedResponse(null);
+    }
+    if (!hasPermission(workEffortId,"VIEW",context)) {
+      return ICalWorker.createForbiddenResponse(null);
+    }
+  }
+  Calendar calendar=makeCalendar(publishProperties,context);
+  ComponentList components=calendar.getComponents();
+  List<GenericValue> workEfforts=getRelatedWorkEfforts(publishProperties,context);
+  if (workEfforts != null) {
+    for (    GenericValue workEffort : workEfforts) {
+      ResponseProperties responseProps=toCalendarComponent(components,workEffort,context);
+      if (responseProps != null) {
+        return responseProps;
+      }
+    }
+  }
+  if (Debug.verboseOn()) {
+    try {
+      calendar.validate(true);
+      Debug.logVerbose("iCalendar passes validation",module);
+    }
+ catch (    ValidationException e) {
+      Debug.logVerbose("iCalendar fails validation: " + e,module);
+    }
+  }
+  return ICalWorker.createOkResponse(calendar.toString());
+}

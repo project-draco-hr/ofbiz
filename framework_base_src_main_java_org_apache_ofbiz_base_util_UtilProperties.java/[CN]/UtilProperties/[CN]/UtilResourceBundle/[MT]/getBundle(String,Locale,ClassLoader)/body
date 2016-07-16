@@ -1,0 +1,40 @@
+{
+  String resourceName=createResourceName(resource,locale,true);
+  UtilResourceBundle bundle=bundleCache.get(resourceName);
+  if (bundle == null) {
+    double startTime=System.currentTimeMillis();
+    List<Locale> candidateLocales=(List<Locale>)getCandidateLocales(locale);
+    UtilResourceBundle parentBundle=null;
+    int numProperties=0;
+    while (candidateLocales.size() > 0) {
+      Locale candidateLocale=candidateLocales.remove(candidateLocales.size() - 1);
+      String lookupName=createResourceName(resource,candidateLocale,true);
+      UtilResourceBundle lookupBundle=bundleCache.get(lookupName);
+      if (lookupBundle == null) {
+        Properties newProps=getProperties(resource,candidateLocale);
+        if (UtilValidate.isNotEmpty(newProps)) {
+          parentBundle=bundle;
+          bundle=new UtilResourceBundle(newProps,candidateLocale,parentBundle);
+          bundleCache.putIfAbsent(lookupName,bundle);
+          numProperties=newProps.size();
+        }
+      }
+ else {
+        parentBundle=bundle;
+        bundle=lookupBundle;
+      }
+    }
+    if (bundle == null) {
+      throw new MissingResourceException("Resource " + resource + ", locale "+ locale+ " not found",null,null);
+    }
+ else     if (!bundle.getLocale().equals(locale)) {
+      bundle=new UtilResourceBundle(bundle.properties,locale,parentBundle);
+    }
+    double totalTime=System.currentTimeMillis() - startTime;
+    if (Debug.infoOn()) {
+      Debug.logInfo("ResourceBundle " + resource + " ("+ locale+ ") created in "+ totalTime / 1000.0 + "s with " + numProperties + " properties",module);
+    }
+    bundleCache.putIfAbsent(resourceName,bundle);
+  }
+  return bundle;
+}

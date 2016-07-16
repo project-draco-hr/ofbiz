@@ -1,0 +1,140 @@
+{
+  Locale locale=(Locale)parameters.get("locale");
+  Map<String,Object> result=ServiceUtil.returnSuccess();
+  GenericValue newEntity=dctx.getDelegator().makeValue(modelEntity.getEntityName());
+  boolean isSinglePk=modelEntity.getPksSize() == 1;
+  boolean isDoublePk=modelEntity.getPksSize() == 2;
+  Iterator<ModelField> pksIter=modelEntity.getPksIterator();
+  ModelField singlePkModeField=isSinglePk ? pksIter.next() : null;
+  ModelParam singlePkModelParam=isSinglePk ? modelService.getParam(singlePkModeField.getName()) : null;
+  boolean isSinglePkIn=isSinglePk ? singlePkModelParam.isIn() : false;
+  boolean isSinglePkOut=isSinglePk ? singlePkModelParam.isOut() : false;
+  ModelParam doublePkPrimaryInParam=null;
+  ModelParam doublePkSecondaryOutParam=null;
+  ModelField doublePkSecondaryOutField=null;
+  if (isDoublePk) {
+    ModelField firstPkField=pksIter.next();
+    ModelParam firstPkParam=modelService.getParam(firstPkField.getName());
+    ModelField secondPkField=pksIter.next();
+    ModelParam secondPkParam=modelService.getParam(secondPkField.getName());
+    if (firstPkParam.isIn() && secondPkParam.isOut()) {
+      doublePkPrimaryInParam=firstPkParam;
+      doublePkSecondaryOutParam=secondPkParam;
+      doublePkSecondaryOutField=secondPkField;
+    }
+ else     if (firstPkParam.isOut() && secondPkParam.isIn()) {
+      doublePkPrimaryInParam=secondPkParam;
+      doublePkSecondaryOutParam=firstPkParam;
+      doublePkSecondaryOutField=firstPkField;
+    }
+ else {
+    }
+  }
+  if (isSinglePk && isSinglePkOut && !isSinglePkIn) {
+    String sequencedId=dctx.getDelegator().getNextSeqId(modelEntity.getEntityName());
+    newEntity.set(singlePkModeField.getName(),sequencedId);
+  }
+ else   if (isSinglePk && isSinglePkOut && isSinglePkIn) {
+    Object pkValue=parameters.get(singlePkModelParam.name);
+    if (UtilValidate.isEmpty(pkValue)) {
+      pkValue=dctx.getDelegator().getNextSeqId(modelEntity.getEntityName());
+    }
+ else {
+      if (pkValue instanceof String) {
+        StringBuffer errorDetails=new StringBuffer();
+        if (!UtilValidate.isValidDatabaseId((String)pkValue,errorDetails)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ServiceParameterValueNotValid",UtilMisc.toMap("parameterName",singlePkModelParam.name,"errorDetails",errorDetails),locale));
+        }
+      }
+    }
+    newEntity.set(singlePkModeField.getName(),pkValue);
+    GenericValue lookedUpValue=PrimaryKeyFinder.runFind(modelEntity,parameters,dctx.getDelegator(),false,true,null,null);
+    if (lookedUpValue != null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ServiceValueFound",UtilMisc.toMap("pkFields",newEntity.getPkShortValueString()),locale));
+    }
+  }
+ else   if (isDoublePk && doublePkPrimaryInParam != null && doublePkSecondaryOutParam != null) {
+    newEntity.setPKFields(parameters,true);
+    dctx.getDelegator().setNextSubSeqId(newEntity,doublePkSecondaryOutField.getName(),5,1);
+  }
+ else   if (allPksInOnly) {
+    newEntity.setPKFields(parameters,true);
+    GenericValue lookedUpValue=PrimaryKeyFinder.runFind(modelEntity,parameters,dctx.getDelegator(),false,true,null,null);
+    if (lookedUpValue != null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ServiceValueFound",UtilMisc.toMap("pkFields",newEntity.getPkShortValueString()),locale));
+    }
+  }
+ else {
+    if (pkFieldNameOutOnly != null && pkFieldNameOutOnly.size() == 1) {
+      newEntity.setPKFields(parameters,true);
+      String pkFieldName=pkFieldNameOutOnly.get(0);
+      if (!"fromDate".equals(pkFieldName)) {
+        String pkValue=dctx.getDelegator().getNextSeqId(modelEntity.getEntityName());
+        newEntity.set(pkFieldName,pkValue);
+      }
+    }
+ else {
+      throw new GenericServiceException("In Service [" + modelService.name + "] which uses the entity-auto engine with the create invoke option: "+ "could not find a valid combination of primary key settings to do a known create operation; options include: "+ "1. a single OUT pk for primary auto-sequencing, "+ "2. a single INOUT pk for primary auto-sequencing with optional override, "+ "3. a 2-part pk with one part IN (existing primary pk) and one part OUT (the secondary pk to sub-sequence), "+ "4. a N-part pk with N-1 part IN and one party OUT only (missing pk is a sub-sequence mainly for entity assoc), "+ "5. all pk fields are IN for a manually specified primary key");
+    }
+  }
+  ModelField fromDateField=modelEntity.getField("fromDate");
+  if (fromDateField != null && fromDateField.getIsPk()) {
+    ModelParam fromDateParam=modelService.getParam("fromDate");
+    if (fromDateParam == null || parameters.get("fromDate") == null) {
+      newEntity.set("fromDate",UtilDateTime.nowTimestamp());
+    }
+  }
+  newEntity.setNonPKFields(parameters,true);
+  if (modelEntity.getField("createdDate") != null) {
+    newEntity.set("createdDate",UtilDateTime.nowTimestamp());
+    if (modelEntity.getField("createdByUserLogin") != null) {
+      GenericValue userLogin=(GenericValue)parameters.get("userLogin");
+      if (userLogin != null) {
+        newEntity.set("createdByUserLogin",userLogin.get("userLoginId"));
+        if (modelEntity.getField("lastModifiedByUserLogin") != null) {
+          newEntity.set("lastModifiedByUserLogin",userLogin.get("userLoginId"));
+        }
+ else         if (modelEntity.getField("changedByUserLogin") != null) {
+          newEntity.set("changedByUserLogin",userLogin.get("userLoginId"));
+        }
+      }
+    }
+    if (modelEntity.getField("lastModifiedDate") != null) {
+      newEntity.set("lastModifiedDate",UtilDateTime.nowTimestamp());
+    }
+ else     if (modelEntity.getField("changedDate") != null) {
+      newEntity.set("changedDate",UtilDateTime.nowTimestamp());
+    }
+  }
+  if (modelEntity.getField("changeByUserLoginId") != null) {
+    GenericValue userLogin=(GenericValue)parameters.get("userLogin");
+    if (userLogin != null) {
+      newEntity.set("changeByUserLoginId",userLogin.get("userLoginId"));
+    }
+ else {
+      throw new GenericServiceException("You call a creation on entity that require the userLogin to track the activity, please controle that your service definition has auth='true'");
+    }
+    if (modelEntity.getEntityName().endsWith("Status")) {
+      if (modelEntity.getField("statusDate") != null && parameters.get("statusDate") == null) {
+        newEntity.set("statusDate",UtilDateTime.nowTimestamp());
+        if (modelEntity.getField("statusEndDate") != null) {
+          ModelEntity relatedEntity=dctx.getDelegator().getModelEntity(modelEntity.getEntityName().replaceFirst("Status",""));
+          if (relatedEntity != null) {
+            Map<String,Object> conditionRelatedPkFieldMap=new HashMap<String,Object>();
+            for (            String pkRelatedField : relatedEntity.getPkFieldNames()) {
+              conditionRelatedPkFieldMap.put(pkRelatedField,parameters.get(pkRelatedField));
+            }
+            GenericValue previousStatus=EntityQuery.use(newEntity.getDelegator()).from(modelEntity.getEntityName()).where(conditionRelatedPkFieldMap).orderBy("-statusDate").queryFirst();
+            if (previousStatus != null) {
+              previousStatus.put("statusEndDate",newEntity.get("statusDate"));
+              previousStatus.store();
+            }
+          }
+        }
+      }
+    }
+  }
+  newEntity.create();
+  result.put("crudValue",newEntity);
+  return result;
+}

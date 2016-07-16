@@ -1,0 +1,79 @@
+{
+  Map<String,Object> result=new HashMap<String,Object>();
+  Delegator delegator=ctx.getDelegator();
+  Timestamp now=UtilDateTime.nowTimestamp();
+  List<GenericValue> toBeStored=new LinkedList<GenericValue>();
+  Locale locale=(Locale)context.get("locale");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  String partyId=(String)context.get("partyId");
+  String description=(String)context.get("description");
+  if (UtilValidate.isNotEmpty(partyId) && partyId.matches("\\d+")) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"party.id_is_digit",locale));
+  }
+  if (UtilValidate.isEmpty(partyId)) {
+    try {
+      partyId=delegator.getNextSeqId("Party");
+    }
+ catch (    IllegalArgumentException e) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"party.id_generation_failure",locale));
+    }
+  }
+  GenericValue party=null;
+  try {
+    party=EntityQuery.use(delegator).from("Party").where("partyId",partyId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+  }
+  if (party != null) {
+    if (!"PERSON".equals(party.getString("partyTypeId"))) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"person.create.party_exists_not_person_type",locale));
+    }
+  }
+ else {
+    String statusId=(String)context.get("statusId");
+    if (statusId == null) {
+      statusId="PARTY_ENABLED";
+    }
+    Map<String,Object> newPartyMap=UtilMisc.toMap("partyId",partyId,"partyTypeId","PERSON","description",description,"createdDate",now,"lastModifiedDate",now,"statusId",statusId);
+    String preferredCurrencyUomId=(String)context.get("preferredCurrencyUomId");
+    if (!UtilValidate.isEmpty(preferredCurrencyUomId)) {
+      newPartyMap.put("preferredCurrencyUomId",preferredCurrencyUomId);
+    }
+    String externalId=(String)context.get("externalId");
+    if (!UtilValidate.isEmpty(externalId)) {
+      newPartyMap.put("externalId",externalId);
+    }
+    if (userLogin != null) {
+      newPartyMap.put("createdByUserLogin",userLogin.get("userLoginId"));
+      newPartyMap.put("lastModifiedByUserLogin",userLogin.get("userLoginId"));
+    }
+    party=delegator.makeValue("Party",newPartyMap);
+    toBeStored.add(party);
+    GenericValue statusRec=delegator.makeValue("PartyStatus",UtilMisc.toMap("partyId",partyId,"statusId",statusId,"statusDate",now));
+    toBeStored.add(statusRec);
+  }
+  GenericValue person=null;
+  try {
+    person=EntityQuery.use(delegator).from("Person").where("partyId",partyId).queryOne();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+  }
+  if (person != null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"person.create.person_exists",locale));
+  }
+  person=delegator.makeValue("Person",UtilMisc.toMap("partyId",partyId));
+  person.setNonPKFields(context);
+  toBeStored.add(person);
+  try {
+    delegator.storeAll(toBeStored);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logWarning(e.getMessage(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"person.create.db_error",new Object[]{e.getMessage()},locale));
+  }
+  result.put("partyId",partyId);
+  result.put(ModelService.RESPONSE_MESSAGE,ModelService.RESPOND_SUCCESS);
+  return result;
+}

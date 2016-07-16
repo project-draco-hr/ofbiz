@@ -1,0 +1,133 @@
+{
+  if (modelEntity == null) {
+    return null;
+  }
+  ModelViewEntity modelViewEntity=null;
+  if (modelEntity instanceof ModelViewEntity) {
+    modelViewEntity=(ModelViewEntity)modelEntity;
+  }
+  if (findOptions == null)   findOptions=new EntityFindOptions();
+  boolean verboseOn=Debug.verboseOn();
+  if (verboseOn) {
+    Debug.logVerbose("Doing selectListIteratorByCondition with whereEntityCondition: " + whereEntityCondition,module);
+  }
+  List<ModelField> selectFields=new LinkedList<ModelField>();
+  if (UtilValidate.isNotEmpty(fieldsToSelect)) {
+    Set<String> tempKeys=new HashSet<String>();
+    tempKeys.addAll(fieldsToSelect);
+    Set<String> fieldSetsToInclude=new HashSet<String>();
+    Set<String> addedFields=new HashSet<String>();
+    for (    String fieldToSelect : fieldsToSelect) {
+      if (tempKeys.contains(fieldToSelect)) {
+        ModelField curField=modelEntity.getField(fieldToSelect);
+        if (curField != null) {
+          fieldSetsToInclude.add(curField.getFieldSet());
+          selectFields.add(curField);
+          tempKeys.remove(fieldToSelect);
+          addedFields.add(fieldToSelect);
+        }
+      }
+    }
+    if (tempKeys.size() > 0) {
+      throw new GenericModelException("In selectListIteratorByCondition invalid field names specified: " + tempKeys.toString());
+    }
+    fieldSetsToInclude.remove("");
+    if (verboseOn) {
+      Debug.logInfo("[" + modelEntity.getEntityName() + "]: field-sets to include: "+ fieldSetsToInclude,module);
+    }
+    if (UtilValidate.isNotEmpty(fieldSetsToInclude)) {
+      Iterator<ModelField> fieldIter=modelEntity.getFieldsIterator();
+      Set<String> extraFields=new HashSet<String>();
+      Set<String> reasonSets=new HashSet<String>();
+      while (fieldIter.hasNext()) {
+        ModelField curField=fieldIter.next();
+        String fieldSet=curField.getFieldSet();
+        if (UtilValidate.isEmpty(fieldSet)) {
+          continue;
+        }
+        if (!fieldSetsToInclude.contains(fieldSet)) {
+          continue;
+        }
+        String fieldName=curField.getName();
+        if (addedFields.contains(fieldName)) {
+          continue;
+        }
+        reasonSets.add(fieldSet);
+        extraFields.add(fieldName);
+        addedFields.add(fieldName);
+        selectFields.add(curField);
+      }
+      if (verboseOn) {
+        Debug.logInfo("[" + modelEntity.getEntityName() + "]: auto-added select fields: "+ extraFields,module);
+        Debug.logInfo("[" + modelEntity.getEntityName() + "]: auto-added field-sets: "+ reasonSets,module);
+      }
+    }
+  }
+ else {
+    selectFields=modelEntity.getFieldsUnmodifiable();
+  }
+  StringBuilder sqlBuffer=new StringBuilder("SELECT ");
+  if (findOptions.getDistinct()) {
+    sqlBuffer.append("DISTINCT ");
+  }
+  if (selectFields.size() > 0) {
+    modelEntity.colNameString(selectFields,sqlBuffer,"",", ","",datasource.getAliasViewColumns());
+  }
+ else {
+    sqlBuffer.append("*");
+  }
+  List<EntityCondition> viewWhereConditions=null;
+  List<EntityCondition> viewHavingConditions=null;
+  List<String> viewOrderByList=null;
+  if (modelViewEntity != null) {
+    viewWhereConditions=new LinkedList<EntityCondition>();
+    viewHavingConditions=new LinkedList<EntityCondition>();
+    viewOrderByList=new LinkedList<String>();
+    modelViewEntity.populateViewEntityConditionInformation(modelFieldTypeReader,viewWhereConditions,viewHavingConditions,viewOrderByList,null);
+  }
+  sqlBuffer.append(SqlJdbcUtil.makeFromClause(modelEntity,modelFieldTypeReader,datasource));
+  List<EntityConditionParam> whereEntityConditionParams=new LinkedList<EntityConditionParam>();
+  makeConditionWhereString(sqlBuffer," WHERE ",modelEntity,whereEntityCondition,viewWhereConditions,whereEntityConditionParams);
+  if (modelViewEntity != null) {
+    modelViewEntity.colNameString(modelViewEntity.getGroupBysCopy(selectFields),sqlBuffer," GROUP BY ",", ","",false);
+  }
+  List<EntityConditionParam> havingEntityConditionParams=new LinkedList<EntityConditionParam>();
+  makeConditionHavingString(sqlBuffer," HAVING ",modelEntity,havingEntityCondition,viewHavingConditions,havingEntityConditionParams);
+  List<String> orderByExpanded=new LinkedList<String>();
+  if (orderBy != null) {
+    orderByExpanded.addAll(orderBy);
+  }
+  if (viewOrderByList != null) {
+    orderByExpanded.addAll(viewOrderByList);
+  }
+  sqlBuffer.append(SqlJdbcUtil.makeOrderByClause(modelEntity,orderByExpanded,datasource));
+  makeOffsetString(sqlBuffer,findOptions);
+  String sql=sqlBuffer.toString();
+  SQLProcessor sqlP=new SQLProcessor(delegator,helperInfo);
+  sqlP.prepareStatement(sql,findOptions.getSpecifyTypeAndConcur(),findOptions.getResultSetType(),findOptions.getResultSetConcurrency(),findOptions.getFetchSize(),findOptions.getMaxRows());
+  if (verboseOn) {
+    Debug.logVerbose("Setting the whereEntityConditionParams: " + whereEntityConditionParams,module);
+  }
+  for (  EntityConditionParam whereEntityConditionParam : whereEntityConditionParams) {
+    SqlJdbcUtil.setValue(sqlP,whereEntityConditionParam.getModelField(),modelEntity.getEntityName(),whereEntityConditionParam.getFieldValue(),modelFieldTypeReader);
+  }
+  if (verboseOn) {
+    Debug.logVerbose("Setting the havingEntityConditionParams: " + havingEntityConditionParams,module);
+  }
+  for (  EntityConditionParam havingEntityConditionParam : havingEntityConditionParams) {
+    SqlJdbcUtil.setValue(sqlP,havingEntityConditionParam.getModelField(),modelEntity.getEntityName(),havingEntityConditionParam.getFieldValue(),modelFieldTypeReader);
+  }
+  long queryStartTime=0;
+  if (Debug.timingOn()) {
+    queryStartTime=System.currentTimeMillis();
+  }
+  sqlP.executeQuery();
+  if (Debug.timingOn()) {
+    long queryEndTime=System.currentTimeMillis();
+    long queryTotalTime=queryEndTime - queryStartTime;
+    if (queryTotalTime > 150) {
+      Debug.logTiming("Ran query in " + queryTotalTime + " milli-seconds: "+ " EntityName: "+ modelEntity.getEntityName()+ " Sql: "+ sql+ " where clause:"+ whereEntityConditionParams,module);
+    }
+  }
+  return new EntityListIterator(sqlP,modelEntity,selectFields,modelFieldTypeReader,this,whereEntityCondition,havingEntityCondition,findOptions.getDistinct());
+}

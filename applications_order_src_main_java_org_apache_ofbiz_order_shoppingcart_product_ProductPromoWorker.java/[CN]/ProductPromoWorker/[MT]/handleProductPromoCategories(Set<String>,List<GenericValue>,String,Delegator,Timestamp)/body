@@ -1,0 +1,67 @@
+{
+  boolean include=!"PPPA_EXCLUDE".equals(productPromoApplEnumId);
+  Set<String> productCategoryIds=new HashSet<String>();
+  Map<String,List<Set<String>>> productCategoryGroupSetListMap=new HashMap<String,List<Set<String>>>();
+  for (  GenericValue productPromoCategory : productPromoCategories) {
+    if (productPromoApplEnumId.equals(productPromoCategory.getString("productPromoApplEnumId"))) {
+      Set<String> tempCatIdSet=new HashSet<String>();
+      if ("Y".equals(productPromoCategory.getString("includeSubCategories"))) {
+        ProductSearch.getAllSubCategoryIds(productPromoCategory.getString("productCategoryId"),tempCatIdSet,delegator,nowTimestamp);
+      }
+ else {
+        tempCatIdSet.add(productPromoCategory.getString("productCategoryId"));
+      }
+      String andGroupId=productPromoCategory.getString("andGroupId");
+      if ("_NA_".equals(andGroupId)) {
+        productCategoryIds.addAll(tempCatIdSet);
+      }
+ else {
+        List<Set<String>> catIdSetList=productCategoryGroupSetListMap.get(andGroupId);
+        if (catIdSetList == null) {
+          catIdSetList=new LinkedList<Set<String>>();
+        }
+        catIdSetList.add(tempCatIdSet);
+      }
+    }
+  }
+  Iterator<Map.Entry<String,List<Set<String>>>> pcgslmeIter=productCategoryGroupSetListMap.entrySet().iterator();
+  while (pcgslmeIter.hasNext()) {
+    Map.Entry<String,List<Set<String>>> entry=pcgslmeIter.next();
+    List<Set<String>> catIdSetList=entry.getValue();
+    if (catIdSetList.size() == 0) {
+      pcgslmeIter.remove();
+    }
+ else     if (catIdSetList.size() == 1) {
+      Set<String> catIdSet=catIdSetList.iterator().next();
+      if (catIdSet.size() == 0) {
+        pcgslmeIter.remove();
+      }
+ else {
+        productCategoryIds.addAll(catIdSet);
+        pcgslmeIter.remove();
+      }
+    }
+  }
+  getAllProductIds(productCategoryIds,productIds,delegator,nowTimestamp,include);
+  for (  Map.Entry<String,List<Set<String>>> entry : productCategoryGroupSetListMap.entrySet()) {
+    List<Set<String>> catIdSetList=entry.getValue();
+    List<Set<String>> productIdSetList=new LinkedList<Set<String>>();
+    for (    Set<String> catIdSet : catIdSetList) {
+      Set<String> groupProductIdSet=new HashSet<String>();
+      getAllProductIds(catIdSet,groupProductIdSet,delegator,nowTimestamp,true);
+      productIdSetList.add(groupProductIdSet);
+    }
+    Set<String> firstProductIdSet=productIdSetList.remove(0);
+    for (    Set<String> productIdSet : productIdSetList) {
+      firstProductIdSet.retainAll(productIdSet);
+    }
+    if (firstProductIdSet.size() >= 0) {
+      if (include) {
+        productIds.addAll(firstProductIdSet);
+      }
+ else {
+        productIds.removeAll(firstProductIdSet);
+      }
+    }
+  }
+}

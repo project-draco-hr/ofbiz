@@ -1,0 +1,46 @@
+{
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  String productStoreId=(String)context.get("productStoreId");
+  String mode=(String)context.get("mode");
+  String paymentMethodId=(String)context.get("paymentMethodId");
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Locale locale=(Locale)context.get("locale");
+  if (Debug.infoOn())   Debug.logInfo("Running verifyCreditCard [ " + paymentMethodId + "] for store: "+ productStoreId,module);
+  GenericValue productStore=null;
+  productStore=ProductStoreWorker.getProductStore(productStoreId,delegator);
+  String productStorePaymentProperties="payment.properties";
+  if (productStore != null) {
+    productStorePaymentProperties=ProductStoreWorker.getProductStorePaymentProperties(delegator,productStoreId,"CREDIT_CARD","PRDS_PAY_AUTH",false);
+  }
+  String amount=null;
+  if (mode.equalsIgnoreCase("CREATE")) {
+    amount=EntityUtilProperties.getPropertyValue(productStorePaymentProperties,"payment.general.cc_create.auth",delegator);
+  }
+ else   if (mode.equalsIgnoreCase("UPDATE")) {
+    amount=EntityUtilProperties.getPropertyValue(productStorePaymentProperties,"payment.general.cc_update.auth",delegator);
+  }
+  if (Debug.infoOn())   Debug.logInfo("Running credit card verification [" + paymentMethodId + "] ("+ amount+ ") : "+ productStorePaymentProperties+ " : "+ mode,module);
+  if (UtilValidate.isNotEmpty(amount)) {
+    BigDecimal authAmount=new BigDecimal(amount);
+    if (authAmount.compareTo(BigDecimal.ZERO) > 0) {
+      Map<String,Object> ccAuthContext=new HashMap<String,Object>();
+      ccAuthContext.put("paymentMethodId",paymentMethodId);
+      ccAuthContext.put("productStoreId",productStoreId);
+      ccAuthContext.put("amount",authAmount);
+      ccAuthContext.put("userLogin",userLogin);
+      Map<String,Object> results;
+      try {
+        results=dispatcher.runSync("manualForcedCcAuthTransaction",ccAuthContext);
+      }
+ catch (      GenericServiceException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+      if (ServiceUtil.isError(results)) {
+        return ServiceUtil.returnError(UtilProperties.getMessage("AccountingUiLabels","AccountingCreditCardManualAuthFailedError",locale));
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

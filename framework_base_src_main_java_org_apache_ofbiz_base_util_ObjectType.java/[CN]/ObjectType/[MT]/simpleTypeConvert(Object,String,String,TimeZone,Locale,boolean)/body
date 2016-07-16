@@ -1,0 +1,78 @@
+{
+  if (obj == null || UtilValidate.isEmpty(type) || "Object".equals(type) || "java.lang.Object".equals(type)) {
+    return obj;
+  }
+  if ("PlainString".equals(type)) {
+    return obj.toString();
+  }
+  if (obj instanceof Node) {
+    Node node=(Node)obj;
+    String nodeValue=node.getTextContent();
+    if ("String".equals(type) || "java.lang.String".equals(type)) {
+      return nodeValue;
+    }
+ else {
+      return simpleTypeConvert(nodeValue,type,format,timeZone,locale,noTypeFail);
+    }
+  }
+  int genericsStart=type.indexOf("<");
+  if (genericsStart != -1) {
+    type=type.substring(0,genericsStart);
+  }
+  Class<?> sourceClass=obj.getClass();
+  Class<?> targetClass=null;
+  try {
+    targetClass=loadClass(type);
+  }
+ catch (  ClassNotFoundException e) {
+    throw new GeneralException("Conversion from " + sourceClass.getName() + " to "+ type+ " not currently supported",e);
+  }
+  if (sourceClass.equals(targetClass)) {
+    return obj;
+  }
+  if (obj instanceof String && ((String)obj).length() == 0) {
+    return null;
+  }
+  Converter<Object,Object> converter=null;
+  try {
+    converter=(Converter<Object,Object>)Converters.getConverter(sourceClass,targetClass);
+  }
+ catch (  ClassNotFoundException e) {
+  }
+  if (converter != null) {
+    if (converter instanceof LocalizedConverter) {
+      @SuppressWarnings("rawtypes") LocalizedConverter<Object,Object> localizedConverter=(LocalizedConverter)converter;
+      if (timeZone == null) {
+        timeZone=TimeZone.getDefault();
+      }
+      if (locale == null) {
+        locale=Locale.getDefault();
+      }
+      try {
+        return localizedConverter.convert(obj,locale,timeZone,format);
+      }
+ catch (      ConversionException e) {
+        Debug.logWarning(e,"Exception thrown while converting type: ",module);
+        throw new GeneralException(e.getMessage(),e);
+      }
+    }
+    try {
+      return converter.convert(obj);
+    }
+ catch (    ConversionException e) {
+      Debug.logWarning(e,"Exception thrown while converting type: ",module);
+      throw new GeneralException(e.getMessage(),e);
+    }
+  }
+  if (targetClass.equals(String.class)) {
+    Debug.logWarning("No special conversion available for " + obj.getClass().getName() + " to String, returning object.toString().",module);
+    return obj.toString();
+  }
+  if (noTypeFail) {
+    throw new GeneralException("Conversion from " + obj.getClass().getName() + " to "+ type+ " not currently supported");
+  }
+ else {
+    if (Debug.infoOn())     Debug.logInfo("No type conversion available for " + obj.getClass().getName() + " to "+ targetClass.getName()+ ", returning original object.",module);
+    return obj;
+  }
+}

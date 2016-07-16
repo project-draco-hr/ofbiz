@@ -1,0 +1,26 @@
+{
+  Map<String,Object> result=new HashMap<String,Object>();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  GenericValue userLogin=(GenericValue)context.get("userLogin");
+  Delegator delegator=dctx.getDelegator();
+  String productStoreId=(String)context.get("productStoreId");
+  String autoPrefEnumId=(String)context.get("autoPrefEnumId");
+  try {
+    GenericValue ebayProductPref=EntityQuery.use(delegator).from("EbayProductStorePref").where("productStoreId",productStoreId,"autoPrefEnumId",autoPrefEnumId).queryOne();
+    String jobId=ebayProductPref.getString("autoPrefJobId");
+    List<GenericValue> jobs=EntityQuery.use(delegator).from("JobSandbox").where("parentJobId",jobId,"statusId","SERVICE_PENDING").queryList();
+    Map<String,Object> inMap=new HashMap<String,Object>();
+    inMap.put("userLogin",userLogin);
+    for (int index=0; index < jobs.size(); index++) {
+      inMap.put("jobId",jobs.get(index).getString("jobId"));
+      dispatcher.runSync("cancelScheduledJob",inMap);
+    }
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+catch (  GenericServiceException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  return result;
+}

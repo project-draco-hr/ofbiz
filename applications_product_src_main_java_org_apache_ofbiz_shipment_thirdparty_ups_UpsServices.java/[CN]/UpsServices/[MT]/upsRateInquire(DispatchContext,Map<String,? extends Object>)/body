@@ -1,0 +1,59 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  String shippingContactMechId=(String)context.get("shippingContactMechId");
+  String shippingOriginContactMechId=(String)context.get("shippingOriginContactMechId");
+  GenericValue shipToAddress=null;
+  if (shippingContactMechId != null) {
+    try {
+      shipToAddress=EntityQuery.use(delegator).from("PostalAddress").where("contactMechId",shippingContactMechId).queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (shipToAddress == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUnableFoundShipToAddresss",locale));
+  }
+  GenericValue shipFromAddress=null;
+  if (shippingOriginContactMechId != null) {
+    try {
+      shipFromAddress=EntityQuery.use(delegator).from("PostalAddress").where("contactMechId",shippingOriginContactMechId).queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUnableFoundShipToAddresssForDropShipping",locale));
+    }
+  }
+  GenericValue destCountryGeo=null;
+  try {
+    destCountryGeo=shipToAddress.getRelatedOne("CountryGeo",false);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (UtilValidate.isEmpty(destCountryGeo)) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsShipToAddresssNoDestionationCountry",locale));
+  }
+  Map<String,Object> cxt=UtilMisc.toMap("serviceConfigProps",context.get("serviceConfigProps"),"upsRateInquireMode",context.get("upsRateInquireMode"),"productStoreId",context.get("productStoreId"),"carrierRoleTypeId",context.get("carrierRoleTypeId"));
+  cxt.put("carrierPartyId",context.get("carrierPartyId"));
+  cxt.put("shipmentMethodTypeId",context.get("shipmentMethodTypeId"));
+  cxt.put("shippingPostalCode",shipToAddress.getString("postalCode"));
+  cxt.put("shippingCountryCode",destCountryGeo.getString("geoCode"));
+  cxt.put("packageWeights",context.get("packageWeights"));
+  cxt.put("shippableItemInfo",context.get("shippableItemInfo"));
+  cxt.put("shippableTotal",context.get("shippableTotal"));
+  cxt.put("shippableQuantity",context.get("shippableQuantity"));
+  cxt.put("shippableWeight",context.get("shippableWeight"));
+  cxt.put("isResidentialAddress",context.get("isResidentialAddress"));
+  cxt.put("shipFromAddress",shipFromAddress);
+  cxt.put("shipmentGatewayConfigId",context.get("shipmentGatewayConfigId"));
+  try {
+    return dctx.getDispatcher().runSync("upsRateEstimateByPostalCode",cxt);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"FacilityShipmentUpsRateEstimateError",UtilMisc.toMap("errorString",e.getMessage()),locale));
+  }
+}

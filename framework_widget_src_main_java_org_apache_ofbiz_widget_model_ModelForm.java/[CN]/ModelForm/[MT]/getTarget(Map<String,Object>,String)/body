@@ -1,0 +1,30 @@
+{
+  Map<String,Object> expanderContext=context;
+  UtilCodec.SimpleEncoder simpleEncoder=(UtilCodec.SimpleEncoder)context.get("simpleEncoder");
+  if (simpleEncoder != null) {
+    expanderContext=UtilCodec.HtmlEncodingMapWrapper.getHtmlEncodingMapWrapper(context,simpleEncoder);
+  }
+  try {
+    for (    AltTarget altTarget : this.altTargets) {
+      String useWhen=FlexibleStringExpander.expandString(altTarget.useWhen,context);
+      Object retVal=GroovyUtil.eval(StringUtil.convertOperatorSubstitutions(useWhen),context);
+      boolean condTrue=false;
+      if (retVal instanceof Boolean) {
+        Boolean boolVal=(Boolean)retVal;
+        condTrue=boolVal.booleanValue();
+      }
+ else {
+        throw new IllegalArgumentException("Return value from target condition eval was not a Boolean: " + retVal.getClass().getName() + " ["+ retVal+ "] of form "+ getName());
+      }
+      if (condTrue && !targetType.equals("inter-app")) {
+        return altTarget.targetExdr.expandString(expanderContext);
+      }
+    }
+  }
+ catch (  CompilationFailedException e) {
+    String errmsg="Error evaluating Groovy target conditions on form " + getName();
+    Debug.logError(e,errmsg,module);
+    throw new IllegalArgumentException(errmsg);
+  }
+  return target.expandString(expanderContext);
+}

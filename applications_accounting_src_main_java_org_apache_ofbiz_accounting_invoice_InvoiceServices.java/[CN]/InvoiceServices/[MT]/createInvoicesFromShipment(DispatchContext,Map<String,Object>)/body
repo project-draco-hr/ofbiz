@@ -1,0 +1,42 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  String shipmentId=(String)context.get("shipmentId");
+  Locale locale=(Locale)context.get("locale");
+  List<String> invoicesCreated=new LinkedList<String>();
+  Map<String,Object> response=ServiceUtil.returnSuccess();
+  GenericValue orderShipment=null;
+  String invoicePerShipment=null;
+  try {
+    orderShipment=EntityQuery.use(delegator).from("OrderShipment").where("shipmentId",shipmentId).queryFirst();
+  }
+ catch (  GenericEntityException e) {
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (orderShipment != null) {
+    String orderId=orderShipment.getString("orderId");
+    try {
+      GenericValue orderHeader=EntityQuery.use(delegator).from("OrderHeader").where("orderId",orderId).queryOne();
+      invoicePerShipment=orderHeader.getString("invoicePerShipment");
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  if (invoicePerShipment == null) {
+    invoicePerShipment=EntityUtilProperties.getPropertyValue("accounting","create.invoice.per.shipment",delegator);
+  }
+  if ("Y".equals(invoicePerShipment)) {
+    Map<String,Object> serviceContext=UtilMisc.toMap("shipmentIds",UtilMisc.toList(shipmentId),"eventDate",context.get("eventDate"),"userLogin",context.get("userLogin"));
+    try {
+      Map<String,Object> result=dispatcher.runSync("createInvoicesFromShipments",serviceContext);
+      invoicesCreated=UtilGenerics.checkList(result.get("invoicesCreated"));
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,"Trouble calling createInvoicesFromShipment service; invoice not created for shipment [" + shipmentId + "]",module);
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingTroubleCallingCreateInvoicesFromShipmentService",UtilMisc.toMap("shipmentId",shipmentId),locale));
+    }
+    response.put("invoicesCreated",invoicesCreated);
+  }
+  return response;
+}

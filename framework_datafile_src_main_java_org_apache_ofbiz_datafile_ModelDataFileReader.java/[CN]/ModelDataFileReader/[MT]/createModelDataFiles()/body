@@ -1,0 +1,43 @@
+{
+  Document document=null;
+  Element docElement=null;
+  try {
+    document=UtilXml.readXmlDocument(this.readerURL);
+  }
+ catch (  Exception e) {
+    Debug.logWarning(e,"Error while reading " + this.readerURL + ": ",module);
+    throw new DataFileException("Error while reading " + this.readerURL,e);
+  }
+  if (document != null) {
+    docElement=document.getDocumentElement();
+  }
+  if (docElement == null) {
+    Debug.logWarning("Document element not found in " + this.readerURL,module);
+    throw new DataFileException("Document element not found in " + this.readerURL);
+  }
+  docElement.normalize();
+  List<? extends Element> dataFileElements=UtilXml.childElementList(docElement,"data-file");
+  if (dataFileElements.size() == 0) {
+    Debug.logWarning("No <data-file> elements found in " + this.readerURL,module);
+    throw new DataFileException("No <data-file> elements found in " + this.readerURL);
+  }
+  Map<String,ModelDataFile> result=new HashMap<String,ModelDataFile>();
+  for (  Element curDataFile : dataFileElements) {
+    String dataFileName=UtilXml.checkEmpty(curDataFile.getAttribute("name"));
+    if (result.containsKey(dataFileName)) {
+      Debug.logWarning("DataFile " + dataFileName + " is defined more than once, most recent will over-write previous definition(s)",module);
+    }
+    ModelDataFile dataFile=createModelDataFile(curDataFile);
+    if (dataFile != null) {
+      result.put(dataFileName,dataFile);
+      if (Debug.verboseOn()) {
+        Debug.logVerbose("Loaded dataFile: " + dataFileName,module);
+      }
+    }
+ else {
+      Debug.logWarning("Could not create dataFile for dataFileName " + dataFileName,module);
+      throw new DataFileException("Could not create dataFile for " + dataFileName + " defined in "+ this.readerURL);
+    }
+  }
+  return result;
+}

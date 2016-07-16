@@ -1,0 +1,51 @@
+{
+  if (productCategoryId == null && productCategory != null) {
+    productCategoryId=productCategory.getString("productCategoryId");
+  }
+  if (delegator == null && productCategory != null) {
+    delegator=productCategory.getDelegator();
+  }
+  if (UtilValidate.isEmpty(mimeTypeId)) {
+    mimeTypeId=EntityUtilProperties.getPropertyValue("content","defaultMimeType","text/html; charset=utf-8",delegator);
+  }
+  if (delegator == null) {
+    throw new GeneralRuntimeException("Unable to find a delegator to use!");
+  }
+  List<GenericValue> categoryContentList=EntityQuery.use(delegator).from("ProductCategoryContent").where("productCategoryId",productCategoryId,"prodCatContentTypeId",prodCatContentTypeId).orderBy("-fromDate").cache(cache).queryList();
+  categoryContentList=EntityUtil.filterByDate(categoryContentList);
+  GenericValue categoryContent=null;
+  String sessionLocale=locale.toString();
+  String fallbackLocale=UtilProperties.getFallbackLocale().toString();
+  if (sessionLocale == null)   sessionLocale=fallbackLocale;
+  for (  GenericValue currentContent : categoryContentList) {
+    GenericValue content=EntityQuery.use(delegator).from("Content").where("contentId",currentContent.getString("contentId")).cache(cache).queryOne();
+    if (sessionLocale.equals(content.getString("localeString"))) {
+      categoryContent=currentContent;
+      break;
+    }
+ else     if (fallbackLocale.equals(content.getString("localeString"))) {
+      categoryContent=currentContent;
+    }
+  }
+  if (categoryContent != null) {
+    Map<String,Object> inContext=new HashMap<String,Object>();
+    inContext.put("productCategory",productCategory);
+    inContext.put("categoryContent",categoryContent);
+    ContentWorker.renderContentAsText(dispatcher,delegator,categoryContent.getString("contentId"),outWriter,inContext,locale,mimeTypeId,null,null,cache);
+    return;
+  }
+  String candidateFieldName=ModelUtil.dbNameToVarName(prodCatContentTypeId);
+  ModelEntity categoryModel=delegator.getModelEntity("ProductCategory");
+  if (categoryModel.isField(candidateFieldName)) {
+    if (productCategory == null) {
+      productCategory=EntityQuery.use(delegator).from("ProductCategory").where("productCategoryId",productCategoryId).cache().queryOne();
+    }
+    if (productCategory != null) {
+      String candidateValue=productCategory.getString(candidateFieldName);
+      if (UtilValidate.isNotEmpty(candidateValue)) {
+        outWriter.write(candidateValue);
+        return;
+      }
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  Debug.logInfo("Running process bounced message check...",module);
+  MimeMessageWrapper wrapper=(MimeMessageWrapper)context.get("messageWrapper");
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  int parts=wrapper.getMainPartCount();
+  if (parts >= 3) {
+    String contentType=wrapper.getPartContentType("1");
+    if (contentType != null && "message/delivery-status".equalsIgnoreCase(contentType)) {
+      Debug.logInfo("Delivery status report part found; processing...",module);
+      String part2Text=wrapper.getPartRawText("1");
+      if (part2Text == null) {
+        part2Text="";
+      }
+      if (Debug.verboseOn())       Debug.logVerbose("Part 2 Text :\n\n" + part2Text,module);
+      Pattern p2=Pattern.compile("^Action: (.*)$",Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+      Matcher m2=p2.matcher(part2Text);
+      String action=null;
+      if (m2.find()) {
+        action=m2.group(1);
+      }
+      if (action != null && "failed".equalsIgnoreCase(action)) {
+        String part3Text=wrapper.getPartRawText("2");
+        if (part3Text == null) {
+          part3Text="";
+        }
+        if (Debug.verboseOn())         Debug.logVerbose("Part 3 Text :\n\n" + part3Text,module);
+        Pattern p3=Pattern.compile("^Message-Id: (.*)$",Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+        Matcher m3=p3.matcher(part3Text);
+        String messageId=null;
+        if (m3.find()) {
+          Debug.logInfo("Found message-id : " + m3.group(),module);
+          messageId=m3.group(1);
+        }
+        if (messageId != null) {
+          List<GenericValue> values;
+          try {
+            values=EntityQuery.use(delegator).from("CommunicationEvent").where("messageId",messageId).queryList();
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+            return ServiceUtil.returnError(e.getMessage());
+          }
+          if (UtilValidate.isNotEmpty(values)) {
+            GenericValue value=values.get(0);
+            Map<String,Object> updateCtx=new HashMap<String,Object>();
+            updateCtx.put("communicationEventId",value.getString("communicationEventId"));
+            updateCtx.put("statusId","COM_BOUNCED");
+            updateCtx.put("userLogin",context.get("userLogin"));
+            Map<String,Object> result;
+            try {
+              result=dispatcher.runSync("updateCommunicationEvent",updateCtx);
+            }
+ catch (            GenericServiceException e) {
+              Debug.logError(e,module);
+              return ServiceUtil.returnError(e.getMessage());
+            }
+            if (ServiceUtil.isError(result)) {
+              return ServiceUtil.returnError(ServiceUtil.getErrorMessage(result));
+            }
+          }
+ else {
+            if (Debug.infoOn()) {
+              Debug.logInfo("Unable to find CommunicationEvent with the matching messageId : " + messageId,module);
+            }
+            try {
+              values=EntityQuery.use(delegator).from("ContactListCommStatus").where("messageId",messageId).queryList();
+            }
+ catch (            GenericEntityException e) {
+              Debug.logError(e,module);
+              return ServiceUtil.returnError(e.getMessage());
+            }
+            if (UtilValidate.isNotEmpty(values)) {
+              GenericValue value=values.get(0);
+              Map<String,Object> updateCtx=new HashMap<String,Object>();
+              updateCtx.put("communicationEventId",value.getString("communicationEventId"));
+              updateCtx.put("contactListId",value.getString("contactListId"));
+              updateCtx.put("contactMechId",value.getString("contactMechId"));
+              updateCtx.put("partyId",value.getString("partyId"));
+              updateCtx.put("statusId","COM_BOUNCED");
+              updateCtx.put("userLogin",context.get("userLogin"));
+              Map<String,Object> result;
+              try {
+                result=dispatcher.runSync("updateContactListCommStatus",updateCtx);
+              }
+ catch (              GenericServiceException e) {
+                Debug.logError(e,module);
+                return ServiceUtil.returnError(e.getMessage());
+              }
+              if (ServiceUtil.isError(result)) {
+                return ServiceUtil.returnError(ServiceUtil.getErrorMessage(result));
+              }
+            }
+ else {
+              if (Debug.infoOn()) {
+                Debug.logInfo("Unable to find ContactListCommStatus with the matching messageId : " + messageId,module);
+              }
+            }
+          }
+        }
+ else {
+          Debug.logWarning("No message ID attached to part",module);
+        }
+      }
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

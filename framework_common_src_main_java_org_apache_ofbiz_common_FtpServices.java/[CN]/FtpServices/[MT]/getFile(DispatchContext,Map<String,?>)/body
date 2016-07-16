@@ -1,0 +1,73 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  String localFilename=(String)context.get("localFilename");
+  OutputStream localFile=null;
+  try {
+    localFile=new FileOutputStream(localFilename);
+  }
+ catch (  IOException ioe) {
+    Debug.logError(ioe,"[getFile] Problem opening local file",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"CommonFtpFileCannotBeOpen",locale));
+  }
+  List<String> errorList=new LinkedList<String>();
+  FTPClient ftp=new FTPClient();
+  try {
+    Integer defaultTimeout=(Integer)context.get("defaultTimeout");
+    if (UtilValidate.isNotEmpty(defaultTimeout)) {
+      Debug.logInfo("[getFile] Set default timeout to: " + defaultTimeout.intValue() + " milliseconds",module);
+      ftp.setDefaultTimeout(defaultTimeout.intValue());
+    }
+    ftp.connect((String)context.get("hostname"));
+    if (!FTPReply.isPositiveCompletion(ftp.getReplyCode())) {
+      errorList.add(UtilProperties.getMessage(resource,"CommonFtpConnectionRefused",locale));
+    }
+ else {
+      String username=(String)context.get("username");
+      String password=(String)context.get("password");
+      if (!ftp.login(username,password)) {
+        errorList.add(UtilProperties.getMessage(resource,"CommonFtpLoginFailure",UtilMisc.toMap("username",username,"password",password),locale));
+      }
+ else {
+        Boolean binaryTransfer=(Boolean)context.get("binaryTransfer");
+        boolean binary=(binaryTransfer == null) ? false : binaryTransfer.booleanValue();
+        if (binary) {
+          ftp.setFileType(FTP.BINARY_FILE_TYPE);
+        }
+        Boolean passiveMode=(Boolean)context.get("passiveMode");
+        boolean passive=(passiveMode == null) ? false : passiveMode.booleanValue();
+        if (passive) {
+          ftp.enterLocalPassiveMode();
+        }
+        if (!ftp.retrieveFile((String)context.get("remoteFilename"),localFile)) {
+          errorList.add(UtilProperties.getMessage(resource,"CommonFtpFileNotSentSuccesfully",UtilMisc.toMap("replyString",ftp.getReplyString()),locale));
+        }
+      }
+      ftp.logout();
+    }
+  }
+ catch (  IOException ioe) {
+    Debug.logWarning(ioe,"[getFile] caught exception: " + ioe.getMessage(),module);
+    errorList.add(UtilProperties.getMessage(resource,"CommonFtpProblemWithTransfer",UtilMisc.toMap("errorString",ioe.getMessage()),locale));
+  }
+ finally {
+    try {
+      if (ftp.isConnected()) {
+        ftp.disconnect();
+      }
+    }
+ catch (    Exception e) {
+      Debug.logWarning(e,"[getFile] Problem with FTP disconnect: ",module);
+    }
+    try {
+      localFile.close();
+    }
+ catch (    Exception e) {
+      Debug.logWarning(e,"[getFile] Problem closing local file: ",module);
+    }
+  }
+  if (errorList.size() > 0) {
+    Debug.logError("[getFile] The following error(s) (" + errorList.size() + ") occurred: "+ errorList,module);
+    return ServiceUtil.returnError(errorList);
+  }
+  return ServiceUtil.returnSuccess();
+}

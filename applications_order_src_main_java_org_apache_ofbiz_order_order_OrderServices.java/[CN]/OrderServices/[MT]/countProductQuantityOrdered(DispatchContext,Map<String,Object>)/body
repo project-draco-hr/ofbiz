@@ -1,0 +1,46 @@
+{
+  Delegator delegator=ctx.getDelegator();
+  Locale locale=(Locale)context.get("locale");
+  List<GenericValue> productCalculatedInfoList=null;
+  GenericValue productCalculatedInfo=null;
+  String productId=(String)context.get("productId");
+  BigDecimal quantity=(BigDecimal)context.get("quantity");
+  try {
+    productCalculatedInfoList=EntityQuery.use(delegator).from("ProductCalculatedInfo").where("productId",productId).queryList();
+    if (UtilValidate.isEmpty(productCalculatedInfoList)) {
+      productCalculatedInfo=delegator.makeValue("ProductCalculatedInfo");
+      productCalculatedInfo.set("productId",productId);
+      productCalculatedInfo.set("totalQuantityOrdered",quantity);
+      productCalculatedInfo.create();
+    }
+ else {
+      productCalculatedInfo=productCalculatedInfoList.get(0);
+      BigDecimal totalQuantityOrdered=productCalculatedInfo.getBigDecimal("totalQuantityOrdered");
+      if (totalQuantityOrdered == null) {
+        productCalculatedInfo.set("totalQuantityOrdered",quantity);
+      }
+ else {
+        productCalculatedInfo.set("totalQuantityOrdered",totalQuantityOrdered.add(quantity));
+      }
+    }
+    productCalculatedInfo.store();
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error calling countProductQuantityOrdered service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCallingCountProductQuantityOrderedService",locale) + e.toString());
+  }
+  String virtualProductId=null;
+  try {
+    GenericValue product=EntityQuery.use(delegator).from("Product").where("productId",productId).cache(true).queryOne();
+    virtualProductId=ProductWorker.getVariantVirtualId(product);
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Error calling countProductQuantityOrdered service",module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource_error,"OrderErrorCallingCountProductQuantityOrderedService",locale) + e.toString());
+  }
+  if (UtilValidate.isNotEmpty(virtualProductId)) {
+    context.put("productId",virtualProductId);
+    countProductQuantityOrdered(ctx,context);
+  }
+  return ServiceUtil.returnSuccess();
+}

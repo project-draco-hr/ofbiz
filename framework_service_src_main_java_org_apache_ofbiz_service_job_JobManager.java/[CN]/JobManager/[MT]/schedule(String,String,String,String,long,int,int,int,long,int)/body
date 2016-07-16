@@ -1,0 +1,39 @@
+{
+  assertIsRunning();
+  String infoId=null;
+  if (frequency > -1 && count != 0) {
+    try {
+      RecurrenceInfo info=RecurrenceInfo.makeInfo(delegator,startTime,frequency,interval,count);
+      infoId=info.primaryKey();
+    }
+ catch (    RecurrenceInfoException e) {
+      throw new JobManagerException(e.getMessage(),e);
+    }
+  }
+  if (UtilValidate.isEmpty(jobName)) {
+    jobName=Long.toString((new Date().getTime()));
+  }
+  Map<String,Object> jFields=UtilMisc.<String,Object>toMap("jobName",jobName,"runTime",new java.sql.Timestamp(startTime),"serviceName",serviceName,"statusId","SERVICE_PENDING","recurrenceInfoId",infoId,"runtimeDataId",dataId);
+  if (UtilValidate.isNotEmpty(poolName)) {
+    jFields.put("poolId",poolName);
+  }
+ else {
+    try {
+      jFields.put("poolId",ServiceConfigUtil.getServiceEngine().getThreadPool().getSendToPool());
+    }
+ catch (    GenericConfigException e) {
+      throw new JobManagerException(e.getMessage(),e);
+    }
+  }
+  jFields.put("loaderName",delegator.getDelegatorName());
+  jFields.put("maxRetry",Long.valueOf(maxRetry));
+  jFields.put("currentRetryCount",new Long(0));
+  GenericValue jobV;
+  try {
+    jobV=delegator.makeValue("JobSandbox",jFields);
+    delegator.createSetNextSeqId(jobV);
+  }
+ catch (  GenericEntityException e) {
+    throw new JobManagerException(e.getMessage(),e);
+  }
+}

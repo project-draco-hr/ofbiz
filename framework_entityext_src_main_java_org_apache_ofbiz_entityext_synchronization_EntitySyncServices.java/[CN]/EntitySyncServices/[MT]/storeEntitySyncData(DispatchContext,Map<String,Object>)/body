@@ -1,0 +1,95 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String overrideDelegatorName=(String)context.get("delegatorName");
+  Locale locale=(Locale)context.get("locale");
+  if (UtilValidate.isNotEmpty(overrideDelegatorName)) {
+    delegator=DelegatorFactory.getDelegator(overrideDelegatorName);
+    if (delegator == null) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"EntityExtCannotFindDelegator",UtilMisc.toMap("overrideDelegatorName",overrideDelegatorName),locale));
+    }
+  }
+  String entitySyncId=(String)context.get("entitySyncId");
+  List<GenericValue> valuesToCreate=UtilGenerics.cast(context.get("valuesToCreate"));
+  List<GenericValue> valuesToStore=UtilGenerics.cast(context.get("valuesToStore"));
+  List<GenericEntity> keysToRemove=UtilGenerics.cast(context.get("keysToRemove"));
+  if (Debug.infoOn())   Debug.logInfo("Running storeEntitySyncData (" + entitySyncId + ") - ["+ valuesToCreate.size()+ "] to create; ["+ valuesToStore.size()+ "] to store; ["+ keysToRemove.size()+ "] to remove.",module);
+  try {
+    long toCreateInserted=0;
+    long toCreateUpdated=0;
+    long toCreateNotUpdated=0;
+    long toStoreInserted=0;
+    long toStoreUpdated=0;
+    long toStoreNotUpdated=0;
+    long toRemoveDeleted=0;
+    long toRemoveAlreadyDeleted=0;
+    for (    GenericValue valueToCreate : valuesToCreate) {
+      valueToCreate.setIsFromEntitySync(true);
+      valueToCreate.checkFks(true);
+      GenericValue existingValue=EntityQuery.use(delegator).from(valueToCreate.getEntityName()).where(valueToCreate.getPrimaryKey()).queryOne();
+      if (existingValue == null) {
+        delegator.create(valueToCreate);
+        toCreateInserted++;
+      }
+ else {
+        if (existingValue.get(ModelEntity.STAMP_FIELD) != null && existingValue.getTimestamp(ModelEntity.STAMP_FIELD).after(valueToCreate.getTimestamp(ModelEntity.STAMP_FIELD))) {
+          toCreateNotUpdated++;
+        }
+ else {
+          delegator.store(valueToCreate);
+          toCreateUpdated++;
+        }
+      }
+    }
+    for (    GenericValue valueToStore : valuesToStore) {
+      valueToStore.setIsFromEntitySync(true);
+      valueToStore.checkFks(true);
+      GenericValue existingValue=EntityQuery.use(delegator).from(valueToStore.getEntityName()).where(valueToStore.getPrimaryKey()).queryOne();
+      if (existingValue == null) {
+        delegator.create(valueToStore);
+        toStoreInserted++;
+      }
+ else {
+        if (existingValue.get(ModelEntity.STAMP_FIELD) != null && existingValue.getTimestamp(ModelEntity.STAMP_FIELD).after(valueToStore.getTimestamp(ModelEntity.STAMP_FIELD))) {
+          toStoreNotUpdated++;
+        }
+ else {
+          delegator.store(valueToStore);
+          toStoreUpdated++;
+        }
+      }
+    }
+    for (    GenericEntity pkToRemove : keysToRemove) {
+      pkToRemove.setIsFromEntitySync(true);
+      pkToRemove.remove(ModelEntity.STAMP_TX_FIELD);
+      pkToRemove.remove(ModelEntity.STAMP_FIELD);
+      pkToRemove.remove(ModelEntity.CREATE_STAMP_TX_FIELD);
+      pkToRemove.remove(ModelEntity.CREATE_STAMP_FIELD);
+      int numRemByAnd=delegator.removeByAnd(pkToRemove.getEntityName(),pkToRemove);
+      if (numRemByAnd == 0) {
+        toRemoveAlreadyDeleted++;
+      }
+ else {
+        toRemoveDeleted++;
+      }
+    }
+    Map<String,Object> result=ServiceUtil.returnSuccess();
+    result.put("toCreateInserted",Long.valueOf(toCreateInserted));
+    result.put("toCreateUpdated",Long.valueOf(toCreateUpdated));
+    result.put("toCreateNotUpdated",Long.valueOf(toCreateNotUpdated));
+    result.put("toStoreInserted",Long.valueOf(toStoreInserted));
+    result.put("toStoreUpdated",Long.valueOf(toStoreUpdated));
+    result.put("toStoreNotUpdated",Long.valueOf(toStoreNotUpdated));
+    result.put("toRemoveDeleted",Long.valueOf(toRemoveDeleted));
+    result.put("toRemoveAlreadyDeleted",Long.valueOf(toRemoveAlreadyDeleted));
+    if (Debug.infoOn())     Debug.logInfo("Finisching storeEntitySyncData (" + entitySyncId + ") - ["+ keysToRemove.size()+ "] to remove. Actually removed: "+ toRemoveDeleted+ " already removed: "+ toRemoveAlreadyDeleted,module);
+    return result;
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,"Exception saving Entity Sync Data for entitySyncId [" + entitySyncId + "]: "+ e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"EntityExtExceptionSavingEntitySyncData",UtilMisc.toMap("entitySyncId",entitySyncId,"errorString",e.toString()),locale));
+  }
+catch (  Throwable t) {
+    Debug.logError(t,"Error saving Entity Sync Data for entitySyncId [" + entitySyncId + "]: "+ t.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"EntityExtErrorSavingEntitySyncData",UtilMisc.toMap("entitySyncId",entitySyncId,"errorString",t.toString()),locale));
+  }
+}

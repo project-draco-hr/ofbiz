@@ -1,0 +1,281 @@
+{
+  Locale locale=(Locale)context.get("locale");
+  LocalDispatcher dispatcher=dctx.getDispatcher();
+  Delegator delegator=dctx.getDelegator();
+  ShoppingCart cart=(ShoppingCart)context.get("cart");
+  GenericValue payPalConfig=getPaymentMethodGatewayPayPal(dctx,context,null);
+  if (payPalConfig == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPayPalPaymentGatewayConfigCannotFind",locale));
+  }
+  NVPEncoder encoder=new NVPEncoder();
+  encoder.add("METHOD","GetExpressCheckoutDetails");
+  String token=(String)cart.getAttribute("payPalCheckoutToken");
+  if (UtilValidate.isNotEmpty(token)) {
+    encoder.add("TOKEN",token);
+  }
+ else {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"AccountingPayPalTokenNotFound",locale));
+  }
+  NVPDecoder decoder;
+  try {
+    decoder=sendNVPRequest(payPalConfig,encoder);
+  }
+ catch (  PayPalException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  if (UtilValidate.isNotEmpty(decoder.get("NOTE"))) {
+    cart.addOrderNote(decoder.get("NOTE"));
+  }
+  if (cart.getUserLogin() == null) {
+    try {
+      GenericValue userLogin=EntityQuery.use(delegator).from("UserLogin").where("userLoginId","anonymous").queryOne();
+      try {
+        cart.setUserLogin(userLogin,dispatcher);
+      }
+ catch (      CartItemModifyException e) {
+        Debug.logError(e,module);
+        return ServiceUtil.returnError(e.getMessage());
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  boolean anon="anonymous".equals(cart.getUserLogin().getString("userLoginId"));
+  String partyId=cart.getOrderPartyId();
+  if (partyId == null && anon) {
+    partyId=cart.getUserLogin() != null ? cart.getUserLogin().getString("partyId") : null;
+    cart.setOrderPartyId(partyId);
+  }
+  if (partyId != null) {
+    GenericValue party=null;
+    try {
+      party=EntityQuery.use(delegator).from("Party").where("partyId",partyId).queryOne();
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+    if (party == null) {
+      partyId=null;
+    }
+  }
+  Map<String,Object> inMap=new HashMap<String,Object>();
+  Map<String,Object> outMap=null;
+  boolean newParty=false;
+  if (partyId == null) {
+    newParty=true;
+    inMap.put("userLogin",cart.getUserLogin());
+    inMap.put("personalTitle",decoder.get("SALUTATION"));
+    inMap.put("firstName",decoder.get("FIRSTNAME"));
+    inMap.put("middleName",decoder.get("MIDDLENAME"));
+    inMap.put("lastName",decoder.get("LASTNAME"));
+    inMap.put("suffix",decoder.get("SUFFIX"));
+    try {
+      outMap=dispatcher.runSync("createPerson",inMap);
+      partyId=(String)outMap.get("partyId");
+      cart.setOrderPartyId(partyId);
+      cart.getUserLogin().setString("partyId",partyId);
+      inMap.clear();
+      inMap.put("userLogin",cart.getUserLogin());
+      inMap.put("partyId",partyId);
+      inMap.put("roleTypeId","CUSTOMER");
+      dispatcher.runSync("createPartyRole",inMap);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  String emailContactMechId=null;
+  String emailContactPurposeTypeId="PRIMARY_EMAIL";
+  String emailAddress=decoder.get("EMAIL");
+  if (!newParty) {
+    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(UtilMisc.toMap("partyId",partyId,"contactMechTypeId","EMAIL_ADDRESS")),EntityCondition.makeCondition(EntityFunction.UPPER_FIELD("infoString"),EntityComparisonOperator.EQUALS,EntityFunction.UPPER(emailAddress))));
+    try {
+      GenericValue matchingEmail=EntityQuery.use(delegator).from("PartyAndContactMech").where(cond).orderBy("fromDate").filterByDate().queryFirst();
+      if (matchingEmail != null) {
+        emailContactMechId=matchingEmail.getString("contactMechId");
+      }
+ else {
+        long primaryEmails=EntityQuery.use(delegator).from("PartyContactWithPurpose").where("partyId",partyId,"contactMechTypeId","EMAIL_ADDRESS","contactMechPurposeTypeId","PRIMARY_EMAIL").filterByDate("contactFromDate","contactThruDate","purposeFromDate","purposeThruDate").queryCount();
+        if (primaryEmails > 0)         emailContactPurposeTypeId="BILLING_EMAIL";
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (emailContactMechId == null) {
+    inMap.clear();
+    inMap.put("userLogin",cart.getUserLogin());
+    inMap.put("contactMechPurposeTypeId",emailContactPurposeTypeId);
+    inMap.put("emailAddress",emailAddress);
+    inMap.put("partyId",partyId);
+    inMap.put("roleTypeId","CUSTOMER");
+    inMap.put("verified","Y");
+    inMap.put("fromDate",UtilDateTime.nowTimestamp());
+    try {
+      outMap=dispatcher.runSync("createPartyEmailAddress",inMap);
+      emailContactMechId=(String)outMap.get("contactMechId");
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  cart.addContactMech("ORDER_EMAIL",emailContactMechId);
+  String phoneNumber=decoder.get("PHONENUM");
+  String phoneContactId=null;
+  if (phoneNumber != null) {
+    inMap.clear();
+    if (phoneNumber.startsWith("+")) {
+      String[] phoneNumbers=phoneNumber.split(" ");
+      inMap.put("countryCode",StringUtil.removeNonNumeric(phoneNumbers[0]));
+      inMap.put("contactNumber",phoneNumbers[1]);
+    }
+ else {
+      inMap.put("countryCode","1");
+      String[] phoneNumbers=phoneNumber.split("-");
+      inMap.put("areaCode",phoneNumbers[0]);
+      inMap.put("contactNumber",phoneNumbers[1] + phoneNumbers[2]);
+    }
+    inMap.put("userLogin",cart.getUserLogin());
+    inMap.put("partyId",partyId);
+    try {
+      outMap=dispatcher.runSync("createUpdatePartyTelecomNumber",inMap);
+      phoneContactId=(String)outMap.get("contactMechId");
+      cart.addContactMech("PHONE_BILLING",phoneContactId);
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+    }
+  }
+  String postalContactId=null;
+  boolean needsShippingPurpose=true;
+  boolean needsBillingPurpose=(cart.getContactMech("BILLING_LOCATION") == null);
+  Map<String,Object> postalMap=new HashMap<String,Object>();
+  postalMap.put("toName",decoder.get("SHIPTONAME"));
+  postalMap.put("address1",decoder.get("SHIPTOSTREET"));
+  postalMap.put("address2",decoder.get("SHIPTOSTREET2"));
+  postalMap.put("city",decoder.get("SHIPTOCITY"));
+  String countryGeoId=PayPalServices.getCountryGeoIdFromGeoCode(decoder.get("SHIPTOCOUNTRYCODE"),delegator);
+  postalMap.put("countryGeoId",countryGeoId);
+  postalMap.put("stateProvinceGeoId",parseStateProvinceGeoId(decoder.get("SHIPTOSTATE"),countryGeoId,delegator));
+  postalMap.put("postalCode",decoder.get("SHIPTOZIP"));
+  if (!newParty) {
+    EntityCondition cond=EntityCondition.makeCondition(UtilMisc.toList(EntityCondition.makeCondition(postalMap),EntityCondition.makeCondition(UtilMisc.toMap("attnName",null,"directions",null,"postalCodeExt",null,"postalCodeGeoId",null)),EntityCondition.makeCondition("partyId",partyId)));
+    try {
+      GenericValue postalMatch=EntityQuery.use(delegator).from("PartyAndPostalAddress").where(cond).orderBy("fromDate").filterByDate().queryFirst();
+      if (postalMatch != null) {
+        postalContactId=postalMatch.getString("contactMechId");
+        List<GenericValue> postalPurposes=EntityQuery.use(delegator).from("PartyContactMechPurpose").where("partyId",partyId,"contactMechId",postalContactId).filterByDate().queryList();
+        List<Object> purposeStrings=EntityUtil.getFieldListFromEntityList(postalPurposes,"contactMechPurposeTypeId",false);
+        if (UtilValidate.isNotEmpty(purposeStrings) && purposeStrings.contains("SHIPPING_LOCATION")) {
+          needsShippingPurpose=false;
+        }
+        if (needsBillingPurpose && UtilValidate.isNotEmpty(purposeStrings) && purposeStrings.contains("BILLING_LOCATION")) {
+          needsBillingPurpose=false;
+        }
+      }
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,module);
+    }
+  }
+  if (postalContactId == null) {
+    postalMap.put("userLogin",cart.getUserLogin());
+    postalMap.put("fromDate",UtilDateTime.nowTimestamp());
+    try {
+      outMap=dispatcher.runSync("createPartyPostalAddress",postalMap);
+      postalContactId=(String)outMap.get("contactMechId");
+    }
+ catch (    GenericServiceException e) {
+      Debug.logError(e,module);
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  if (needsShippingPurpose || needsBillingPurpose) {
+    inMap.clear();
+    inMap.put("userLogin",cart.getUserLogin());
+    inMap.put("contactMechId",postalContactId);
+    inMap.put("partyId",partyId);
+    try {
+      if (needsShippingPurpose) {
+        inMap.put("contactMechPurposeTypeId","SHIPPING_LOCATION");
+        dispatcher.runSync("createPartyContactMechPurpose",inMap);
+      }
+      if (needsBillingPurpose) {
+        inMap.put("contactMechPurposeTypeId","BILLING_LOCATION");
+        dispatcher.runSync("createPartyContactMechPurpose",inMap);
+      }
+    }
+ catch (    GenericServiceException e) {
+      Debug.logInfo(e.getMessage(),module);
+    }
+  }
+  String shipMethod=decoder.get("SHIPPINGOPTIONNAME");
+  if ("Calculated Offline".equals(shipMethod)) {
+    cart.setAllCarrierPartyId("_NA_");
+    cart.setAllShipmentMethodTypeId("NO_SHIPPING");
+  }
+ else {
+    String[] shipMethodSplit=shipMethod.split(" - ");
+    cart.setAllCarrierPartyId(shipMethodSplit[0]);
+    String shippingMethodTypeDesc=StringUtils.join(shipMethodSplit," - ",1,shipMethodSplit.length);
+    try {
+      GenericValue shipmentMethod=EntityQuery.use(delegator).from("ProductStoreShipmentMethView").where("productStoreId",cart.getProductStoreId(),"partyId",shipMethodSplit[0],"roleTypeId","CARRIER","description",shippingMethodTypeDesc).queryFirst();
+      cart.setAllShipmentMethodTypeId(shipmentMethod.getString("shipmentMethodTypeId"));
+    }
+ catch (    GenericEntityException e1) {
+      Debug.logError(e1,module);
+    }
+  }
+  List<CartShipInfo> shipGroups=cart.getShipGroups();
+  for (int i=1; i < shipGroups.size(); i++) {
+    Map<ShoppingCartItem,BigDecimal> items=cart.getShipGroupItems(i);
+    for (    Map.Entry<ShoppingCartItem,BigDecimal> entry : items.entrySet()) {
+      cart.positionItemToGroup(entry.getKey(),entry.getValue(),i,0,false);
+    }
+  }
+  cart.cleanUpShipGroups();
+  cart.setAllShippingContactMechId(postalContactId);
+  Map<String,Object> result=ShippingEvents.getShipGroupEstimate(dispatcher,delegator,cart,0);
+  if (result.get(ModelService.RESPONSE_MESSAGE).equals(ModelService.RESPOND_ERROR)) {
+    return ServiceUtil.returnError((String)result.get(ModelService.ERROR_MESSAGE));
+  }
+  BigDecimal shippingTotal=(BigDecimal)result.get("shippingTotal");
+  if (shippingTotal == null) {
+    shippingTotal=BigDecimal.ZERO;
+  }
+  cart.setItemShipGroupEstimate(shippingTotal,0);
+  CheckOutHelper cho=new CheckOutHelper(dispatcher,delegator,cart);
+  try {
+    cho.calcAndAddTax();
+  }
+ catch (  GeneralException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  inMap.clear();
+  inMap.put("userLogin",cart.getUserLogin());
+  inMap.put("partyId",partyId);
+  inMap.put("contactMechId",postalContactId);
+  inMap.put("fromDate",UtilDateTime.nowTimestamp());
+  inMap.put("payerId",decoder.get("PAYERID"));
+  inMap.put("expressCheckoutToken",token);
+  inMap.put("payerStatus",decoder.get("PAYERSTATUS"));
+  try {
+    outMap=dispatcher.runSync("createPayPalPaymentMethod",inMap);
+  }
+ catch (  GenericServiceException e) {
+    Debug.logError(e,module);
+    return ServiceUtil.returnError(e.getMessage());
+  }
+  String paymentMethodId=(String)outMap.get("paymentMethodId");
+  cart.clearPayments();
+  BigDecimal maxAmount=cart.getGrandTotal().setScale(2,BigDecimal.ROUND_HALF_UP);
+  cart.addPaymentAmount(paymentMethodId,maxAmount,true);
+  return ServiceUtil.returnSuccess();
+}

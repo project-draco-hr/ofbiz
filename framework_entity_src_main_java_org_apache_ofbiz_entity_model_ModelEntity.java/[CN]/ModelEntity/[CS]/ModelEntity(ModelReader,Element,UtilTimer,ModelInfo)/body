@@ -1,0 +1,57 @@
+{
+  this.modelReader=reader;
+  this.modelInfo=ModelInfo.createFromAttributes(modelInfo,entityElement);
+  if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before general/basic info");
+  this.populateBasicInfo(entityElement);
+  if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before prim-keys");
+  for (  Element pkElement : UtilXml.childElementList(entityElement,"prim-key")) {
+    pkFieldNames.add(pkElement.getAttribute("field").intern());
+  }
+  if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before fields");
+  for (  Element fieldElement : UtilXml.childElementList(entityElement,"field")) {
+    String fieldName=UtilXml.checkEmpty(fieldElement.getAttribute("name")).intern();
+    boolean isPk=pkFieldNames.contains(fieldName);
+    ModelField field=ModelField.create(this,fieldElement,isPk);
+    internalAddField(field,pkFieldNames);
+  }
+  if ((this.doLock || !this.noAutoStamp) && !fieldsMap.containsKey(STAMP_FIELD)) {
+    ModelField newField=ModelField.create(this,"",STAMP_FIELD,"date-time",null,null,null,false,false,false,true,false,null);
+    internalAddField(newField,pkFieldNames);
+  }
+  if (!this.noAutoStamp && !fieldsMap.containsKey(STAMP_TX_FIELD)) {
+    ModelField newField=ModelField.create(this,"",STAMP_TX_FIELD,"date-time",null,null,null,false,false,false,true,false,null);
+    internalAddField(newField,pkFieldNames);
+    String indexName=ModelUtil.shortenDbName(this.tableName + "_TXSTMP",18);
+    Field indexField=new Field(STAMP_TX_FIELD,null);
+    ModelIndex txIndex=ModelIndex.create(this,null,indexName,UtilMisc.toList(indexField),false);
+    indexes.add(txIndex);
+  }
+  if ((this.doLock || !this.noAutoStamp) && !fieldsMap.containsKey(CREATE_STAMP_FIELD)) {
+    ModelField newField=ModelField.create(this,"",CREATE_STAMP_FIELD,"date-time",null,null,null,false,false,false,true,false,null);
+    internalAddField(newField,pkFieldNames);
+  }
+  if (!this.noAutoStamp && !fieldsMap.containsKey(CREATE_STAMP_TX_FIELD)) {
+    ModelField newField=ModelField.create(this,"",CREATE_STAMP_TX_FIELD,"date-time",null,null,null,false,false,false,true,false,null);
+    internalAddField(newField,pkFieldNames);
+    String indexName=ModelUtil.shortenDbName(this.tableName + "_TXCRTS",18);
+    Field indexField=new Field(CREATE_STAMP_TX_FIELD,null);
+    ModelIndex txIndex=ModelIndex.create(this,null,indexName,UtilMisc.toList(indexField),false);
+    indexes.add(txIndex);
+  }
+  for (  String pkFieldName : pkFieldNames) {
+    ModelField pkField=fieldsMap.get(pkFieldName);
+    if (pkField == null) {
+      Debug.logWarning("Error in entity definition - primary key is invalid for entity " + this.getEntityName(),module);
+    }
+ else {
+      pks.add(pkField);
+    }
+  }
+  pkFieldNames.trimToSize();
+  pks.trimToSize();
+  nopks.trimToSize();
+  reader.incrementFieldCount(fieldsMap.size());
+  if (utilTimer != null)   utilTimer.timerString("  createModelEntity: before relations");
+  this.populateRelated(reader,entityElement);
+  this.populateIndexes(entityElement);
+}

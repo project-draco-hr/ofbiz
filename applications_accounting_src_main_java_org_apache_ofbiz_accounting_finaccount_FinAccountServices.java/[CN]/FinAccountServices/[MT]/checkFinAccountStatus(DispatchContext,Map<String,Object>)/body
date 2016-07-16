@@ -1,0 +1,39 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  String finAccountId=(String)context.get("finAccountId");
+  Locale locale=(Locale)context.get("locale");
+  if (finAccountId == null) {
+    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"AccountingFinAccountNotFound",UtilMisc.toMap("finAccountId",""),locale));
+  }
+  GenericValue finAccount;
+  try {
+    finAccount=EntityQuery.use(delegator).from("FinAccount").where("finAccountId",finAccountId).queryOne();
+  }
+ catch (  GenericEntityException ex) {
+    return ServiceUtil.returnError(ex.getMessage());
+  }
+  if (finAccount != null) {
+    String statusId=finAccount.getString("statusId");
+    if (statusId == null)     statusId="FNACT_ACTIVE";
+    BigDecimal balance=finAccount.getBigDecimal("actualBalance");
+    if (balance == null) {
+      balance=FinAccountHelper.ZERO;
+    }
+    Debug.logInfo("Account #" + finAccountId + " Balance: "+ balance+ " Status: "+ statusId,module);
+    if ("FNACT_ACTIVE".equals(statusId) && balance.compareTo(FinAccountHelper.ZERO) < 1) {
+      finAccount.set("statusId","FNACT_MANFROZEN");
+      Debug.logInfo("Financial account [" + finAccountId + "] has passed its threshold ["+ balance+ "] (Frozen)",module);
+    }
+ else     if ("FNACT_MANFROZEN".equals(statusId) && balance.compareTo(FinAccountHelper.ZERO) > 0) {
+      finAccount.set("statusId","FNACT_ACTIVE");
+      Debug.logInfo("Financial account [" + finAccountId + "] has been made current ["+ balance+ "] (Un-Frozen)",module);
+    }
+    try {
+      finAccount.store();
+    }
+ catch (    GenericEntityException e) {
+      return ServiceUtil.returnError(e.getMessage());
+    }
+  }
+  return ServiceUtil.returnSuccess();
+}

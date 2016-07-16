@@ -1,0 +1,67 @@
+{
+  boolean isConstant=false;
+  Object newValue=null;
+  if (this.scriptlet != null) {
+    try {
+      newValue=this.scriptlet.executeScript(methodContext.getEnvMap());
+    }
+ catch (    Exception exc) {
+      Debug.logWarning(exc,"Error evaluating scriptlet [" + this.scriptlet + "]: "+ exc,module);
+    }
+  }
+ else   if (!this.fromFma.isEmpty()) {
+    newValue=this.fromFma.get(methodContext.getEnvMap());
+    if (Debug.verboseOn())     Debug.logVerbose("In screen getting value for field from [" + this.fromFma.toString() + "]: "+ newValue,module);
+  }
+ else   if (!this.valueFse.isEmpty()) {
+    newValue=this.valueFse.expand(methodContext.getEnvMap());
+    isConstant=true;
+  }
+  if (ObjectType.isEmpty(newValue) && !this.defaultFse.isEmpty()) {
+    newValue=this.defaultFse.expand(methodContext.getEnvMap());
+    isConstant=true;
+  }
+  if (!setIfNull && newValue == null && !"NewMap".equals(this.type) && !"NewList".equals(this.type)) {
+    if (Debug.verboseOn())     Debug.logVerbose("Field value not found (null) with name [" + fromFma + "] and value ["+ valueFse+ "], and there was not default value, not setting field",module);
+    return true;
+  }
+  if (!setIfEmpty && ObjectType.isEmpty(newValue)) {
+    if (Debug.verboseOn())     Debug.logVerbose("Field value not found (empty) with name [" + fromFma + "] and value ["+ valueFse+ "], and there was not default value, not setting field",module);
+    return true;
+  }
+  if (this.type.length() > 0) {
+    if ("NewMap".equals(this.type)) {
+      newValue=new HashMap<String,Object>();
+    }
+ else     if ("NewList".equals(this.type)) {
+      newValue=new LinkedList<Object>();
+    }
+ else {
+      try {
+        String format=null;
+        if (!this.formatFse.isEmpty()) {
+          format=this.formatFse.expandString(methodContext.getEnvMap());
+        }
+        Class<?> targetClass=this.targetClass;
+        if (targetClass == null) {
+          targetClass=MiniLangUtil.getObjectClassForConversion(newValue);
+        }
+        if (isConstant) {
+          newValue=MiniLangUtil.convertType(newValue,targetClass,Locale.ENGLISH,methodContext.getTimeZone(),format);
+        }
+ else {
+          newValue=MiniLangUtil.convertType(newValue,targetClass,methodContext.getLocale(),methodContext.getTimeZone(),format);
+        }
+      }
+ catch (      Exception e) {
+        String errMsg="Could not convert field value for the field: [" + this.fieldFma.toString() + "] to the ["+ this.type+ "] type for the value ["+ newValue+ "]: "+ e.getMessage();
+        Debug.logWarning(e,errMsg,module);
+        this.simpleMethod.addErrorMessage(methodContext,errMsg);
+        return false;
+      }
+    }
+  }
+  if (Debug.verboseOn())   Debug.logVerbose("Setting field [" + this.fieldFma.toString() + "] to value: "+ newValue,module);
+  this.fieldFma.put(methodContext.getEnvMap(),newValue);
+  return true;
+}

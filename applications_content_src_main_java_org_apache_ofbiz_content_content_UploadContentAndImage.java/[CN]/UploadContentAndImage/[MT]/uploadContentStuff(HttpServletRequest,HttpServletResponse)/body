@@ -1,0 +1,85 @@
+{
+  try {
+    HttpSession session=request.getSession();
+    GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+    ServletFileUpload dfu=new ServletFileUpload(new DiskFileItemFactory(10240,FileUtil.getFile("runtime/tmp")));
+    List<FileItem> lst=null;
+    try {
+      lst=UtilGenerics.checkList(dfu.parseRequest(request));
+    }
+ catch (    FileUploadException e4) {
+      request.setAttribute("_ERROR_MESSAGE_",e4.getMessage());
+      Debug.logError("[UploadContentAndImage.uploadContentAndImage] " + e4.getMessage(),module);
+      return "error";
+    }
+    if (lst.size() == 0) {
+      request.setAttribute("_ERROR_MESSAGE_","No files uploaded");
+      Debug.logWarning("[DataEvents.uploadImage] No files uploaded",module);
+      return "error";
+    }
+    Map<String,Object> passedParams=new HashMap<String,Object>();
+    FileItem fi=null;
+    FileItem imageFi=null;
+    byte[] imageBytes={};
+    passedParams.put("userLogin",userLogin);
+    for (int i=0; i < lst.size(); i++) {
+      fi=lst.get(i);
+      String fieldName=fi.getFieldName();
+      if (fi.isFormField()) {
+        String fieldStr=fi.getString();
+        passedParams.put(fieldName,fieldStr);
+      }
+ else       if (fieldName.startsWith("imageData")) {
+        imageFi=fi;
+        String fileName=fi.getName();
+        passedParams.put("drObjectInfo",fileName);
+        String contentType=fi.getContentType();
+        passedParams.put("drMimeTypeId",contentType);
+        imageBytes=imageFi.get();
+        passedParams.put(fieldName,imageBytes);
+        if (Debug.infoOn()) {
+          Debug.logInfo("[UploadContentAndImage]imageData: " + imageBytes.length,module);
+        }
+      }
+    }
+    if (Debug.infoOn()) {
+      Debug.logInfo("[UploadContentAndImage]passedParams: " + passedParams,module);
+    }
+    int rowCount=UtilHttp.getMultiFormRowCount(request);
+    if (rowCount < 1) {
+      rowCount=1;
+    }
+    TransactionUtil.begin();
+    for (int i=0; i < rowCount; i++) {
+      String suffix="_o_" + i;
+      if (i == 0) {
+        suffix="";
+      }
+      String returnMsg=processContentUpload(passedParams,suffix,request);
+      if (returnMsg.equals("error")) {
+        try {
+          TransactionUtil.rollback();
+        }
+ catch (        GenericTransactionException e2) {
+          ServiceUtil.setMessages(request,e2.getMessage(),null,null);
+          return "error";
+        }
+        return "error";
+      }
+    }
+    TransactionUtil.commit();
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"[UploadContentAndImage] ",module);
+    request.setAttribute("_ERROR_MESSAGE_",e.getMessage());
+    try {
+      TransactionUtil.rollback();
+    }
+ catch (    GenericTransactionException e2) {
+      request.setAttribute("_ERROR_MESSAGE_",e2.getMessage());
+      return "error";
+    }
+    return "error";
+  }
+  return "success";
+}

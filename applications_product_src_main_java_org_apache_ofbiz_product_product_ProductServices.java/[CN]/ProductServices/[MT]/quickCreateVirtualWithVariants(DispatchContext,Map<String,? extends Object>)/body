@@ -1,0 +1,88 @@
+{
+  Delegator delegator=dctx.getDelegator();
+  Timestamp nowTimestamp=UtilDateTime.nowTimestamp();
+  String variantProductIdsBag=(String)context.get("variantProductIdsBag");
+  String productFeatureIdOne=(String)context.get("productFeatureIdOne");
+  String productFeatureIdTwo=(String)context.get("productFeatureIdTwo");
+  String productFeatureIdThree=(String)context.get("productFeatureIdThree");
+  Locale locale=(Locale)context.get("locale");
+  Map<String,Object> successResult=ServiceUtil.returnSuccess();
+  try {
+    String productId=(String)context.get("productId");
+    if (UtilValidate.isEmpty(productId)) {
+      productId=delegator.getNextSeqId("Product");
+      GenericValue product=delegator.makeValue("Product");
+      product.set("productId",productId);
+      product.set("isVirtual","Y");
+      product.set("isVariant","N");
+      product.set("productTypeId","FINISHED_GOOD");
+      product.set("introductionDate",nowTimestamp);
+      product.set("returnable","Y");
+      product.set("taxable","Y");
+      product.set("chargeShipping","Y");
+      product.set("autoCreateKeywords","Y");
+      product.set("includeInPromotions","Y");
+      product.create();
+    }
+    successResult.put("productId",productId);
+    Set<String> prelimVariantProductIds=new HashSet<String>();
+    List<String> splitIds=Arrays.asList(variantProductIdsBag.split("[,\\p{Space}]"));
+    Debug.logInfo("Variants: bag=" + variantProductIdsBag,module);
+    Debug.logInfo("Variants: split=" + splitIds,module);
+    prelimVariantProductIds.addAll(splitIds);
+    Map<String,GenericValue> variantProductsById=new HashMap<String,GenericValue>();
+    for (    String variantProductId : prelimVariantProductIds) {
+      if (UtilValidate.isEmpty(variantProductId)) {
+        continue;
+      }
+      GenericValue variantProduct=EntityQuery.use(delegator).from("Product").where("productId",variantProductId).queryOne();
+      if (variantProduct != null) {
+        variantProductsById.put(variantProductId,variantProduct);
+      }
+ else {
+        List<GenericValue> goodIdentificationList=EntityQuery.use(delegator).from("GoodIdentification").where("idValue",variantProductId).queryList();
+        if (UtilValidate.isEmpty(goodIdentificationList)) {
+          return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ProductVirtualVariantCreation",UtilMisc.toMap("variantProductId",variantProductId),locale));
+        }
+        if (goodIdentificationList.size() > 1) {
+          Debug.logWarning("Warning creating a virtual with variants: the ID [" + variantProductId + "] was not a productId and resulted in ["+ goodIdentificationList.size()+ "] GoodIdentification records: "+ goodIdentificationList,module);
+        }
+        for (        GenericValue goodIdentification : goodIdentificationList) {
+          GenericValue giProduct=goodIdentification.getRelatedOne("Product",false);
+          if (giProduct != null) {
+            variantProductsById.put(giProduct.getString("productId"),giProduct);
+          }
+        }
+      }
+    }
+    Set<String> featureProductIds=new HashSet<String>();
+    featureProductIds.add(productId);
+    featureProductIds.addAll(variantProductsById.keySet());
+    Set<String> productFeatureIds=new HashSet<String>();
+    productFeatureIds.add(productFeatureIdOne);
+    productFeatureIds.add(productFeatureIdTwo);
+    productFeatureIds.add(productFeatureIdThree);
+    for (    String featureProductId : featureProductIds) {
+      for (      String productFeatureId : productFeatureIds) {
+        if (UtilValidate.isNotEmpty(productFeatureId)) {
+          GenericValue productFeatureAppl=delegator.makeValue("ProductFeatureAppl",UtilMisc.toMap("productId",featureProductId,"productFeatureId",productFeatureId,"productFeatureApplTypeId","STANDARD_FEATURE","fromDate",nowTimestamp));
+          productFeatureAppl.create();
+        }
+      }
+    }
+    for (    GenericValue variantProduct : variantProductsById.values()) {
+      variantProduct.set("isVirtual","N");
+      variantProduct.set("isVariant","Y");
+      variantProduct.set("introductionDate",nowTimestamp);
+      variantProduct.store();
+      GenericValue productAssoc=delegator.makeValue("ProductAssoc",UtilMisc.toMap("productId",productId,"productIdTo",variantProduct.get("productId"),"productAssocTypeId","PRODUCT_VARIANT","fromDate",nowTimestamp));
+      productAssoc.create();
+    }
+  }
+ catch (  GenericEntityException e) {
+    String errMsg="Error creating new virtual product from variant products: " + e.toString();
+    Debug.logError(e,errMsg,module);
+    return ServiceUtil.returnError(errMsg);
+  }
+  return successResult;
+}

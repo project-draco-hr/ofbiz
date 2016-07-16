@@ -1,0 +1,51 @@
+{
+  Map<String,BigDecimal> featureMap=new HashMap<String,BigDecimal>();
+  List<GenericValue> validItems=getValidOrderItems(shipGroupSeqId);
+  if (validItems != null) {
+    for (    GenericValue item : validItems) {
+      List<GenericValue> featureAppls=null;
+      if (item.get("productId") != null) {
+        try {
+          featureAppls=item.getDelegator().findByAnd("ProductFeatureAppl",UtilMisc.toMap("productId",item.getString("productId")),null,true);
+          List<EntityExpr> filterExprs=UtilMisc.toList(EntityCondition.makeCondition("productFeatureApplTypeId",EntityOperator.EQUALS,"STANDARD_FEATURE"));
+          filterExprs.add(EntityCondition.makeCondition("productFeatureApplTypeId",EntityOperator.EQUALS,"REQUIRED_FEATURE"));
+          featureAppls=EntityUtil.filterByOr(featureAppls,filterExprs);
+        }
+ catch (        GenericEntityException e) {
+          Debug.logError(e,"Unable to get ProductFeatureAppl for item : " + item,module);
+        }
+        if (featureAppls != null) {
+          for (          GenericValue appl : featureAppls) {
+            BigDecimal lastQuantity=featureMap.get(appl.getString("productFeatureId"));
+            if (lastQuantity == null) {
+              lastQuantity=BigDecimal.ZERO;
+            }
+            BigDecimal newQuantity=lastQuantity.add(getOrderItemQuantity(item));
+            featureMap.put(appl.getString("productFeatureId"),newQuantity);
+          }
+        }
+      }
+      List<GenericValue> additionalFeatures=null;
+      try {
+        additionalFeatures=item.getRelated("OrderAdjustment",UtilMisc.toMap("orderAdjustmentTypeId","ADDITIONAL_FEATURE"),null,false);
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,"Unable to get OrderAdjustment from item : " + item,module);
+      }
+      if (additionalFeatures != null) {
+        for (        GenericValue adj : additionalFeatures) {
+          String featureId=adj.getString("productFeatureId");
+          if (featureId != null) {
+            BigDecimal lastQuantity=featureMap.get(featureId);
+            if (lastQuantity == null) {
+              lastQuantity=BigDecimal.ZERO;
+            }
+            BigDecimal newQuantity=lastQuantity.add(getOrderItemQuantity(item));
+            featureMap.put(featureId,newQuantity);
+          }
+        }
+      }
+    }
+  }
+  return featureMap;
+}

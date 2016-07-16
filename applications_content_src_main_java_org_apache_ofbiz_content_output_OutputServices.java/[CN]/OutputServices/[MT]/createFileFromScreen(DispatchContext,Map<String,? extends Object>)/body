@@ -1,0 +1,55 @@
+{
+  Locale locale=(Locale)serviceContext.get("locale");
+  Delegator delegator=dctx.getDelegator();
+  String screenLocation=(String)serviceContext.remove("screenLocation");
+  Map<String,Object> screenContext=UtilGenerics.checkMap(serviceContext.remove("screenContext"));
+  String contentType=(String)serviceContext.remove("contentType");
+  String filePath=(String)serviceContext.remove("filePath");
+  String fileName=(String)serviceContext.remove("fileName");
+  if (UtilValidate.isEmpty(screenContext)) {
+    screenContext=new HashMap<String,Object>();
+  }
+  screenContext.put("locale",locale);
+  if (UtilValidate.isEmpty(contentType)) {
+    contentType="application/pdf";
+  }
+  try {
+    MapStack<String> screenContextTmp=MapStack.create();
+    screenContextTmp.put("locale",locale);
+    Writer writer=new StringWriter();
+    ScreenStringRenderer foScreenStringRenderer=new MacroScreenRenderer(EntityUtilProperties.getPropertyValue("widget","screenfop.name",dctx.getDelegator()),EntityUtilProperties.getPropertyValue("widget","screenfop.screenrenderer",dctx.getDelegator()));
+    ScreenRenderer screensAtt=new ScreenRenderer(writer,screenContextTmp,foScreenStringRenderer);
+    screensAtt.populateContextForService(dctx,screenContext);
+    screenContextTmp.putAll(screenContext);
+    screensAtt.getContext().put("formStringRenderer",foFormRenderer);
+    screensAtt.render(screenLocation);
+    StreamSource src=new StreamSource(new StringReader(writer.toString()));
+    ByteArrayOutputStream baos=new ByteArrayOutputStream();
+    Fop fop=ApacheFopWorker.createFopInstance(baos,MimeConstants.MIME_PDF);
+    ApacheFopWorker.transform(src,null,fop);
+    baos.flush();
+    baos.close();
+    fileName+=UtilDateTime.nowAsString();
+    if ("application/pdf".equals(contentType)) {
+      fileName+=".pdf";
+    }
+ else     if ("application/postscript".equals(contentType)) {
+      fileName+=".ps";
+    }
+ else     if ("text/plain".equals(contentType)) {
+      fileName+=".txt";
+    }
+    if (UtilValidate.isEmpty(filePath)) {
+      filePath=EntityUtilProperties.getPropertyValue("content","content.output.path","/output",delegator);
+    }
+    File file=new File(filePath,fileName);
+    FileOutputStream fos=new FileOutputStream(file);
+    fos.write(baos.toByteArray());
+    fos.close();
+  }
+ catch (  Exception e) {
+    Debug.logError(e,"Error rendering [" + contentType + "]: "+ e.toString(),module);
+    return ServiceUtil.returnError(UtilProperties.getMessage(resource,"ContentRenderingError",UtilMisc.toMap("contentType",contentType,"errorString",e.toString()),locale));
+  }
+  return ServiceUtil.returnSuccess();
+}

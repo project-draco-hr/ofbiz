@@ -1,0 +1,79 @@
+{
+  final Environment env=Environment.getCurrentEnvironment();
+  Map<String,Object> ctx=FreeMarkerWorker.getWrappedObject("context",env);
+  if (ctx == null) {
+    ctx=new HashMap<String,Object>();
+  }
+  final String mapKey=FreeMarkerWorker.getArg(args,"mapKey",ctx);
+  final String subContentId=FreeMarkerWorker.getArg(args,"subContentId",ctx);
+  final String contentId=FreeMarkerWorker.getArg(args,"contentId",ctx);
+  final String mimeTypeId=FreeMarkerWorker.getArg(args,"mimeTypeId",ctx);
+  final String throwExceptionOnError=FreeMarkerWorker.getArg(args,"throwExceptionOnError",ctx);
+  final Locale locale=FreeMarkerWorker.getWrappedObject("locale",env);
+  final HttpServletRequest request=FreeMarkerWorker.getWrappedObject("request",env);
+  final LocalDispatcher dispatcher=FreeMarkerWorker.getWrappedObject("dispatcher",env);
+  final Delegator delegator=FreeMarkerWorker.getWrappedObject("delegator",env);
+  final GenericValue userLogin=FreeMarkerWorker.getWrappedObject("userLogin",env);
+  GenericValue subContentDataResourceViewTemp=FreeMarkerWorker.getWrappedObject("subContentDataResourceView",env);
+  if (subContentDataResourceViewTemp == null) {
+    List<String> assocTypes=UtilMisc.toList("SUB_CONTENT");
+    Timestamp fromDate=UtilDateTime.nowTimestamp();
+    try {
+      subContentDataResourceViewTemp=ContentWorker.getSubContent(delegator,contentId,mapKey,subContentId,userLogin,assocTypes,fromDate);
+    }
+ catch (    IOException e) {
+      throw new RuntimeException(e.getMessage());
+    }
+  }
+  final GenericValue subContentDataResourceView=subContentDataResourceViewTemp;
+  final Map<String,Object> templateContext=ctx;
+  return new Writer(out){
+    @Override public void write(    char cbuf[],    int off,    int len){
+    }
+    @Override public void flush() throws IOException {
+      out.flush();
+    }
+    @Override public void close() throws IOException {
+      try {
+        renderSubContent();
+      }
+ catch (      IOException e) {
+        if (!"false".equals(throwExceptionOnError)) {
+          throw new IOException(e.getMessage());
+        }
+      }
+    }
+    public void renderSubContent() throws IOException {
+      ServletContext servletContext=request.getSession().getServletContext();
+      String rootDir=servletContext.getRealPath("/");
+      String webSiteId=WebSiteWorker.getWebSiteId(request);
+      String https=(String)servletContext.getAttribute("https");
+      templateContext.put("webSiteId",webSiteId);
+      templateContext.put("https",https);
+      templateContext.put("rootDir",rootDir);
+      Map<String,Object> templateRoot=FreeMarkerWorker.createEnvironmentMap(env);
+      templateRoot.put("context",templateContext);
+      if (subContentDataResourceView != null) {
+      }
+      try {
+        if (subContentId != null) {
+          ContentWorker.renderContentAsText(dispatcher,delegator,subContentId,out,templateRoot,locale,mimeTypeId,null,null,false);
+        }
+ else {
+          ContentWorker.renderSubContentAsText(dispatcher,delegator,contentId,out,mapKey,templateRoot,locale,mimeTypeId,false);
+        }
+      }
+ catch (      GeneralException e) {
+        Debug.logError(e,"Error rendering content",module);
+        throw new IOException("Error rendering content" + e.toString());
+      }
+      templateContext.put("mapKey",null);
+      templateContext.put("subContentId",null);
+      templateContext.put("subDataResourceTypeId",null);
+      templateContext.put("contentId",contentId);
+      templateContext.put("mimeTypeId",null);
+      templateContext.put("locale",locale);
+    }
+  }
+;
+}

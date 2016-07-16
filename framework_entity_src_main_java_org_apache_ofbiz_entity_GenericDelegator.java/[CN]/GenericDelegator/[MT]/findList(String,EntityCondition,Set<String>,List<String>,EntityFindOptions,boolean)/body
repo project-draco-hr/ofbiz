@@ -1,0 +1,47 @@
+{
+  EntityEcaRuleRunner<?> ecaRunner=null;
+  GenericValue dummyValue=null;
+  if (useCache) {
+    ecaRunner=this.getEcaRuleRunner(entityName);
+    ModelEntity modelEntity=getModelReader().getModelEntity(entityName);
+    dummyValue=GenericValue.create(modelEntity);
+    ecaRunner.evalRules(EntityEcaHandler.EV_CACHE_CHECK,EntityEcaHandler.OP_FIND,dummyValue,false);
+    List<GenericValue> cacheList=this.cache.get(entityName,entityCondition,orderBy);
+    if (cacheList != null) {
+      return cacheList;
+    }
+  }
+  boolean beganTransaction=false;
+  try {
+    if (alwaysUseTransaction) {
+      beganTransaction=TransactionUtil.begin();
+    }
+    EntityListIterator eli=null;
+    List<GenericValue> list=null;
+    try {
+      eli=this.find(entityName,entityCondition,null,fieldsToSelect,orderBy,findOptions);
+      list=eli.getCompleteList();
+    }
+  finally {
+      if (eli != null) {
+        try {
+          eli.close();
+        }
+ catch (        Exception exc) {
+        }
+      }
+    }
+    if (useCache) {
+      ecaRunner.evalRules(EntityEcaHandler.EV_CACHE_PUT,EntityEcaHandler.OP_FIND,dummyValue,false);
+      this.cache.put(entityName,entityCondition,orderBy,list);
+    }
+    TransactionUtil.commit(beganTransaction);
+    return list;
+  }
+ catch (  Exception e) {
+    String errMsg="Failure in findByCondition operation for entity [" + entityName + "]: "+ e.toString()+ ". Rolling back transaction.";
+    Debug.logError(e,errMsg,module);
+    TransactionUtil.rollback(beganTransaction,errMsg,e);
+    throw new GenericEntityException(e);
+  }
+}
