@@ -4,56 +4,52 @@
   Locale locale=(Locale)context.get("locale");
   File file=null;
   try {
-    ContactModelFactory cmf=Pim.getContactModelFactory();
-    Contact contact=cmf.createContact();
-    PersonalIdentity pid=cmf.createPersonalIdentity();
+    ezvcard.VCard vcard=new ezvcard.VCard();
+    StructuredName structuredName=new StructuredName();
+    GenericValue person=EntityQuery.use(delegator).from("Person").where("partyId",partyId).queryOne();
+    if (person != null) {
+      if (UtilValidate.isNotEmpty(person.getString("firstName")))       structuredName.setGiven(person.getString("firstName"));
+      if (UtilValidate.isNotEmpty(person.getString("lastName")))       structuredName.setFamily(person.getString("lastName"));
+      vcard.setStructuredName(structuredName);
+    }
     String fullName=PartyHelper.getPartyName(delegator,partyId,false);
-    String[] name=fullName.split("\\s");
-    pid.setFirstname(name[0]);
-    pid.setLastname(name[1]);
-    contact.setPersonalIdentity(pid);
+    vcard.setFormattedName(fullName);
     GenericValue postalAddress=PartyWorker.findPartyLatestPostalAddress(partyId,delegator);
-    Address address=cmf.createAddress();
-    address.setStreet(postalAddress.getString("address1"));
-    address.setCity(postalAddress.getString("city"));
-    address.setPostalCode(postalAddress.getString("postalCode"));
-    GenericValue state=postalAddress.getRelatedOne("StateProvinceGeo",false);
-    if (UtilValidate.isNotEmpty(state)) {
-      address.setRegion(state.getString("geoName"));
+    if (postalAddress != null) {
+      Address address=new Address();
+      address.setStreetAddress(postalAddress.getString("address1"));
+      address.setLocality(postalAddress.getString("city"));
+      address.setPostalCode(postalAddress.getString("postalCode"));
+      GenericValue state=postalAddress.getRelatedOne("StateProvinceGeo",false);
+      if (UtilValidate.isNotEmpty(state)) {
+        address.setRegion(state.getString("geoName"));
+      }
+      GenericValue countryGeo=postalAddress.getRelatedOne("CountryGeo",false);
+      if (UtilValidate.isNotEmpty(countryGeo)) {
+        String country=postalAddress.getRelatedOne("CountryGeo",false).getString("geoName");
+        address.setCountry(country);
+        address.getTypes().add(AddressType.WORK);
+        ;
+      }
+      vcard.addAddress(address);
     }
-    GenericValue countryGeo=postalAddress.getRelatedOne("CountryGeo",false);
-    if (UtilValidate.isNotEmpty(countryGeo)) {
-      String country=postalAddress.getRelatedOne("CountryGeo",false).getString("geoName");
-      address.setCountry(country);
-      address.setWork(true);
-    }
-    contact.addAddress(address);
-    Communications communication=cmf.createCommunications();
-    contact.setCommunications(communication);
-    PhoneNumber number=cmf.createPhoneNumber();
     GenericValue telecomNumber=PartyWorker.findPartyLatestTelecomNumber(partyId,delegator);
     if (UtilValidate.isNotEmpty(telecomNumber)) {
-      number.setNumber(telecomNumber.getString("areaCode") + telecomNumber.getString("contactNumber"));
-      number.setWork(true);
-      communication.addPhoneNumber(number);
+      Telephone tel=new Telephone(telecomNumber.getString("areaCode") + telecomNumber.getString("contactNumber"));
+      tel.getTypes().add(TelephoneType.WORK);
+      vcard.addTelephoneNumber(tel);
     }
-    EmailAddress email=cmf.createEmailAddress();
     GenericValue emailAddress=PartyWorker.findPartyLatestContactMech(partyId,"EMAIL_ADDRESS",delegator);
-    if (UtilValidate.isNotEmpty(emailAddress.getString("infoString"))) {
-      email.setAddress(emailAddress.getString("infoString"));
-      communication.addEmailAddress(email);
+    if (emailAddress != null && UtilValidate.isNotEmpty(emailAddress.getString("infoString"))) {
+      vcard.addEmail(new Email(emailAddress.getString("infoString")));
     }
-    ContactIOFactory ciof=Pim.getContactIOFactory();
-    ContactMarshaller marshaller=ciof.createContactMarshaller();
     String saveToDirectory=EntityUtilProperties.getPropertyValue("sfa","save.outgoing.directory","",delegator);
     if (UtilValidate.isEmpty(saveToDirectory)) {
       saveToDirectory=System.getProperty("ofbiz.home");
     }
     String saveToFilename=fullName + ".vcf";
     file=FileUtil.getFile(saveToDirectory + "/" + saveToFilename);
-    FileOutputStream outputStream=new FileOutputStream(file);
-    marshaller.marshallContact(outputStream,contact);
-    outputStream.close();
+    Ezvcard.write(vcard).go(file);
   }
  catch (  FileNotFoundException e) {
     Debug.logError(e,module);

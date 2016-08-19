@@ -3,120 +3,102 @@
   Delegator delegator=dctx.getDelegator();
   Locale locale=(Locale)context.get("locale");
   Map<String,Object> result=ServiceUtil.returnSuccess();
-  Address workAddress=null;
-  String email=null;
-  String phone=null;
   ByteBuffer byteBuffer=(ByteBuffer)context.get("infile");
   byte[] inputByteArray=byteBuffer.array();
   InputStream in=new ByteArrayInputStream(inputByteArray);
-  String partyType=(String)context.get("partyType");
-  Boolean isGroup="PartyGroup".equals(partyType);
   Map<String,Object> serviceCtx=new HashMap<String,Object>();
+  boolean isGroup=false;
+  List<Map<String,String>> partiesCreated=new ArrayList<Map<String,String>>();
+  List<Map<String,String>> partiesExist=new ArrayList<Map<String,String>>();
+  String partyName="";
   try {
-    ContactIOFactory ciof=Pim.getContactIOFactory();
-    ContactUnmarshaller unmarshaller=ciof.createContactUnmarshaller();
-    unmarshaller.setStrict(false);
-    Contact[] contacts=unmarshaller.unmarshallContacts(in);
-    int contactsCount=1;
-    for (    Contact contact : contacts) {
-      PersonalIdentity pid=contact.getPersonalIdentity();
-      if (!isGroup) {
-        serviceCtx.put("firstName",pid.getFirstname());
-        serviceCtx.put("lastName",pid.getLastname());
-      }
-      for (Iterator<?> iter=contact.getAddresses(); iter.hasNext(); ) {
-        Address address=(AddressImpl)iter.next();
-        if (contact.isPreferredAddress(address)) {
-          workAddress=address;
-          break;
-        }
- else         if (address.isWork()) {
-          workAddress=address;
-          break;
-        }
- else {
+    VCardReader vCardReader=new VCardReader(in);
+    ezvcard.VCard vcard=null;
+    while ((vcard=vCardReader.readNext()) != null) {
+      FormattedName formattedName=vcard.getFormattedName();
+      if (formattedName != null) {
+        String refCardId=formattedName.getValue();
+        GenericValue partyIdentification=EntityQuery.use(delegator).from("PartyIdentification").where("partyIdentificationTypeId","VCARD_FN_ORIGIN","idValue",refCardId).queryFirst();
+        if (partyIdentification != null) {
+          partiesExist.add(UtilMisc.toMap("partyId",(String)partyIdentification.get("partyId")));
           continue;
         }
       }
-      if (UtilValidate.isNotEmpty(workAddress)) {
-        serviceCtx.put("address1",workAddress.getStreet());
-        serviceCtx.put("city",workAddress.getCity());
-        serviceCtx.put("postalCode",workAddress.getPostalCode());
-        GenericValue countryGeo=EntityQuery.use(delegator).from("Geo").where(EntityCondition.makeCondition("geoTypeId",EntityOperator.EQUALS,"COUNTRY"),EntityCondition.makeCondition("geoName",EntityOperator.LIKE,workAddress.getCountry())).cache().queryFirst();
+      isGroup=false;
+      if (vcard.getKind() != null)       isGroup=vcard.getKind().isGroup();
+      StructuredName structuredName=vcard.getStructuredName();
+      if (UtilValidate.isEmpty(structuredName))       continue;
+      if (!isGroup) {
+        serviceCtx.put("firstName",structuredName.getGiven());
+        serviceCtx.put("lastName",structuredName.getFamily());
+        partyName=structuredName.getGiven() + " " + structuredName.getFamily();
+      }
+      for (      Address address : vcard.getAddresses()) {
+        boolean workAddress=false;
+        for (        AddressType addressType : address.getTypes()) {
+          if (AddressType.PREF.equals(addressType) || AddressType.WORK.equals(addressType)) {
+            workAddress=true;
+            break;
+          }
+        }
+        if (!workAddress)         continue;
+        serviceCtx.put("address1",address.getStreetAddressFull());
+        serviceCtx.put("city",address.getLocality());
+        serviceCtx.put("postalCode",address.getPostalCode());
+        GenericValue countryGeo=EntityQuery.use(delegator).from("Geo").where(EntityCondition.makeCondition("geoTypeId",EntityOperator.EQUALS,"COUNTRY"),EntityCondition.makeCondition("geoName",EntityOperator.LIKE,address.getCountry())).cache().queryFirst();
         if (countryGeo != null) {
           serviceCtx.put("countryGeoId",countryGeo.get("geoId"));
         }
-        GenericValue stateGeo=EntityQuery.use(delegator).from("Geo").where(EntityCondition.makeCondition("geoTypeId",EntityOperator.EQUALS,"STATE"),EntityCondition.makeCondition("geoName",EntityOperator.LIKE,workAddress.getRegion())).cache().queryFirst();
+        GenericValue stateGeo=EntityQuery.use(delegator).from("Geo").where(EntityCondition.makeCondition("geoTypeId",EntityOperator.EQUALS,"STATE"),EntityCondition.makeCondition("geoName",EntityOperator.LIKE,address.getRegion())).cache().queryFirst();
         if (stateGeo != null) {
           serviceCtx.put("stateProvinceGeoId",stateGeo.get("geoId"));
         }
       }
-      if (!isGroup) {
-        Communications communications=contact.getCommunications();
-        if (UtilValidate.isNotEmpty(communications)) {
-          for (Iterator<?> iter=communications.getEmailAddresses(); iter.hasNext(); ) {
-            EmailAddress emailAddress=(EmailAddressImpl)iter.next();
-            if (communications.isPreferredEmailAddress(emailAddress)) {
-              email=emailAddress.getAddress();
+      int nbEmailAddr=(vcard.getEmails() != null) ? vcard.getEmails().size() : 0;
+      for (      Email email : vcard.getEmails()) {
+        if (nbEmailAddr > 1) {
+          boolean workEmail=false;
+          for (          EmailType emailType : email.getTypes()) {
+            if (EmailType.PREF.equals(emailType) || EmailType.WORK.equals(emailType)) {
+              workEmail=true;
               break;
             }
+          }
+          if (!workEmail)           continue;
+        }
+        String emailAddr=email.getValue();
+        if (UtilValidate.isEmail(emailAddr)) {
+          serviceCtx.put("emailAddress",emailAddr);
+        }
  else {
-              email=emailAddress.getAddress();
-              break;
-            }
-          }
-          if (UtilValidate.isNotEmpty(email)) {
-            InternetAddress emailAddr;
-            try {
-              emailAddr=new InternetAddress(email);
-              emailAddr.validate();
-            }
- catch (            AddressException e) {
-              String emailFOrmatErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVCardEmailFormatError",locale);
-              return ServiceUtil.returnError(pid.getFirstname() + " " + pid.getLastname()+ " has "+ emailFOrmatErrMsg);
-            }
-            serviceCtx.put("emailAddress",email);
-          }
-          for (Iterator<?> iter=communications.getPhoneNumbers(); iter.hasNext(); ) {
-            PhoneNumber phoneNumber=(PhoneNumberImpl)iter.next();
-            if (phoneNumber.isPreferred()) {
-              phone=phoneNumber.getNumber();
-              break;
-            }
- else             if (phoneNumber.isWork()) {
-              phone=phoneNumber.getNumber();
-              break;
-            }
- else {
-              continue;
-            }
-          }
-          if (UtilValidate.isNotEmpty(phone)) {
-            String[] numberParts=phone.split("\\D");
-            StringBuilder telNumber=new StringBuilder("");
-            for (            String number : numberParts) {
-              if (number != "") {
-                telNumber.append(number);
-              }
-            }
-            serviceCtx.put("areaCode",telNumber.substring(0,3));
-            serviceCtx.put("contactNumber",telNumber.substring(3));
-          }
+          String emailFormatErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVCardEmailFormatError",locale);
+          return ServiceUtil.returnError(structuredName.getGiven() + " " + structuredName.getFamily()+ " has "+ emailFormatErrMsg);
         }
       }
-      OrganizationalIdentity oid=contact.getOrganizationalIdentity();
-      if (!isGroup && oid != null && oid.getTitle() != null) {
-        String personalTitle=oid.getTitle().replace("\\","").replaceAll("\uFFFD"," ");
-        if (personalTitle.length() > 100) {
-          personalTitle=oid.getTitle().replace("\\","").replaceAll("\uFFFD"," ").substring(0,100);
+      int nbPhone=(vcard.getTelephoneNumbers() != null) ? vcard.getTelephoneNumbers().size() : 0;
+      for (      Telephone phone : vcard.getTelephoneNumbers()) {
+        if (nbPhone > 1) {
+          boolean workPhone=false;
+          for (          TelephoneType phoneType : phone.getTypes()) {
+            if (TelephoneType.PREF.equals(phoneType) || TelephoneType.WORK.equals(phoneType)) {
+              workPhone=true;
+              break;
+            }
+          }
+          if (!workPhone)           continue;
         }
-        serviceCtx.put("personalTitle",personalTitle);
-      }
-      if (isGroup) {
-        if (oid.hasOrganization()) {
-          Organization org=oid.getOrganization();
-          serviceCtx.put("groupName",org.getName().replace("\\",""));
+        String phoneAddr=phone.getText();
+        boolean internationalPhone=phoneAddr.startsWith("+") || phoneAddr.startsWith("00");
+        phoneAddr=StringUtil.removeNonNumeric(phoneAddr);
+        int indexLocal=0;
+        if (internationalPhone) {
+          indexLocal=4;
+          if (!phoneAddr.startsWith("00")) {
+            phoneAddr=phoneAddr.concat("00");
+          }
+          serviceCtx.put("areaCode",phoneAddr.substring(0,indexLocal));
         }
+        serviceCtx.put("contactNumber",phoneAddr.substring(indexLocal));
       }
       GenericValue userLogin=(GenericValue)context.get("userLogin");
       serviceCtx.put("userLogin",userLogin);
@@ -127,39 +109,23 @@
           serviceCtx.put(entry.getKey(),entry.getValue());
         }
       }
-      List<GenericValue> persons=EntityQuery.use(delegator).from("Person").where("firstName",serviceCtx.get("firstName"),"lastName",serviceCtx.get("lastName")).queryList();
-      boolean blockPerson=false;
-      for (      GenericValue person : persons) {
-        GenericValue partyStatus=EntityQuery.use(delegator).from("PartyStatus").where("partyId",person.get("partyId")).orderBy("-statusDate").queryFirst();
-        if (!partyStatus.get("statusId").equals("PARTY_DISABLED")) {
-          blockPerson=true;
-        }
+      Map<String,Object> resp=dispatcher.runSync(serviceName,serviceCtx);
+      partiesCreated.add(UtilMisc.toMap("partyId",(String)resp.get("partyId")));
+      if (formattedName != null) {
+        Map<String,Object> createPartyIdentificationMap=dctx.makeValidContext("createPartyIdentification","IN",context);
+        createPartyIdentificationMap.put("partyId",resp.get("partyId"));
+        createPartyIdentificationMap.put("partyIdentificationTypeId","VCARD_FN_ORIGIN");
+        createPartyIdentificationMap.put("idValue",formattedName.getValue());
+        resp=dispatcher.runSync("createPartyIdentification",createPartyIdentificationMap);
       }
-      if (!blockPerson) {
-        String nameMissingErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVcardNameMissingError",locale);
-        if (!isGroup && serviceCtx.get("lastName") == null) {
-          return ServiceUtil.returnError(serviceCtx.get("firstName") + " " + nameMissingErrMsg);
-        }
-        if (!isGroup && serviceCtx.get("firstName") == null) {
-          return ServiceUtil.returnError(serviceCtx.get("lastName") + " " + nameMissingErrMsg);
-        }
-        Map<String,Object> resp=dispatcher.runSync(serviceName,serviceCtx);
-        result.put("partyId",resp.get("partyId"));
-      }
-      if (result.get("partyId") == null && contactsCount == contacts.length) {
-        String duplicatedErrMsg=UtilProperties.getMessage(resourceError,"SfaImportVcardDuplicatedVcardError",locale);
-        return ServiceUtil.returnError(duplicatedErrMsg);
-      }
-      contactsCount++;
     }
+    vCardReader.close();
   }
- catch (  GenericEntityException e) {
+ catch (  IOException|GenericEntityException|GenericServiceException e) {
     Debug.logError(e,module);
     return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"SfaImportVCardError",UtilMisc.toMap("errorString",e.getMessage()),locale));
   }
-catch (  GenericServiceException e) {
-    Debug.logError(e,module);
-    return ServiceUtil.returnError(UtilProperties.getMessage(resourceError,"SfaImportVCardError",UtilMisc.toMap("errorString",e.getMessage()),locale));
-  }
+  result.put("partiesCreated",partiesCreated);
+  result.put("partiesExist",partiesExist);
   return result;
 }
