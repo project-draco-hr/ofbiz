@@ -1,0 +1,53 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  HttpServletResponse httpResponse=(HttpServletResponse)response;
+  if (redirectAll) {
+    if (httpRequest.getSession().getAttribute("_FORCE_REDIRECT_") == null) {
+      httpRequest.getSession().setAttribute("_FORCE_REDIRECT_","true");
+      Debug.logWarning("Redirecting user to: " + redirectPath,module);
+      if (redirectPathIsUrl) {
+        httpResponse.sendRedirect(redirectPath);
+      }
+ else {
+        httpResponse.sendRedirect(httpRequest.getContextPath() + redirectPath);
+      }
+      return;
+    }
+ else {
+      httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
+      chain.doFilter(httpRequest,httpResponse);
+      return;
+    }
+  }
+  if (httpRequest.getAttribute(FORWARDED_FROM_SERVLET) == null && !allowedPaths.isEmpty()) {
+    String requestUri=httpRequest.getRequestURI().substring(httpRequest.getContextPath().length());
+    int offset=requestUri.indexOf("/",1);
+    if (offset == -1) {
+      offset=requestUri.length();
+    }
+    while (!allowedPaths.contains(requestUri.substring(0,offset))) {
+      offset=requestUri.indexOf("/",offset + 1);
+      if (offset == -1) {
+        if (allowedPaths.contains(requestUri)) {
+          break;
+        }
+        if (redirectPath == null) {
+          httpResponse.sendError(errorCode,httpRequest.getRequestURI());
+        }
+ else {
+          if (redirectPathIsUrl) {
+            httpResponse.sendRedirect(redirectPath);
+          }
+ else {
+            httpResponse.sendRedirect(httpRequest.getContextPath() + redirectPath);
+          }
+        }
+        if (Debug.infoOn()) {
+          Debug.logInfo("[Filtered request]: " + httpRequest.getRequestURI() + " --> "+ (redirectPath == null ? errorCode : redirectPath),module);
+        }
+        return;
+      }
+    }
+    chain.doFilter(request,httpResponse);
+  }
+}
