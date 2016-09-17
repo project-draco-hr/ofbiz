@@ -1,226 +1,87 @@
 {
   HttpServletRequest httpRequest=(HttpServletRequest)request;
   HttpServletResponse httpResponse=(HttpServletResponse)response;
-  httpRequest.setAttribute("servletContext",config.getServletContext());
-  if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
-    httpRequest.getSession().setAttribute("webSiteId",WebSiteWorker.getWebSiteId(httpRequest));
-  }
-  httpRequest.setAttribute("_CONTEXT_ROOT_",config.getServletContext().getRealPath("/"));
-  httpRequest.setAttribute("_SERVER_ROOT_URL_",UtilHttp.getServerRootUrl(httpRequest));
-  String reqAttrMapHex=(String)httpRequest.getSession().getAttribute("_REQ_ATTR_MAP_");
-  if (UtilValidate.isNotEmpty(reqAttrMapHex)) {
-    byte[] reqAttrMapBytes=StringUtil.fromHexString(reqAttrMapHex);
-    Map<String,Object> reqAttrMap=checkMap(UtilObject.getObject(reqAttrMapBytes),String.class,Object.class);
-    if (reqAttrMap != null) {
-      for (      Map.Entry<String,Object> entry : reqAttrMap.entrySet()) {
-        httpRequest.setAttribute(entry.getKey(),entry.getValue());
-      }
-    }
-    httpRequest.getSession().removeAttribute("_REQ_ATTR_MAP_");
-  }
-  String disableSecurity=config.getInitParameter("disableContextSecurity");
-  if (disableSecurity != null && "Y".equalsIgnoreCase(disableSecurity)) {
-    chain.doFilter(httpRequest,httpResponse);
-    return;
-  }
-  String redirectAllTo=config.getInitParameter("forceRedirectAll");
-  if (UtilValidate.isNotEmpty(redirectAllTo)) {
-    if (httpRequest.getSession().getAttribute("_FORCE_REDIRECT_") == null) {
-      httpRequest.getSession().setAttribute("_FORCE_REDIRECT_","true");
-      Debug.logWarning("Redirecting user to: " + redirectAllTo,module);
-      if (!redirectAllTo.toLowerCase().startsWith("http")) {
-        redirectAllTo=httpRequest.getContextPath() + redirectAllTo;
-      }
-      httpResponse.sendRedirect(redirectAllTo);
-      return;
-    }
- else {
-      httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
-      chain.doFilter(httpRequest,httpResponse);
-      return;
-    }
-  }
+  Locale locale=UtilHttp.getLocale(httpRequest);
+  httpRequest.setAttribute("servletContext",request.getServletContext());
   String servletPath=httpRequest.getServletPath();
-  if (UtilValidate.isNotEmpty(servletPath) && servletPath.equals("/control")) {
-    contextFilter.doFilter(httpRequest,httpResponse,chain);
-    return;
-  }
- else {
-    if (UtilValidate.isNotEmpty(servletPath) && (servletPath.startsWith("/admin/") || servletPath.endsWith("/update") || servletPath.endsWith("/update/json")|| servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract")|| servletPath.endsWith("/replication")|| servletPath.endsWith("/file")|| servletPath.endsWith("/file/"))) {
-      HttpSession session=httpRequest.getSession();
-      GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
-      Security security=(Security)request.getAttribute("security");
-      if (security == null) {
-        security=(Security)httpRequest.getServletContext().getAttribute("security");
-        if (security != null) {
-          request.setAttribute("security",security);
-        }
+  if (UtilValidate.isNotEmpty(servletPath) && (servletPath.startsWith("/admin/") || servletPath.endsWith("/update") || servletPath.endsWith("/update/json")|| servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract")|| servletPath.endsWith("/replication")|| servletPath.endsWith("/file")|| servletPath.endsWith("/file/"))) {
+    HttpSession session=httpRequest.getSession();
+    GenericValue userLogin=(GenericValue)session.getAttribute("userLogin");
+    Security security=(Security)request.getAttribute("security");
+    if (security == null) {
+      security=(Security)httpRequest.getServletContext().getAttribute("security");
+      if (security != null) {
+        request.setAttribute("security",security);
       }
-      if (security == null) {
-        security=WebAppUtil.getSecurity(httpRequest.getServletContext());
-        if (security != null) {
-          request.setAttribute("security",security);
-        }
+    }
+    if (security == null) {
+      security=WebAppUtil.getSecurity(httpRequest.getServletContext());
+      if (security != null) {
+        request.setAttribute("security",security);
       }
-      if (servletPath.startsWith("/admin/") && (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest))) {
-        response.setContentType("application/json");
-        MapToJSON mapToJson=new MapToJSON();
-        JSON json;
-        OutputStream os=null;
-        try {
-          json=mapToJson.convert(UtilMisc.toMap("ofbizLogin",(Object)"true"));
-          os=response.getOutputStream();
-          os.write(json.toString().getBytes());
-          os.flush();
-          String message="";
-          if (UtilValidate.isEmpty(userLogin)) {
-            message="To manage Solr in OFBiz, you have to login first and have the permission to do so.";
-          }
+    }
+    if (servletPath.startsWith("/admin/") && (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest))) {
+      response.setContentType("application/json");
+      MapToJSON mapToJson=new MapToJSON();
+      JSON json;
+      OutputStream os=null;
+      try {
+        json=mapToJson.convert(UtilMisc.toMap("ofbizLogin",(Object)"true"));
+        os=response.getOutputStream();
+        os.write(json.toString().getBytes());
+        os.flush();
+        String message="";
+        if (UtilValidate.isEmpty(userLogin)) {
+          message=UtilProperties.getMessage(resource,"SolrErrorManageLoginFirst",locale);
+        }
  else {
-            message="To manage Solr in OFBiz, you have to the permission to do so.";
-          }
-          Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
+          message=UtilProperties.getMessage(resource,"SolrErrorNoManagePermission",locale);
         }
- catch (        ConversionException e) {
-          Debug.logError("Error while converting Solr ofbizLogin map to JSON.",module);
-        }
+        Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
+      }
+ catch (      ConversionException e) {
+        Debug.logError("Error while converting Solr ofbizLogin map to JSON.",module);
+      }
  finally {
-          if (os != null) {
-            os.close();
-          }
+        if (os != null) {
+          os.close();
         }
+      }
+      return;
+    }
+ else     if (servletPath.endsWith("/update") || servletPath.endsWith("/update/json") || servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract")) {
+      if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
+        sendJsonHeaderMessage(httpRequest,httpResponse,userLogin,"SolrErrorUpdateLoginFirst","SolrErrorNoUpdatePermission",locale);
         return;
       }
- else       if (servletPath.endsWith("/update") || servletPath.endsWith("/update/json") || servletPath.endsWith("/update/csv")|| servletPath.endsWith("/update/extract")) {
-        if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
-          httpResponse.setContentType("application/json");
-          MapToJSON mapToJson=new MapToJSON();
-          Map<String,Object> responseHeader=new HashMap<String,Object>();
-          JSON json;
-          String message="";
-          OutputStream os=null;
-          try {
-            os=httpResponse.getOutputStream();
-            if (UtilValidate.isEmpty(userLogin)) {
-              httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-              responseHeader.put("status",HttpServletResponse.SC_UNAUTHORIZED);
-              message="To update a Solr index in OFBiz, you have to login first and have the permission to do so.";
-              responseHeader.put("message",message);
-            }
- else {
-              httpResponse.setStatus(HttpServletResponse.SC_FORBIDDEN);
-              responseHeader.put("status",HttpServletResponse.SC_FORBIDDEN);
-              message="To update a Solr index in OFBiz, you have to have the permission to do so.";
-              responseHeader.put("message",message);
-            }
-            json=mapToJson.convert(UtilMisc.toMap("responseHeader",(Object)responseHeader));
-            os.write(json.toString().getBytes());
-            os.flush();
-            Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
-          }
- catch (          ConversionException e) {
-            Debug.logError("Error while converting responseHeader map to JSON.",module);
-          }
- finally {
-            if (os != null) {
-              os.close();
-            }
-          }
-          return;
-        }
-      }
- else       if (servletPath.endsWith("/replication")) {
-        if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
-          httpResponse.setContentType("application/json");
-          MapToJSON mapToJson=new MapToJSON();
-          Map<String,Object> responseHeader=new HashMap<String,Object>();
-          JSON json;
-          String message="";
-          OutputStream os=null;
-          try {
-            os=httpResponse.getOutputStream();
-            if (UtilValidate.isEmpty(userLogin)) {
-              httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-              responseHeader.put("status",HttpServletResponse.SC_UNAUTHORIZED);
-              message="To enable/disable replication of a Solr index in OFBiz, you have to login first and have the permission to do so.";
-              responseHeader.put("message",message);
-            }
- else {
-              httpResponse.setStatus(HttpServletResponse.SC_FORBIDDEN);
-              responseHeader.put("status",HttpServletResponse.SC_FORBIDDEN);
-              message="To enable/disable replication of a Solr index in OFBiz, you have to have the permission to do so.";
-              responseHeader.put("message",message);
-            }
-            json=mapToJson.convert(UtilMisc.toMap("responseHeader",(Object)responseHeader));
-            os.write(json.toString().getBytes());
-            os.flush();
-            Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
-          }
- catch (          ConversionException e) {
-            Debug.logError("Error while converting responseHeader map to JSON.",module);
-          }
- finally {
-            if (os != null) {
-              os.close();
-            }
-          }
-          return;
-        }
-      }
- else       if (servletPath.endsWith("/file") || servletPath.endsWith("/file/")) {
-        if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
-          httpResponse.setContentType("application/json");
-          MapToJSON mapToJson=new MapToJSON();
-          Map<String,Object> responseHeader=new HashMap<String,Object>();
-          JSON json;
-          String message="";
-          OutputStream os=null;
-          try {
-            os=httpResponse.getOutputStream();
-            if (UtilValidate.isEmpty(userLogin)) {
-              httpResponse.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-              responseHeader.put("status",HttpServletResponse.SC_UNAUTHORIZED);
-              message="To view files of a Solr index in OFBiz, you have to login first and have the permission to do so.";
-              responseHeader.put("message",message);
-            }
- else {
-              httpResponse.setStatus(HttpServletResponse.SC_FORBIDDEN);
-              responseHeader.put("status",HttpServletResponse.SC_FORBIDDEN);
-              message="To view files of a Solr index in OFBiz, you have to have the permission to do so.";
-              responseHeader.put("message",message);
-            }
-            json=mapToJson.convert(UtilMisc.toMap("responseHeader",(Object)responseHeader));
-            os.write(json.toString().getBytes());
-            os.flush();
-            Debug.logInfo("[" + httpRequest.getRequestURI().substring(1) + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request error: "+ message,module);
-          }
- catch (          ConversionException e) {
-            Debug.logError("Error while converting responseHeader map to JSON.",module);
-          }
- finally {
-            if (os != null) {
-              os.close();
-            }
-          }
-          return;
-        }
+    }
+ else     if (servletPath.endsWith("/replication")) {
+      if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
+        sendJsonHeaderMessage(httpRequest,httpResponse,userLogin,"SolrErrorReplicateLoginFirst","SolrErrorNoReplicatePermission",locale);
+        return;
       }
     }
-    String charset=request.getCharacterEncoding();
-    String rname=null;
-    if (httpRequest.getRequestURI() != null) {
-      rname=httpRequest.getRequestURI().substring(1);
+ else     if (servletPath.endsWith("/file") || servletPath.endsWith("/file/")) {
+      if (UtilValidate.isEmpty(userLogin) || !LoginWorker.hasBasePermission(userLogin,httpRequest)) {
+        sendJsonHeaderMessage(httpRequest,httpResponse,userLogin,"SolrErrorViewFileLoginFirst","SolrErrorNoViewFilePermission",locale);
+        return;
+      }
     }
-    if (rname != null && (rname.endsWith(".css") || rname.endsWith(".js") || rname.endsWith(".ico")|| rname.endsWith(".html")|| rname.endsWith(".png")|| rname.endsWith(".jpg")|| rname.endsWith(".gif"))) {
-      rname=null;
-    }
-    UtilTimer timer=null;
-    if (Debug.timingOn() && rname != null) {
-      timer=new UtilTimer();
-      timer.setLog(true);
-      timer.timerString("[" + rname + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request Begun, encoding=["+ charset+ "]",module);
-    }
-    super.doFilter(request,response,chain);
-    if (Debug.timingOn() && rname != null)     timer.timerString("[" + rname + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request Done",module);
   }
+  String charset=request.getCharacterEncoding();
+  String rname=null;
+  if (httpRequest.getRequestURI() != null) {
+    rname=httpRequest.getRequestURI().substring(1);
+  }
+  if (rname != null && (rname.endsWith(".css") || rname.endsWith(".js") || rname.endsWith(".ico")|| rname.endsWith(".html")|| rname.endsWith(".png")|| rname.endsWith(".jpg")|| rname.endsWith(".gif"))) {
+    rname=null;
+  }
+  UtilTimer timer=null;
+  if (Debug.timingOn() && rname != null) {
+    timer=new UtilTimer();
+    timer.setLog(true);
+    timer.timerString("[" + rname + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request Begun, encoding=["+ charset+ "]",module);
+  }
+  super.doFilter(request,response,chain);
+  if (Debug.timingOn() && rname != null)   timer.timerString("[" + rname + "(Domain:"+ request.getScheme()+ "://"+ request.getServerName()+ ")] Request Done",module);
 }
