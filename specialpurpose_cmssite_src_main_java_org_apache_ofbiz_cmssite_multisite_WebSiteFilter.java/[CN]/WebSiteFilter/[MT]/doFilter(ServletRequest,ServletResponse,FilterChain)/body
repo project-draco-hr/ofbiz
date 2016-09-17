@@ -1,0 +1,80 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  HttpServletResponse httpResponse=(HttpServletResponse)response;
+  HttpSession session=httpRequest.getSession();
+  String webSiteId=(String)m_config.getServletContext().getAttribute("webSiteId");
+  String pathInfo=httpRequest.getPathInfo();
+  String webSiteAlias=RequestHandler.getRequestUri(pathInfo);
+  Delegator delegator=(Delegator)httpRequest.getSession().getServletContext().getAttribute("delegator");
+  LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
+  WebAppUtil.setCharacterEncoding(request);
+  WebAppUtil.setAttributesFromRequestBody(request);
+  dispatcher=WebAppUtil.makeWebappDispatcher(session.getServletContext(),delegator);
+  setWebContextObjects(httpRequest,httpResponse,delegator,dispatcher);
+  request.setAttribute("servletContext",httpRequest.getSession().getServletContext());
+  request.setAttribute("delegator",delegator);
+  GenericValue webSite=null;
+  try {
+    if (UtilValidate.isNotEmpty(webSiteAlias) && UtilValidate.isEmpty(webSite)) {
+      webSite=EntityQuery.use(delegator).from("WebSite").where("hostedPathAlias",webSiteAlias).cache().queryFirst();
+    }
+    if (UtilValidate.isEmpty(webSite)) {
+      webSite=EntityQuery.use(delegator).from("WebSite").where("isDefault","Y").cache().queryFirst();
+    }
+  }
+ catch (  GenericEntityException e) {
+    Debug.logError(e,MODULE);
+  }
+  if (webSite != null) {
+    webSiteId=webSite.getString("webSiteId");
+    GenericValue productStore=null;
+    try {
+      productStore=webSite.getRelatedOne("ProductStore",false);
+    }
+ catch (    GenericEntityException e) {
+      Debug.logError(e,MODULE);
+    }
+    String newLocale=request.getParameter("newLocale");
+    if (productStore != null && newLocale == null && session.getAttribute("locale") == null) {
+      newLocale=productStore.getString("defaultLocaleString");
+    }
+ else     if (newLocale == null && session.getAttribute("locale") != null) {
+      newLocale=session.getAttribute("locale").toString();
+    }
+    if (newLocale == null)     newLocale=UtilHttp.getLocale(httpRequest).toString();
+    if (!webSiteId.equals(session.getAttribute("webSiteId"))) {
+      ShoppingCart cart=(ShoppingCart)session.getAttribute("shoppingCart");
+      if (cart != null && !(webSite.getString("productStoreId").equals(cart.getProductStoreId()))) {
+        cart.clear();
+        cart.setProductStoreId(webSite.getString("productStoreId"));
+      }
+      if (cart != null && productStore != null) {
+        Locale localeObj=UtilMisc.parseLocale(newLocale);
+        cart.setLocale(localeObj);
+        try {
+          cart.setCurrency(dispatcher,productStore.getString("defaultCurrencyUomId"));
+        }
+ catch (        CartItemModifyException e) {
+          Debug.logError(e,MODULE);
+        }
+      }
+      session.removeAttribute("webSiteId");
+      session.setAttribute("webSiteId",webSiteId);
+      session.setAttribute("displayMaintenancePage",webSite.getString("displayMaintenancePage"));
+    }
+    request.setAttribute("webSiteId",webSiteId);
+    session.setAttribute("displayMaintenancePage",webSite.getString("displayMaintenancePage"));
+    if (UtilValidate.isEmpty(webSite.getString("hostedPathAlias"))) {
+      request.setAttribute("removePathAlias",false);
+    }
+ else {
+      request.setAttribute("removePathAlias",true);
+    }
+    httpRequest=new MultiSiteRequestWrapper(httpRequest);
+    UtilHttp.setLocale(httpRequest,newLocale);
+  }
+  if (webSiteId != null) {
+    request.setAttribute("webSiteId",webSiteId);
+  }
+  chain.doFilter(httpRequest,response);
+}
