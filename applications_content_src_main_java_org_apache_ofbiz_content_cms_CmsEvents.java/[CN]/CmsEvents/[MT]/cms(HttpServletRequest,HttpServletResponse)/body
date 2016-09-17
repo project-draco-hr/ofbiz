@@ -3,6 +3,8 @@
   LocalDispatcher dispatcher=(LocalDispatcher)request.getAttribute("dispatcher");
   ServletContext servletContext=request.getSession().getServletContext();
   HttpSession session=request.getSession();
+  Writer writer=null;
+  Locale locale=UtilHttp.getLocale(request);
   String webSiteId=(String)session.getAttribute("webSiteId");
   if (webSiteId == null) {
     webSiteId=WebSiteWorker.getWebSiteId(request);
@@ -28,192 +30,217 @@
   String contentId=null;
   String mapKey=null;
   String pathInfo=null;
-  String overrideViewUri=(String)request.getAttribute("_CURRENT_CHAIN_VIEW_");
-  if (UtilValidate.isNotEmpty(overrideViewUri)) {
-    pathInfo=overrideViewUri;
-  }
- else {
-    pathInfo=request.getPathInfo();
-    if (targetRequest.equals(actualRequest) && pathInfo != null) {
-      String[] pathParsed=pathInfo.split("/",3);
-      if (pathParsed.length > 2) {
-        pathInfo=pathParsed[2];
-      }
- else {
-        pathInfo=null;
-      }
-    }
-  }
-  if (pathInfo == null) {
-    GenericValue defaultContent=null;
+  String displayMaintenancePage=(String)session.getAttribute("displayMaintenancePage");
+  if (UtilValidate.isNotEmpty(displayMaintenancePage) && "Y".equalsIgnoreCase(displayMaintenancePage)) {
     try {
-      defaultContent=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","DEFAULT_PAGE").orderBy("-fromDate").filterByDate().cache().queryFirst();
+      writer=response.getWriter();
+      GenericValue webSiteContent=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","MAINTENANCE_PAGE").filterByDate().queryFirst();
+      if (webSiteContent != null) {
+        ContentWorker.renderContentAsText(dispatcher,delegator,webSiteContent.getString("contentId"),writer,null,locale,"text/html",null,null,true);
+        return "success";
+      }
+ else {
+        request.setAttribute("_ERROR_MESSAGE_","Not able to display maintenance page for [" + webSiteId + "]");
+        return "error";
+      }
     }
  catch (    GenericEntityException e) {
       Debug.logError(e,module);
     }
-    if (defaultContent != null) {
-      pathInfo=defaultContent.getString("contentId");
+catch (    IOException e) {
+      throw new GeneralRuntimeException(String.format("Error in the response writer/output stream while rendering content [%s]",contentId),e);
+    }
+catch (    GeneralException e) {
+      throw new GeneralRuntimeException(String.format("Error rendering content [%s]",contentId),e);
     }
   }
-  if (pathInfo != null) {
-    pathInfo=pathInfo.trim();
-    if (pathInfo.startsWith("/")) {
-      pathInfo=pathInfo.substring(1);
-    }
-    if (pathInfo.endsWith("/")) {
-      pathInfo=pathInfo.substring(0,pathInfo.length() - 1);
-    }
-    GenericValue pathAlias=null;
-    try {
-      pathAlias=EntityQuery.use(delegator).from("WebSitePathAlias").where("webSiteId",webSiteId,"pathAlias",pathInfo).orderBy("-fromDate").cache().filterByDate().queryOne();
-    }
- catch (    GenericEntityException e) {
-      Debug.logError(e,module);
-    }
-    if (pathAlias != null) {
-      String alias=pathAlias.getString("aliasTo");
-      contentId=pathAlias.getString("contentId");
-      mapKey=pathAlias.getString("mapKey");
-      if (contentId == null && UtilValidate.isNotEmpty(alias)) {
-        if (!alias.startsWith("/")) {
-          alias="/" + alias;
-        }
-        RequestDispatcher rd=request.getRequestDispatcher(request.getServletPath() + alias);
-        try {
-          rd.forward(request,response);
-        }
- catch (        ServletException e) {
-          Debug.logError(e,module);
-          return "error";
-        }
-catch (        IOException e) {
-          Debug.logError(e,module);
-          return "error";
-        }
-        return null;
-      }
-    }
-    Locale locale=UtilHttp.getLocale(request);
-    if (contentId == null) {
-      if (Debug.verboseOn())       Debug.logVerbose("Current PathInfo: " + pathInfo,module);
-      String[] pathSplit=pathInfo.split("/");
-      if (Debug.verboseOn())       Debug.logVerbose("Split pathinfo: " + pathSplit.length,module);
-      contentId=pathSplit[0];
-      if (pathSplit.length > 1) {
-        mapKey=pathSplit[1];
-      }
-    }
-    int statusCode=-1;
-    boolean hasErrorPage=false;
-    if (contentId != null) {
-      try {
-        statusCode=verifyContentToWebSite(delegator,webSiteId,contentId);
-      }
- catch (      GeneralException e) {
-        Debug.logError(e,module);
-        throw new GeneralRuntimeException(e.getMessage(),e);
-      }
+ else {
+    String overrideViewUri=(String)request.getAttribute("_CURRENT_CHAIN_VIEW_");
+    if (UtilValidate.isNotEmpty(overrideViewUri)) {
+      pathInfo=overrideViewUri;
     }
  else {
-      statusCode=HttpServletResponse.SC_NOT_FOUND;
+      pathInfo=request.getPathInfo();
+      if (targetRequest.equals(actualRequest) && pathInfo != null) {
+        String[] pathParsed=pathInfo.split("/",3);
+        if (pathParsed.length > 2) {
+          pathInfo=pathParsed[2];
+        }
+ else {
+          pathInfo=null;
+        }
+      }
     }
-    if (statusCode != HttpServletResponse.SC_OK) {
-      GenericValue errorContainer=null;
+    if (pathInfo == null || "/".equals(pathInfo)) {
+      GenericValue defaultContent=null;
       try {
-        errorContainer=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","ERROR_ROOT").orderBy("fromDate").filterByDate().cache().queryFirst();
+        defaultContent=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","DEFAULT_PAGE").orderBy("-fromDate").filterByDate().cache().queryFirst();
       }
  catch (      GenericEntityException e) {
         Debug.logError(e,module);
       }
-      if (errorContainer != null) {
-        if (Debug.verboseOn())         Debug.logVerbose("Found error containers: " + errorContainer,module);
-        GenericValue errorPage=null;
+      if (defaultContent != null) {
+        pathInfo=defaultContent.getString("contentId");
+      }
+    }
+    if (pathInfo != null) {
+      pathInfo=pathInfo.trim();
+      if (pathInfo.startsWith("/")) {
+        pathInfo=pathInfo.substring(1);
+      }
+      if (pathInfo.endsWith("/")) {
+        pathInfo=pathInfo.substring(0,pathInfo.length() - 1);
+      }
+      GenericValue pathAlias=null;
+      try {
+        pathAlias=EntityQuery.use(delegator).from("WebSitePathAlias").where("webSiteId",webSiteId,"pathAlias",pathInfo).orderBy("-fromDate").cache().filterByDate().queryOne();
+      }
+ catch (      GenericEntityException e) {
+        Debug.logError(e,module);
+      }
+      if (pathAlias != null) {
+        String alias=pathAlias.getString("aliasTo");
+        contentId=pathAlias.getString("contentId");
+        mapKey=pathAlias.getString("mapKey");
+        if (contentId == null && UtilValidate.isNotEmpty(alias)) {
+          if (!alias.startsWith("/")) {
+            alias="/" + alias;
+          }
+          RequestDispatcher rd=request.getRequestDispatcher(request.getServletPath() + alias);
+          try {
+            rd.forward(request,response);
+          }
+ catch (          ServletException e) {
+            Debug.logError(e,module);
+            return "error";
+          }
+catch (          IOException e) {
+            Debug.logError(e,module);
+            return "error";
+          }
+          return null;
+        }
+      }
+      if (contentId == null) {
+        if (Debug.verboseOn())         Debug.logVerbose("Current PathInfo: " + pathInfo,module);
+        String[] pathSplit=pathInfo.split("/");
+        if (Debug.verboseOn())         Debug.logVerbose("Split pathinfo: " + pathSplit.length,module);
+        contentId=pathSplit[0];
+        if (pathSplit.length > 1) {
+          mapKey=pathSplit[1];
+        }
+      }
+      int statusCode=-1;
+      boolean hasErrorPage=false;
+      if (contentId != null) {
         try {
-          errorPage=EntityQuery.use(delegator).from("ContentAssocViewTo").where("contentIdStart",errorContainer.getString("contentId"),"caContentAssocTypeId","TREE_CHILD","contentTypeId","DOCUMENT","caMapKey",String.valueOf(statusCode)).filterByDate().queryFirst();
+          statusCode=verifyContentToWebSite(delegator,webSiteId,contentId);
+        }
+ catch (        GeneralException e) {
+          Debug.logError(e,module);
+          throw new GeneralRuntimeException(e.getMessage(),e);
+        }
+      }
+ else {
+        statusCode=HttpServletResponse.SC_NOT_FOUND;
+      }
+      if (statusCode != HttpServletResponse.SC_OK) {
+        GenericValue errorContainer=null;
+        try {
+          errorContainer=EntityQuery.use(delegator).from("WebSiteContent").where("webSiteId",webSiteId,"webSiteContentTypeId","ERROR_ROOT").orderBy("fromDate").filterByDate().cache().queryFirst();
         }
  catch (        GenericEntityException e) {
           Debug.logError(e,module);
         }
-        if (errorPage != null) {
-          if (Debug.verboseOn())           Debug.logVerbose("Found error pages " + statusCode + " : "+ errorPage,module);
-          contentId=errorPage.getString("contentId");
-        }
- else {
-          if (Debug.verboseOn())           Debug.logVerbose("No specific error page, falling back to the Error Container for " + statusCode,module);
-          contentId=errorContainer.getString("contentId");
-        }
-        mapKey=null;
-        hasErrorPage=true;
-      }
-      if (!hasErrorPage) {
-        try {
-          GenericValue errorPage=EntityQuery.use(delegator).from("Content").where("contentId","CONTENT_ERROR_" + statusCode).cache().queryOne();
+        if (errorContainer != null) {
+          if (Debug.verboseOn())           Debug.logVerbose("Found error containers: " + errorContainer,module);
+          GenericValue errorPage=null;
+          try {
+            errorPage=EntityQuery.use(delegator).from("ContentAssocViewTo").where("contentIdStart",errorContainer.getString("contentId"),"caContentAssocTypeId","TREE_CHILD","contentTypeId","DOCUMENT","caMapKey",String.valueOf(statusCode)).filterByDate().queryFirst();
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
+          }
           if (errorPage != null) {
-            Debug.logVerbose("Found generic page " + statusCode,module);
+            if (Debug.verboseOn())             Debug.logVerbose("Found error pages " + statusCode + " : "+ errorPage,module);
             contentId=errorPage.getString("contentId");
-            mapKey=null;
-            hasErrorPage=true;
+          }
+ else {
+            if (Debug.verboseOn())             Debug.logVerbose("No specific error page, falling back to the Error Container for " + statusCode,module);
+            contentId=errorContainer.getString("contentId");
+          }
+          mapKey=null;
+          hasErrorPage=true;
+        }
+        if (!hasErrorPage) {
+          try {
+            GenericValue errorPage=EntityQuery.use(delegator).from("Content").where("contentId","CONTENT_ERROR_" + statusCode).cache().queryOne();
+            if (errorPage != null) {
+              Debug.logVerbose("Found generic page " + statusCode,module);
+              contentId=errorPage.getString("contentId");
+              mapKey=null;
+              hasErrorPage=true;
+            }
+          }
+ catch (          GenericEntityException e) {
+            Debug.logError(e,module);
           }
         }
+      }
+      if (statusCode == HttpServletResponse.SC_OK || hasErrorPage) {
+        MapStack<String> templateMap=MapStack.create();
+        ScreenRenderer.populateContextForRequest(templateMap,null,request,response,servletContext);
+        templateMap.put("statusCode",statusCode);
+        ServletContext ctx=(ServletContext)request.getAttribute("servletContext");
+        RequestHandler rh=(RequestHandler)ctx.getAttribute("_REQUEST_HANDLER_");
+        templateMap.put("_REQUEST_HANDLER_",rh);
+        response.setStatus(statusCode);
+        try {
+          writer=response.getWriter();
+          FormStringRenderer formStringRenderer=new MacroFormRenderer(EntityUtilProperties.getPropertyValue("widget","screen.formrenderer",delegator),request,response);
+          templateMap.put("formStringRenderer",formStringRenderer);
+          List<GenericValue> webAnalytics=EntityQuery.use(delegator).from("WebAnalyticsConfig").where("webSiteId",webSiteId).queryList();
+          if (UtilValidate.isNotEmpty(webAnalytics) && hasErrorPage) {
+            ContentWorker.renderContentAsText(dispatcher,delegator,contentId,writer,templateMap,locale,"text/html",null,null,true,webAnalytics);
+          }
+ else           if (UtilValidate.isEmpty(mapKey)) {
+            ContentWorker.renderContentAsText(dispatcher,delegator,contentId,writer,templateMap,locale,"text/html",null,null,true);
+          }
+ else {
+            ContentWorker.renderSubContentAsText(dispatcher,delegator,contentId,writer,mapKey,templateMap,locale,"text/html",true);
+          }
+        }
+ catch (        TemplateException e) {
+          throw new GeneralRuntimeException(String.format("Error creating form renderer while rendering content [%s] with path alias [%s]",contentId,pathInfo),e);
+        }
+catch (        IOException e) {
+          throw new GeneralRuntimeException(String.format("Error in the response writer/output stream while rendering content [%s] with path alias [%s]",contentId,pathInfo),e);
+        }
+catch (        GeneralException e) {
+          throw new GeneralRuntimeException(String.format("Error rendering content [%s] with path alias [%s]",contentId,pathInfo),e);
+        }
+        return "success";
+      }
+ else {
+        String contentName=null;
+        String siteName=null;
+        try {
+          GenericValue content=EntityQuery.use(delegator).from("Content").where("contentId",contentId).cache().queryOne();
+          if (content != null && UtilValidate.isNotEmpty(content)) {
+            contentName=content.getString("contentName");
+          }
+ else {
+            request.setAttribute("_ERROR_MESSAGE_","Content: " + contentName + " ["+ contentId+ "] is not a publish point for the current website: ["+ webSiteId+ "]");
+            return "error";
+          }
+          siteName=EntityQuery.use(delegator).from("WebSite").where("webSiteId",webSiteId).cache().queryOne().getString("siteName");
+        }
  catch (        GenericEntityException e) {
           Debug.logError(e,module);
         }
+        request.setAttribute("_ERROR_MESSAGE_","Content: " + contentName + " ["+ contentId+ "] is not a publish point for the current website: "+ siteName+ " ["+ webSiteId+ "]");
+        return "error";
       }
-    }
-    if (statusCode == HttpServletResponse.SC_OK || hasErrorPage) {
-      MapStack<String> templateMap=MapStack.create();
-      ScreenRenderer.populateContextForRequest(templateMap,null,request,response,servletContext);
-      templateMap.put("statusCode",statusCode);
-      ServletContext ctx=(ServletContext)request.getAttribute("servletContext");
-      RequestHandler rh=(RequestHandler)ctx.getAttribute("_REQUEST_HANDLER_");
-      templateMap.put("_REQUEST_HANDLER_",rh);
-      response.setStatus(statusCode);
-      try {
-        Writer writer=response.getWriter();
-        FormStringRenderer formStringRenderer=new MacroFormRenderer(EntityUtilProperties.getPropertyValue("widget","screen.formrenderer",delegator),request,response);
-        templateMap.put("formStringRenderer",formStringRenderer);
-        List<GenericValue> webAnalytics=EntityQuery.use(delegator).from("WebAnalyticsConfig").where("webSiteId",webSiteId).queryList();
-        if (UtilValidate.isNotEmpty(webAnalytics) && hasErrorPage) {
-          ContentWorker.renderContentAsText(dispatcher,delegator,contentId,writer,templateMap,locale,"text/html",null,null,true,webAnalytics);
-        }
- else         if (UtilValidate.isEmpty(mapKey)) {
-          ContentWorker.renderContentAsText(dispatcher,delegator,contentId,writer,templateMap,locale,"text/html",null,null,true);
-        }
- else {
-          ContentWorker.renderSubContentAsText(dispatcher,delegator,contentId,writer,mapKey,templateMap,locale,"text/html",true);
-        }
-      }
- catch (      TemplateException e) {
-        throw new GeneralRuntimeException(String.format("Error creating form renderer while rendering content [%s] with path alias [%s]",contentId,pathInfo),e);
-      }
-catch (      IOException e) {
-        throw new GeneralRuntimeException(String.format("Error in the response writer/output stream while rendering content [%s] with path alias [%s]",contentId,pathInfo),e);
-      }
-catch (      GeneralException e) {
-        throw new GeneralRuntimeException(String.format("Error rendering content [%s] with path alias [%s]",contentId,pathInfo),e);
-      }
-      return "success";
-    }
- else {
-      String contentName=null;
-      String siteName=null;
-      try {
-        GenericValue content=EntityQuery.use(delegator).from("Content").where("contentId",contentId).cache().queryOne();
-        if (content != null && UtilValidate.isNotEmpty(content)) {
-          contentName=content.getString("contentName");
-        }
- else {
-          request.setAttribute("_ERROR_MESSAGE_","Content: " + contentName + " ["+ contentId+ "] is not a publish point for the current website: ["+ webSiteId+ "]");
-          return "error";
-        }
-        siteName=EntityQuery.use(delegator).from("WebSite").where("webSiteId",webSiteId).cache().queryOne().getString("siteName");
-      }
- catch (      GenericEntityException e) {
-        Debug.logError(e,module);
-      }
-      request.setAttribute("_ERROR_MESSAGE_","Content: " + contentName + " ["+ contentId+ "] is not a publish point for the current website: "+ siteName+ " ["+ webSiteId+ "]");
-      return "error";
     }
   }
   String siteName=null;
