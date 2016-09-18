@@ -18,46 +18,6 @@
     throw new ServletException(e);
   }
   Set<String> uris=requestMaps.keySet();
-  httpRequest.setAttribute("servletContext",config.getServletContext());
-  if (UtilValidate.isEmpty(httpRequest.getSession().getAttribute("webSiteId"))) {
-    httpRequest.getSession().setAttribute("webSiteId",WebSiteWorker.getWebSiteId(httpRequest));
-  }
-  httpRequest.setAttribute("_CONTEXT_ROOT_",config.getServletContext().getRealPath("/"));
-  String serverRootUrl=UtilHttp.getServerRootUrl(httpRequest);
-  httpRequest.setAttribute("_SERVER_ROOT_URL_",serverRootUrl);
-  String reqAttrMapHex=(String)httpRequest.getSession().getAttribute("_REQ_ATTR_MAP_");
-  if (UtilValidate.isNotEmpty(reqAttrMapHex)) {
-    byte[] reqAttrMapBytes=StringUtil.fromHexString(reqAttrMapHex);
-    Map<String,Object> reqAttrMap=checkMap(UtilObject.getObject(reqAttrMapBytes),String.class,Object.class);
-    if (reqAttrMap != null) {
-      for (      Map.Entry<String,Object> entry : reqAttrMap.entrySet()) {
-        httpRequest.setAttribute(entry.getKey(),entry.getValue());
-      }
-    }
-    httpRequest.getSession().removeAttribute("_REQ_ATTR_MAP_");
-  }
-  String disableSecurity=config.getInitParameter("disableContextSecurity");
-  if (disableSecurity != null && "Y".equalsIgnoreCase(disableSecurity)) {
-    chain.doFilter(httpRequest,httpResponse);
-    return;
-  }
-  String redirectAllTo=config.getInitParameter("forceRedirectAll");
-  if (UtilValidate.isNotEmpty(redirectAllTo)) {
-    if (httpRequest.getSession().getAttribute("_FORCE_REDIRECT_") == null) {
-      httpRequest.getSession().setAttribute("_FORCE_REDIRECT_","true");
-      Debug.logWarning("Redirecting user to: " + redirectAllTo,module);
-      if (!redirectAllTo.toLowerCase().startsWith("http")) {
-        redirectAllTo=httpRequest.getContextPath() + redirectAllTo;
-      }
-      httpResponse.sendRedirect(redirectAllTo);
-      return;
-    }
- else {
-      httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
-      chain.doFilter(httpRequest,httpResponse);
-      return;
-    }
-  }
   String requestPath=null;
   String contextUri=null;
   if (httpRequest.getAttribute(ControlFilter.FORWARDED_FROM_SERVLET) == null) {
@@ -97,18 +57,6 @@
       viewName=pathItemList.get(0);
     }
     String requestUri=UtilHttp.getRequestUriFromTarget(httpRequest.getRequestURI());
-    if (Debug.verboseOn()) {
-      for (      String allow : allowList) {
-        Debug.logVerbose("[Allow]: " + allow,module);
-      }
-      Debug.logVerbose("[View Name]: " + viewName,module);
-      Debug.logVerbose("[Request Uri]: " + requestUri,module);
-      Debug.logVerbose("[Request path]: " + requestPath,module);
-      Debug.logVerbose("[Request info]: " + requestInfo,module);
-      Debug.logVerbose("[Servlet path]: " + httpRequest.getServletPath(),module);
-      Debug.logVerbose("[Not In AllowList]: " + (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())&& !allowList.contains(requestUri)&& !allowList.contains("/" + viewName)),module);
-      Debug.logVerbose("[Not In controller]: " + (UtilValidate.isEmpty(requestPath) && UtilValidate.isEmpty(httpRequest.getServletPath()) && !uris.contains(viewName)),module);
-    }
     if (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath())&& !allowList.contains(requestUri)&& !allowList.contains("/" + viewName)&& (UtilValidate.isEmpty(requestPath) && UtilValidate.isEmpty(httpRequest.getServletPath()) && !uris.contains(viewName))) {
       String filterMessage="[Filtered request]: " + contextUri;
       if (redirectPath == null) {
@@ -150,40 +98,6 @@
     }
  else     if ((allowList.contains(requestPath) || allowList.contains(requestInfo) || allowList.contains(httpRequest.getServletPath())|| allowList.contains(requestUri)|| allowList.contains("/" + viewName)) && !WebServlets.contains(httpRequest.getServletPath())) {
       request.setAttribute(SeoControlServlet.REQUEST_IN_ALLOW_LIST,Boolean.TRUE);
-    }
-  }
-  boolean useMultitenant=EntityUtil.isMultiTenantEnabled();
-  if (useMultitenant) {
-    String serverName=httpRequest.getServerName();
-    try {
-      Delegator delegator=WebAppUtil.getDelegator(config.getServletContext());
-      Delegator defaultdelegator=DelegatorFactory.getDelegator("default");
-      String tenantId=delegator.getDelegatorTenantId();
-      List<GenericValue> tenants=defaultdelegator.findList("Tenant",EntityCondition.makeCondition("tenantId",tenantId),null,UtilMisc.toList("-createdStamp"),null,false);
-      if (UtilValidate.isNotEmpty(tenants)) {
-        GenericValue tenant=EntityUtil.getFirst(tenants);
-        if (UtilValidate.isNotEmpty(requestPath) && requestPath.equals(contextUri)) {
-          String initialPath=tenant.getString("initialPath");
-          if (UtilValidate.isNotEmpty(initialPath) && !"/".equals(initialPath)) {
-            ((HttpServletResponse)response).sendRedirect(initialPath);
-            return;
-          }
-        }
-        String tenantDelegatorName=delegator.getDelegatorBaseName() + "#" + tenantId;
-        httpRequest.getSession().setAttribute("delegatorName",tenantDelegatorName);
-        delegator=DelegatorFactory.getDelegator(tenantDelegatorName);
-        config.getServletContext().setAttribute("delegator",delegator);
-        config.getServletContext().setAttribute("security",null);
-        config.getServletContext().setAttribute("dispatcher",null);
-        Security security=WebAppUtil.getSecurity(config.getServletContext());
-        LocalDispatcher dispatcher=WebAppUtil.getDispatcher(config.getServletContext());
-        request.setAttribute("dispatcher",dispatcher);
-        request.setAttribute("security",security);
-        request.setAttribute("userTenantId",tenantId);
-      }
-    }
- catch (    GenericEntityException e) {
-      Debug.logWarning(e,"Unable to get Tenant",module);
     }
   }
   chain.doFilter(httpRequest,httpResponse);

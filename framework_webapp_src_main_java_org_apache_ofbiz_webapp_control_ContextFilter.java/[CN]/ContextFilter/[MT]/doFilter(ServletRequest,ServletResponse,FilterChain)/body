@@ -18,109 +18,16 @@
     }
     httpRequest.getSession().removeAttribute("_REQ_ATTR_MAP_");
   }
-  String disableSecurity=config.getInitParameter("disableContextSecurity");
-  if (disableSecurity != null && "Y".equalsIgnoreCase(disableSecurity)) {
-    chain.doFilter(httpRequest,httpResponse);
-    return;
-  }
-  String redirectAllTo=config.getInitParameter("forceRedirectAll");
-  if (UtilValidate.isNotEmpty(redirectAllTo)) {
-    if (httpRequest.getSession().getAttribute("_FORCE_REDIRECT_") == null) {
-      httpRequest.getSession().setAttribute("_FORCE_REDIRECT_","true");
-      Debug.logWarning("Redirecting user to: " + redirectAllTo,module);
-      if (!redirectAllTo.toLowerCase().startsWith("http")) {
-        redirectAllTo=httpRequest.getContextPath() + redirectAllTo;
-      }
-      httpResponse.sendRedirect(redirectAllTo);
-      return;
-    }
- else {
-      httpRequest.getSession().removeAttribute("_FORCE_REDIRECT_");
-      chain.doFilter(httpRequest,httpResponse);
-      return;
-    }
-  }
-  String requestPath=null;
-  String contextUri=null;
-  if (httpRequest.getAttribute(ContextFilter.FORWARDED_FROM_SERVLET) == null) {
-    String allowedPath=config.getInitParameter("allowedPaths");
-    String redirectPath=config.getInitParameter("redirectPath");
-    String errorCode=config.getInitParameter("errorCode");
-    List<String> allowList=null;
-    if ((allowList=StringUtil.split(allowedPath,":")) != null) {
-      allowList.add("/");
-      allowList.add("");
-    }
-    if (debug)     Debug.logInfo("[Domain]: " + httpRequest.getServerName() + " [Request]: "+ httpRequest.getRequestURI(),module);
-    requestPath=httpRequest.getServletPath();
-    if (requestPath == null)     requestPath="";
-    if (requestPath.lastIndexOf("/") > 0) {
-      if (requestPath.indexOf("/") == 0) {
-        requestPath="/" + requestPath.substring(1,requestPath.indexOf("/",1));
-      }
- else {
-        requestPath=requestPath.substring(1,requestPath.indexOf("/"));
-      }
-    }
-    String requestInfo=httpRequest.getServletPath();
-    if (requestInfo == null)     requestInfo="";
-    if (requestInfo.lastIndexOf("/") >= 0) {
-      requestInfo=requestInfo.substring(0,requestInfo.lastIndexOf("/")) + "/*";
-    }
-    StringBuilder contextUriBuffer=new StringBuilder();
-    if (httpRequest.getContextPath() != null) {
-      contextUriBuffer.append(httpRequest.getContextPath());
-    }
-    if (httpRequest.getServletPath() != null) {
-      contextUriBuffer.append(httpRequest.getServletPath());
-    }
-    if (httpRequest.getPathInfo() != null) {
-      contextUriBuffer.append(httpRequest.getPathInfo());
-    }
-    contextUri=contextUriBuffer.toString();
-    if (Debug.verboseOn()) {
-      if (allowList != null) {
-        for (        String allow : allowList) {
-          Debug.logVerbose("[Allow]: " + allow,module);
-        }
-      }
-      Debug.logVerbose("[Request path]: " + requestPath,module);
-      Debug.logVerbose("[Request info]: " + requestInfo,module);
-      Debug.logVerbose("[Servlet path]: " + httpRequest.getServletPath(),module);
-    }
-    if (allowList != null && (!allowList.contains(requestPath) && !allowList.contains(requestInfo) && !allowList.contains(httpRequest.getServletPath()))) {
-      String filterMessage="[Filtered request]: " + contextUri;
-      if (redirectPath == null) {
-        int error=404;
-        if (UtilValidate.isNotEmpty(errorCode)) {
-          try {
-            error=Integer.parseInt(errorCode);
-          }
- catch (          NumberFormatException nfe) {
-            Debug.logWarning(nfe,"Error code specified would not parse to Integer : " + errorCode,module);
-          }
-        }
-        filterMessage=filterMessage + " (" + error+ ")";
-        httpResponse.sendError(error,contextUri);
-        request.setAttribute("filterRequestUriError",contextUri);
-      }
- else {
-        filterMessage=filterMessage + " (" + redirectPath+ ")";
-        if (!redirectPath.toLowerCase().startsWith("http")) {
-          redirectPath=httpRequest.getContextPath() + redirectPath;
-        }
-        httpResponse.sendRedirect(redirectPath);
-      }
-      Debug.logWarning(filterMessage,module);
-      return;
-    }
-  }
   if (request.getCharacterEncoding() == null) {
     request.setCharacterEncoding(defaultCharacterEncoding);
   }
   WebAppUtil.setAttributesFromRequestBody(request);
-  boolean useMultitenant=EntityUtil.isMultiTenantEnabled();
-  if (useMultitenant) {
+  if (!isMultitenant) {
+    request.setAttribute("delegator",config.getServletContext().getAttribute("delegator"));
+    request.setAttribute("dispatcher",config.getServletContext().getAttribute("dispatcher"));
+    request.setAttribute("security",config.getServletContext().getAttribute("security"));
+  }
+ else {
     String serverName=httpRequest.getServerName();
     try {
       Delegator delegator=WebAppUtil.getDelegator(config.getServletContext());
@@ -134,10 +41,10 @@
         tenantId=(String)httpRequest.getAttribute("userTenantId");
       }
       if (UtilValidate.isEmpty(tenantId)) {
-        tenantId=(String)httpRequest.getParameter("userTenantId");
+        tenantId=httpRequest.getParameter("userTenantId");
       }
       if (UtilValidate.isNotEmpty(tenantId)) {
-        if (UtilValidate.isNotEmpty(requestPath) && requestPath.equals(contextUri)) {
+        if ("".equals(httpRequest.getContextPath()) && "".equals(httpRequest.getServletPath())) {
           GenericValue tenant=EntityQuery.use(baseDelegator).from("Tenant").where("tenantId",tenantId).queryOne();
           String initialPath=tenant.getString("initialPath");
           if (UtilValidate.isNotEmpty(initialPath) && !"/".equals(initialPath)) {
@@ -153,6 +60,7 @@
         config.getServletContext().setAttribute("dispatcher",null);
         Security security=WebAppUtil.getSecurity(config.getServletContext());
         LocalDispatcher dispatcher=WebAppUtil.getDispatcher(config.getServletContext());
+        request.setAttribute("delegator",delegator);
         request.setAttribute("dispatcher",dispatcher);
         request.setAttribute("security",security);
         request.setAttribute("userTenantId",tenantId);
