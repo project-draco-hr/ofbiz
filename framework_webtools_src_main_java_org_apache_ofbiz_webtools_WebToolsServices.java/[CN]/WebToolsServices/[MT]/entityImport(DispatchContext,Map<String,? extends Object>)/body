@@ -29,23 +29,16 @@ catch (    Exception exc) {
     }
   }
   if (UtilValidate.isNotEmpty(fmfilename) && (UtilValidate.isNotEmpty(fulltext) || url != null)) {
-    FileReader templateReader=null;
-    try {
-      templateReader=new FileReader(fmfilename);
+    File fmFile=new File(fmfilename);
+    if (!fmFile.exists()) {
+      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"WebtoolsErrorReadingTemplateFile",UtilMisc.toMap("filename",fmfilename,"errorString","Template file not found."),locale));
     }
- catch (    FileNotFoundException e) {
-      return ServiceUtil.returnError(UtilProperties.getMessage(resource,"WebtoolsErrorReadingTemplateFile",UtilMisc.toMap("filename",fmfilename,"errorString",e.getMessage()),locale));
-    }
-    StringWriter outWriter=new StringWriter();
-    Template template=null;
     try {
-      Configuration conf=org.apache.ofbiz.base.util.template.FreeMarkerWorker.getDefaultOfbizConfig();
-      template=new Template("FMImportFilter",templateReader,conf);
-      Map<String,Object> fmcontext=new HashMap<String,Object>();
+      DocumentBuilder documentBuilder=DocumentBuilderFactory.newInstance().newDocumentBuilder();
       InputSource ins=url != null ? new InputSource(url.openStream()) : new InputSource(new StringReader(fulltext));
-      NodeModel nodeModel;
+      Document doc;
       try {
-        nodeModel=NodeModel.parse(ins);
+        doc=documentBuilder.parse(ins);
       }
   finally {
         if (ins.getByteStream() != null) {
@@ -55,10 +48,10 @@ catch (    Exception exc) {
           ins.getCharacterStream().close();
         }
       }
-      fmcontext.put("doc",nodeModel);
-      TemplateHashModel staticModels=FreeMarkerWorker.getDefaultOfbizWrapper().getStaticModels();
-      fmcontext.put("Static",staticModels);
-      template.process(fmcontext,outWriter);
+      StringWriter outWriter=new StringWriter();
+      Map<String,Object> fmcontext=new HashMap<>();
+      fmcontext.put("doc",doc);
+      FreeMarkerWorker.renderTemplate(fmFile.toURI().toURL().toString(),fmcontext,outWriter);
       fulltext=outWriter.toString();
     }
  catch (    Exception ex) {
